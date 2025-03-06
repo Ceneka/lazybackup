@@ -20,10 +20,10 @@ const serverSchema = z.object({
 // GET /api/servers/:id - Get a single server
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id } = params;
+    const { id } = await params;
     
     // Get the server
     const server = await db.query.servers.findFirst({
@@ -50,10 +50,10 @@ export async function GET(
 // PUT /api/servers/:id - Update a server
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id } = params;
+    const { id } = await params;
     const body = await request.json();
     
     // Validate the request body
@@ -130,10 +130,10 @@ export async function PUT(
 // DELETE /api/servers/:id - Delete a server
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id } = params;
+    const { id } = await params;
     
     // Check if server exists
     const existingServer = await db.query.servers.findFirst({
