@@ -1,5 +1,6 @@
 import { db } from '@/lib/db';
 import { backupConfigs } from '@/lib/db/schema';
+import { buildRsyncCommand } from '@/lib/ssh/rsync';
 import dayjs from 'dayjs';
 import { eq } from 'drizzle-orm';
 import * as fs from 'fs/promises';
@@ -91,29 +92,14 @@ export async function executeBackup(config: BackupConfigWithServer, historyId: s
       await fs.mkdir(backupDestination, { recursive: true });
     }
     
-    // Build the rsync command to pull data FROM the server TO the local machine
-    let rsyncCommand = `rsync -avz --stats`;
-    
-    // Add exclude patterns
-    if (excludePatterns.length > 0) {
-      excludePatterns.forEach(pattern => {
-        rsyncCommand += ` --exclude="${pattern}"`;
-      });
-    }
-    
     // Use username@host:path format for the source
     let remotePath = config.sourcePath;
     
-    // Expand tilde in source path if it exists
-    if (remotePath.startsWith('~')) {
-      // We keep the tilde for the remote path as it will be expanded on the server
-      // No modification needed here
-    }
+    // Keep the tilde for the remote path as it will be expanded on the server
+    const remoteSource = `${config.server.username}@${config.server.host}:${remotePath}/`;
     
-    const remoteSource = `${config.server.username}@${config.server.host}:${remotePath}`;
-    
-    // Add source (remote server) and destination (local machine)
-    rsyncCommand += ` "${remoteSource}/" "${backupDestination}"`;
+    // Build the rsync command to pull data FROM the server TO the local machine using the utility
+    const rsyncCommand = buildRsyncCommand(remoteSource, backupDestination, excludePatterns);
     
     console.log(`Executing rsync command: ${rsyncCommand}`);
     
@@ -129,7 +115,12 @@ export async function executeBackup(config: BackupConfigWithServer, historyId: s
     
     // Clean up old versions if versioning is enabled
     if (config.enableVersioning && config.versionsToKeep) {
-      await cleanupOldVersions(config.destinationPath, config.versionsToKeep);
+      // Extract the base directory from backupDestination when versioning is enabled
+      const baseDir = config.enableVersioning 
+        ? path.dirname(backupDestination) 
+        : config.destinationPath;
+      
+      await cleanupOldVersions(baseDir, config.versionsToKeep);
     }
     
     // Update backup history with success
@@ -194,8 +185,20 @@ function parseTransferredSize(output: string): number {
 // Function to clean up old versions
 async function cleanupOldVersions(baseDir: string, versionsToKeep: number): Promise<void> {
   try {
+    // Expand tilde in base directory path if it exists
+    let expandedBaseDir = baseDir;
+    if (expandedBaseDir.startsWith('~')) {
+      expandedBaseDir = expandedBaseDir.replace('~', process.env.HOME || os.homedir());
+    }
+    
+    // Ensure the directory exists before attempting to read it
+    if (!await fs.access(expandedBaseDir).then(() => true).catch(() => false)) {
+      console.log(`Directory does not exist, skipping cleanup: ${expandedBaseDir}`);
+      return;
+    }
+    
     // Read all directories in the base directory
-    const entries = await fs.readdir(baseDir, { withFileTypes: true });
+    const entries = await fs.readdir(expandedBaseDir, { withFileTypes: true });
     
     // Filter for directories and sort by name (timestamp) in descending order
     const versionDirs = entries
@@ -212,7 +215,7 @@ async function cleanupOldVersions(baseDir: string, versionsToKeep: number): Prom
       // Delete each directory
       for (const dir of dirsToDelete) {
         console.log(`Deleting old backup version: ${dir}`);
-        await fs.rm(`${baseDir}/${dir}`, { recursive: true, force: true });
+        await fs.rm(`${expandedBaseDir}/${dir}`, { recursive: true, force: true });
       }
     }
   } catch (error) {

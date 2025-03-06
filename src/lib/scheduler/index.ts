@@ -3,7 +3,6 @@ import { eq } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { db } from '../db';
 import { backupConfigs, backupHistory } from '../db/schema';
-import { connectToServer, executeRsyncCommand } from '../ssh';
 
 // Map to store active cron jobs
 const activeJobs = new Map<string, CronJob>();
@@ -64,48 +63,11 @@ export async function runBackup(config: any) {
   });
   
   try {
-    // Validate required paths
-    if (!config.sourcePath) {
-      throw new Error('Source path is not configured');
-    }
+    // Import the executeBackup function from the backup module
+    const { executeBackup } = await import('../backup');
     
-    if (!config.destinationPath) {
-      throw new Error('Destination path is not configured');
-    }
-    
-    // Connect to the server
-    const ssh = await connectToServer(config.server);
-    
-    // Parse exclude patterns
-    const excludePatterns = config.excludePatterns 
-      ? JSON.parse(config.excludePatterns) 
-      : [];
-    
-    // Execute the rsync command
-    const result = await executeRsyncCommand(
-      ssh,
-      config.sourcePath,
-      config.destinationPath,
-      excludePatterns
-    );
-    
-    // Parse rsync output to get statistics
-    const stats = parseRsyncStats(result.stdout);
-    
-    // Update the backup history record
-    await db.update(backupHistory)
-      .set({
-        endTime: new Date(),
-        status: 'success',
-        fileCount: stats.fileCount,
-        totalSize: stats.totalSize,
-        transferredSize: stats.transferredSize,
-        logOutput: result.stdout,
-      })
-      .where(eq(backupHistory.id, historyId));
-    
-    // Close the SSH connection
-    ssh.dispose();
+    // Execute the backup using the unified implementation
+    await executeBackup(config, historyId);
     
     console.log(`Backup completed successfully for ${config.name}`);
   } catch (error) {
@@ -120,17 +82,4 @@ export async function runBackup(config: any) {
       })
       .where(eq(backupHistory.id, historyId));
   }
-}
-
-// Parse rsync statistics from output
-function parseRsyncStats(output: string): { fileCount: number; totalSize: number; transferredSize: number } {
-  const fileCountMatch = output.match(/Number of files: (\d+)/);
-  const totalSizeMatch = output.match(/Total file size: (\d+)/);
-  const transferredSizeMatch = output.match(/Total transferred file size: (\d+)/);
-  
-  return {
-    fileCount: fileCountMatch ? parseInt(fileCountMatch[1], 10) : 0,
-    totalSize: totalSizeMatch ? parseInt(totalSizeMatch[1], 10) : 0,
-    transferredSize: transferredSizeMatch ? parseInt(transferredSizeMatch[1], 10) : 0,
-  };
 } 

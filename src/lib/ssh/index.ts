@@ -3,6 +3,7 @@ import { promises as fs } from 'fs';
 import { NodeSSH } from 'node-ssh';
 import { db } from '../db';
 import { servers, sshKeys } from '../db/schema';
+import { buildRsyncCommand } from './rsync';
 
 export type Server = typeof servers.$inferSelect;
 export type SSHKey = typeof sshKeys.$inferSelect;
@@ -94,27 +95,8 @@ export async function executeRsyncCommand(
   destinationPath: string,
   excludePatterns: string[] = []
 ): Promise<{ stdout: string; stderr: string }> {
-  // Validate paths
-  if (!sourcePath) {
-    throw new Error('Source path is required');
-  }
-  
-  if (!destinationPath) {
-    throw new Error('Destination path is required');
-  }
-  
-  // Build the rsync command
-  let rsyncCommand = `rsync -avz --stats`;
-  
-  // Add exclude patterns
-  if (excludePatterns.length > 0) {
-    excludePatterns.forEach(pattern => {
-      rsyncCommand += ` --exclude="${pattern}"`;
-    });
-  }
-  
-  // Add source and destination
-  rsyncCommand += ` ${sourcePath} ${destinationPath}`;
+  // Build the rsync command using the utility function
+  const rsyncCommand = buildRsyncCommand(sourcePath, destinationPath, excludePatterns);
   
   // Execute the command
   return ssh.execCommand(rsyncCommand);

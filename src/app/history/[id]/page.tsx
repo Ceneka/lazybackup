@@ -1,42 +1,42 @@
 "use client"
 
 import {
-    Accordion,
-    AccordionContent,
-    AccordionItem,
-    AccordionTrigger,
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
 } from "@/components/ui/accordion"
 import {
-    AlertDialog,
-    AlertDialogAction,
-    AlertDialogCancel,
-    AlertDialogContent,
-    AlertDialogDescription,
-    AlertDialogFooter,
-    AlertDialogHeader,
-    AlertDialogTitle,
-    AlertDialogTrigger,
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
-    Card,
-    CardContent,
-    CardDescription,
-    CardHeader,
-    CardTitle
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle
 } from "@/components/ui/card"
 import { useDeleteHistory, useHistoryDetail } from "@/lib/hooks/useHistory"
 import { formatBytes } from "@/lib/utils"
 import { format, formatDistance } from "date-fns"
 import {
-    ArrowLeftIcon,
-    ClockIcon,
-    FileIcon,
-    HardDriveIcon,
-    Loader2Icon,
-    ServerIcon,
-    TrashIcon
+  ArrowLeftIcon,
+  ClockIcon,
+  FileIcon,
+  HardDriveIcon,
+  Loader2Icon,
+  ServerIcon,
+  TrashIcon
 } from "lucide-react"
 import { useParams, useRouter } from "next/navigation"
 
