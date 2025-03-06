@@ -25,7 +25,7 @@ interface Backup {
 }
 
 // Formatter for cron expressions
-export const formatCronExpression = (cronExpression: string) => {
+const formatCronExpression = (cronExpression: string) => {
   // This is a very simplified formatter - you might want to use a library like cron-parser
   const parts = cronExpression.split(' ')
   if (parts.length !== 5) return cronExpression

@@ -115,10 +115,49 @@ export default function Dashboard() {
               </div>
             }
           >
-            <div className="text-muted-foreground text-center py-6">
-              <HistoryIcon className="h-8 w-8 mx-auto mb-2 opacity-50" />
-              <p>Activity history will appear here</p>
-            </div>
+            {query.data?.recentHistory && query.data.recentHistory.length > 0 ? (
+              <div className="space-y-3">
+                {query.data.recentHistory.map((item: any) => (
+                  <Link 
+                    href={`/history/${item.id}`}
+                    key={item.id} 
+                    className="block p-3 rounded-md hover:bg-accent transition-colors"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-2">
+                        <div className={`h-2 w-2 rounded-full ${
+                          item.status === 'running' ? 'bg-blue-500' : 
+                          item.status === 'success' ? 'bg-green-500' : 
+                          'bg-red-500'
+                        }`} />
+                        <span>{item.backupConfig?.name || 'Unnamed Backup'}</span>
+                      </div>
+                      <span className="text-sm text-muted-foreground">
+                        {new Date(item.startTime).toLocaleString()}
+                      </span>
+                    </div>
+                    {item.status === 'failed' && item.errorMessage && (
+                      <p className="text-sm text-red-500 mt-1 pl-4">
+                        Error: {item.errorMessage}
+                      </p>
+                    )}
+                  </Link>
+                ))}
+                <div className="text-center mt-4">
+                  <Link 
+                    href="/history" 
+                    className="text-sm text-blue-500 hover:underline"
+                  >
+                    View all activity
+                  </Link>
+                </div>
+              </div>
+            ) : (
+              <div className="text-muted-foreground text-center py-6">
+                <HistoryIcon className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                <p>No recent backup activity found</p>
+              </div>
+            )}
           </QueryState>
         </div>
       </div>

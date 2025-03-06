@@ -7,6 +7,7 @@ export interface Stats {
   running: number
   failed: number
   success: number
+  recentHistory?: any[]
 }
 
 export function useStats() {
@@ -41,6 +42,7 @@ export function useStats() {
           running,
           failed,
           success,
+          recentHistory: history.slice(0, 5)
         } as Stats
       } catch (error) {
         console.error('Failed to fetch stats:', error)
