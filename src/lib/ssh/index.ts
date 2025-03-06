@@ -120,14 +120,17 @@ export async function executeRsyncCommand(
   return ssh.execCommand(rsyncCommand);
 }
 
-export async function testConnection(server: Server): Promise<boolean> {
+export async function testConnection(server: Server): Promise<{ success: boolean; message?: string }> {
   try {
     const ssh = await connectToServer(server);
     const result = await ssh.execCommand('echo "Connection successful"');
     ssh.dispose();
-    return true;
+    return { success: true, message: "Connection successful" };
   } catch (error) {
     console.error(`Connection test failed for server ${server.name}:`, error);
-    return false;
+    return { 
+      success: false, 
+      message: error instanceof Error ? error.message : 'Unknown error'
+    };
   }
 } 

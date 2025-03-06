@@ -1,7 +1,6 @@
 import { db } from '@/lib/db';
 import { backupConfigs } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
-import { NodeSSH } from 'node-ssh';
 import { createBackupHistoryEntry, updateBackupHistoryFailure, updateBackupHistorySuccess } from './history';
 
 // Type for backup config with server
@@ -23,6 +22,8 @@ type BackupConfigWithServer = {
     authType: 'password' | 'key';
     password?: string | null;
     privateKey?: string | null;
+    sshKeyId?: string | null;
+    systemKeyPath?: string | null;
     createdAt: Date;
     updatedAt: Date;
   };
@@ -35,27 +36,20 @@ export async function executeBackup(config: BackupConfigWithServer, historyId: s
   try {
     console.log(`Starting backup: ${config.name} (${historyId})`);
     
-    // Connect to the server
-    const ssh = new NodeSSH();
+    // Import the SSH utilities to use the connectToServer function
+    const { connectToServer } = await import('@/lib/ssh');
     
-    // Connect based on auth type
-    if (config.server.authType === 'password' && config.server.password) {
-      await ssh.connect({
-        host: config.server.host,
-        port: config.server.port,
-        username: config.server.username,
-        password: config.server.password,
-      });
-    } else if (config.server.authType === 'key' && config.server.privateKey) {
-      await ssh.connect({
-        host: config.server.host,
-        port: config.server.port,
-        username: config.server.username,
-        privateKey: config.server.privateKey,
-      });
-    } else {
-      throw new Error('Invalid authentication configuration');
-    }
+    // Ensure server object has all required fields for the Server type
+    const serverConfig = {
+      ...config.server,
+      password: config.server.password || null,
+      privateKey: config.server.privateKey || null,
+      sshKeyId: config.server.sshKeyId || null,
+      systemKeyPath: config.server.systemKeyPath || null
+    };
+    
+    // Connect to the server using the comprehensive connection function
+    const ssh = await connectToServer(serverConfig);
     
     // Parse exclude patterns
     const excludePatterns = config.excludePatterns 
