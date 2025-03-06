@@ -1,9 +1,9 @@
 "use client"
 
-import { LoadingButton } from "@/components/ui/loading-button"
+import { DeleteConfirmationDialog } from "@/components/ui/delete-confirmation-dialog"
 import { QueryState } from "@/components/ui/query-state"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { ArrowLeftIcon, PencilIcon, ServerIcon, TrashIcon } from "lucide-react"
+import { ArrowLeftIcon, PencilIcon, ServerIcon } from "lucide-react"
 import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
 import { useState } from "react"
@@ -36,10 +36,6 @@ export default function ServerPage() {
   })
 
   const handleDelete = async () => {
-    if (!confirm("Are you sure you want to delete this server? This action cannot be undone.")) {
-      return
-    }
-
     setDeleting(true)
     try {
       const response = await fetch(`/api/servers/${serverId}`, {
@@ -142,15 +138,13 @@ export default function ServerPage() {
                   <ServerIcon className="h-5 w-5" />
                   <span>Test Connection</span>
                 </Link>
-                <LoadingButton
-                  onClick={handleDelete}
-                  isLoading={deleting}
-                  loadingText="Deleting..."
-                  className="cursor-pointer flex w-full items-center space-x-2 p-3 rounded-md bg-destructive/10 text-destructive-foreground hover:bg-destructive/20 transition-colors"
-                >
-                  <TrashIcon className="h-5 w-5 mr-2" />
-                  <span>Delete Server</span>
-                </LoadingButton>
+                <DeleteConfirmationDialog
+                  title="Are you absolutely sure?"
+                  description="This will permanently delete this server and all associated data. This action cannot be undone."
+                  onDelete={handleDelete}
+                  isDeleting={deleting}
+                  buttonText="Delete Server"
+                />
               </div>
             </div>
           </div>

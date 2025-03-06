@@ -42,7 +42,7 @@ export function Navbar() {
 
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <div className="container flex h-14 w-full items-center justify-between">
+      <div className="container flex h-14 w-[90%] items-center justify-between mx-auto">
         <div className="flex items-center">
           <Link href="/" className="flex items-center space-x-2">
             <ServerIcon className="h-6 w-6" />
@@ -85,7 +85,7 @@ export function Navbar() {
                   href={item.href}
                   onClick={() => setOpen(false)}
                   className={cn(
-                    "flex items-center py-2 transition-colors hover:text-foreground/80",
+                    "flex items-center p-2 transition-colors hover:text-foreground/80",
                     pathname === item.href
                       ? "text-foreground"
                       : "text-foreground/60"

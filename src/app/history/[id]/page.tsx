@@ -6,16 +6,6 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion"
-import {
-  AlertDialog,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger
-} from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -25,7 +15,7 @@ import {
   CardHeader,
   CardTitle
 } from "@/components/ui/card"
-import { LoadingButton } from "@/components/ui/loading-button"
+import { DeleteConfirmationDialog } from "@/components/ui/delete-confirmation-dialog"
 import { QueryState } from "@/components/ui/query-state"
 import { useDeleteHistory, useHistoryDetail } from "@/lib/hooks/useHistory"
 import { formatBytes } from "@/lib/utils"
@@ -36,8 +26,7 @@ import {
   FileIcon,
   HardDriveIcon,
   HistoryIcon,
-  ServerIcon,
-  TrashIcon
+  ServerIcon
 } from "lucide-react"
 import { useParams, useRouter } from "next/navigation"
 
@@ -218,34 +207,13 @@ export default function HistoryDetailPage() {
                     View Backup Configuration
                   </Button>
                   
-                  <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                      <Button variant="destructive" className="w-full">
-                        <TrashIcon className="w-4 h-4 mr-2" /> Delete History Entry
-                      </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-                        <AlertDialogDescription>
-                          This will permanently delete this backup history entry.
-                          This action cannot be undone.
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        <LoadingButton 
-                          variant="destructive"
-                          onClick={handleDelete}
-                          isLoading={isDeleting}
-                          loadingText="Deleting..."
-                          className="bg-red-500 hover:bg-red-600"
-                        >
-                          Delete
-                        </LoadingButton>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
+                  <DeleteConfirmationDialog
+                    title="Are you absolutely sure?"
+                    description="This will permanently delete this backup history entry. This action cannot be undone."
+                    onDelete={handleDelete}
+                    isDeleting={isDeleting}
+                    buttonText="Delete History Entry"
+                  />
                 </CardContent>
               </Card>
             </div>

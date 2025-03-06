@@ -1,9 +1,10 @@
 "use client"
 
+import { DeleteConfirmationDialog } from "@/components/ui/delete-confirmation-dialog"
 import { LoadingButton } from "@/components/ui/loading-button"
 import { QueryState } from "@/components/ui/query-state"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { ArrowLeftIcon, CalendarIcon, FolderIcon, PlayIcon, ServerIcon, TrashIcon } from "lucide-react"
+import { ArrowLeftIcon, CalendarIcon, FolderIcon, PlayIcon, ServerIcon } from "lucide-react"
 import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
 import { toast } from "sonner"
@@ -118,10 +119,6 @@ export default function BackupDetailPage() {
   })
 
   const handleDelete = async () => {
-    if (!confirm("Are you sure you want to delete this backup configuration? This action cannot be undone.")) {
-      return
-    }
-
     deleteMutation.mutate()
   }
 
@@ -249,15 +246,13 @@ export default function BackupDetailPage() {
                   <ServerIcon className="h-5 w-5" />
                   <span>View Server Details</span>
                 </Link>
-                <LoadingButton
-                  onClick={handleDelete}
-                  isLoading={deleteMutation.isPending}
-                  loadingText="Deleting..."
-                  className="cursor-pointer flex w-full items-center space-x-2 p-3 rounded-md bg-destructive/10 text-destructive-foreground hover:bg-destructive/20 transition-colors"
-                >
-                  <TrashIcon className="h-5 w-5 mr-2" />
-                  <span>Delete</span>
-                </LoadingButton>
+                <DeleteConfirmationDialog
+                  title="Are you absolutely sure?"
+                  description="This will permanently delete this backup configuration. This action cannot be undone."
+                  onDelete={handleDelete}
+                  isDeleting={deleteMutation.isPending}
+                  buttonText="Delete"
+                />
               </div>
             </div>
           </div>
