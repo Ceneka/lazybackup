@@ -1,15 +1,15 @@
 "use client"
 
-import { useState } from "react"
-import { useSettings } from "@/lib/hooks/useSettings"
-import { useSSHKeys } from "@/lib/hooks/useSSHKeys"
-import { SettingsIcon, KeyIcon, PlusIcon, TrashIcon, Loader2Icon } from "lucide-react"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
+import { useSettings } from "@/lib/hooks/useSettings"
+import { useSSHKeys } from "@/lib/hooks/useSSHKeys"
+import { KeyIcon, Loader2Icon, PlusIcon, SettingsIcon, TrashIcon } from "lucide-react"
+import { useState } from "react"
 import { toast } from "sonner"
 
 export default function SettingsPage() {

@@ -1,11 +1,11 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { useRouter } from "next/navigation"
+import { SSHKey, useSSHKeys } from "@/lib/hooks/useSSHKeys"
+import { ArrowLeftIcon, KeyIcon, Loader2Icon } from "lucide-react"
 import Link from "next/link"
-import { ServerIcon, ArrowLeftIcon, Loader2Icon, KeyIcon } from "lucide-react"
+import { useRouter } from "next/navigation"
+import { useEffect, useState } from "react"
 import { toast } from "sonner"
-import { useSSHKeys, SSHKey } from "@/lib/hooks/useSSHKeys"
 
 export default function NewServerPage() {
   const router = useRouter()

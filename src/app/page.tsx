@@ -1,8 +1,8 @@
 "use client"
 
 import { useStats } from "@/lib/hooks/useStats"
+import { FolderIcon, HistoryIcon, PlayIcon, PlusIcon, ServerIcon } from "lucide-react"
 import Link from "next/link"
-import { ServerIcon, FolderIcon, HistoryIcon, PlayIcon, PlusIcon, Loader2Icon } from "lucide-react"
 
 export default function Dashboard() {
   const { data: stats, isLoading: loading } = useStats()

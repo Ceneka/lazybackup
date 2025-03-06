@@ -1,45 +1,44 @@
 "use client"
 
-import { useParams, useRouter } from "next/navigation"
-import { 
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle
-} from "@/components/ui/card"
 import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
+    Accordion,
+    AccordionContent,
+    AccordionItem,
+    AccordionTrigger,
 } from "@/components/ui/accordion"
-import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
-import { 
-  ArrowLeftIcon, 
-  ClockIcon, 
-  FileIcon, 
-  HardDriveIcon, 
-  Loader2Icon, 
-  ServerIcon, 
-  TrashIcon 
-} from "lucide-react"
-import { formatDistance, format } from "date-fns"
-import { formatBytes } from "@/lib/utils"
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+    AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
-import { useHistoryDetail, useDeleteHistory } from "@/lib/hooks/useHistory"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import {
+    Card,
+    CardContent,
+    CardDescription,
+    CardHeader,
+    CardTitle
+} from "@/components/ui/card"
+import { useDeleteHistory, useHistoryDetail } from "@/lib/hooks/useHistory"
+import { formatBytes } from "@/lib/utils"
+import { format, formatDistance } from "date-fns"
+import {
+    ArrowLeftIcon,
+    ClockIcon,
+    FileIcon,
+    HardDriveIcon,
+    Loader2Icon,
+    ServerIcon,
+    TrashIcon
+} from "lucide-react"
+import { useParams, useRouter } from "next/navigation"
 
 export default function HistoryDetailPage() {
   const router = useRouter()

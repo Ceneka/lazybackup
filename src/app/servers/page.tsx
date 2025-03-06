@@ -1,9 +1,8 @@
 "use client"
 
 import { useServers } from "@/lib/hooks/useServers"
+import { Loader2Icon, PlusIcon, ServerIcon } from "lucide-react"
 import Link from "next/link"
-import { ServerIcon, PlusIcon, Loader2Icon } from "lucide-react"
-import { toast } from "sonner"
 
 export default function ServersPage() {
   const { data: servers, isLoading: loading, error: queryError } = useServers()

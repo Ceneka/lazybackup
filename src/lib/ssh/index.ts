@@ -1,8 +1,8 @@
-import { NodeSSH } from 'node-ssh';
-import { servers, sshKeys } from '../db/schema';
-import { db } from '../db';
 import { eq } from 'drizzle-orm';
 import { promises as fs } from 'fs';
+import { NodeSSH } from 'node-ssh';
+import { db } from '../db';
+import { servers, sshKeys } from '../db/schema';
 
 export type Server = typeof servers.$inferSelect;
 export type SSHKey = typeof sshKeys.$inferSelect;

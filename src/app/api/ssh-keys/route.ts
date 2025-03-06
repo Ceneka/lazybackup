@@ -1,12 +1,12 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { nanoid } from 'nanoid';
 import { db } from '@/lib/db';
 import { sshKeys } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
-import { z } from 'zod';
 import { promises as fs } from 'fs';
-import path from 'path';
+import { nanoid } from 'nanoid';
+import { NextRequest, NextResponse } from 'next/server';
 import os from 'os';
+import path from 'path';
+import { z } from 'zod';
 
 // Type definitions
 interface SystemSSHKey {
@@ -125,10 +125,10 @@ export async function POST(request: NextRequest) {
 // DELETE /api/ssh-keys/:id - Delete an SSH key
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const id = params.id;
+
     
     // Delete the SSH key
     await db.delete(sshKeys).where(eq(sshKeys.id, id));

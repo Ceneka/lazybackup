@@ -1,8 +1,8 @@
-import { NodeSSH } from 'node-ssh';
 import { db } from '@/lib/db';
-import { backupHistory, backupConfigs } from '@/lib/db/schema';
+import { backupConfigs } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
-import { updateBackupHistorySuccess, updateBackupHistoryFailure, createBackupHistoryEntry } from './history';
+import { NodeSSH } from 'node-ssh';
+import { createBackupHistoryEntry, updateBackupHistoryFailure, updateBackupHistorySuccess } from './history';
 
 // Type for backup config with server
 type BackupConfigWithServer = {

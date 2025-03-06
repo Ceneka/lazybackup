@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { backupHistory, backupConfigs } from '@/lib/db/schema';
-import { desc, eq, sql, and } from 'drizzle-orm';
+import { backupHistory } from '@/lib/db/schema';
+import { and, desc, eq, sql } from 'drizzle-orm';
+import { NextRequest, NextResponse } from 'next/server';
 
 // GET /api/history - Get backup history with related config information
 export async function GET(request: NextRequest) {

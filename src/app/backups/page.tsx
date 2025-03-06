@@ -1,9 +1,8 @@
 "use client"
 
 import { useBackups } from "@/lib/hooks/useBackups"
+import { CalendarIcon, FolderIcon, Loader2Icon, PlusIcon } from "lucide-react"
 import Link from "next/link"
-import { FolderIcon, PlusIcon, Loader2Icon, CalendarIcon } from "lucide-react"
-import { toast } from "sonner"
 
 export default function BackupsPage() {
   const { data: backups, isLoading: loading, error: queryError } = useBackups()

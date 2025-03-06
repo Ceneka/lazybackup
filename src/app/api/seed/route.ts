@@ -1,7 +1,7 @@
-import { NextResponse } from 'next/server';
-import { nanoid } from 'nanoid';
 import { db } from '@/lib/db';
 import { servers } from '@/lib/db/schema';
+import { nanoid } from 'nanoid';
+import { NextResponse } from 'next/server';
 
 // POST /api/seed - Add a test server to the database
 export async function POST() {

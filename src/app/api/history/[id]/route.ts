@@ -1,15 +1,15 @@
-import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { backupHistory } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
+import { NextRequest, NextResponse } from 'next/server';
 
 // GET /api/history/[id] - Get a specific backup history entry
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const id = params.id;
+    const { id } = await params;
     
     // Fetch the specific history entry with related data
     const historyEntry = await db.query.backupHistory.findFirst({
@@ -43,10 +43,10 @@ export async function GET(
 // PUT /api/history/[id] - Update a specific backup history entry
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const id = params.id;
+    const { id } = await params;
     const body = await request.json();
     
     // Update the history entry
@@ -76,10 +76,10 @@ export async function PUT(
 // DELETE /api/history/[id] - Delete a specific backup history entry
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const id = params.id;
+    const { id } = await params;
     
     // Delete the history entry
     const deletedHistoryEntry = await db

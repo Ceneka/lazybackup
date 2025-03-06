@@ -1,8 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { backupConfigs } from '@/lib/db/schema';
 import { scheduleBackup } from '@/lib/scheduler';
 import { eq } from 'drizzle-orm';
+import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 
 // Backup config validation schema
@@ -19,11 +19,11 @@ const backupConfigSchema = z.object({
 // GET /api/backups/:id - Get a backup configuration
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params;
+  
   try {
-    const id = params.id;
-    
     // Get the backup configuration
     const config = await db.query.backupConfigs.findFirst({
       where: eq(backupConfigs.id, id),
@@ -52,10 +52,11 @@ export async function GET(
 // PUT /api/backups/:id - Update a backup configuration
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params;
+  
   try {
-    const id = params.id;
     const body = await request.json();
     
     // Validate the request body
@@ -110,11 +111,11 @@ export async function PUT(
 // DELETE /api/backups/:id - Delete a backup configuration
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params;
+  
   try {
-    const id = params.id;
-    
     // Delete the backup configuration
     await db.delete(backupConfigs).where(eq(backupConfigs.id, id));
     

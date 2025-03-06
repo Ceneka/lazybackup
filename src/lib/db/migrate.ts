@@ -1,6 +1,4 @@
 import { db } from '@/lib/db';
-import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
-import { settings, sshKeys, servers } from './schema';
 import { sql } from 'drizzle-orm';
 
 // Run migration

@@ -1,9 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { sshKeys } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
+import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { promises as fs } from 'fs';
 
 // SSH key validation schema for updates
 const sshKeyUpdateSchema = z.object({
@@ -16,10 +15,10 @@ const sshKeyUpdateSchema = z.object({
 // GET /api/ssh-keys/:id - Get SSH key by ID
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const id = params.id;
+    const { id } = await params;
     
     // Get the SSH key
     const key = await db.query.sshKeys.findFirst({
@@ -46,10 +45,10 @@ export async function GET(
 // PUT /api/ssh-keys/:id - Update SSH key
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const id = params.id;
+    const { id } = await params;
     const body = await request.json();
     
     // Validate the request body
@@ -96,10 +95,10 @@ export async function PUT(
 // DELETE /api/ssh-keys/:id - Delete SSH key
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const id = params.id;
+    const { id } = await params;
     
     // Delete the SSH key
     await db.delete(sshKeys).where(eq(sshKeys.id, id));

@@ -1,9 +1,9 @@
 "use client"
 
+import { cn } from "@/lib/utils"
+import { FolderIcon, HistoryIcon, HomeIcon, ServerIcon, SettingsIcon } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { cn } from "@/lib/utils"
-import { ServerIcon, FolderIcon, HistoryIcon, HomeIcon, SettingsIcon } from "lucide-react"
 
 const navItems = [
   {

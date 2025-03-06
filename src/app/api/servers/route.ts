@@ -1,9 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { nanoid } from 'nanoid';
 import { db } from '@/lib/db';
 import { servers, sshKeys } from '@/lib/db/schema';
-import { testConnection } from '@/lib/ssh';
 import { eq } from 'drizzle-orm';
+import { nanoid } from 'nanoid';
+import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 
 // Server validation schema
@@ -98,10 +97,10 @@ export async function POST(request: NextRequest) {
 // PUT /api/servers/:id - Update a server
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
-  try {
-    const id = params.id;
+  try { 
+    const { id } = await params;
     const body = await request.json();
     
     // Validate the request body
@@ -173,10 +172,10 @@ export async function PUT(
 // DELETE /api/servers/:id - Delete a server
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const id = params.id;
+    const { id } = await params;
     
     // Delete the server
     await db.delete(servers).where(eq(servers.id, id));

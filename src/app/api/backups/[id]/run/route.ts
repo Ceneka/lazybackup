@@ -1,17 +1,17 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { nanoid } from 'nanoid';
+import { executeBackup } from '@/lib/backup';
 import { db } from '@/lib/db';
 import { backupConfigs, backupHistory } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
-import { executeBackup } from '@/lib/backup';
+import { nanoid } from 'nanoid';
+import { NextRequest, NextResponse } from 'next/server';
 
 // POST /api/backups/:id/run - Run a backup manually
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const id = params.id;
+    const { id } = await params;
     
     // Get the backup configuration
     const config = await db.query.backupConfigs.findFirst({

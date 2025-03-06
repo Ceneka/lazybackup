@@ -1,11 +1,10 @@
 "use client"
 
-import { useState } from "react"
-import { useRouter, useParams } from "next/navigation"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { ArrowLeftIcon, CalendarIcon, FolderIcon, Loader2Icon, PlayIcon, ServerIcon, TrashIcon } from "lucide-react"
 import Link from "next/link"
-import { ArrowLeftIcon, FolderIcon, Loader2Icon, TrashIcon, PlayIcon, ServerIcon, CalendarIcon } from "lucide-react"
+import { useParams, useRouter } from "next/navigation"
 import { toast } from "sonner"
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 
 // Define types for our data
 interface Backup {

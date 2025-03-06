@@ -1,29 +1,29 @@
 "use client"
 
-import { 
-  Card, 
-  CardContent, 
-  CardDescription, 
-  CardHeader, 
-  CardTitle 
-} from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { 
-  ArrowLeftIcon, 
-  CheckCircleIcon, 
-  ClockIcon, 
-  FileIcon, 
-  HardDriveIcon, 
-  Loader2Icon, 
-  PlayIcon, 
-  XCircleIcon 
-} from "lucide-react"
-import { useRouter } from "next/navigation"
-import { format } from "date-fns"
-import { formatBytes } from "@/lib/utils"
-import Link from "next/link"
+import {
+    Card,
+    CardContent,
+    CardDescription,
+    CardHeader,
+    CardTitle
+} from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
 import { useHistoryStats } from "@/lib/hooks/useHistory"
+import { formatBytes } from "@/lib/utils"
+import { format } from "date-fns"
+import {
+    ArrowLeftIcon,
+    CheckCircleIcon,
+    ClockIcon,
+    FileIcon,
+    HardDriveIcon,
+    Loader2Icon,
+    PlayIcon,
+    XCircleIcon
+} from "lucide-react"
+import Link from "next/link"
+import { useRouter } from "next/navigation"
 
 export default function HistoryStatsPage() {
   const router = useRouter()

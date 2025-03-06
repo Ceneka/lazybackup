@@ -1,10 +1,10 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { useRouter, useParams } from "next/navigation"
-import Link from "next/link"
 import { useQuery } from "@tanstack/react-query"
-import { ArrowLeftIcon, ServerIcon, Loader2Icon, CheckCircleIcon, XCircleIcon } from "lucide-react"
+import { ArrowLeftIcon, CheckCircleIcon, Loader2Icon, ServerIcon, XCircleIcon } from "lucide-react"
+import Link from "next/link"
+import { useParams, useRouter } from "next/navigation"
+import { useEffect, useState } from "react"
 import { toast } from "sonner"
 
 export default function TestConnectionPage() {

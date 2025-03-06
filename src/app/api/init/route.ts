@@ -1,8 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { servers, backupConfigs, backupHistory } from '@/lib/db/schema';
 import { runMigration } from '@/lib/db/migrate';
+import { backupConfigs, backupHistory, servers } from '@/lib/db/schema';
 import { sql } from 'drizzle-orm';
+import { NextRequest, NextResponse } from 'next/server';
 
 // Initialize the database
 export async function GET(request: NextRequest) {
