@@ -1,36 +1,70 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# LazyBackup - VPS Backup Manager
+
+LazyBackup is a web-based application for managing backups of your VPS servers. It allows you to configure and schedule backups using SSH and Rsync, and provides a dashboard to monitor the status of your backups.
+
+## Features
+
+- **Server Management**: Add, edit, and delete VPS server connections with SSH authentication
+- **Backup Configuration**: Configure backup sources, destinations, schedules, and exclusion patterns
+- **Automated Backups**: Schedule backups using cron expressions
+- **Backup History**: View the history and status of all backup operations
+- **Dashboard**: Get an overview of your backup infrastructure at a glance
+
+## Tech Stack
+
+- **Frontend**: Next.js 15, React 19, Tailwind CSS
+- **Backend**: Next.js API Routes
+- **Database**: SQLite with Drizzle ORM
+- **Authentication**: SSH for server connections
+- **Backup**: Rsync for efficient file transfers
+- **Scheduling**: Cron for scheduling backups
 
 ## Getting Started
 
-First, run the development server:
+### Prerequisites
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+- Node.js 18+ or Bun 1.0+
+- A VPS server with SSH access
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### Installation
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/yourusername/lazybackup.git
+   cd lazybackup
+   ```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+2. Install dependencies:
+   ```bash
+   bun install
+   ```
 
-## Learn More
+3. Set up the database:
+   ```bash
+   bun run db:generate
+   bun run db:migrate
+   ```
 
-To learn more about Next.js, take a look at the following resources:
+4. Start the development server:
+   ```bash
+   bun run dev
+   ```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+5. Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Usage
 
-## Deploy on Vercel
+1. **Add a Server**: Navigate to the Servers page and add your VPS server details.
+2. **Configure Backups**: Create backup configurations for your servers.
+3. **Monitor Backups**: View the status of your backups on the Dashboard or History page.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## License
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Acknowledgements
+
+- [Next.js](https://nextjs.org/)
+- [Drizzle ORM](https://orm.drizzle.team/)
+- [Tailwind CSS](https://tailwindcss.com/)
+- [shadcn/ui](https://ui.shadcn.com/)

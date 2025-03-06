@@ -2,6 +2,4 @@
 description: general
 globs: *.tsx, *.json
 ---
-- the project uses bun as package manager
-- nextjs 15 instalation with shadcn/ui
-- use typescript and tailwind
+useQuery its setted up
