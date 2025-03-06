@@ -14,6 +14,8 @@ const backupConfigSchema = z.object({
   schedule: z.string().min(1, 'Schedule is required'),
   excludePatterns: z.string().optional(),
   enabled: z.boolean().default(true),
+  enableVersioning: z.boolean().default(false),
+  versionsToKeep: z.number().min(1).max(100).optional().default(5),
 });
 
 // GET /api/backups/:id - Get a backup configuration

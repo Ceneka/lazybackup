@@ -23,6 +23,8 @@ export default function EditBackupPage() {
     schedule: '',
     excludePatterns: '',
     enabled: true,
+    enableVersioning: false,
+    versionsToKeep: 5,
   })
 
   // Fetch backup data with useQuery
@@ -58,6 +60,8 @@ export default function EditBackupPage() {
         schedule: backup.schedule || '',
         excludePatterns: backup.excludePatterns || '',
         enabled: backup.enabled ?? true,
+        enableVersioning: backup.enableVersioning ?? false,
+        versionsToKeep: backup.versionsToKeep ?? 5,
       })
     }
   }, [backup])
@@ -255,6 +259,36 @@ export default function EditBackupPage() {
                 <label htmlFor="enabled" className="text-sm font-medium">
                   Enable this backup configuration
                 </label>
+              </div>
+
+              <div className="flex items-center space-x-2">
+                <input
+                  id="enableVersioning"
+                  name="enableVersioning"
+                  type="checkbox"
+                  checked={formData.enableVersioning}
+                  onChange={handleChange}
+                  className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                />
+                <label htmlFor="enableVersioning" className="text-sm font-medium">
+                  Enable versioning
+                </label>
+              </div>
+
+              <div>
+                <label htmlFor="versionsToKeep" className="block text-sm font-medium mb-2">
+                  Versions to Keep
+                </label>
+                <input
+                  id="versionsToKeep"
+                  name="versionsToKeep"
+                  type="number"
+                  required
+                  value={formData.versionsToKeep}
+                  onChange={handleChange}
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                  placeholder="5"
+                />
               </div>
             </div>
 

@@ -43,6 +43,18 @@ export async function runMigration() {
       await db.run(sql`ALTER TABLE servers ADD COLUMN system_key_path TEXT`);
     }
     
+    // Check and add versioning columns to backup_configs table
+    const backupConfigsInfo = await db.run(sql`PRAGMA table_info(backup_configs)`);
+    const backupColumns = backupConfigsInfo.rows.map((row: any) => row.name);
+    
+    if (!backupColumns.includes('enable_versioning')) {
+      await db.run(sql`ALTER TABLE backup_configs ADD COLUMN enable_versioning INTEGER NOT NULL DEFAULT 0`);
+    }
+    
+    if (!backupColumns.includes('versions_to_keep')) {
+      await db.run(sql`ALTER TABLE backup_configs ADD COLUMN versions_to_keep INTEGER DEFAULT 5`);
+    }
+    
     console.log('Migration completed successfully');
   } catch (error) {
     console.error('Migration failed:', error);

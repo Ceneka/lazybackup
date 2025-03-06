@@ -47,6 +47,8 @@ export const backupConfigs = sqliteTable('backup_configs', {
   schedule: text('schedule').notNull(), // Cron expression
   excludePatterns: text('exclude_patterns'), // JSON string of patterns to exclude
   enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+  enableVersioning: integer('enable_versioning', { mode: 'boolean' }).notNull().default(false),
+  versionsToKeep: integer('versions_to_keep').default(5),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
 });
