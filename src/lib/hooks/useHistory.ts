@@ -48,7 +48,7 @@ export function useHistoryList(
       if (filters.configId) searchParams.set("configId", filters.configId)
       searchParams.set("limit", pagination.limit.toString())
       searchParams.set("offset", pagination.offset.toString())
-      
+
       const res = await fetch(`/api/history?${searchParams.toString()}`)
       if (!res.ok) throw new Error("Failed to fetch history")
       return res.json()
@@ -74,7 +74,7 @@ export function useHistoryStats() {
   return useQuery({
     queryKey: ["historyStats"],
     queryFn: async () => {
-      const res = await fetch("/api/history/stats")
+      const res = await fetch("/api/history/stats?chartData=true")
       if (!res.ok) throw new Error("Failed to fetch history stats")
       return res.json()
     },
@@ -90,11 +90,11 @@ export function useDeleteHistory() {
       const res = await fetch(`/api/history/${id}`, {
         method: "DELETE",
       })
-      
+
       if (!res.ok) {
         throw new Error("Failed to delete history entry")
       }
-      
+
       return id
     },
     onSuccess: (id) => {
@@ -112,7 +112,7 @@ export function useDeleteHistory() {
 // Start a backup
 export function useStartBackup() {
   const queryClient = useQueryClient()
-  
+
   return useMutation({
     mutationFn: async (configId: string) => {
       const res = await fetch("/api/backups/start", {
@@ -122,12 +122,12 @@ export function useStartBackup() {
         },
         body: JSON.stringify({ configId }),
       })
-      
+
       if (!res.ok) {
         const data = await res.json()
         throw new Error(data.error || "Failed to start backup")
       }
-      
+
       const data = await res.json()
       return data
     },
@@ -150,42 +150,42 @@ export function usePaginatedHistory(initialFilters: HistoryFilter = {}) {
     search: "",
     ...initialFilters
   };
-  
+
   const [filters, setFilters] = useState<HistoryFilter>(defaultFilters)
   const [pagination, setPagination] = useState<Pagination>({
     limit: 10,
     offset: 0,
   })
-  
+
   const query = useHistoryList(filters, pagination)
-  
+
   const updateFilters = (newFilters: Partial<HistoryFilter>) => {
     setFilters((prev) => ({ ...prev, ...newFilters }))
     // Reset pagination when filters change
     setPagination((prev) => ({ ...prev, offset: 0 }))
   }
-  
+
   const goToPage = (page: number) => {
     setPagination((prev) => ({
       ...prev,
       offset: page * prev.limit,
     }))
   }
-  
+
   const nextPage = () => {
     setPagination((prev) => ({
       ...prev,
       offset: prev.offset + prev.limit,
     }))
   }
-  
+
   const prevPage = () => {
     setPagination((prev) => ({
       ...prev,
       offset: Math.max(0, prev.offset - prev.limit),
     }))
   }
-  
+
   return {
     ...query,
     filters,
