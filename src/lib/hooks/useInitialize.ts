@@ -8,12 +8,12 @@ export function useInitialize() {
         const response = await fetch('/api/init')
         const data = await response.json()
         
-        if (data.success) {
-          console.log('Server initialized successfully')
-          return { initialized: true }
-        } else {
+        if (data.error) {
           console.error('Failed to initialize server:', data.error || 'Unknown error')
           return { initialized: false, error: data.error || 'Unknown error' }
+        } else {
+          console.log('Server initialized successfully')
+          return { initialized: true }
         }
       } catch (error) {
         console.error('Failed to initialize server:', error)

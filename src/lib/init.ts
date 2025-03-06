@@ -2,8 +2,8 @@ import { initializeScheduler } from './scheduler';
 
 let initialized = false;
 
-export async function initializeServer() {
-  if (initialized) return { success: true, message: 'Server already initialized' };
+export async function initializeServer(force = false) {
+  if (initialized && !force) return { success: true, message: 'Server already initialized' };
   
   try {
     console.log('Initializing server...');

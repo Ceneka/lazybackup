@@ -1,6 +1,6 @@
 import { db } from '@/lib/db';
 import { backupConfigs } from '@/lib/db/schema';
-import { scheduleBackup } from '@/lib/scheduler';
+import { scheduleBackup, stopBackup } from '@/lib/scheduler';
 import { eq } from 'drizzle-orm';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
@@ -63,6 +63,9 @@ export async function PUT(
     
     // Validate the request body
     const validatedData = backupConfigSchema.parse(body);
+
+    // First stop any existing cron job
+    stopBackup(id);
     
     // Update the backup configuration
     await db.update(backupConfigs)
@@ -118,6 +121,9 @@ export async function DELETE(
   const { id } = await params;
   
   try {
+    // First stop any existing cron job
+    stopBackup(id);
+    
     // Delete the backup configuration
     await db.delete(backupConfigs).where(eq(backupConfigs.id, id));
     

@@ -28,6 +28,14 @@ LazyBackup is a web-based application for managing backups of your VPS servers. 
 
 ### Installation
 
+#### Docker
+
+```bash
+docker run -d --name lazybackup -p 3000:3000 -v lazybackup_data:/app/data ghcr.io/lazybackup/lazybackup:latest
+```
+
+#### Manual
+
 1. Clone the repository:
    ```bash
    git clone https://github.com/yourusername/lazybackup.git
@@ -47,10 +55,12 @@ LazyBackup is a web-based application for managing backups of your VPS servers. 
 
 4. Start the development server:
    ```bash
-   bun run dev
+   bun run build
+   bun run start
    ```
 
 5. Open [http://localhost:3000](http://localhost:3000) in your browser.
+
 
 ## Usage
 

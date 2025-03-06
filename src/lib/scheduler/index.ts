@@ -27,26 +27,69 @@ export async function initializeScheduler() {
   console.log(`Scheduled ${configs.length} backup jobs`);
 }
 
+// Function to restart the scheduler
+export async function restartScheduler() {
+  console.log('Restarting backup scheduler...');
+  
+  // Stop all active jobs
+  activeJobs.forEach((job, id) => {
+    try {
+      job.stop();
+      console.log(`Stopped job ${id}`);
+    } catch (error) {
+      console.error(`Error stopping job ${id}:`, error);
+    }
+  });
+  
+  // Clear the jobs map
+  activeJobs.clear();
+  
+  // Re-initialize the scheduler
+  await initializeScheduler();
+  
+  console.log('Scheduler restarted successfully');
+  return true;
+}
+
+// Stop a scheduled backup
+export function stopBackup(backupId: string): boolean {
+  if (activeJobs.has(backupId)) {
+    try {
+      const job = activeJobs.get(backupId);
+      job?.stop();
+      activeJobs.delete(backupId);
+      console.log(`Stopped and removed backup job for ID ${backupId}`);
+      return true;
+    } catch (error) {
+      console.error(`Error stopping backup job for ID ${backupId}:`, error);
+      return false;
+    }
+  }
+  console.log(`No active job found for backup ID ${backupId}`);
+  return false;
+}
+
 // Schedule a single backup
 export function scheduleBackup(config: any) {
   // Cancel existing job if it exists
-  if (activeJobs.has(config.id)) {
-    activeJobs.get(config.id)?.stop();
-    activeJobs.delete(config.id);
-  }
+  stopBackup(config.id);
   
   // Create a new cron job
-  const job = new CronJob(
-    config.schedule,
-    () => runBackup(config),
-    null,
-    true
-  );
-  
-  // Store the job
-  activeJobs.set(config.id, job);
-  
-  console.log(`Scheduled backup job for ${config.name} with schedule ${config.schedule}`);
+  try {
+    const job = new CronJob(
+      config.schedule,
+      () => runBackup(config),
+      null,
+      true
+    );
+    
+    // Store the job
+    activeJobs.set(config.id, job);
+    
+    console.log(`Scheduled backup job for ${config.name} (${config.id}) with schedule ${config.schedule}`);
+  } catch (error) {
+    console.error(`Failed to schedule backup job for ${config.name} (${config.id}):`, error);
+  }
 }
 
 // Run a backup
@@ -83,3 +126,4 @@ export async function runBackup(config: any) {
       .where(eq(backupHistory.id, historyId));
   }
 } 
+
