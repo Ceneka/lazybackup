@@ -24,7 +24,10 @@ export function useStats() {
         
         // Fetch history
         const historyRes = await fetch('/api/history')
-        const history = await historyRes.json()
+        const historyData = await historyRes.json()
+        
+        // Extract the history array from the response
+        const history = historyData.history || []
         
         // Calculate stats
         const running = history.filter((item: any) => item.status === 'running').length

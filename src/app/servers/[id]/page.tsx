@@ -1,7 +1,7 @@
 "use client"
 
 import { useQuery } from "@tanstack/react-query"
-import { ArrowLeftIcon, Loader2Icon, ServerIcon, TrashIcon } from "lucide-react"
+import { ArrowLeftIcon, Loader2Icon, PencilIcon, ServerIcon, TrashIcon } from "lucide-react"
 import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
 import { useState } from "react"
@@ -90,23 +90,32 @@ export default function ServerPage() {
           </Link>
           <h1 className="text-3xl font-bold">{server.name}</h1>
         </div>
-        <button
-          onClick={handleDelete}
-          disabled={deleting}
-          className="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-destructive text-destructive-foreground hover:bg-destructive/90 h-10 px-4 py-2"
-        >
-          {deleting ? (
-            <>
-              <Loader2Icon className="mr-2 h-4 w-4 animate-spin" />
-              Deleting...
-            </>
-          ) : (
-            <>
-              <TrashIcon className="mr-2 h-4 w-4" />
-              Delete Server
-            </>
-          )}
-        </button>
+        <div className="flex space-x-2">
+          <Link
+            href={`/servers/${serverId}/edit`}
+            className="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-secondary text-secondary-foreground hover:bg-secondary/80 h-10 px-4 py-2"
+          >
+            <PencilIcon className="mr-2 h-4 w-4" />
+            Edit Server
+          </Link>
+          <button
+            onClick={handleDelete}
+            disabled={deleting}
+            className="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-destructive text-destructive-foreground hover:bg-destructive/90 h-10 px-4 py-2"
+          >
+            {deleting ? (
+              <>
+                <Loader2Icon className="mr-2 h-4 w-4 animate-spin" />
+                Deleting...
+              </>
+            ) : (
+              <>
+                <TrashIcon className="mr-2 h-4 w-4" />
+                Delete Server
+              </>
+            )}
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

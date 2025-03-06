@@ -12,8 +12,8 @@ export function useInitialize() {
           console.log('Server initialized successfully')
           return { initialized: true }
         } else {
-          console.error('Failed to initialize server:', data.error)
-          return { initialized: false, error: data.error }
+          console.error('Failed to initialize server:', data.error || 'Unknown error')
+          return { initialized: false, error: data.error || 'Unknown error' }
         }
       } catch (error) {
         console.error('Failed to initialize server:', error)

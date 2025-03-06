@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { useSettings } from "@/lib/hooks/useSettings"
-import { useSSHKeys } from "@/lib/hooks/useSSHKeys"
+import { SSHKey, SystemSSHKey, useSSHKeys } from "@/lib/hooks/useSSHKeys"
 import { KeyIcon, Loader2Icon, PlusIcon, SettingsIcon, TrashIcon } from "lucide-react"
 import { useState } from "react"
 import { toast } from "sonner"
@@ -147,7 +147,7 @@ export default function SettingsPage() {
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {keys.map((key) => (
+                    {keys.map((key: SSHKey) => (
                       <div key={key.id} className="flex items-center justify-between border p-3 rounded-md">
                         <div>
                           <p className="font-medium">{key.name}</p>
@@ -226,7 +226,7 @@ export default function SettingsPage() {
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {systemKeys.map((key) => (
+                    {systemKeys.map((key: SystemSSHKey) => (
                       <div key={key.privateKeyPath} className="flex items-center justify-between border p-3 rounded-md">
                         <div>
                           <p className="font-medium">{key.name}</p>

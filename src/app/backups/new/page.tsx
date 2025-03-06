@@ -5,10 +5,11 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { ArrowLeftIcon, Loader2Icon, ServerIcon } from "lucide-react"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
-import { useState } from "react"
+import { Suspense, useState } from "react"
 import { toast } from "sonner"
 
-export default function NewBackupPage() {
+// Component that uses useSearchParams
+function NewBackupForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const queryClient = useQueryClient()
@@ -248,7 +249,7 @@ export default function NewBackupPage() {
                       Adding...
                     </>
                   ) : (
-                    'Add Backup'
+                    "Add Backup"
                   )}
                 </button>
               </div>
@@ -257,5 +258,14 @@ export default function NewBackupPage() {
         </div>
       </div>
     </div>
+  )
+}
+
+// Main component with Suspense boundary
+export default function NewBackupPage() {
+  return (
+    <Suspense fallback={<div className="flex justify-center py-12"><Loader2Icon className="h-8 w-8 animate-spin text-muted-foreground" /></div>}>
+      <NewBackupForm />
+    </Suspense>
   )
 } 

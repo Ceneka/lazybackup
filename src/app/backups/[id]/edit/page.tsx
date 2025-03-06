@@ -5,7 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { ArrowLeftIcon, Loader2Icon } from "lucide-react"
 import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { toast } from "sonner"
 
 export default function EditBackupPage() {
@@ -40,19 +40,27 @@ export default function EditBackupPage() {
         throw new Error("Failed to fetch backup configuration")
       }
       
-      const data = await response.json()
-      setFormData({
-        serverId: data.serverId,
-        name: data.name,
-        sourcePath: data.sourcePath,
-        destinationPath: data.destinationPath,
-        schedule: data.schedule,
-        excludePatterns: data.excludePatterns || '',
-        enabled: data.enabled,
-      })
-      return data
-    }
+      return response.json()
+    },
+    staleTime: 1000 * 60 * 5, // Cache for 5 minutes
+    refetchOnMount: true,
+    refetchOnWindowFocus: false
   })
+
+  // Update form data when backup data is loaded
+  useEffect(() => {
+    if (backup) {
+      setFormData({
+        serverId: backup.serverId || '',
+        name: backup.name || '',
+        sourcePath: backup.sourcePath || '',
+        destinationPath: backup.destinationPath || '',
+        schedule: backup.schedule || '',
+        excludePatterns: backup.excludePatterns || '',
+        enabled: backup.enabled ?? true,
+      })
+    }
+  }, [backup])
 
   // Fetch servers data with useQuery
   const { data: servers = [], isLoading: loadingServers } = useQuery<Server[]>({

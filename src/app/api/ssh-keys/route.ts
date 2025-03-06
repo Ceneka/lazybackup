@@ -1,6 +1,5 @@
 import { db } from '@/lib/db';
 import { sshKeys } from '@/lib/db/schema';
-import { eq } from 'drizzle-orm';
 import { promises as fs } from 'fs';
 import { nanoid } from 'nanoid';
 import { NextRequest, NextResponse } from 'next/server';
@@ -117,27 +116,6 @@ export async function POST(request: NextRequest) {
     
     return NextResponse.json(
       { error: 'Failed to create SSH key' },
-      { status: 500 }
-    );
-  }
-}
-
-// DELETE /api/ssh-keys/:id - Delete an SSH key
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-
-    
-    // Delete the SSH key
-    await db.delete(sshKeys).where(eq(sshKeys.id, id));
-    
-    return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error('Failed to delete SSH key:', error);
-    return NextResponse.json(
-      { error: 'Failed to delete SSH key' },
       { status: 500 }
     );
   }
