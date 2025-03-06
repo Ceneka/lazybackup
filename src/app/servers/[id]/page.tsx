@@ -1,7 +1,9 @@
 "use client"
 
+import { LoadingButton } from "@/components/ui/loading-button"
+import { QueryState } from "@/components/ui/query-state"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { ArrowLeftIcon, Loader2Icon, PencilIcon, ServerIcon, TrashIcon } from "lucide-react"
+import { ArrowLeftIcon, PencilIcon, ServerIcon, TrashIcon } from "lucide-react"
 import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
 import { useState } from "react"
@@ -15,7 +17,7 @@ export default function ServerPage() {
   const queryClient = useQueryClient()
 
   // Fetch server data with useQuery
-  const { data: server, isLoading: loading } = useQuery({
+  const query = useQuery({
     queryKey: ['server', serverId],
     queryFn: async () => {
       const response = await fetch(`/api/servers/${serverId}`)
@@ -60,30 +62,6 @@ export default function ServerPage() {
     }
   }
 
-  if (loading) {
-    return (
-      <div className="flex justify-center items-center py-12">
-        <Loader2Icon className="h-8 w-8 animate-spin text-muted-foreground" />
-      </div>
-    )
-  }
-
-  if (!server) {
-    return (
-      <div className="flex flex-col items-center justify-center py-12 text-center">
-        <ServerIcon className="h-12 w-12 text-muted-foreground mb-4" />
-        <h3 className="text-lg font-medium">Server not found</h3>
-        <p className="text-muted-foreground mt-2 mb-4">The server you're looking for doesn't exist or has been deleted.</p>
-        <Link 
-          href="/servers" 
-          className="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground hover:bg-primary/90 h-10 px-4 py-2"
-        >
-          Back to Servers
-        </Link>
-      </div>
-    )
-  }
-
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -92,77 +70,92 @@ export default function ServerPage() {
             <ArrowLeftIcon className="h-4 w-4" />
             <span className="sr-only">Back to servers</span>
           </Link>
-          <h1 className="text-3xl font-bold">{server.name}</h1>
+          <h1 className="text-3xl font-bold">
+            <QueryState 
+              query={query} 
+              dataLabel="server"
+              errorIcon={<ServerIcon className="h-12 w-12 text-red-500" />}
+              emptyIcon={<ServerIcon className="h-12 w-12 text-muted-foreground" />}
+              emptyMessage="Server not found"
+              isDataEmpty={(data) => !data}
+              loadingComponent={<span className="text-muted-foreground">Loading server...</span>}
+            >
+              {query.data?.name}
+            </QueryState>
+          </h1>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="p-6 rounded-lg border bg-card text-card-foreground shadow">
-          <h2 className="text-xl font-semibold mb-4">Server Details</h2>
-          <dl className="space-y-4">
-            <div>
-              <dt className="text-sm font-medium text-muted-foreground">Host</dt>
-              <dd className="text-lg">{server.host}</dd>
+      <QueryState 
+        query={query} 
+        dataLabel="server"
+        errorIcon={<ServerIcon className="h-12 w-12 text-red-500" />}
+        emptyIcon={<ServerIcon className="h-12 w-12 text-muted-foreground" />}
+        emptyMessage="Server not found"
+        isDataEmpty={(data) => !data}
+      >
+        {query.data && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="p-6 rounded-lg border bg-card text-card-foreground shadow">
+              <h2 className="text-xl font-semibold mb-4">Server Details</h2>
+              <dl className="space-y-4">
+                <div>
+                  <dt className="text-sm font-medium text-muted-foreground">Host</dt>
+                  <dd className="text-lg">{query.data.host}</dd>
+                </div>
+                <div>
+                  <dt className="text-sm font-medium text-muted-foreground">Port</dt>
+                  <dd className="text-lg">{query.data.port}</dd>
+                </div>
+                <div>
+                  <dt className="text-sm font-medium text-muted-foreground">Username</dt>
+                  <dd className="text-lg">{query.data.username}</dd>
+                </div>
+                <div>
+                  <dt className="text-sm font-medium text-muted-foreground">Authentication Type</dt>
+                  <dd className="text-lg capitalize">{query.data.authType}</dd>
+                </div>
+              </dl>
             </div>
-            <div>
-              <dt className="text-sm font-medium text-muted-foreground">Port</dt>
-              <dd className="text-lg">{server.port}</dd>
-            </div>
-            <div>
-              <dt className="text-sm font-medium text-muted-foreground">Username</dt>
-              <dd className="text-lg">{server.username}</dd>
-            </div>
-            <div>
-              <dt className="text-sm font-medium text-muted-foreground">Authentication Type</dt>
-              <dd className="text-lg capitalize">{server.authType}</dd>
-            </div>
-          </dl>
-        </div>
 
-        <div className="p-6 rounded-lg border bg-card text-card-foreground shadow">
-          <h2 className="text-xl font-semibold mb-4">Actions</h2>
-          <div className="space-y-4">
-            <Link
-              href={`/servers/${serverId}/edit`}
-              className="flex items-center space-x-2 p-3 rounded-md bg-secondary hover:bg-secondary/80 transition-colors"
-            >
-              <PencilIcon className="h-5 w-5 mr-2" />
-              <span>Edit Server</span>
-            </Link>
-            <Link 
-              href={`/backups/new?serverId=${server.id}`}
-              className="flex items-center space-x-2 p-3 rounded-md hover:bg-accent transition-colors"
-            >
-              <ServerIcon className="h-5 w-5" />
-              <span>Create Backup for this Server</span>
-            </Link>
-            <Link 
-              href={`/servers/${server.id}/test`}
-              className="flex items-center space-x-2 p-3 rounded-md hover:bg-accent transition-colors"
-            >
-              <ServerIcon className="h-5 w-5" />
-              <span>Test Connection</span>
-            </Link>
-            <button
-              onClick={handleDelete}
-              disabled={deleting}
-              className="cursor-pointer flex w-full items-center space-x-2 p-3 rounded-md bg-destructive/10 text-destructive-foreground hover:bg-destructive/20 transition-colors"
-            >
-              {deleting ? (
-                <>
-                  <Loader2Icon className="h-5 w-5 mr-2" />
-                  <span>Deleting...</span>
-                </>
-              ) : (
-                <>
+            <div className="p-6 rounded-lg border bg-card text-card-foreground shadow">
+              <h2 className="text-xl font-semibold mb-4">Actions</h2>
+              <div className="space-y-4">
+                <Link
+                  href={`/servers/${serverId}/edit`}
+                  className="flex items-center space-x-2 p-3 rounded-md bg-secondary hover:bg-secondary/80 transition-colors"
+                >
+                  <PencilIcon className="h-5 w-5 mr-2" />
+                  <span>Edit Server</span>
+                </Link>
+                <Link 
+                  href={`/backups/new?serverId=${query.data.id}`}
+                  className="flex items-center space-x-2 p-3 rounded-md hover:bg-accent transition-colors"
+                >
+                  <ServerIcon className="h-5 w-5" />
+                  <span>Create Backup for this Server</span>
+                </Link>
+                <Link 
+                  href={`/servers/${query.data.id}/test`}
+                  className="flex items-center space-x-2 p-3 rounded-md hover:bg-accent transition-colors"
+                >
+                  <ServerIcon className="h-5 w-5" />
+                  <span>Test Connection</span>
+                </Link>
+                <LoadingButton
+                  onClick={handleDelete}
+                  isLoading={deleting}
+                  loadingText="Deleting..."
+                  className="cursor-pointer flex w-full items-center space-x-2 p-3 rounded-md bg-destructive/10 text-destructive-foreground hover:bg-destructive/20 transition-colors"
+                >
                   <TrashIcon className="h-5 w-5 mr-2" />
                   <span>Delete Server</span>
-                </>
-              )}
-            </button>
+                </LoadingButton>
+              </div>
+            </div>
           </div>
-        </div>
-      </div>
+        )}
+      </QueryState>
     </div>
   )
 } 

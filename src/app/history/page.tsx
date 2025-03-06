@@ -1,35 +1,36 @@
 "use client"
 
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { LoadingButton } from "@/components/ui/loading-button"
 import {
-  Pagination,
-  PaginationContent,
-  PaginationItem,
-  PaginationLink,
-  PaginationNext,
-  PaginationPrevious
+    Pagination,
+    PaginationContent,
+    PaginationItem,
+    PaginationLink,
+    PaginationNext,
+    PaginationPrevious
 } from "@/components/ui/pagination"
+import { QueryState } from "@/components/ui/query-state"
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue
 } from "@/components/ui/select"
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow
+    Table,
+    TableBody,
+    TableCell,
+    TableHead,
+    TableHeader,
+    TableRow
 } from "@/components/ui/table"
 import { usePaginatedHistory } from "@/lib/hooks/useHistory"
 import { formatBytes } from "@/lib/utils"
 import { format, formatDistance } from "date-fns"
-import { Loader2Icon, RefreshCwIcon, SearchIcon } from "lucide-react"
+import { HistoryIcon, RefreshCwIcon, SearchIcon } from "lucide-react"
 import Link from "next/link"
 import { useState } from "react"
 
@@ -56,9 +57,15 @@ export default function HistoryPage() {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold">Backup History</h1>
-        <Button onClick={() => refetch()} variant="outline" size="icon">
+        <LoadingButton 
+          isLoading={isLoading} 
+          onClick={() => refetch()} 
+          variant="outline" 
+          size="icon"
+          hideTextWhenLoading={true}
+        >
           <RefreshCwIcon className="h-4 w-4" />
-        </Button>
+        </LoadingButton>
       </div>
       
       <div className="flex gap-4 mb-6">
@@ -93,11 +100,13 @@ export default function HistoryPage() {
         </Select>
       </div>
       
-      {isLoading ? (
-        <div className="flex justify-center py-8">
-          <Loader2Icon className="h-8 w-8 animate-spin text-primary" />
-        </div>
-      ) : (
+      <QueryState 
+        query={{ isLoading, data, error: null, isError: false, refetch }}
+        emptyIcon={<HistoryIcon className="h-12 w-12 text-muted-foreground" />}
+        emptyMessage="No backup history found"
+        dataLabel="backup history"
+        isDataEmpty={(data) => !data?.history?.length}
+      >
         <>
           <div className="rounded-md border">
             <Table>
@@ -234,7 +243,7 @@ export default function HistoryPage() {
             </Pagination>
           )}
         </>
-      )}
+      </QueryState>
     </div>
   )
 } 

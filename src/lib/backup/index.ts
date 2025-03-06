@@ -6,6 +6,7 @@ import { eq } from 'drizzle-orm';
 import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
+import { parseRsyncOutput } from '../utils/rsync-parser';
 import { createBackupHistoryEntry, updateBackupHistoryFailure, updateBackupHistorySuccess } from './history';
 
 // Type for backup config with server
@@ -124,16 +125,12 @@ export async function executeBackup(config: BackupConfigWithServer, historyId: s
     }
     
     // Update backup history with success
-    const fileCount = parseFileCount(rsyncResult.stdout);
-    const totalSize = parseTotalSize(rsyncResult.stdout);
-    const transferredSize = parseTransferredSize(rsyncResult.stdout);
+    const parsedOutput = parseRsyncOutput(rsyncResult.stdout);
     
     await updateBackupHistorySuccess(
       historyId,
       {
-        fileCount,
-        totalSize,
-        transferredSize,
+        ...parsedOutput,
         logOutput: rsyncResult.stdout
       }
     );

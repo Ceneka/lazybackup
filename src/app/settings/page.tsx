@@ -4,18 +4,20 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { LoadingButton } from "@/components/ui/loading-button"
+import { QueryState } from "@/components/ui/query-state"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { useSettings } from "@/lib/hooks/useSettings"
 import { SSHKey, SystemSSHKey, useSSHKeys } from "@/lib/hooks/useSSHKeys"
-import { KeyIcon, Loader2Icon, PlusIcon, SettingsIcon, TrashIcon } from "lucide-react"
+import { KeyIcon, PlusIcon, SettingsIcon, TrashIcon } from "lucide-react"
 import { useState } from "react"
 import { toast } from "sonner"
 
 export default function SettingsPage() {
   const [tab, setTab] = useState<string>("general")
-  const { settings, updateSetting, isLoading: settingsLoading } = useSettings()
-  const { keys, systemKeys, addKey, deleteKey, isLoading: keysLoading } = useSSHKeys()
+  const settingsQuery = useSettings()
+  const keysQuery = useSSHKeys()
   
   const [newKeyName, setNewKeyName] = useState("")
   const [newKeyContent, setNewKeyContent] = useState("")
@@ -27,7 +29,7 @@ export default function SettingsPage() {
     }
     
     try {
-      await addKey.mutateAsync({
+      await keysQuery.addKey.mutateAsync({
         name: newKeyName,
         privateKeyContent: newKeyContent || undefined
       })
@@ -42,13 +44,13 @@ export default function SettingsPage() {
   
   const handleDeleteKey = async (id: string) => {
     if (confirm("Are you sure you want to delete this SSH key?")) {
-      await deleteKey.mutateAsync(id)
+      await keysQuery.deleteKey.mutateAsync(id)
     }
   }
   
   const handleAddSystemKey = async (systemKey: {name: string, privateKeyPath: string}) => {
     try {
-      await addKey.mutateAsync({
+      await keysQuery.addKey.mutateAsync({
         name: systemKey.name,
         privateKeyPath: systemKey.privateKeyPath
       })
@@ -85,19 +87,19 @@ export default function SettingsPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              {settingsLoading ? (
-                <div className="flex justify-center py-8">
-                  <Loader2Icon className="h-8 w-8 animate-spin text-muted-foreground" />
-                </div>
-              ) : (
-                <>
+              <QueryState 
+                query={settingsQuery}
+                dataLabel="settings"
+                errorIcon={<SettingsIcon className="h-12 w-12 text-red-500" />}
+              >
+                {settingsQuery.settings && (
                   <div className="space-y-4">
                     <div>
                       <Label htmlFor="defaultSshKeyPath">Default SSH Key Path</Label>
                       <Input
                         id="defaultSshKeyPath"
-                        value={settings.defaultSshKeyPath || ""}
-                        onChange={(e) => updateSetting.mutate({ key: "defaultSshKeyPath", value: e.target.value })}
+                        value={settingsQuery.settings.defaultSshKeyPath || ""}
+                        onChange={(e) => settingsQuery.updateSetting.mutate({ key: "defaultSshKeyPath", value: e.target.value })}
                         placeholder="~/.ssh/id_rsa"
                         className="mt-1"
                       />
@@ -111,8 +113,8 @@ export default function SettingsPage() {
                       <Input
                         id="sshKeepAliveInterval"
                         type="number"
-                        value={settings.sshKeepAliveInterval || "60"}
-                        onChange={(e) => updateSetting.mutate({ key: "sshKeepAliveInterval", value: e.target.value })}
+                        value={settingsQuery.settings.sshKeepAliveInterval || "60"}
+                        onChange={(e) => settingsQuery.updateSetting.mutate({ key: "sshKeepAliveInterval", value: e.target.value })}
                         placeholder="60"
                         className="mt-1"
                       />
@@ -121,8 +123,8 @@ export default function SettingsPage() {
                       </p>
                     </div>
                   </div>
-                </>
-              )}
+                )}
+              </QueryState>
             </CardContent>
           </Card>
         </TabsContent>
@@ -137,36 +139,42 @@ export default function SettingsPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                {keysLoading ? (
-                  <div className="flex justify-center py-8">
-                    <Loader2Icon className="h-8 w-8 animate-spin text-muted-foreground" />
-                  </div>
-                ) : keys.length === 0 ? (
-                  <div className="py-8 text-center text-muted-foreground">
-                    No SSH keys stored in the database
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {keys.map((key: SSHKey) => (
-                      <div key={key.id} className="flex items-center justify-between border p-3 rounded-md">
-                        <div>
-                          <p className="font-medium">{key.name}</p>
-                          <p className="text-sm text-muted-foreground">
-                            {key.privateKeyPath ? `Path: ${key.privateKeyPath}` : 'Stored in database'}
-                          </p>
+                <QueryState 
+                  query={{
+                    isLoading: keysQuery.isLoading,
+                    data: keysQuery.keys,
+                    error: null,
+                    isError: false
+                  }}
+                  dataLabel="SSH keys"
+                  errorIcon={<KeyIcon className="h-12 w-12 text-red-500" />}
+                  emptyIcon={<KeyIcon className="h-12 w-12 text-muted-foreground" />}
+                  emptyMessage="No SSH keys stored in the database"
+                  isDataEmpty={(data) => !data?.length}
+                >
+                  {keysQuery.keys.length > 0 && (
+                    <div className="space-y-4">
+                      {keysQuery.keys.map((key: SSHKey) => (
+                        <div key={key.id} className="flex items-center justify-between border p-3 rounded-md">
+                          <div>
+                            <p className="font-medium">{key.name}</p>
+                            <p className="text-sm text-muted-foreground">
+                              {key.privateKeyPath ? `Path: ${key.privateKeyPath}` : 'Stored in database'}
+                            </p>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleDeleteKey(key.id)}
+                          >
+                            <TrashIcon className="h-4 w-4" />
+                            <span className="sr-only">Delete</span>
+                          </Button>
                         </div>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleDeleteKey(key.id)}
-                        >
-                          <TrashIcon className="h-4 w-4" />
-                          <span className="sr-only">Delete</span>
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                      ))}
+                    </div>
+                  )}
+                </QueryState>
               </CardContent>
               <CardFooter className="flex flex-col space-y-4">
                 <div className="grid w-full gap-1.5">
@@ -188,23 +196,16 @@ export default function SettingsPage() {
                     className="min-h-[100px]"
                   />
                 </div>
-                <Button 
+                <LoadingButton 
                   className="w-full" 
                   onClick={handleAddKey}
-                  disabled={addKey.isPending || !newKeyName}
+                  isLoading={keysQuery.addKey.isPending}
+                  loadingText="Adding..."
+                  disabled={!newKeyName}
                 >
-                  {addKey.isPending ? (
-                    <>
-                      <Loader2Icon className="mr-2 h-4 w-4 animate-spin" />
-                      Adding...
-                    </>
-                  ) : (
-                    <>
-                      <PlusIcon className="mr-2 h-4 w-4" />
-                      Add SSH Key
-                    </>
-                  )}
-                </Button>
+                  <PlusIcon className="mr-2 h-4 w-4" />
+                  Add SSH Key
+                </LoadingButton>
               </CardFooter>
             </Card>
             
@@ -216,37 +217,43 @@ export default function SettingsPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                {keysLoading ? (
-                  <div className="flex justify-center py-8">
-                    <Loader2Icon className="h-8 w-8 animate-spin text-muted-foreground" />
-                  </div>
-                ) : systemKeys.length === 0 ? (
-                  <div className="py-8 text-center text-muted-foreground">
-                    No SSH keys found on your system
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {systemKeys.map((key: SystemSSHKey) => (
-                      <div key={key.privateKeyPath} className="flex items-center justify-between border p-3 rounded-md">
-                        <div>
-                          <p className="font-medium">{key.name}</p>
-                          <p className="text-sm text-muted-foreground">
-                            Path: {key.privateKeyPath}
-                          </p>
+                <QueryState 
+                  query={{
+                    isLoading: keysQuery.isLoading,
+                    data: keysQuery.systemKeys,
+                    error: null,
+                    isError: false
+                  }}
+                  dataLabel="system SSH keys"
+                  errorIcon={<KeyIcon className="h-12 w-12 text-red-500" />}
+                  emptyIcon={<KeyIcon className="h-12 w-12 text-muted-foreground" />}
+                  emptyMessage="No SSH keys found on your system"
+                  isDataEmpty={(data) => !data?.length}
+                >
+                  {keysQuery.systemKeys.length > 0 && (
+                    <div className="space-y-4">
+                      {keysQuery.systemKeys.map((key: SystemSSHKey) => (
+                        <div key={key.privateKeyPath} className="flex items-center justify-between border p-3 rounded-md">
+                          <div>
+                            <p className="font-medium">{key.name}</p>
+                            <p className="text-sm text-muted-foreground">
+                              Path: {key.privateKeyPath}
+                            </p>
+                          </div>
+                          <LoadingButton
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleAddSystemKey(key)}
+                            isLoading={keysQuery.addKey.isPending}
+                          >
+                            <PlusIcon className="mr-2 h-4 w-4" />
+                            Add to Library
+                          </LoadingButton>
                         </div>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleAddSystemKey(key)}
-                          disabled={addKey.isPending}
-                        >
-                          <PlusIcon className="mr-2 h-4 w-4" />
-                          Add to Library
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                      ))}
+                    </div>
+                  )}
+                </QueryState>
               </CardContent>
             </Card>
           </div>
