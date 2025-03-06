@@ -1,7 +1,8 @@
 import { NodeSSH } from 'node-ssh';
 import { db } from '@/lib/db';
-import { backupHistory } from '@/lib/db/schema';
+import { backupHistory, backupConfigs } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
+import { updateBackupHistorySuccess, updateBackupHistoryFailure, createBackupHistoryEntry } from './history';
 
 // Type for backup config with server
 type BackupConfigWithServer = {
@@ -83,16 +84,12 @@ export async function executeBackup(config: BackupConfigWithServer, historyId: s
     const transferredSize = parseTransferredSize(result.stdout);
     
     // Update the history entry with success status
-    await db.update(backupHistory)
-      .set({
-        endTime: new Date(),
-        status: 'success',
-        fileCount,
-        totalSize,
-        transferredSize,
-        logOutput: result.stdout,
-      })
-      .where(eq(backupHistory.id, historyId));
+    await updateBackupHistorySuccess(historyId, {
+      fileCount,
+      totalSize,
+      transferredSize,
+      logOutput: result.stdout,
+    });
     
     // Close the SSH connection
     ssh.dispose();
@@ -102,13 +99,7 @@ export async function executeBackup(config: BackupConfigWithServer, historyId: s
     console.error(`Backup failed: ${config.name} (${historyId})`, error);
     
     // Update the history entry with failure status
-    await db.update(backupHistory)
-      .set({
-        endTime: new Date(),
-        status: 'failed',
-        errorMessage: error instanceof Error ? error.message : String(error),
-      })
-      .where(eq(backupHistory.id, historyId));
+    await updateBackupHistoryFailure(historyId, error instanceof Error ? error : String(error));
   }
 }
 
@@ -143,4 +134,37 @@ function parseTransferredSize(output: string): number {
     return parseInt(match[1].replace(/,/g, ''), 10);
   }
   return 0;
+}
+
+/**
+ * Start a backup for a specific config
+ * Creates a history entry and executes the backup
+ */
+export async function startBackup(configId: string): Promise<string> {
+  try {
+    // Get the backup configuration with server details
+    const config = await db.query.backupConfigs.findFirst({
+      where: eq(backupConfigs.id, configId),
+      with: {
+        server: true,
+      },
+    });
+
+    if (!config) {
+      throw new Error(`Backup configuration with ID ${configId} not found`);
+    }
+
+    // Create a new history entry
+    const historyEntry = await createBackupHistoryEntry(configId);
+
+    // Execute the backup in the background
+    executeBackup(config, historyEntry.id).catch(error => {
+      console.error(`Error executing backup: ${error}`);
+    });
+
+    return historyEntry.id;
+  } catch (error) {
+    console.error('Failed to start backup:', error);
+    throw error;
+  }
 } 
