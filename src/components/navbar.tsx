@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
-import { ServerIcon, FolderIcon, HistoryIcon, HomeIcon } from "lucide-react"
+import { ServerIcon, FolderIcon, HistoryIcon, HomeIcon, SettingsIcon } from "lucide-react"
 
 const navItems = [
   {
@@ -25,6 +25,11 @@ const navItems = [
     name: "History",
     href: "/history",
     icon: HistoryIcon,
+  },
+  {
+    name: "Settings",
+    href: "/settings",
+    icon: SettingsIcon,
   },
 ]
 

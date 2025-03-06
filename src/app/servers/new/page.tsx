@@ -1,15 +1,17 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
-import { ServerIcon, ArrowLeftIcon, Loader2Icon } from "lucide-react"
+import { ServerIcon, ArrowLeftIcon, Loader2Icon, KeyIcon } from "lucide-react"
 import { toast } from "sonner"
+import { useSSHKeys, SSHKey } from "@/lib/hooks/useSSHKeys"
 
 export default function NewServerPage() {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
   const [authType, setAuthType] = useState<'password' | 'key'>('password')
+  const { keys, allKeys, isSystemKey, getSystemKeyPath, isLoading: keysLoading } = useSSHKeys(true) // Include system keys
   
   const [formData, setFormData] = useState({
     name: '',
@@ -18,6 +20,8 @@ export default function NewServerPage() {
     username: '',
     password: '',
     privateKey: '',
+    sshKeyId: '',
+    systemKeyPath: '',
   })
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
@@ -31,6 +35,30 @@ export default function NewServerPage() {
   const handleAuthTypeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     setAuthType(e.target.value as 'password' | 'key')
   }
+  
+  // When SSH key selection changes, clear the privateKey field and set the appropriate key data
+  useEffect(() => {
+    if (formData.sshKeyId) {
+      // Check if this is a system key
+      if (isSystemKey(formData.sshKeyId)) {
+        const systemPath = getSystemKeyPath(formData.sshKeyId);
+        setFormData(prev => ({
+          ...prev,
+          privateKey: '',
+          sshKeyId: '', // Clear database key ID
+          systemKeyPath: systemPath
+        }))
+      } else {
+        // This is a database key
+        setFormData(prev => ({
+          ...prev,
+          privateKey: '',
+          systemKeyPath: '', // Clear system key path
+          sshKeyId: formData.sshKeyId
+        }))
+      }
+    }
+  }, [formData.sshKeyId, isSystemKey, getSystemKeyPath])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -40,9 +68,11 @@ export default function NewServerPage() {
       const payload = {
         ...formData,
         authType,
-        // Only include password or privateKey based on authType
+        // Only include authentication data based on authType and selected key type
         password: authType === 'password' ? formData.password : undefined,
-        privateKey: authType === 'key' ? formData.privateKey : undefined,
+        privateKey: authType === 'key' && !formData.sshKeyId && !formData.systemKeyPath ? formData.privateKey : undefined,
+        sshKeyId: authType === 'key' && formData.sshKeyId ? formData.sshKeyId : undefined,
+        systemKeyPath: authType === 'key' && formData.systemKeyPath ? formData.systemKeyPath : undefined,
       }
 
       const response = await fetch('/api/servers', {
@@ -182,19 +212,86 @@ export default function NewServerPage() {
                   />
                 </div>
               ) : (
-                <div>
-                  <label htmlFor="privateKey" className="block text-sm font-medium mb-2">
-                    Private Key
-                  </label>
-                  <textarea
-                    id="privateKey"
-                    name="privateKey"
-                    required={authType === 'key'}
-                    value={formData.privateKey}
-                    onChange={handleChange}
-                    className="flex min-h-[120px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                    placeholder="Paste your private key here"
-                  />
+                <div className="space-y-4">
+                  <div>
+                    <label htmlFor="sshKeyId" className="block text-sm font-medium mb-2">
+                      Select SSH Key
+                    </label>
+                    <div className="flex items-center space-x-2">
+                      <select
+                        id="sshKeyId"
+                        name="sshKeyId"
+                        value={formData.sshKeyId}
+                        onChange={handleChange}
+                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <option value="">-- Enter key manually or select below --</option>
+                        {keysLoading ? (
+                          <option disabled>Loading keys...</option>
+                        ) : allKeys.length === 0 ? (
+                          <option disabled>No SSH keys available</option>
+                        ) : (
+                          <>
+                            {keys.length > 0 && (
+                              <optgroup label="Database Keys">
+                                {keys.map((key: SSHKey) => (
+                                  <option key={key.id} value={key.id}>
+                                    [DB] {key.name} {key.privateKeyPath ? `(${key.privateKeyPath})` : ''}
+                                  </option>
+                                ))}
+                              </optgroup>
+                            )}
+                            
+                            {allKeys.filter(k => k.isSystemKey).length > 0 && (
+                              <optgroup label="System Keys">
+                                {allKeys.filter(k => k.isSystemKey).map((key: SSHKey) => (
+                                  <option key={key.id} value={key.id}>
+                                    [System] {key.name} ({key.privateKeyPath})
+                                  </option>
+                                ))}
+                              </optgroup>
+                            )}
+                          </>
+                        )}
+                      </select>
+                      <Link
+                        href="/settings?tab=ssh-keys"
+                        className="inline-flex h-10 items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground ring-offset-background transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50"
+                      >
+                        <KeyIcon className="mr-2 h-4 w-4" />
+                        Manage
+                      </Link>
+                    </div>
+                    
+                    {formData.systemKeyPath && (
+                      <p className="text-sm text-muted-foreground mt-1">
+                        Using system key: {formData.systemKeyPath}
+                      </p>
+                    )}
+                    
+                    {!keysLoading && allKeys.length === 0 && (
+                      <p className="text-sm text-muted-foreground mt-1">
+                        No SSH keys found. You can add keys in the settings page or enter a key manually below.
+                      </p>
+                    )}
+                  </div>
+                  
+                  {!formData.sshKeyId && !formData.systemKeyPath && (
+                    <div>
+                      <label htmlFor="privateKey" className="block text-sm font-medium mb-2">
+                        Private Key
+                      </label>
+                      <textarea
+                        id="privateKey"
+                        name="privateKey"
+                        required={authType === 'key' && !formData.sshKeyId && !formData.systemKeyPath}
+                        value={formData.privateKey}
+                        onChange={handleChange}
+                        className="flex min-h-[120px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                        placeholder="Paste your private key here"
+                      />
+                    </div>
+                  )}
                 </div>
               )}
             </div>

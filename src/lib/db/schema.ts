@@ -1,6 +1,26 @@
 import { sqliteTable, text, integer, primaryKey } from 'drizzle-orm/sqlite-core';
 import { relations, sql } from 'drizzle-orm';
 
+// Application settings
+export const settings = sqliteTable('settings', {
+  id: text('id').primaryKey().notNull(),
+  key: text('key').notNull().unique(),
+  value: text('value'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+});
+
+// SSH Keys
+export const sshKeys = sqliteTable('ssh_keys', {
+  id: text('id').primaryKey().notNull(),
+  name: text('name').notNull(),
+  privateKeyPath: text('private_key_path'),
+  publicKeyPath: text('public_key_path'),
+  privateKeyContent: text('private_key_content'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+});
+
 // Servers table (VPS connections)
 export const servers = sqliteTable('servers', {
   id: text('id').primaryKey().notNull(),
@@ -11,6 +31,8 @@ export const servers = sqliteTable('servers', {
   authType: text('auth_type', { enum: ['password', 'key'] }).notNull(),
   password: text('password'),
   privateKey: text('private_key'),
+  sshKeyId: text('ssh_key_id').references(() => sshKeys.id, { onDelete: 'set null' }),
+  systemKeyPath: text('system_key_path'), // Direct reference to a system SSH key path
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
 });
@@ -44,8 +66,16 @@ export const backupHistory = sqliteTable('backup_history', {
 });
 
 // Relations
-export const serversRelations = relations(servers, ({ many }) => ({
+export const serversRelations = relations(servers, ({ one, many }) => ({
   backupConfigs: many(backupConfigs),
+  sshKey: one(sshKeys, {
+    fields: [servers.sshKeyId],
+    references: [sshKeys.id],
+  }),
+}));
+
+export const sshKeysRelations = relations(sshKeys, ({ many }) => ({
+  servers: many(servers),
 }));
 
 export const backupConfigsRelations = relations(backupConfigs, ({ one, many }) => ({

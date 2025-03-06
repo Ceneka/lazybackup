@@ -1,24 +1,32 @@
-import { NextResponse } from 'next/server';
-import { initializeServer } from '@/lib/init';
+import { NextRequest, NextResponse } from 'next/server';
+import { db } from '@/lib/db';
+import { servers, backupConfigs, backupHistory } from '@/lib/db/schema';
+import { runMigration } from '@/lib/db/migrate';
+import { sql } from 'drizzle-orm';
 
-// GET /api/init - Initialize the server
-export async function GET() {
+// Initialize the database
+export async function GET(request: NextRequest) {
   try {
-    const result = await initializeServer();
+    // Run database migrations
+    await runMigration();
     
-    if (result.success) {
-      return NextResponse.json({ success: true, message: result.message });
-    } else {
-      console.error('Failed to initialize server:', result.message);
-      return NextResponse.json(
-        { success: false, error: result.message },
-        { status: 500 }
-      );
-    }
+    // Count tables to check if initialization is needed
+    const serversResult = await db.select({ count: sql`count(*)` }).from(servers);
+    const backupsResult = await db.select({ count: sql`count(*)` }).from(backupConfigs);
+    const historyResult = await db.select({ count: sql`count(*)` }).from(backupHistory);
+    
+    return NextResponse.json({
+      initialized: true,
+      counts: {
+        servers: Number(serversResult[0]?.count || 0),
+        backups: Number(backupsResult[0]?.count || 0),
+        history: Number(historyResult[0]?.count || 0),
+      }
+    });
   } catch (error) {
-    console.error('Unexpected error initializing server:', error);
+    console.error('Failed to initialize database:', error);
     return NextResponse.json(
-      { success: false, error: 'Unexpected error initializing server' },
+      { error: 'Failed to initialize database' },
       { status: 500 }
     );
   }

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { nanoid } from 'nanoid';
 import { db } from '@/lib/db';
-import { servers } from '@/lib/db/schema';
+import { servers, sshKeys } from '@/lib/db/schema';
 import { testConnection } from '@/lib/ssh';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
@@ -15,6 +15,8 @@ const serverSchema = z.object({
   authType: z.enum(['password', 'key']),
   password: z.string().optional(),
   privateKey: z.string().optional(),
+  sshKeyId: z.string().optional(),
+  systemKeyPath: z.string().optional(),
 });
 
 // GET /api/servers - List all servers
@@ -38,6 +40,31 @@ export async function POST(request: NextRequest) {
     
     // Validate the request body
     const validatedData = serverSchema.parse(body);
+    
+    // Validate authentication method
+    if (validatedData.authType === 'key') {
+      // Ensure at least one key method is provided
+      if (!validatedData.privateKey && !validatedData.sshKeyId && !validatedData.systemKeyPath) {
+        return NextResponse.json(
+          { error: 'When using key authentication, you must provide a private key, select a stored key, or specify a system key path' },
+          { status: 400 }
+        );
+      }
+      
+      // If using an SSH key from the database, validate that it exists
+      if (validatedData.sshKeyId) {
+        const keyExists = await db.query.sshKeys.findFirst({
+          where: eq(sshKeys.id, validatedData.sshKeyId),
+        });
+        
+        if (!keyExists) {
+          return NextResponse.json(
+            { error: 'Selected SSH key not found' },
+            { status: 400 }
+          );
+        }
+      }
+    }
     
     // Create a new server
     const newServer = {
@@ -79,6 +106,31 @@ export async function PUT(
     
     // Validate the request body
     const validatedData = serverSchema.parse(body);
+    
+    // Validate authentication method
+    if (validatedData.authType === 'key') {
+      // Ensure at least one key method is provided
+      if (!validatedData.privateKey && !validatedData.sshKeyId && !validatedData.systemKeyPath) {
+        return NextResponse.json(
+          { error: 'When using key authentication, you must provide a private key, select a stored key, or specify a system key path' },
+          { status: 400 }
+        );
+      }
+      
+      // If using an SSH key from the database, validate that it exists
+      if (validatedData.sshKeyId) {
+        const keyExists = await db.query.sshKeys.findFirst({
+          where: eq(sshKeys.id, validatedData.sshKeyId),
+        });
+        
+        if (!keyExists) {
+          return NextResponse.json(
+            { error: 'Selected SSH key not found' },
+            { status: 400 }
+          );
+        }
+      }
+    }
     
     // Update the server
     await db.update(servers)
