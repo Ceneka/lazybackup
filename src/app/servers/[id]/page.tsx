@@ -90,32 +90,6 @@ export default function ServerPage() {
           </Link>
           <h1 className="text-3xl font-bold">{server.name}</h1>
         </div>
-        <div className="flex space-x-2">
-          <Link
-            href={`/servers/${serverId}/edit`}
-            className="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-secondary text-secondary-foreground hover:bg-secondary/80 h-10 px-4 py-2"
-          >
-            <PencilIcon className="mr-2 h-4 w-4" />
-            Edit Server
-          </Link>
-          <button
-            onClick={handleDelete}
-            disabled={deleting}
-            className="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-destructive text-destructive-foreground hover:bg-destructive/90 h-10 px-4 py-2"
-          >
-            {deleting ? (
-              <>
-                <Loader2Icon className="mr-2 h-4 w-4 animate-spin" />
-                Deleting...
-              </>
-            ) : (
-              <>
-                <TrashIcon className="mr-2 h-4 w-4" />
-                Delete Server
-              </>
-            )}
-          </button>
-        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -144,6 +118,13 @@ export default function ServerPage() {
         <div className="p-6 rounded-lg border bg-card text-card-foreground shadow">
           <h2 className="text-xl font-semibold mb-4">Actions</h2>
           <div className="space-y-4">
+            <Link
+              href={`/servers/${serverId}/edit`}
+              className="flex items-center space-x-2 p-3 rounded-md bg-secondary hover:bg-secondary/80 transition-colors"
+            >
+              <PencilIcon className="h-5 w-5 mr-2" />
+              <span>Edit Server</span>
+            </Link>
             <Link 
               href={`/backups/new?serverId=${server.id}`}
               className="flex items-center space-x-2 p-3 rounded-md hover:bg-accent transition-colors"
@@ -158,6 +139,23 @@ export default function ServerPage() {
               <ServerIcon className="h-5 w-5" />
               <span>Test Connection</span>
             </Link>
+            <button
+              onClick={handleDelete}
+              disabled={deleting}
+              className="cursor-pointer flex w-full items-center space-x-2 p-3 rounded-md bg-destructive/10 text-destructive-foreground hover:bg-destructive/20 transition-colors"
+            >
+              {deleting ? (
+                <>
+                  <Loader2Icon className="h-5 w-5 mr-2" />
+                  <span>Deleting...</span>
+                </>
+              ) : (
+                <>
+                  <TrashIcon className="h-5 w-5 mr-2" />
+                  <span>Delete Server</span>
+                </>
+              )}
+            </button>
           </div>
         </div>
       </div>

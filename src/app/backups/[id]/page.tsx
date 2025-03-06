@@ -161,42 +161,6 @@ export default function BackupDetailPage() {
           </Link>
           <h1 className="text-3xl font-bold">{backup.name}</h1>
         </div>
-        <div className="flex space-x-2">
-          <button
-            onClick={handleRunBackup}
-            disabled={runBackupMutation.isPending}
-            className="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground hover:bg-primary/90 h-10 px-4 py-2"
-          >
-            {runBackupMutation.isPending ? (
-              <>
-                <Loader2Icon className="mr-2 h-4 w-4 animate-spin" />
-                Running...
-              </>
-            ) : (
-              <>
-                <PlayIcon className="mr-2 h-4 w-4" />
-                Run Now
-              </>
-            )}
-          </button>
-          <button
-            onClick={handleDelete}
-            disabled={deleteMutation.isPending}
-            className="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-destructive text-destructive-foreground hover:bg-destructive/90 h-10 px-4 py-2"
-          >
-            {deleteMutation.isPending ? (
-              <>
-                <Loader2Icon className="mr-2 h-4 w-4 animate-spin" />
-                Deleting...
-              </>
-            ) : (
-              <>
-                <TrashIcon className="mr-2 h-4 w-4" />
-                Delete
-              </>
-            )}
-          </button>
-        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -247,6 +211,23 @@ export default function BackupDetailPage() {
         <div className="p-6 rounded-lg border bg-card text-card-foreground shadow">
           <h2 className="text-xl font-semibold mb-4">Actions</h2>
           <div className="space-y-4">
+            <button
+              onClick={handleRunBackup}
+              disabled={runBackupMutation.isPending}
+              className="flex w-full items-center space-x-2 p-3 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+            >
+              {runBackupMutation.isPending ? (
+                <>
+                  <Loader2Icon className="h-5 w-5 mr-2" />
+                  <span>Running...</span>
+                </>
+              ) : (
+                <>
+                  <PlayIcon className="h-5 w-5 mr-2" />
+                  <span>Run Now</span>
+                </>
+              )}
+            </button>
             <Link 
               href={`/backups/${backup.id}/edit`}
               className="flex items-center space-x-2 p-3 rounded-md hover:bg-accent transition-colors"
@@ -268,6 +249,23 @@ export default function BackupDetailPage() {
               <ServerIcon className="h-5 w-5" />
               <span>View Server Details</span>
             </Link>
+            <button
+              onClick={handleDelete}
+              disabled={deleteMutation.isPending}
+              className="cursor-pointer flex w-full items-center space-x-2 p-3 rounded-md bg-destructive/10 text-destructive-foreground hover:bg-destructive/20 transition-colors"
+            >
+              {deleteMutation.isPending ? (
+                <>
+                  <Loader2Icon className="h-5 w-5 mr-2" />
+                  <span>Deleting...</span>
+                </>
+              ) : (
+                <>
+                  <TrashIcon className="h-5 w-5 mr-2" />
+                  <span>Delete</span>
+                </>
+              )}
+            </button>
           </div>
         </div>
       </div>
