@@ -65,8 +65,7 @@ export async function executeBackup(config: BackupConfigWithServer, historyId: s
       : [];
     
     // Generate timestamp for versioned backup
-    const now = new Date();
-    const timestamp = now.toISOString().replace(/[:\.]/g, '-').replace('T', '_').slice(0, 19);
+    const timestamp = dayjs().format('YYYY-MM-DD_HH-mm-ss');
     
     // Determine backup destination
     let backupDestination = config.destinationPath;
@@ -83,7 +82,6 @@ export async function executeBackup(config: BackupConfigWithServer, historyId: s
     
     // Check if versioning is enabled
     if (config.enableVersioning) {
-      const timestamp = dayjs().format('YYYY-MM-DD_HH-mm-ss');
       backupDestination = path.join(backupDestination, timestamp);
       
       // Create the destination directory if it doesn't exist
