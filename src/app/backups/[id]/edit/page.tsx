@@ -110,6 +110,10 @@ export default function EditBackupPage() {
         throw new Error(data.error || 'Failed to update backup configuration')
       }
 
+      // Invalidate queries
+      queryClient.invalidateQueries({ queryKey: ['backup', backupId] })
+      queryClient.invalidateQueries({ queryKey: ['backups'] })
+      
       toast.success('Backup configuration updated successfully')
       router.push(`/backups/${backupId}`)
     } catch (error) {

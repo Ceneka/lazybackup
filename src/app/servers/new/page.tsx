@@ -1,6 +1,7 @@
 "use client"
 
 import { SSHKey, useSSHKeys } from "@/lib/hooks/useSSHKeys"
+import { useQueryClient } from "@tanstack/react-query"
 import { ArrowLeftIcon, KeyIcon, Loader2Icon } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
@@ -9,6 +10,7 @@ import { toast } from "sonner"
 
 export default function NewServerPage() {
   const router = useRouter()
+  const queryClient = useQueryClient()
   const [loading, setLoading] = useState(false)
   const [authType, setAuthType] = useState<'password' | 'key'>('password')
   const { keys, allKeys, isSystemKey, getSystemKeyPath, isLoading: keysLoading } = useSSHKeys(true) // Include system keys
@@ -89,6 +91,9 @@ export default function NewServerPage() {
         throw new Error(data.error || 'Failed to create server')
       }
 
+      // Invalidate servers query cache
+      queryClient.invalidateQueries({ queryKey: ['servers'] })
+      
       toast.success('Server added successfully')
       router.push('/servers')
     } catch (error) {

@@ -21,13 +21,34 @@ interface Backup {
   excludePatterns?: string
 }
 
+// Formatter for cron expressions
+export const formatCronExpression = (cronExpression: string) => {
+  // This is a very simplified formatter - you might want to use a library like cron-parser
+  const parts = cronExpression.split(' ')
+  if (parts.length !== 5) return cronExpression
+  
+  // Very basic interpretation
+  if (parts[0] === '*' && parts[1] === '*' && parts[2] === '*') {
+    return 'Daily'
+  } else if (parts[2] === '*' && parts[4] === '*') {
+    return 'Hourly'
+  } else if (parts[2] === '*') {
+    return 'Daily'
+  } else if (parts[3] === '*') {
+    return 'Monthly'
+  } else {
+    return cronExpression
+  }
+}
+
 export default function BackupDetailPage() {
   const router = useRouter()
   const params = useParams()
   const backupId = params.id as string
   const queryClient = useQueryClient()
 
-  const { data: backup, isLoading, error } = useQuery<Backup>({
+  // Fetch backup data with useQuery
+  const { data: backup, isLoading: loading } = useQuery({
     queryKey: ['backup', backupId],
     queryFn: async () => {
       const response = await fetch(`/api/backups/${backupId}`)
@@ -36,7 +57,7 @@ export default function BackupDetailPage() {
         if (response.status === 404) {
           toast.error("Backup configuration not found")
           router.push("/backups")
-          return null as unknown as Backup
+          return null
         }
         throw new Error("Failed to fetch backup configuration")
       }
@@ -45,11 +66,7 @@ export default function BackupDetailPage() {
     }
   })
 
-  // Show error toast when query fails
-  if (error) {
-    toast.error("Failed to load backup details")
-  }
-
+  // Delete mutation
   const deleteMutation = useMutation({
     mutationFn: async () => {
       const response = await fetch(`/api/backups/${backupId}`, {
@@ -60,9 +77,11 @@ export default function BackupDetailPage() {
         throw new Error("Failed to delete backup configuration")
       }
 
-      return response.json()
+      return backupId
     },
     onSuccess: () => {
+      // Invalidate backups query cache
+      queryClient.invalidateQueries({ queryKey: ['backups'] })
       toast.success("Backup configuration deleted successfully")
       router.push("/backups")
     },
@@ -72,26 +91,27 @@ export default function BackupDetailPage() {
     }
   })
 
+  // Run backup mutation
   const runBackupMutation = useMutation({
     mutationFn: async () => {
       const response = await fetch(`/api/backups/${backupId}/run`, {
         method: "POST",
       })
 
-      const data = await response.json()
-
       if (!response.ok) {
-        throw new Error(data.error || "Failed to run backup")
+        throw new Error("Failed to start backup")
       }
 
-      return data
+      return backupId
     },
     onSuccess: () => {
+      // Invalidate history query cache
+      queryClient.invalidateQueries({ queryKey: ['history'] })
       toast.success("Backup started successfully")
     },
     onError: (error) => {
-      console.error("Error running backup:", error)
-      toast.error(error instanceof Error ? error.message : "Failed to run backup")
+      console.error("Error starting backup:", error)
+      toast.error("Failed to start backup")
     }
   })
 
@@ -99,7 +119,7 @@ export default function BackupDetailPage() {
     if (!confirm("Are you sure you want to delete this backup configuration? This action cannot be undone.")) {
       return
     }
-    
+
     deleteMutation.mutate()
   }
 
@@ -107,27 +127,15 @@ export default function BackupDetailPage() {
     runBackupMutation.mutate()
   }
 
-  // Function to format cron expression to human-readable format
   const formatSchedule = (cronExpression: string) => {
-    // This is a very simplified formatter - you might want to use a library like cron-parser
-    const parts = cronExpression.split(' ')
-    if (parts.length !== 5) return cronExpression
-    
-    // Very basic interpretation
-    if (parts[0] === '*' && parts[1] === '*' && parts[2] === '*') {
-      return 'Daily'
-    } else if (parts[2] === '*' && parts[4] === '*') {
-      return 'Hourly'
-    } else if (parts[2] === '*') {
-      return 'Daily'
-    } else if (parts[3] === '*') {
-      return 'Monthly'
-    } else {
+    try {
+      return formatCronExpression(cronExpression)
+    } catch (error) {
       return cronExpression
     }
   }
 
-  if (isLoading) {
+  if (loading) {
     return (
       <div className="flex justify-center items-center py-12">
         <Loader2Icon className="h-8 w-8 animate-spin text-muted-foreground" />

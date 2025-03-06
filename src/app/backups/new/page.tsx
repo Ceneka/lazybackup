@@ -71,6 +71,9 @@ function NewBackupForm() {
         throw new Error(data.error || 'Failed to create backup configuration')
       }
 
+      // Invalidate backups query cache
+      queryClient.invalidateQueries({ queryKey: ['backups'] })
+      
       toast.success('Backup configuration added successfully')
       router.push('/backups')
     } catch (error) {

@@ -1,6 +1,6 @@
 "use client"
 
-import { useQuery } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { ArrowLeftIcon, Loader2Icon, PencilIcon, ServerIcon, TrashIcon } from "lucide-react"
 import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
@@ -12,6 +12,7 @@ export default function ServerPage() {
   const params = useParams()
   const serverId = params.id as string
   const [deleting, setDeleting] = useState(false)
+  const queryClient = useQueryClient()
 
   // Fetch server data with useQuery
   const { data: server, isLoading: loading } = useQuery({
@@ -47,6 +48,9 @@ export default function ServerPage() {
         throw new Error("Failed to delete server")
       }
 
+      // Invalidate servers query cache
+      queryClient.invalidateQueries({ queryKey: ['servers'] })
+      
       toast.success("Server deleted successfully")
       router.push("/servers")
     } catch (error) {
