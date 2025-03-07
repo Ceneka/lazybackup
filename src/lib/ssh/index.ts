@@ -121,4 +121,57 @@ export async function testConnection(server: Server): Promise<{ success: boolean
       message: error instanceof Error ? error.message : 'Unknown error'
     };
   }
+}
+
+/**
+ * Test server connection and check if rsync is installed
+ * Returns information about the available backup methods
+ */
+export async function testServerBackupCapabilities(server: Server): Promise<{
+  success: boolean;
+  rsyncAvailable: boolean;
+  scpAvailable: boolean;
+  message?: string;
+}> {
+  try {
+    // First connect to the server
+    const ssh = await connectToServer(server);
+
+    // Check if rsync is available
+    const rsyncCheck = await ssh.execCommand('which rsync || echo "not_found"');
+    const isRsyncAvailable = !rsyncCheck.stdout.includes('not_found') && rsyncCheck.stderr === '';
+
+    // Check if scp is available (fallback method)
+    const scpCheck = await ssh.execCommand('which scp || echo "not_found"');
+    const isScpAvailable = !scpCheck.stdout.includes('not_found') && scpCheck.stderr === '';
+
+    // Get the server's OS info for display
+    const osInfo = await ssh.execCommand('uname -a');
+
+    ssh.dispose();
+
+    let message = "Connection successful. ";
+    if (isRsyncAvailable) {
+      message += "Rsync is available for optimal backups.";
+    } else if (isScpAvailable) {
+      message += "Rsync not found, but SCP is available for fallback backups.";
+    } else {
+      message += "Neither Rsync nor SCP found. Backups may not work correctly.";
+    }
+
+    return {
+      success: true,
+      rsyncAvailable: isRsyncAvailable,
+      scpAvailable: isScpAvailable,
+      message
+    };
+  } catch (error) {
+    console.error(`Backup capabilities test failed for server ${server.name}:`, error);
+    return {
+      success: false,
+      rsyncAvailable: false,
+      scpAvailable: false,
+      message: error instanceof Error ? error.message : 'Unknown error'
+    };
+  }
 } 

@@ -3,6 +3,7 @@ import { backupConfigs } from '@/lib/db/schema';
 import { buildRsyncCommand } from '@/lib/ssh/rsync';
 import dayjs from 'dayjs';
 import { eq } from 'drizzle-orm';
+import { Stats } from 'fs';
 import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
@@ -101,20 +102,96 @@ export async function executeBackup(config: BackupConfigWithServer, historyId: s
     // Keep the tilde for the remote path as it will be expanded on the server
     const remoteSource = `${config.server.username}@${config.server.host}:${remotePath}/`;
 
-    // Build the rsync command to pull data FROM the server TO the local machine using the utility
-    const rsyncCommand = buildRsyncCommand(remoteSource, backupDestination, excludePatterns);
+    // Check if rsync is available on the server
+    const rsyncCheckResult = await ssh.execCommand('which rsync || echo "not_found"');
+    const isRsyncAvailable = !rsyncCheckResult.stdout.includes('not_found') && rsyncCheckResult.stderr === '';
 
-    console.log(`Executing rsync command: ${rsyncCommand}`);
-
-    // run rsync from remote to local, use local exec
     const { exec } = require('child_process');
     const { promisify } = require('util');
     const execPromise = promisify(exec);
 
-    // Execute rsync locally to pull data from the remote server
-    const rsyncResult = await execPromise(rsyncCommand);
+    let backupResult;
+    let usedMethod = 'rsync';
 
-    console.log(`Backup completed for ${config.name}`);
+    if (isRsyncAvailable) {
+      // Use rsync if it's available
+      console.log('Using rsync for backup');
+
+      // Build the rsync command to pull data FROM the server TO the local machine using the utility
+      const rsyncCommand = buildRsyncCommand(remoteSource, backupDestination, excludePatterns);
+      console.log(`Executing rsync command: ${rsyncCommand}`);
+
+      // Execute rsync locally to pull data from the remote server
+      backupResult = await execPromise(rsyncCommand);
+    } else {
+      // Fall back to SCP if rsync is not available
+      console.log('Rsync not available on server, falling back to SCP');
+      usedMethod = 'scp';
+
+      // For SCP, we need to handle exclude patterns differently
+      // We'll use the SSH connection to list files while excluding the patterns, then download each file
+
+      // First, create a temporary script with the file list command
+      const findCommand = await buildFindCommand(remotePath, excludePatterns);
+
+      // Execute the find command to get a list of files
+      const fileListResult = await ssh.execCommand(findCommand);
+      const filesToCopy = fileListResult.stdout.split('\n').filter(Boolean);
+
+      console.log(`Found ${filesToCopy.length} files/directories to copy via SCP`);
+
+      // Use SCP to download all files
+      const scpPromises = [];
+      let transferredFiles = 0;
+      let totalSize = 0;
+
+      for (const filePath of filesToCopy) {
+        // For directories, we need to create them locally first
+        if (filePath.endsWith('/')) {
+          const localDirPath = path.join(backupDestination, filePath);
+          await fs.mkdir(localDirPath, { recursive: true });
+          continue;
+        }
+
+        // For files, use SCP to download
+        const relativeFilePath = filePath;
+        const remoteFilePath = path.join(remotePath, relativeFilePath);
+        const localFilePath = path.join(backupDestination, relativeFilePath);
+
+        // Create parent directory if it doesn't exist
+        await fs.mkdir(path.dirname(localFilePath), { recursive: true });
+
+        // Build SCP command
+        const scpCommand = `scp -P ${config.server.port} ${config.server.username}@${config.server.host}:"${remoteFilePath}" "${localFilePath}"`;
+
+        scpPromises.push(
+          execPromise(scpCommand)
+            .then(() => {
+              transferredFiles++;
+              return fs.stat(localFilePath);
+            })
+            .then((stats: Stats) => {
+              totalSize += stats.size;
+            })
+            .catch((err: Error) => {
+              console.error(`Error copying file ${remoteFilePath}:`, err);
+            })
+        );
+      }
+
+      // Wait for all SCP operations to complete
+      await Promise.all(scpPromises);
+
+      // Create a simulated result object similar to rsync output
+      const scpOutput = `SCP Backup Summary:
+Number of files: ${transferredFiles}
+Total file size: ${totalSize}
+Total transferred file size: ${totalSize}`;
+
+      backupResult = { stdout: scpOutput, stderr: '' };
+    }
+
+    console.log(`Backup completed for ${config.name} using ${usedMethod}`);
 
     // Clean up old versions if versioning is enabled
     if (config.enableVersioning && config.versionsToKeep) {
@@ -127,13 +204,13 @@ export async function executeBackup(config: BackupConfigWithServer, historyId: s
     }
 
     // Update backup history with success
-    const parsedOutput = parseRsyncOutput(rsyncResult.stdout);
+    const parsedOutput = parseRsyncOutput(backupResult.stdout);
 
     await updateBackupHistorySuccess(
       historyId,
       {
         ...parsedOutput,
-        logOutput: rsyncResult.stdout
+        logOutput: backupResult.stdout
       }
     );
 
@@ -148,6 +225,34 @@ export async function executeBackup(config: BackupConfigWithServer, historyId: s
   }
 }
 
+/**
+ * Builds a find command to list files on the remote server while respecting exclude patterns
+ */
+async function buildFindCommand(remotePath: string, excludePatterns: string[] = []): Promise<string> {
+  let findCommand = `find "${remotePath}" -type f -o -type d -name "."`;
+
+  // Add exclude patterns to the find command
+  if (excludePatterns.length > 0) {
+    const excludeExpressions = excludePatterns
+      .map(pattern => {
+        // Convert glob patterns to regex patterns for find
+        const regexPattern = pattern
+          .replace(/\./g, '\\.')
+          .replace(/\*/g, '.*')
+          .replace(/\?/g, '.');
+
+        return `-not -path "${remotePath}/${regexPattern}"`;
+      })
+      .join(' ');
+
+    findCommand += ` ${excludeExpressions}`;
+  }
+
+  // Print relative paths
+  findCommand += ` | sed -e "s|^${remotePath}/||"`;
+
+  return findCommand;
+}
 
 // Function to clean up old versions
 async function cleanupOldVersions(baseDir: string, versionsToKeep: number): Promise<void> {

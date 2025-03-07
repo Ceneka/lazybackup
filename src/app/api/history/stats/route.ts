@@ -76,8 +76,6 @@ export async function GET(request: NextRequest) {
         new Date(a.startTime).getTime() - new Date(b.startTime).getTime()
       );
 
-      // Ensure we have data for the chart
-      console.log(`Chart history data count: ${chartHistory.length}`);
     }
 
     return NextResponse.json({

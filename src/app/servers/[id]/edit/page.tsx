@@ -1,5 +1,7 @@
 "use client"
 
+import { Button } from '@/components/ui/button'
+import { useTestServerBackupCapabilities } from '@/lib/hooks/useServers'
 import { SSHKey, useSSHKeys } from "@/lib/hooks/useSSHKeys"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { ArrowLeftIcon, KeyIcon, Loader2Icon } from "lucide-react"
@@ -16,7 +18,11 @@ export default function EditServerPage() {
   const [loading, setLoading] = useState(false)
   const [authType, setAuthType] = useState<'password' | 'key'>('password')
   const { keys, allKeys, isSystemKey, getSystemKeyPath, isLoading: keysLoading } = useSSHKeys(true) // Include system keys
-  
+
+  const [testingBackup, setTestingBackup] = useState(false)
+
+  const backupTestQuery = useTestServerBackupCapabilities(serverId)
+
   const [formData, setFormData] = useState({
     name: '',
     host: '',
@@ -33,16 +39,18 @@ export default function EditServerPage() {
     queryKey: ['server', serverId],
     queryFn: async () => {
       const response = await fetch(`/api/servers/${serverId}`)
-      
+
       if (!response.ok) {
         if (response.status === 404) {
-          toast.error("Server not found")
+          toast.error("Server not found", {
+            description: "The server you're trying to edit doesn't exist or has been deleted.",
+          })
           router.push("/servers")
           return null
         }
         throw new Error("Failed to fetch server")
       }
-      
+
       return response.json()
     }
   })
@@ -75,7 +83,7 @@ export default function EditServerPage() {
   const handleAuthTypeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     setAuthType(e.target.value as 'password' | 'key')
   }
-  
+
   // When SSH key selection changes, clear the privateKey field and set the appropriate key data
   useEffect(() => {
     if (formData.sshKeyId) {
@@ -123,14 +131,11 @@ export default function EditServerPage() {
         body: JSON.stringify(payload),
       })
 
-      const data = await response.json()
-
       if (!response.ok) {
+        const data = await response.json()
         throw new Error(data.error || 'Failed to update server')
       }
 
-      // Invalidate server queries to refresh data
-      queryClient.invalidateQueries({ queryKey: ['server', serverId] })
       queryClient.invalidateQueries({ queryKey: ['servers'] })
 
       toast.success('Server updated successfully')
@@ -140,6 +145,33 @@ export default function EditServerPage() {
       toast.error(error instanceof Error ? error.message : 'Failed to update server')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleTestBackupCapabilities = async () => {
+    try {
+      setTestingBackup(true)
+      await backupTestQuery.refetch()
+
+      if (backupTestQuery.isSuccess) {
+        const data = backupTestQuery.data
+
+        if (data.success) {
+          if (data.rsyncAvailable) {
+            toast.success("Rsync is available for optimal backups.");
+          } else if (data.scpAvailable) {
+            toast.info("Rsync not found, but SCP is available as a fallback method.");
+          } else {
+            toast.error("Neither Rsync nor SCP found. Backups may not work correctly.");
+          }
+        } else {
+          toast.error(`Connection failed: ${data.message || "Failed to connect to server"}`);
+        }
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unknown error occurred");
+    } finally {
+      setTestingBackup(false)
     }
   }
 
@@ -156,8 +188,8 @@ export default function EditServerPage() {
       <div className="flex flex-col items-center justify-center py-12 text-center">
         <h3 className="text-lg font-medium">Server not found</h3>
         <p className="text-muted-foreground mt-2 mb-4">The server you're trying to edit doesn't exist or has been deleted.</p>
-        <Link 
-          href="/servers" 
+        <Link
+          href="/servers"
           className="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground hover:bg-primary/90 h-10 px-4 py-2"
         >
           Back to Servers
@@ -308,7 +340,7 @@ export default function EditServerPage() {
                                 ))}
                               </optgroup>
                             )}
-                            
+
                             {allKeys.filter(k => k.isSystemKey).length > 0 && (
                               <optgroup label="System Keys">
                                 {allKeys.filter(k => k.isSystemKey).map((key: SSHKey) => (
@@ -349,6 +381,24 @@ export default function EditServerPage() {
                   )}
                 </div>
               )}
+            </div>
+
+            <div className="flex space-x-4">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={testingBackup || loading}
+                onClick={handleTestBackupCapabilities}
+              >
+                {testingBackup ? (
+                  <>
+                    <Loader2Icon className="mr-2 h-4 w-4 animate-spin" />
+                    Testing Backup Capabilities...
+                  </>
+                ) : (
+                  <>Test Backup Capabilities</>
+                )}
+              </Button>
             </div>
 
             <div className="flex justify-end space-x-2">

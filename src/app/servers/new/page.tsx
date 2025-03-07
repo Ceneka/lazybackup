@@ -1,8 +1,10 @@
 "use client"
 
+import { Button } from "@/components/ui/button"
 import { SSHKey, useSSHKeys } from "@/lib/hooks/useSSHKeys"
+import { useTestNewServerBackupCapabilities } from "@/lib/hooks/useServers"
 import { useQueryClient } from "@tanstack/react-query"
-import { ArrowLeftIcon, KeyIcon, Loader2Icon } from "lucide-react"
+import { ArrowLeftIcon, CheckCircleIcon, KeyIcon, Loader2Icon, XCircleIcon } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
@@ -14,7 +16,8 @@ export default function NewServerPage() {
   const [loading, setLoading] = useState(false)
   const [authType, setAuthType] = useState<'password' | 'key'>('password')
   const { keys, allKeys, isSystemKey, getSystemKeyPath, isLoading: keysLoading } = useSSHKeys(true) // Include system keys
-  
+  const { testServer, isLoading: testingBackup, result: testResult } = useTestNewServerBackupCapabilities()
+
   const [formData, setFormData] = useState({
     name: '',
     host: '',
@@ -37,7 +40,7 @@ export default function NewServerPage() {
   const handleAuthTypeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     setAuthType(e.target.value as 'password' | 'key')
   }
-  
+
   // When SSH key selection changes, clear the privateKey field and set the appropriate key data
   useEffect(() => {
     if (formData.sshKeyId) {
@@ -93,7 +96,7 @@ export default function NewServerPage() {
 
       // Invalidate servers query cache
       queryClient.invalidateQueries({ queryKey: ['servers'] })
-      
+
       toast.success('Server added successfully')
       router.push('/servers')
     } catch (error) {
@@ -104,226 +107,294 @@ export default function NewServerPage() {
     }
   }
 
+  // Add a new function to test backup capabilities
+  const handleTestBackupCapabilities = async () => {
+    try {
+      // Prepare server data from form
+      const serverData = {
+        ...formData,
+        authType,
+        // Only include authentication data based on authType and selected key type
+        password: authType === 'password' ? formData.password : undefined,
+        privateKey: authType === 'key' && !formData.sshKeyId && !formData.systemKeyPath ? formData.privateKey : undefined,
+        sshKeyId: authType === 'key' && formData.sshKeyId ? formData.sshKeyId : undefined,
+        systemKeyPath: authType === 'key' && formData.systemKeyPath ? formData.systemKeyPath : undefined,
+      }
+
+      // Run the test
+      const result = await testServer(serverData)
+
+      if (result.success) {
+        if (result.rsyncAvailable) {
+          toast.success("Rsync is available for optimal backups.");
+        } else if (result.scpAvailable) {
+          toast.info("Rsync not found, but SCP is available as a fallback method.");
+        } else {
+          toast.error("Neither Rsync nor SCP found. Backups may not work correctly.");
+        }
+      } else {
+        toast.error(`Connection failed: ${result.message || "Failed to connect to server"}`);
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unknown error occurred");
+    }
+  }
+
   return (
-    <div className="space-y-6">
-      <div className="flex items-center space-x-2">
-        <Link href="/servers" className="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground h-10 w-10">
-          <ArrowLeftIcon className="h-4 w-4" />
-          <span className="sr-only">Back to servers</span>
-        </Link>
-        <h1 className="text-3xl font-bold">Add New Server</h1>
-      </div>
+    <div className="container mx-auto py-10">
+      <div className="space-y-6">
+        <div className="flex items-center space-x-2">
+          <Link href="/servers" className="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground h-10 w-10">
+            <ArrowLeftIcon className="h-4 w-4" />
+            <span className="sr-only">Back to servers</span>
+          </Link>
+          <h1 className="text-3xl font-bold">Add New Server</h1>
+        </div>
 
-      <div className="rounded-lg border bg-card text-card-foreground shadow">
-        <div className="p-6">
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="space-y-4">
-              <div>
-                <label htmlFor="name" className="block text-sm font-medium mb-2">
-                  Server Name
-                </label>
-                <input
-                  id="name"
-                  name="name"
-                  type="text"
-                  required
-                  value={formData.name}
-                  onChange={handleChange}
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                  placeholder="My Server"
-                />
-              </div>
-
-              <div>
-                <label htmlFor="host" className="block text-sm font-medium mb-2">
-                  Host
-                </label>
-                <input
-                  id="host"
-                  name="host"
-                  type="text"
-                  required
-                  value={formData.host}
-                  onChange={handleChange}
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                  placeholder="example.com or 192.168.1.1"
-                />
-              </div>
-
-              <div>
-                <label htmlFor="port" className="block text-sm font-medium mb-2">
-                  Port
-                </label>
-                <input
-                  id="port"
-                  name="port"
-                  type="number"
-                  required
-                  value={formData.port}
-                  onChange={handleChange}
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                  placeholder="22"
-                  min="1"
-                  max="65535"
-                />
-              </div>
-
-              <div>
-                <label htmlFor="username" className="block text-sm font-medium mb-2">
-                  Username
-                </label>
-                <input
-                  id="username"
-                  name="username"
-                  type="text"
-                  required
-                  value={formData.username}
-                  onChange={handleChange}
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                  placeholder="root"
-                />
-              </div>
-
-              <div>
-                <label htmlFor="authType" className="block text-sm font-medium mb-2">
-                  Authentication Type
-                </label>
-                <select
-                  id="authType"
-                  name="authType"
-                  value={authType}
-                  onChange={handleAuthTypeChange}
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <option value="password">Password</option>
-                  <option value="key">SSH Key</option>
-                </select>
-              </div>
-
-              {authType === 'password' ? (
+        <div className="rounded-lg border bg-card text-card-foreground shadow">
+          <div className="p-6">
+            <form onSubmit={handleSubmit} className="space-y-6">
+              <div className="space-y-4">
                 <div>
-                  <label htmlFor="password" className="block text-sm font-medium mb-2">
-                    Password
+                  <label htmlFor="name" className="block text-sm font-medium mb-2">
+                    Server Name
                   </label>
                   <input
-                    id="password"
-                    name="password"
-                    type="password"
-                    required={authType === 'password'}
-                    value={formData.password}
+                    id="name"
+                    name="name"
+                    type="text"
+                    required
+                    value={formData.name}
                     onChange={handleChange}
                     className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                    placeholder="Enter password"
+                    placeholder="My Server"
                   />
                 </div>
-              ) : (
-                <div className="space-y-4">
+
+                <div>
+                  <label htmlFor="host" className="block text-sm font-medium mb-2">
+                    Host
+                  </label>
+                  <input
+                    id="host"
+                    name="host"
+                    type="text"
+                    required
+                    value={formData.host}
+                    onChange={handleChange}
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                    placeholder="example.com or 192.168.1.1"
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="port" className="block text-sm font-medium mb-2">
+                    Port
+                  </label>
+                  <input
+                    id="port"
+                    name="port"
+                    type="number"
+                    required
+                    value={formData.port}
+                    onChange={handleChange}
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                    placeholder="22"
+                    min="1"
+                    max="65535"
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="username" className="block text-sm font-medium mb-2">
+                    Username
+                  </label>
+                  <input
+                    id="username"
+                    name="username"
+                    type="text"
+                    required
+                    value={formData.username}
+                    onChange={handleChange}
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                    placeholder="root"
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="authType" className="block text-sm font-medium mb-2">
+                    Authentication Type
+                  </label>
+                  <select
+                    id="authType"
+                    name="authType"
+                    value={authType}
+                    onChange={handleAuthTypeChange}
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <option value="password">Password</option>
+                    <option value="key">SSH Key</option>
+                  </select>
+                </div>
+
+                {authType === 'password' ? (
                   <div>
-                    <label htmlFor="sshKeyId" className="block text-sm font-medium mb-2">
-                      Select SSH Key
+                    <label htmlFor="password" className="block text-sm font-medium mb-2">
+                      Password
                     </label>
-                    <div className="flex items-center space-x-2">
-                      <select
-                        id="sshKeyId"
-                        name="sshKeyId"
-                        value={formData.sshKeyId}
-                        onChange={handleChange}
-                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        <option value="">-- Enter key manually or select below --</option>
-                        {keysLoading ? (
-                          <option disabled>Loading keys...</option>
-                        ) : allKeys.length === 0 ? (
-                          <option disabled>No SSH keys available</option>
-                        ) : (
-                          <>
-                            {keys.length > 0 && (
-                              <optgroup label="Database Keys">
-                                {keys.map((key: SSHKey) => (
-                                  <option key={key.id} value={key.id}>
-                                    [DB] {key.name} {key.privateKeyPath ? `(${key.privateKeyPath})` : ''}
-                                  </option>
-                                ))}
-                              </optgroup>
-                            )}
-                            
-                            {allKeys.filter(k => k.isSystemKey).length > 0 && (
-                              <optgroup label="System Keys">
-                                {allKeys.filter(k => k.isSystemKey).map((key: SSHKey) => (
-                                  <option key={key.id} value={key.id}>
-                                    [System] {key.name} ({key.privateKeyPath})
-                                  </option>
-                                ))}
-                              </optgroup>
-                            )}
-                          </>
-                        )}
-                      </select>
-                      <Link
-                        href="/settings?tab=ssh-keys"
-                        className="inline-flex h-10 items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground ring-offset-background transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50"
-                      >
-                        <KeyIcon className="mr-2 h-4 w-4" />
-                        Manage
-                      </Link>
+                    <input
+                      id="password"
+                      name="password"
+                      type="password"
+                      required={authType === 'password'}
+                      value={formData.password}
+                      onChange={handleChange}
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                      placeholder="Enter password"
+                    />
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <div>
+                      <label htmlFor="sshKeyId" className="block text-sm font-medium mb-2">
+                        Select SSH Key
+                      </label>
+                      <div className="flex items-center space-x-2">
+                        <select
+                          id="sshKeyId"
+                          name="sshKeyId"
+                          value={formData.sshKeyId}
+                          onChange={handleChange}
+                          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <option value="">-- Enter key manually or select below --</option>
+                          {keysLoading ? (
+                            <option disabled>Loading keys...</option>
+                          ) : allKeys.length === 0 ? (
+                            <option disabled>No SSH keys available</option>
+                          ) : (
+                            <>
+                              {keys.length > 0 && (
+                                <optgroup label="Database Keys">
+                                  {keys.map((key: SSHKey) => (
+                                    <option key={key.id} value={key.id}>
+                                      [DB] {key.name} {key.privateKeyPath ? `(${key.privateKeyPath})` : ''}
+                                    </option>
+                                  ))}
+                                </optgroup>
+                              )}
+
+                              {allKeys.filter(k => k.isSystemKey).length > 0 && (
+                                <optgroup label="System Keys">
+                                  {allKeys.filter(k => k.isSystemKey).map((key: SSHKey) => (
+                                    <option key={key.id} value={key.id}>
+                                      [System] {key.name} ({key.privateKeyPath})
+                                    </option>
+                                  ))}
+                                </optgroup>
+                              )}
+                            </>
+                          )}
+                        </select>
+                        <Link
+                          href="/settings?tab=ssh-keys"
+                          className="inline-flex h-10 items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground ring-offset-background transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50"
+                        >
+                          <KeyIcon className="mr-2 h-4 w-4" />
+                          Manage
+                        </Link>
+                      </div>
+
+                      {formData.systemKeyPath && (
+                        <p className="text-sm text-muted-foreground mt-1">
+                          Using system key: {formData.systemKeyPath}
+                        </p>
+                      )}
+
+                      {!keysLoading && allKeys.length === 0 && (
+                        <p className="text-sm text-muted-foreground mt-1">
+                          No SSH keys found. You can add keys in the settings page or enter a key manually below.
+                        </p>
+                      )}
                     </div>
-                    
-                    {formData.systemKeyPath && (
-                      <p className="text-sm text-muted-foreground mt-1">
-                        Using system key: {formData.systemKeyPath}
-                      </p>
-                    )}
-                    
-                    {!keysLoading && allKeys.length === 0 && (
-                      <p className="text-sm text-muted-foreground mt-1">
-                        No SSH keys found. You can add keys in the settings page or enter a key manually below.
-                      </p>
+
+                    {!formData.sshKeyId && !formData.systemKeyPath && (
+                      <div>
+                        <label htmlFor="privateKey" className="block text-sm font-medium mb-2">
+                          Private Key
+                        </label>
+                        <textarea
+                          id="privateKey"
+                          name="privateKey"
+                          required={authType === 'key' && !formData.sshKeyId && !formData.systemKeyPath}
+                          value={formData.privateKey}
+                          onChange={handleChange}
+                          className="flex min-h-[120px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                          placeholder="Paste your private key here"
+                        />
+                      </div>
                     )}
                   </div>
-                  
-                  {!formData.sshKeyId && !formData.systemKeyPath && (
-                    <div>
-                      <label htmlFor="privateKey" className="block text-sm font-medium mb-2">
-                        Private Key
-                      </label>
-                      <textarea
-                        id="privateKey"
-                        name="privateKey"
-                        required={authType === 'key' && !formData.sshKeyId && !formData.systemKeyPath}
-                        value={formData.privateKey}
-                        onChange={handleChange}
-                        className="flex min-h-[120px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                        placeholder="Paste your private key here"
-                      />
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-
-            <div className="flex justify-end space-x-4">
-              <Link
-                href="/servers"
-                className="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-10 px-4 py-2"
-              >
-                Cancel
-              </Link>
-              <button
-                type="submit"
-                disabled={loading}
-                className="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground hover:bg-primary/90 h-10 px-4 py-2"
-              >
-                {loading ? (
-                  <>
-                    <Loader2Icon className="mr-2 h-4 w-4 animate-spin" />
-                    Adding...
-                  </>
-                ) : (
-                  'Add Server'
                 )}
-              </button>
-            </div>
-          </form>
+              </div>
+
+              {/* Add the Test Backup Capabilities Button after the form fields, before the submit button */}
+              <div className="flex space-x-4">
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={testingBackup || loading}
+                  onClick={handleTestBackupCapabilities}
+                >
+                  {testingBackup ? (
+                    <>
+                      <Loader2Icon className="mr-2 h-4 w-4 animate-spin" />
+                      Testing Backup Capabilities...
+                    </>
+                  ) : (
+                    <>Test Backup Capabilities</>
+                  )}
+                </Button>
+
+                {testResult && testResult.success && (
+                  <div className="flex items-center text-sm">
+                    {testResult.rsyncAvailable ? (
+                      <div className="flex items-center text-green-600">
+                        <CheckCircleIcon className="mr-1 h-4 w-4" />
+                        Rsync Available
+                      </div>
+                    ) : testResult.scpAvailable ? (
+                      <div className="flex items-center text-yellow-600">
+                        <CheckCircleIcon className="mr-1 h-4 w-4" />
+                        SCP Fallback Available
+                      </div>
+                    ) : (
+                      <div className="flex items-center text-red-600">
+                        <XCircleIcon className="mr-1 h-4 w-4" />
+                        No Backup Tools Found
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex justify-end space-x-4">
+                <Button type="button" variant="outline" onClick={() => router.push('/servers')}>
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={loading}>
+                  {loading ? (
+                    <>
+                      <Loader2Icon className="mr-2 h-4 w-4 animate-spin" />
+                      Adding...
+                    </>
+                  ) : (
+                    'Add Server'
+                  )}
+                </Button>
+              </div>
+            </form>
+          </div>
         </div>
       </div>
     </div>
