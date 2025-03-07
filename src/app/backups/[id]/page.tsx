@@ -22,6 +22,7 @@ interface Backup {
   schedule: string
   enabled: boolean
   excludePatterns?: string
+  preBackupCommands?: string
 }
 
 // Formatter for cron expressions
@@ -29,7 +30,7 @@ const formatCronExpression = (cronExpression: string) => {
   // This is a very simplified formatter - you might want to use a library like cron-parser
   const parts = cronExpression.split(' ')
   if (parts.length !== 5) return cronExpression
-  
+
   // Very basic interpretation
   if (parts[0] === '*' && parts[1] === '*' && parts[2] === '*') {
     return 'Daily'
@@ -55,7 +56,7 @@ export default function BackupDetailPage() {
     queryKey: ['backup', backupId],
     queryFn: async () => {
       const response = await fetch(`/api/backups/${backupId}`)
-      
+
       if (!response.ok) {
         if (response.status === 404) {
           toast.error("Backup configuration not found")
@@ -64,7 +65,7 @@ export default function BackupDetailPage() {
         }
         throw new Error("Failed to fetch backup configuration")
       }
-      
+
       return response.json()
     }
   })
@@ -143,8 +144,8 @@ export default function BackupDetailPage() {
             <span className="sr-only">Back to backups</span>
           </Link>
           <h1 className="text-3xl font-bold">
-            <QueryState 
-              query={query} 
+            <QueryState
+              query={query}
               dataLabel="backup configuration"
               errorIcon={<FolderIcon className="h-12 w-12 text-red-500" />}
               emptyIcon={<FolderIcon className="h-12 w-12 text-muted-foreground" />}
@@ -158,8 +159,8 @@ export default function BackupDetailPage() {
         </div>
       </div>
 
-      <QueryState 
-        query={query} 
+      <QueryState
+        query={query}
         dataLabel="backup configuration"
         errorIcon={<FolderIcon className="h-12 w-12 text-red-500" />}
         emptyIcon={<FolderIcon className="h-12 w-12 text-muted-foreground" />}
@@ -209,6 +210,14 @@ export default function BackupDetailPage() {
                     </dd>
                   </div>
                 )}
+                {query.data.preBackupCommands && (
+                  <div>
+                    <dt className="text-sm font-medium text-muted-foreground">Pre-Backup Commands</dt>
+                    <dd className="text-sm font-mono bg-gray-100 p-2 rounded mt-1 whitespace-pre-wrap">
+                      {query.data.preBackupCommands}
+                    </dd>
+                  </div>
+                )}
               </dl>
             </div>
 
@@ -224,22 +233,22 @@ export default function BackupDetailPage() {
                   <PlayIcon className="h-5 w-5 mr-2" />
                   <span>Run Now</span>
                 </LoadingButton>
-                
-                <Link 
+
+                <Link
                   href={`/backups/${query.data.id}/edit`}
                   className="flex items-center space-x-2 p-3 rounded-md hover:bg-accent transition-colors"
                 >
                   <FolderIcon className="h-5 w-5" />
                   <span>Edit Backup Configuration</span>
                 </Link>
-                <Link 
+                <Link
                   href={`/history?backupId=${query.data.id}`}
                   className="flex items-center space-x-2 p-3 rounded-md hover:bg-accent transition-colors"
                 >
                   <CalendarIcon className="h-5 w-5" />
                   <span>View Backup History</span>
                 </Link>
-                <Link 
+                <Link
                   href={`/servers/${query.data.serverId}`}
                   className="flex items-center space-x-2 p-3 rounded-md hover:bg-accent transition-colors"
                 >

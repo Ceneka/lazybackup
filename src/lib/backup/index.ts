@@ -19,6 +19,7 @@ type BackupConfigWithServer = {
   destinationPath: string;
   schedule: string;
   excludePatterns?: string | null;
+  preBackupCommands?: string | null;
   enabled: boolean;
   enableVersioning: boolean;
   versionsToKeep?: number | null;
@@ -63,6 +64,25 @@ export async function executeBackup(config: BackupConfigWithServer, historyId: s
 
     // Connect to the server using the comprehensive connection function
     const ssh = await connectToServer(serverConfig);
+
+    // Run pre-backup commands if specified
+    if (config.preBackupCommands && config.preBackupCommands.trim()) {
+      console.log(`Running pre-backup commands for ${config.name}`);
+      const commands = config.preBackupCommands.split('\n').filter(Boolean);
+
+      for (const command of commands) {
+        console.log(`Executing command: ${command}`);
+        const result = await ssh.execCommand(command);
+
+        if (result.stderr) {
+          console.warn(`Command produced warnings/errors: ${result.stderr}`);
+        }
+
+        console.log(`Command output: ${result.stdout || 'No output'}`);
+      }
+
+      console.log(`Completed pre-backup commands for ${config.name}`);
+    }
 
     // Parse exclude patterns
     const excludePatterns = config.excludePatterns
@@ -139,6 +159,11 @@ export async function executeBackup(config: BackupConfigWithServer, historyId: s
       const filesToCopy = fileListResult.stdout.split('\n').filter(Boolean);
 
       console.log(`Found ${filesToCopy.length} files/directories to copy via SCP`);
+
+      if (filesToCopy.length === 0) {
+        console.log('No files to copy, skipping backup');
+        return;
+      }
 
       // Use SCP to download all files
       const scpPromises = [];

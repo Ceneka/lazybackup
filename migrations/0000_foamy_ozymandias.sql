@@ -6,6 +6,7 @@ CREATE TABLE `backup_configs` (
 	`destination_path` text NOT NULL,
 	`schedule` text NOT NULL,
 	`exclude_patterns` text,
+	`pre_backup_commands` text,
 	`enabled` integer DEFAULT true NOT NULL,
 	`created_at` integer DEFAULT (unixepoch()) NOT NULL,
 	`updated_at` integer DEFAULT (unixepoch()) NOT NULL,

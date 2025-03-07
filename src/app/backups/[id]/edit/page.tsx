@@ -16,7 +16,7 @@ export default function EditBackupPage() {
   const backupId = params.id as string
   const queryClient = useQueryClient()
   const [saving, setSaving] = useState(false)
-  
+
   const [formData, setFormData] = useState({
     serverId: '',
     name: '',
@@ -24,6 +24,7 @@ export default function EditBackupPage() {
     destinationPath: '',
     schedule: '',
     excludePatterns: '',
+    preBackupCommands: '',
     enabled: true,
     enableVersioning: false,
     versionsToKeep: 5,
@@ -34,7 +35,7 @@ export default function EditBackupPage() {
     queryKey: ['backup', backupId],
     queryFn: async () => {
       const response = await fetch(`/api/backups/${backupId}`)
-      
+
       if (!response.ok) {
         if (response.status === 404) {
           toast.error("Backup configuration not found")
@@ -43,7 +44,7 @@ export default function EditBackupPage() {
         }
         throw new Error("Failed to fetch backup configuration")
       }
-      
+
       return response.json()
     },
     staleTime: 1000 * 60 * 5, // Cache for 5 minutes
@@ -56,11 +57,11 @@ export default function EditBackupPage() {
     queryKey: ['servers'],
     queryFn: async () => {
       const response = await fetch('/api/servers')
-      
+
       if (!response.ok) {
         throw new Error("Failed to fetch servers")
       }
-      
+
       return response.json()
     },
     staleTime: 1000 * 60 * 5 // Cache for 5 minutes
@@ -76,6 +77,7 @@ export default function EditBackupPage() {
         destinationPath: backupQuery.data.destinationPath || '',
         schedule: backupQuery.data.schedule || '',
         excludePatterns: backupQuery.data.excludePatterns || '',
+        preBackupCommands: backupQuery.data.preBackupCommands || '',
         enabled: backupQuery.data.enabled !== undefined ? backupQuery.data.enabled : true,
         enableVersioning: backupQuery.data.enableVersioning || false,
         versionsToKeep: backupQuery.data.versionsToKeep || 5,
@@ -102,7 +104,7 @@ export default function EditBackupPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setSaving(true)
-    
+
     try {
       const response = await fetch(`/api/backups/${backupId}`, {
         method: 'PUT',
@@ -111,17 +113,17 @@ export default function EditBackupPage() {
         },
         body: JSON.stringify(formData),
       })
-      
+
       const data = await response.json()
-      
+
       if (!response.ok) {
         throw new Error(data.error || 'Failed to update backup configuration')
       }
-      
+
       // Invalidate backup queries
       queryClient.invalidateQueries({ queryKey: ['backups'] })
       queryClient.invalidateQueries({ queryKey: ['backup', backupId] })
-      
+
       toast.success('Backup configuration updated successfully')
       router.push(`/backups/${backupId}`)
     } catch (error) {
@@ -142,8 +144,8 @@ export default function EditBackupPage() {
         <h1 className="text-3xl font-bold">Edit Backup</h1>
       </div>
 
-      <QueryState 
-        query={{ 
+      <QueryState
+        query={{
           isLoading: backupQuery.isLoading || serversQuery.isLoading,
           data: { backup: backupQuery.data, servers: serversQuery.data },
           isError: backupQuery.isError || serversQuery.isError,
@@ -180,7 +182,7 @@ export default function EditBackupPage() {
                       ))}
                     </select>
                   </div>
-                  
+
                   <div>
                     <label htmlFor="name" className="block text-sm font-medium mb-2">
                       Backup Name
@@ -196,7 +198,7 @@ export default function EditBackupPage() {
                       className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                     />
                   </div>
-                  
+
                   <div>
                     <label htmlFor="sourcePath" className="block text-sm font-medium mb-2">
                       Source Path
@@ -212,7 +214,7 @@ export default function EditBackupPage() {
                       className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                     />
                   </div>
-                  
+
                   <div>
                     <label htmlFor="destinationPath" className="block text-sm font-medium mb-2">
                       Destination Path
@@ -228,7 +230,7 @@ export default function EditBackupPage() {
                       className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                     />
                   </div>
-                  
+
                   <div>
                     <label htmlFor="schedule" className="block text-sm font-medium mb-2">
                       Schedule (Cron Expression)
@@ -247,31 +249,48 @@ export default function EditBackupPage() {
                       Example: <code>0 0 * * *</code> for daily at midnight, <code>0 * * * *</code> for hourly
                     </p>
                   </div>
-                  
-                  <div>
-                    <label htmlFor="excludePatterns" className="block text-sm font-medium mb-2">
-                      Exclude Patterns (Optional)
+
+                  <div className="mb-4">
+                    <label htmlFor="excludePatterns" className="block text-sm font-medium mb-1">
+                      Exclude Patterns
                     </label>
                     <textarea
                       id="excludePatterns"
                       name="excludePatterns"
                       value={formData.excludePatterns}
                       onChange={handleChange}
-                      placeholder="*.log\ntmp/*"
-                      className="flex min-h-24 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                      placeholder="Enter patterns to exclude, one per line"
+                      className="w-full min-h-[100px] p-2 border rounded"
                     />
-                    <p className="text-xs text-muted-foreground mt-1">
-                      One pattern per line, glob patterns supported
+                    <p className="text-sm text-muted-foreground mt-1">
+                      Enter patterns to exclude, one per line (e.g., *.log, tmp/*)
                     </p>
                   </div>
-                  
+
+                  <div className="mb-4">
+                    <label htmlFor="preBackupCommands" className="block text-sm font-medium mb-1">
+                      Pre-Backup Commands
+                    </label>
+                    <textarea
+                      id="preBackupCommands"
+                      name="preBackupCommands"
+                      value={formData.preBackupCommands}
+                      onChange={handleChange}
+                      placeholder="Enter commands to run before backup, one per line"
+                      className="w-full min-h-[100px] p-2 border rounded"
+                    />
+                    <p className="text-sm text-muted-foreground mt-1">
+                      Enter commands to run on the remote server before backup starts, one per line
+                    </p>
+                  </div>
+
                   <div className="flex items-center space-x-2">
                     <input
                       type="checkbox"
                       id="enabled"
                       name="enabled"
                       checked={formData.enabled}
-                      onChange={(e) => setFormData({...formData, enabled: e.target.checked})}
+                      onChange={(e) => setFormData({ ...formData, enabled: e.target.checked })}
                       className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
                     />
                     <label htmlFor="enabled" className="text-sm font-medium">

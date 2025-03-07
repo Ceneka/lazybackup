@@ -13,6 +13,7 @@ const backupConfigSchema = z.object({
   destinationPath: z.string().min(1, 'Destination path is required'),
   schedule: z.string().min(1, 'Schedule is required'),
   excludePatterns: z.string().optional(),
+  preBackupCommands: z.string().optional(),
   enabled: z.boolean().default(true),
   enableVersioning: z.boolean().default(false),
   versionsToKeep: z.number().min(1).max(100).optional().default(5),
@@ -24,7 +25,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  
+
   try {
     // Get the backup configuration
     const config = await db.query.backupConfigs.findFirst({
@@ -33,14 +34,14 @@ export async function GET(
         server: true,
       },
     });
-    
+
     if (!config) {
       return NextResponse.json(
         { error: 'Backup configuration not found' },
         { status: 404 }
       );
     }
-    
+
     return NextResponse.json(config);
   } catch (error) {
     console.error('Failed to fetch backup configuration:', error);
@@ -57,16 +58,16 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  
+
   try {
     const body = await request.json();
-    
+
     // Validate the request body
     const validatedData = backupConfigSchema.parse(body);
 
     // First stop any existing cron job
     stopBackup(id);
-    
+
     // Update the backup configuration
     await db.update(backupConfigs)
       .set({
@@ -74,7 +75,7 @@ export async function PUT(
         updatedAt: new Date(),
       })
       .where(eq(backupConfigs.id, id));
-    
+
     // Get the updated configuration with server details
     const updatedConfig = await db.query.backupConfigs.findFirst({
       where: eq(backupConfigs.id, id),
@@ -82,30 +83,30 @@ export async function PUT(
         server: true,
       },
     });
-    
+
     if (!updatedConfig) {
       return NextResponse.json(
         { error: 'Backup configuration not found' },
         { status: 404 }
       );
     }
-    
+
     // Reschedule the backup if enabled
     if (updatedConfig.enabled) {
       scheduleBackup(updatedConfig);
     }
-    
+
     return NextResponse.json(updatedConfig);
   } catch (error) {
     console.error('Failed to update backup configuration:', error);
-    
+
     if (error instanceof z.ZodError) {
       return NextResponse.json(
         { error: 'Validation error', details: error.errors },
         { status: 400 }
       );
     }
-    
+
     return NextResponse.json(
       { error: 'Failed to update backup configuration' },
       { status: 500 }
@@ -119,14 +120,14 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  
+
   try {
     // First stop any existing cron job
     stopBackup(id);
-    
+
     // Delete the backup configuration
     await db.delete(backupConfigs).where(eq(backupConfigs.id, id));
-    
+
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Failed to delete backup configuration:', error);

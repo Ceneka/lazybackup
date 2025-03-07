@@ -14,7 +14,7 @@ function NewBackupForm() {
   const searchParams = useSearchParams()
   const queryClient = useQueryClient()
   const [saving, setSaving] = useState(false)
-  
+
   const [formData, setFormData] = useState({
     serverId: searchParams.get('serverId') || '',
     name: '',
@@ -22,6 +22,7 @@ function NewBackupForm() {
     destinationPath: '',
     schedule: '0 0 * * *', // Default: daily at midnight
     excludePatterns: '',
+    preBackupCommands: '',
     enabled: true,
     enableVersioning: false,
     versionsToKeep: 5,
@@ -32,22 +33,22 @@ function NewBackupForm() {
     queryKey: ['servers'],
     queryFn: async () => {
       const response = await fetch('/api/servers')
-      
+
       if (!response.ok) {
         throw new Error("Failed to fetch servers")
       }
-      
+
       return response.json()
     }
   })
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target
-    
+
     setFormData(prev => ({
       ...prev,
-      [name]: type === 'checkbox' 
-        ? (e.target as HTMLInputElement).checked 
+      [name]: type === 'checkbox'
+        ? (e.target as HTMLInputElement).checked
         : value
     }))
   }
@@ -73,7 +74,7 @@ function NewBackupForm() {
 
       // Invalidate backups query cache
       queryClient.invalidateQueries({ queryKey: ['backups'] })
-      
+
       toast.success('Backup configuration added successfully')
       router.push('/backups')
     } catch (error) {
@@ -105,8 +106,8 @@ function NewBackupForm() {
               <ServerIcon className="h-12 w-12 text-muted-foreground mb-4" />
               <h3 className="text-lg font-medium">No servers found</h3>
               <p className="text-muted-foreground mt-2 mb-4">You need to add a server before creating a backup configuration.</p>
-              <Link 
-                href="/servers/new" 
+              <Link
+                href="/servers/new"
                 className="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground hover:bg-primary/90 h-10 px-4 py-2"
               >
                 <ServerIcon className="mr-2 h-4 w-4" />
@@ -204,20 +205,37 @@ function NewBackupForm() {
                   </p>
                 </div>
 
-                <div>
-                  <label htmlFor="excludePatterns" className="block text-sm font-medium mb-2">
-                    Exclude Patterns (Optional)
+                <div className="mb-4">
+                  <label htmlFor="excludePatterns" className="block text-sm font-medium mb-1">
+                    Exclude Patterns
                   </label>
                   <textarea
                     id="excludePatterns"
                     name="excludePatterns"
                     value={formData.excludePatterns}
                     onChange={handleChange}
-                    className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                    placeholder="*.log\ntmp/*\n.git/"
+                    placeholder="Enter patterns to exclude, one per line"
+                    className="w-full min-h-[100px] p-2 border rounded"
                   />
-                  <p className="text-xs text-muted-foreground mt-1">
-                    One pattern per line. These files/directories will be excluded from the backup.
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Enter patterns to exclude, one per line (e.g., *.log, tmp/*)
+                  </p>
+                </div>
+
+                <div className="mb-4">
+                  <label htmlFor="preBackupCommands" className="block text-sm font-medium mb-1">
+                    Pre-Backup Commands
+                  </label>
+                  <textarea
+                    id="preBackupCommands"
+                    name="preBackupCommands"
+                    value={formData.preBackupCommands}
+                    onChange={handleChange}
+                    placeholder="Enter commands to run before backup, one per line"
+                    className="w-full min-h-[100px] p-2 border rounded"
+                  />
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Enter commands to run on the remote server before backup starts, one per line
                   </p>
                 </div>
 

@@ -46,6 +46,7 @@ export const backupConfigs = sqliteTable('backup_configs', {
   destinationPath: text('destination_path').notNull(),
   schedule: text('schedule').notNull(), // Cron expression
   excludePatterns: text('exclude_patterns'), // JSON string of patterns to exclude
+  preBackupCommands: text('pre_backup_commands'), // Commands to run before backup starts
   enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
   enableVersioning: integer('enable_versioning', { mode: 'boolean' }).notNull().default(false),
   versionsToKeep: integer('versions_to_keep').default(5),
