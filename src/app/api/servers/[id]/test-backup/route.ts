@@ -6,10 +6,10 @@ import { NextRequest, NextResponse } from 'next/server';
 // GET /api/servers/:id/test-backup - Test server backup capabilities
 export async function GET(
     request: NextRequest,
-    { params }: { params: { id: string } }
+    { params }: { params: Promise<{ id: string }> }
 ) {
     try {
-        const { id } = params;
+        const { id } = await params;
 
         // Get the server
         const server = await db.query.servers.findFirst({

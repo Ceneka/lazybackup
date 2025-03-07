@@ -162,7 +162,7 @@ export async function executeBackup(config: BackupConfigWithServer, historyId: s
 
       if (filesToCopy.length === 0) {
         console.log('No files to copy, skipping backup');
-        return;
+        throw new Error('No files to copy, skipping backup');
       }
 
       // Use SCP to download all files

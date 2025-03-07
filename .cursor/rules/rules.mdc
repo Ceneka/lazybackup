@@ -1,5 +1,10 @@
 ---
 description: general
-globs: *.tsx, *.json
+globs: *
 ---
-useQuery its setted up
+- the project uses bun as package manager
+- nextjs 15 instalation with shadcn/ui
+- typescript, tailwind and useQuery are installed
+- DRY if possible
+- give the best posible solution, not all of them
+- useQuery its setted up

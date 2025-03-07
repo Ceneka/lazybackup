@@ -5,8 +5,8 @@ export async function register() {
     console.error('❌ Not server environment');
   }
 
-  const { runMigration } = await import('./src/lib/db/migrate');
-  const { initializeScheduler } = await import('./src/lib/scheduler');
+  const { runMigration } = await import('./lib/db/migrate');
+  const { initializeScheduler } = await import('./lib/scheduler');
 
 
   try {

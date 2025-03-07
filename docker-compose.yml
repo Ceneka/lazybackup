@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  nextjs-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: nextjs-app
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3000}:3000"
+    env_file:
+      - .env
+    volumes:
+      - "${BACKUP_STORAGE_PATH:-/app/backups}:/app/backups"
+      - "${SSH_KEYS_PATH:-~/.ssh}:/root/.ssh:ro"
+
+volumes:
+  app-backups:
+    driver: local
