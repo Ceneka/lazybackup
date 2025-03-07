@@ -76,8 +76,15 @@ export function useHistoryStats() {
     queryFn: async () => {
       const res = await fetch("/api/history/stats?chartData=true")
       if (!res.ok) throw new Error("Failed to fetch history stats")
-      return res.json()
+      const data = await res.json()
+
+      // Log the data to help with debugging
+      console.log("History stats data:", data)
+
+      return data
     },
+    // Refresh data every minute
+    refetchInterval: 60000,
   })
 }
 

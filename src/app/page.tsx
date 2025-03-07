@@ -11,21 +11,35 @@ import { useEffect, useState } from "react"
 
 // Simple Chart component for backup history
 function BackupHistoryChart({ data }: { data: any[] }) {
-  // We need at least 2 data points for the chart to look good
-  if (!data || data.length < 2) {
+  // Check if we have valid data
+  if (!data || !Array.isArray(data) || data.length < 2) {
     return (
       <div className="flex items-center justify-center h-40 bg-muted/20 rounded-lg">
-        <p className="text-muted-foreground">Not enough data to display chart</p>
+        <p className="text-muted-foreground">
+          {!data || !Array.isArray(data)
+            ? "No backup data available"
+            : "Need at least 2 backups to display chart"}
+        </p>
       </div>
     )
   }
 
   // Process the data for the chart
   const chartData = data.map((item, index) => ({
-    status: item.status,
+    status: item.status || 'unknown',
     date: new Date(item.startTime),
     index,
   }))
+
+  // Ensure we have valid dates
+  if (chartData.some(item => isNaN(item.date.getTime()))) {
+    console.error("Invalid date in chart data", data)
+    return (
+      <div className="flex items-center justify-center h-40 bg-muted/20 rounded-lg">
+        <p className="text-muted-foreground">Error processing chart data</p>
+      </div>
+    )
+  }
 
   return (
     <div className="h-40 w-full">
@@ -41,7 +55,8 @@ function BackupHistoryChart({ data }: { data: any[] }) {
                 <div
                   className={`w-4 rounded-t ${item.status === 'running' ? 'bg-blue-500' :
                     item.status === 'success' ? 'bg-green-500' :
-                      'bg-red-500'
+                      item.status === 'failed' ? 'bg-red-500' :
+                        'bg-gray-500'
                     }`}
                   style={{
                     height: `${Math.max(20, Math.min(90, (item.index + 1) * 10))}%`,
@@ -52,8 +67,8 @@ function BackupHistoryChart({ data }: { data: any[] }) {
           </div>
         </div>
         <div className="h-6 flex justify-between text-xs text-muted-foreground pt-2">
-          <span>{new Date(chartData[0].date).toLocaleDateString()}</span>
-          <span>{new Date(chartData[chartData.length - 1].date).toLocaleDateString()}</span>
+          <span>{chartData[0].date.toLocaleDateString()}</span>
+          <span>{chartData[chartData.length - 1].date.toLocaleDateString()}</span>
         </div>
       </div>
     </div>
@@ -96,7 +111,7 @@ export default function Dashboard() {
         }
       >
         {query.data && (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
             <Link
               href="/servers"
               className="p-6 rounded-lg border bg-card text-card-foreground shadow hover:shadow-md transition-all"
@@ -129,56 +144,41 @@ export default function Dashboard() {
               </div>
               <div className="text-3xl font-bold">{query.data.history}</div>
             </Link>
+
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle>Backup Status</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {query.data && (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-1.5">
+                          <PlayIcon className="h-4 w-4 text-blue-500" />
+                          <span className="text-blue-500 font-medium">{query.data.running}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <CheckCircleIcon className="h-4 w-4 text-green-500" />
+                          <span className="text-green-500 font-medium">{query.data.success}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <XCircleIcon className="h-4 w-4 text-red-500" />
+                          <span className="text-red-500 font-medium">{query.data.failed}</span>
+                        </div>
+                      </div>
+                      <div className="text-sm text-muted-foreground">
+                        Success Rate: {isClient ? getSuccessRate() : 0}%
+                      </div>
+                    </div>
+                    <Progress value={isClient ? getSuccessRate() : 0} className="h-1.5" />
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           </div>
         )}
       </QueryState>
-
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle>Backup Status</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <QueryState query={query} dataLabel="backup status">
-            {query.data && (
-              <div className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="flex items-center space-x-2">
-                    <PlayIcon className="h-5 w-5 text-blue-500" />
-                    <div>
-                      <div className="text-muted-foreground text-sm">Running</div>
-                      <div className="text-2xl font-bold text-blue-500">{query.data.running}</div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center space-x-2">
-                    <CheckCircleIcon className="h-5 w-5 text-green-500" />
-                    <div>
-                      <div className="text-muted-foreground text-sm">Successful</div>
-                      <div className="text-2xl font-bold text-green-500">{query.data.success}</div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center space-x-2">
-                    <XCircleIcon className="h-5 w-5 text-red-500" />
-                    <div>
-                      <div className="text-muted-foreground text-sm">Failed</div>
-                      <div className="text-2xl font-bold text-red-500">{query.data.failed}</div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="space-y-1">
-                  <div className="text-sm text-muted-foreground flex justify-between">
-                    <span>Success Rate</span>
-                    <span>{isClient ? getSuccessRate() : 0}%</span>
-                  </div>
-                  <Progress value={isClient ? getSuccessRate() : 0} className="h-2" />
-                </div>
-              </div>
-            )}
-          </QueryState>
-        </CardContent>
-      </Card>
 
       <Card>
         <CardHeader className="pb-2">
@@ -192,8 +192,12 @@ export default function Dashboard() {
               <div className="h-40 w-full bg-muted/20 rounded-lg animate-pulse" />
             }
           >
-            {historyStatsQuery.data?.chartHistory && (
+            {historyStatsQuery.data?.chartHistory && historyStatsQuery.data.chartHistory.length > 0 ? (
               <BackupHistoryChart data={historyStatsQuery.data.chartHistory} />
+            ) : (
+              <div className="flex items-center justify-center h-40 bg-muted/20 rounded-lg">
+                <p className="text-muted-foreground">No backup history data available</p>
+              </div>
             )}
           </QueryState>
           <div className="text-center mt-4">
