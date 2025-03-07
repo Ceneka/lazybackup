@@ -30,4 +30,4 @@ jobs:
           context: .
           file: Dockerfile
           push: true
-          tags: ghcr.io/Ceneka/lazybackup:latest
+          tags: ghcr.io/ceneka/lazybackup:latest
