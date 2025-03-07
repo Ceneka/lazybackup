@@ -1,4 +1,3 @@
-import { InitializeServer } from "@/components/initialize-server";
 import { Navbar } from "@/components/navbar";
 import { Providers } from "@/components/providers";
 import type { Metadata } from "next";
@@ -27,7 +26,6 @@ export default function RootLayout({
             <main className="flex-1 container mx-auto py-6 px-4">{children}</main>
           </div>
           <Toaster />
-          <InitializeServer />
         </Providers>
       </body>
     </html>

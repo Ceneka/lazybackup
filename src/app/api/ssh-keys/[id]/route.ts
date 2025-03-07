@@ -19,19 +19,19 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    
+
     // Get the SSH key
     const key = await db.query.sshKeys.findFirst({
       where: eq(sshKeys.id, id),
     });
-    
+
     if (!key) {
       return NextResponse.json(
         { error: 'SSH key not found' },
         { status: 404 }
       );
     }
-    
+
     return NextResponse.json(key);
   } catch (error) {
     console.error('Failed to fetch SSH key:', error);
@@ -50,10 +50,10 @@ export async function PUT(
   try {
     const { id } = await params;
     const body = await request.json();
-    
+
     // Validate the request body
     const validatedData = sshKeyUpdateSchema.parse(body);
-    
+
     // Update the SSH key
     await db.update(sshKeys)
       .set({
@@ -61,30 +61,30 @@ export async function PUT(
         updatedAt: new Date(),
       })
       .where(eq(sshKeys.id, id));
-    
+
     // Get the updated SSH key
     const updatedKey = await db.query.sshKeys.findFirst({
       where: eq(sshKeys.id, id),
     });
-    
+
     if (!updatedKey) {
       return NextResponse.json(
         { error: 'SSH key not found' },
         { status: 404 }
       );
     }
-    
+
     return NextResponse.json(updatedKey);
   } catch (error) {
     console.error('Failed to update SSH key:', error);
-    
+
     if (error instanceof z.ZodError) {
       return NextResponse.json(
         { error: 'Validation error', details: error.errors },
         { status: 400 }
       );
     }
-    
+
     return NextResponse.json(
       { error: 'Failed to update SSH key' },
       { status: 500 }
@@ -99,10 +99,10 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
-    
+
     // Delete the SSH key
     await db.delete(sshKeys).where(eq(sshKeys.id, id));
-    
+
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Failed to delete SSH key:', error);

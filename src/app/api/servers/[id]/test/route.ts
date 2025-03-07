@@ -11,27 +11,27 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    
+
     // Get the server
     const server = await db.query.servers.findFirst({
       where: eq(servers.id, id),
     });
-    
+
     if (!server) {
       return NextResponse.json(
         { error: 'Server not found' },
         { status: 404 }
       );
     }
-    
+
     // Test the connection
     const result = await testConnection(server);
-    
+
     return NextResponse.json(result);
   } catch (error) {
     console.error('Failed to test server connection:', error);
     return NextResponse.json(
-      { 
+      {
         error: 'Failed to test server connection',
         details: error instanceof Error ? error.message : 'Unknown error'
       },

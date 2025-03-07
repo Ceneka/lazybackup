@@ -4,9 +4,6 @@ const nextConfig = {
     ignoreDuringBuilds: true,
   },
   //output: "standalone",
-  /* experimental: {
-    instrumentationHook: true,
-  }, */
 };
 
 export default nextConfig;

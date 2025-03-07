@@ -24,19 +24,19 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    
+
     // Get the server
     const server = await db.query.servers.findFirst({
       where: eq(servers.id, id),
     });
-    
+
     if (!server) {
       return NextResponse.json(
         { error: 'Server not found' },
         { status: 404 }
       );
     }
-    
+
     return NextResponse.json(server);
   } catch (error) {
     console.error('Failed to fetch server:', error);
@@ -55,22 +55,22 @@ export async function PUT(
   try {
     const { id } = await params;
     const body = await request.json();
-    
+
     // Validate the request body
     const validatedData = serverSchema.parse(body);
-    
+
     // Check if server exists
     const existingServer = await db.query.servers.findFirst({
       where: eq(servers.id, id),
     });
-    
+
     if (!existingServer) {
       return NextResponse.json(
         { error: 'Server not found' },
         { status: 404 }
       );
     }
-    
+
     // Validate authentication method
     if (validatedData.authType === 'key') {
       // Ensure at least one key method is provided
@@ -80,13 +80,13 @@ export async function PUT(
           { status: 400 }
         );
       }
-      
+
       // If using an SSH key from the database, validate that it exists
       if (validatedData.sshKeyId) {
         const keyExists = await db.query.sshKeys.findFirst({
           where: eq(sshKeys.id, validatedData.sshKeyId),
         });
-        
+
         if (!keyExists) {
           return NextResponse.json(
             { error: 'Selected SSH key not found' },
@@ -95,7 +95,7 @@ export async function PUT(
         }
       }
     }
-    
+
     // Update the server
     await db.update(servers)
       .set({
@@ -103,23 +103,23 @@ export async function PUT(
         updatedAt: new Date(),
       })
       .where(eq(servers.id, id));
-    
+
     // Get the updated server
     const updatedServer = await db.query.servers.findFirst({
       where: eq(servers.id, id),
     });
-    
+
     return NextResponse.json(updatedServer);
   } catch (error) {
     console.error('Failed to update server:', error);
-    
+
     if (error instanceof z.ZodError) {
       return NextResponse.json(
         { error: 'Validation error', details: error.errors },
         { status: 400 }
       );
     }
-    
+
     return NextResponse.json(
       { error: 'Failed to update server' },
       { status: 500 }
@@ -134,22 +134,22 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
-    
+
     // Check if server exists
     const existingServer = await db.query.servers.findFirst({
       where: eq(servers.id, id),
     });
-    
+
     if (!existingServer) {
       return NextResponse.json(
         { error: 'Server not found' },
         { status: 404 }
       );
     }
-    
+
     // Delete the server
     await db.delete(servers).where(eq(servers.id, id));
-    
+
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Failed to delete server:', error);

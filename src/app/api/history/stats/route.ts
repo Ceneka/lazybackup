@@ -62,7 +62,7 @@ export async function GET(request: NextRequest) {
       // Fetch the last 10 backup entries for the chart, regardless of status
       chartHistory = await db.query.backupHistory.findMany({
         orderBy: [sql`${backupHistory.startTime} DESC`],
-        limit: 10,
+        limit: 1000,
         columns: {
           id: true,
           status: true,

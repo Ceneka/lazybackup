@@ -27,28 +27,28 @@ async function findSystemSSHKeys(): Promise<SystemSSHKey[]> {
   const sshDir = path.join(os.homedir(), '.ssh');
   try {
     const files = await fs.readdir(sshDir);
-    
+
     const keyPairs: SystemSSHKey[] = [];
-    const privateKeys = files.filter(file => 
-      !file.endsWith('.pub') && 
-      !file.includes('known_hosts') && 
+    const privateKeys = files.filter(file =>
+      !file.endsWith('.pub') &&
+      !file.includes('known_hosts') &&
       !file.includes('config') &&
       !file.includes('authorized_keys')
     );
-    
+
     for (const privateKey of privateKeys) {
       const privateKeyPath = path.join(sshDir, privateKey);
       const publicKeyPath = path.join(sshDir, `${privateKey}.pub`);
-      
+
       const hasPublicKey = files.includes(`${privateKey}.pub`);
-      
+
       keyPairs.push({
         name: privateKey,
         privateKeyPath,
         publicKeyPath: hasPublicKey ? publicKeyPath : undefined
       });
     }
-    
+
     return keyPairs;
   } catch (error) {
     console.error('Failed to read SSH directory:', error);
@@ -60,17 +60,17 @@ async function findSystemSSHKeys(): Promise<SystemSSHKey[]> {
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const includeSystem = searchParams.get('includeSystem') === 'true';
-  
+
   try {
     // Get stored SSH keys from database
     const storedKeys = await db.select().from(sshKeys);
-    
+
     // If system keys are requested, find and include them
     let systemKeys: SystemSSHKey[] = [];
     if (includeSystem) {
       systemKeys = await findSystemSSHKeys();
     }
-    
+
     return NextResponse.json({
       storedKeys,
       systemKeys
@@ -88,10 +88,10 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    
+
     // Validate the request body
     const validatedData = sshKeySchema.parse(body);
-    
+
     // Create a new SSH key
     const newKey = {
       id: nanoid(),
@@ -99,21 +99,21 @@ export async function POST(request: NextRequest) {
       createdAt: new Date(),
       updatedAt: new Date(),
     };
-    
+
     // Insert the SSH key into the database
     await db.insert(sshKeys).values(newKey);
-    
+
     return NextResponse.json(newKey, { status: 201 });
   } catch (error) {
     console.error('Failed to create SSH key:', error);
-    
+
     if (error instanceof z.ZodError) {
       return NextResponse.json(
         { error: 'Validation error', details: error.errors },
         { status: 400 }
       );
     }
-    
+
     return NextResponse.json(
       { error: 'Failed to create SSH key' },
       { status: 500 }

@@ -36,10 +36,10 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    
+
     // Validate the request body
     const validatedData = serverSchema.parse(body);
-    
+
     // Validate authentication method
     if (validatedData.authType === 'key') {
       // Ensure at least one key method is provided
@@ -49,13 +49,13 @@ export async function POST(request: NextRequest) {
           { status: 400 }
         );
       }
-      
+
       // If using an SSH key from the database, validate that it exists
       if (validatedData.sshKeyId) {
         const keyExists = await db.query.sshKeys.findFirst({
           where: eq(sshKeys.id, validatedData.sshKeyId),
         });
-        
+
         if (!keyExists) {
           return NextResponse.json(
             { error: 'Selected SSH key not found' },
@@ -64,7 +64,7 @@ export async function POST(request: NextRequest) {
         }
       }
     }
-    
+
     // Create a new server
     const newServer = {
       id: nanoid(),
@@ -72,21 +72,21 @@ export async function POST(request: NextRequest) {
       createdAt: new Date(),
       updatedAt: new Date(),
     };
-    
+
     // Insert the server into the database
     await db.insert(servers).values(newServer);
-    
+
     return NextResponse.json(newServer, { status: 201 });
   } catch (error) {
     console.error('Failed to create server:', error);
-    
+
     if (error instanceof z.ZodError) {
       return NextResponse.json(
         { error: 'Validation error', details: error.errors },
         { status: 400 }
       );
     }
-    
+
     return NextResponse.json(
       { error: 'Failed to create server' },
       { status: 500 }
@@ -99,13 +99,13 @@ export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  try { 
+  try {
     const { id } = await params;
     const body = await request.json();
-    
+
     // Validate the request body
     const validatedData = serverSchema.parse(body);
-    
+
     // Validate authentication method
     if (validatedData.authType === 'key') {
       // Ensure at least one key method is provided
@@ -115,13 +115,13 @@ export async function PUT(
           { status: 400 }
         );
       }
-      
+
       // If using an SSH key from the database, validate that it exists
       if (validatedData.sshKeyId) {
         const keyExists = await db.query.sshKeys.findFirst({
           where: eq(sshKeys.id, validatedData.sshKeyId),
         });
-        
+
         if (!keyExists) {
           return NextResponse.json(
             { error: 'Selected SSH key not found' },
@@ -130,7 +130,7 @@ export async function PUT(
         }
       }
     }
-    
+
     // Update the server
     await db.update(servers)
       .set({
@@ -138,30 +138,30 @@ export async function PUT(
         updatedAt: new Date(),
       })
       .where(eq(servers.id, id));
-    
+
     // Get the updated server
     const updatedServer = await db.query.servers.findFirst({
       where: eq(servers.id, id),
     });
-    
+
     if (!updatedServer) {
       return NextResponse.json(
         { error: 'Server not found' },
         { status: 404 }
       );
     }
-    
+
     return NextResponse.json(updatedServer);
   } catch (error) {
     console.error('Failed to update server:', error);
-    
+
     if (error instanceof z.ZodError) {
       return NextResponse.json(
         { error: 'Validation error', details: error.errors },
         { status: 400 }
       );
     }
-    
+
     return NextResponse.json(
       { error: 'Failed to update server' },
       { status: 500 }
@@ -176,10 +176,10 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
-    
+
     // Delete the server
     await db.delete(servers).where(eq(servers.id, id));
-    
+
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Failed to delete server:', error);

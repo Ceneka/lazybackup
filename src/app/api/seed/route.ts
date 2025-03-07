@@ -8,14 +8,14 @@ export async function POST() {
   try {
     // Check if we already have servers
     const existingServers = await db.select().from(servers);
-    
+
     if (existingServers.length > 0) {
-      return NextResponse.json({ 
-        message: 'Database already has servers', 
-        count: existingServers.length 
+      return NextResponse.json({
+        message: 'Database already has servers',
+        count: existingServers.length
       });
     }
-    
+
     // Create a test server
     const testServer = {
       id: nanoid(),
@@ -29,11 +29,11 @@ export async function POST() {
       createdAt: new Date(),
       updatedAt: new Date(),
     };
-    
+
     // Insert the test server
     await db.insert(servers).values(testServer);
-    
-    return NextResponse.json({ 
+
+    return NextResponse.json({
       message: 'Test server added successfully',
       server: testServer
     }, { status: 201 });

@@ -12,7 +12,7 @@ export async function POST(
 ) {
   try {
     const { id } = await params;
-    
+
     // Get the backup configuration
     const config = await db.query.backupConfigs.findFirst({
       where: eq(backupConfigs.id, id),
@@ -20,14 +20,14 @@ export async function POST(
         server: true,
       },
     });
-    
+
     if (!config) {
       return NextResponse.json(
         { error: 'Backup configuration not found' },
         { status: 404 }
       );
     }
-    
+
     // Create a history entry for this backup execution
     const historyEntry = {
       id: nanoid(),
@@ -35,14 +35,14 @@ export async function POST(
       startTime: new Date(),
       status: 'running' as const,
     };
-    
+
     await db.insert(backupHistory).values(historyEntry);
-    
+
     // Execute the backup asynchronously
     executeBackup(config, historyEntry.id).catch(error => {
       console.error(`Backup execution failed for ${config.name}:`, error);
     });
-    
+
     return NextResponse.json({
       success: true,
       message: 'Backup started successfully',
@@ -51,7 +51,7 @@ export async function POST(
   } catch (error) {
     console.error('Failed to run backup:', error);
     return NextResponse.json(
-      { 
+      {
         error: 'Failed to run backup',
         details: error instanceof Error ? error.message : 'Unknown error'
       },
