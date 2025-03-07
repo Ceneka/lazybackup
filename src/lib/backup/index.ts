@@ -44,6 +44,10 @@ export async function executeBackup(config: BackupConfigWithServer, historyId: s
   try {
     console.log(`Starting backup: ${config.name} (${historyId})`);
 
+    if (process.env.NEXT_RUNTIME !== 'nodejs') {
+      throw new Error('Not in Node.js environment');
+    }
+
     // Import the SSH utilities to use the connectToServer function
     const { connectToServer } = await import('@/lib/ssh');
 
@@ -102,7 +106,7 @@ export async function executeBackup(config: BackupConfigWithServer, historyId: s
 
     console.log(`Executing rsync command: ${rsyncCommand}`);
 
-    // Since we can't use NodeSSH to run rsync properly from remote to local, use local exec
+    // run rsync from remote to local, use local exec
     const { exec } = require('child_process');
     const { promisify } = require('util');
     const execPromise = promisify(exec);

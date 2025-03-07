@@ -1,6 +1,5 @@
 import { db } from '@/lib/db';
 import { servers } from '@/lib/db/schema';
-import { testConnection } from '@/lib/ssh';
 import { eq } from 'drizzle-orm';
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -23,6 +22,15 @@ export async function GET(
         { status: 404 }
       );
     }
+
+    if (process.env.NEXT_RUNTIME !== 'nodejs') {
+      return NextResponse.json(
+        { error: 'Not in Node.js environment' },
+        { status: 500 }
+      );
+    }
+
+    const { testConnection } = await import('@/lib/ssh');
 
     // Test the connection
     const result = await testConnection(server);
