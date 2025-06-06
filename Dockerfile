@@ -38,11 +38,8 @@ COPY --from=builder /app/package.json ./package.json
 # copy prod dependencies
 COPY --from=prod-dependencies /app/node_modules /app/node_modules
 
-# install pm2 to run the app
-RUN bun install -g pm2
-
 # Expose the port the app will run on
 EXPOSE $PORT
 
-# Start the application using pm2 (pm2 start --interpreter ~/.bun/bin/bun server.ts)
-CMD ["pm2-runtime", "start", "--interpreter", "bun", "server.js"]
+# Start the application directly with Bun
+CMD ["bun", "server.js"]
