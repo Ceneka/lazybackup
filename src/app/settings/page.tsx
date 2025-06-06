@@ -11,29 +11,50 @@ import { Textarea } from "@/components/ui/textarea"
 import { useSettings } from "@/lib/hooks/useSettings"
 import { SSHKey, SystemSSHKey, useSSHKeys } from "@/lib/hooks/useSSHKeys"
 import { KeyIcon, PlusIcon, SettingsIcon, TrashIcon } from "lucide-react"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { toast } from "sonner"
 
 export default function SettingsPage() {
   const [tab, setTab] = useState<string>("general")
   const settingsQuery = useSettings()
   const keysQuery = useSSHKeys()
-  
+
   const [newKeyName, setNewKeyName] = useState("")
   const [newKeyContent, setNewKeyContent] = useState("")
-  
+
+  // Local state for settings to avoid cursor jumping
+  const [localDefaultSshKeyPath, setLocalDefaultSshKeyPath] = useState("")
+  const [localSshKeepAliveInterval, setLocalSshKeepAliveInterval] = useState("")
+
+  // Sync local state with settings data
+  useEffect(() => {
+    if (settingsQuery.settings) {
+      setLocalDefaultSshKeyPath(settingsQuery.settings.defaultSshKeyPath || "")
+      setLocalSshKeepAliveInterval(settingsQuery.settings.sshKeepAliveInterval || "60")
+    }
+  }, [settingsQuery.settings])
+
+  // Handlers for saving settings
+  const handleSaveDefaultSshKeyPath = (value: string) => {
+    settingsQuery.updateSetting.mutate({ key: "defaultSshKeyPath", value })
+  }
+
+  const handleSaveSshKeepAliveInterval = (value: string) => {
+    settingsQuery.updateSetting.mutate({ key: "sshKeepAliveInterval", value })
+  }
+
   const handleAddKey = async () => {
     if (!newKeyName) {
       toast.error("Key name is required")
       return
     }
-    
+
     try {
       await keysQuery.addKey.mutateAsync({
         name: newKeyName,
         privateKeyContent: newKeyContent || undefined
       })
-      
+
       // Reset form
       setNewKeyName("")
       setNewKeyContent("")
@@ -41,14 +62,14 @@ export default function SettingsPage() {
       // Error handling is done in the mutation
     }
   }
-  
+
   const handleDeleteKey = async (id: string) => {
     if (confirm("Are you sure you want to delete this SSH key?")) {
       await keysQuery.deleteKey.mutateAsync(id)
     }
   }
-  
-  const handleAddSystemKey = async (systemKey: {name: string, privateKeyPath: string}) => {
+
+  const handleAddSystemKey = async (systemKey: { name: string, privateKeyPath: string }) => {
     try {
       await keysQuery.addKey.mutateAsync({
         name: systemKey.name,
@@ -59,13 +80,13 @@ export default function SettingsPage() {
       // Error handling is done in the mutation
     }
   }
-  
+
   return (
     <div className="space-y-6">
       <div className="flex items-center space-x-2">
         <h1 className="text-3xl font-bold">Settings</h1>
       </div>
-      
+
       <Tabs defaultValue="general" value={tab} onValueChange={setTab} className="w-full">
         <TabsList className="grid w-full grid-cols-2">
           <TabsTrigger value="general" className="flex items-center">
@@ -77,7 +98,7 @@ export default function SettingsPage() {
             SSH Keys
           </TabsTrigger>
         </TabsList>
-        
+
         <TabsContent value="general" className="mt-6">
           <Card className="w-full">
             <CardHeader>
@@ -87,7 +108,7 @@ export default function SettingsPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              <QueryState 
+              <QueryState
                 query={settingsQuery}
                 dataLabel="settings"
                 errorIcon={<SettingsIcon className="h-12 w-12 text-red-500" />}
@@ -98,8 +119,9 @@ export default function SettingsPage() {
                       <Label htmlFor="defaultSshKeyPath">Default SSH Key Path</Label>
                       <Input
                         id="defaultSshKeyPath"
-                        value={settingsQuery.settings.defaultSshKeyPath || ""}
-                        onChange={(e) => settingsQuery.updateSetting.mutate({ key: "defaultSshKeyPath", value: e.target.value })}
+                        value={localDefaultSshKeyPath}
+                        onChange={(e) => setLocalDefaultSshKeyPath(e.target.value)}
+                        onBlur={(e) => handleSaveDefaultSshKeyPath(e.target.value)}
                         placeholder="~/.ssh/id_rsa"
                         className="mt-1"
                       />
@@ -107,14 +129,15 @@ export default function SettingsPage() {
                         The default path to look for SSH keys on the system
                       </p>
                     </div>
-                    
+
                     <div>
                       <Label htmlFor="sshKeepAliveInterval">SSH Keep-Alive Interval (seconds)</Label>
                       <Input
                         id="sshKeepAliveInterval"
                         type="number"
-                        value={settingsQuery.settings.sshKeepAliveInterval || "60"}
-                        onChange={(e) => settingsQuery.updateSetting.mutate({ key: "sshKeepAliveInterval", value: e.target.value })}
+                        value={localSshKeepAliveInterval}
+                        onChange={(e) => setLocalSshKeepAliveInterval(e.target.value)}
+                        onBlur={(e) => handleSaveSshKeepAliveInterval(e.target.value)}
                         placeholder="60"
                         className="mt-1"
                       />
@@ -128,7 +151,7 @@ export default function SettingsPage() {
             </CardContent>
           </Card>
         </TabsContent>
-        
+
         <TabsContent value="ssh-keys" className="mt-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <Card className="w-full">
@@ -139,7 +162,7 @@ export default function SettingsPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <QueryState 
+                <QueryState
                   query={{
                     isLoading: keysQuery.isLoading,
                     data: keysQuery.keys,
@@ -196,8 +219,8 @@ export default function SettingsPage() {
                     className="min-h-[100px]"
                   />
                 </div>
-                <LoadingButton 
-                  className="w-full" 
+                <LoadingButton
+                  className="w-full"
                   onClick={handleAddKey}
                   isLoading={keysQuery.addKey.isPending}
                   loadingText="Adding..."
@@ -208,7 +231,7 @@ export default function SettingsPage() {
                 </LoadingButton>
               </CardFooter>
             </Card>
-            
+
             <Card className="w-full">
               <CardHeader>
                 <CardTitle>System SSH Keys</CardTitle>
@@ -217,7 +240,7 @@ export default function SettingsPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <QueryState 
+                <QueryState
                   query={{
                     isLoading: keysQuery.isLoading,
                     data: keysQuery.systemKeys,
