@@ -1,3 +1,4 @@
+import { BodyPointerEventsGuard } from "@/components/body-pointer-events-guard";
 import { Navbar } from "@/components/navbar";
 import { Providers } from "@/components/providers";
 import type { Metadata } from "next";
@@ -21,6 +22,7 @@ export default function RootLayout({
     <html lang="en">
       <body className={inter.className}>
         <Providers>
+          <BodyPointerEventsGuard />
           <div className="min-h-screen bg-background flex flex-col">
             <Navbar />
             <main className="flex-1 container mx-auto py-6 px-4">{children}</main>
