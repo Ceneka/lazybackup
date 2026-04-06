@@ -11,7 +11,11 @@ services:
       - "${PORT:-3000}:3000"
     env_file:
       - .env
+    environment:
+      # SQLite must live on a volume or it is lost on every image rebuild/recreate.
+      DATABASE_URL: file:/app/data/data.db
     volumes:
+      - lazybackup_data:/app/data
       - "${BACKUP_STORAGE_PATH:-/app/backups}:/app/backups"
       - "${SSH_KEYS_PATH:-~/.ssh}:/root/.ssh:ro"
     healthcheck:
@@ -22,5 +26,7 @@ services:
       start_period: 40s
 
 volumes:
+  lazybackup_data:
+    driver: local
   app-backups:
     driver: local
