@@ -114,16 +114,8 @@ export async function runBackup(config: any) {
     
     console.log(`Backup completed successfully for ${config.name}`);
   } catch (error) {
+    // executeBackup records failure in DB and rethrows; log here for scheduler context
     console.error(`Backup failed for ${config.name}:`, error);
-    
-    // Update the backup history record with the error
-    await db.update(backupHistory)
-      .set({
-        endTime: new Date(),
-        status: 'failed',
-        errorMessage: error instanceof Error ? error.message : String(error),
-      })
-      .where(eq(backupHistory.id, historyId));
   }
 } 
 

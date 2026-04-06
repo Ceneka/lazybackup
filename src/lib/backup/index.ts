@@ -198,9 +198,6 @@ export async function executeBackup(config: BackupConfigWithServer, historyId: s
             .then((stats: Stats) => {
               totalSize += stats.size;
             })
-            .catch((err: Error) => {
-              console.error(`Error copying file ${remoteFilePath}:`, err);
-            })
         );
       }
 
@@ -247,6 +244,7 @@ Total transferred file size: ${totalSize}`;
       historyId,
       error instanceof Error ? error.message : 'Unknown error'
     );
+    throw error;
   }
 }
 

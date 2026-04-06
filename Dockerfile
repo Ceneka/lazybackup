@@ -27,6 +27,12 @@ FROM oven/bun:latest AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 
+# rsync/scp run on the app host (pull from remote); the slim image does not include them by default
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    openssh-client \
+    rsync \
+    && rm -rf /var/lib/apt/lists/*
+
 # For standalone output, we need only specific files
 # Copy the standalone server and related files
 COPY --from=builder /app/.next/standalone ./
