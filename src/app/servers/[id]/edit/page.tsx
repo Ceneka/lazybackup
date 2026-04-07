@@ -1,7 +1,7 @@
 "use client"
 
 import { Button } from '@/components/ui/button'
-import { useTestServerBackupCapabilities } from '@/lib/hooks/useServers'
+import { useTestServer } from '@/lib/hooks/useServers'
 import { SSHKey, useSSHKeys } from "@/lib/hooks/useSSHKeys"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { ArrowLeftIcon, KeyIcon, Loader2Icon } from "lucide-react"
@@ -21,7 +21,7 @@ export default function EditServerPage() {
 
   const [testingBackup, setTestingBackup] = useState(false)
 
-  const backupTestQuery = useTestServerBackupCapabilities(serverId)
+  const serverTestQuery = useTestServer(serverId)
 
   const [formData, setFormData] = useState({
     name: '',
@@ -148,28 +148,28 @@ export default function EditServerPage() {
     }
   }
 
-  const handleTestBackupCapabilities = async () => {
+  const handleTestServer = async () => {
     try {
       setTestingBackup(true)
-      await backupTestQuery.refetch()
+      const { data, isError, error } = await serverTestQuery.refetch()
 
-      if (backupTestQuery.isSuccess) {
-        const data = backupTestQuery.data
-
-        if (data.success) {
-          if (data.rsyncAvailable) {
-            toast.success("Rsync is available for optimal backups.");
-          } else if (data.scpAvailable) {
-            toast.info("Rsync not found, but SCP is available as a fallback method.");
-          } else {
-            toast.error("Neither Rsync nor SCP found. Backups may not work correctly.");
-          }
-        } else {
-          toast.error(`Connection failed: ${data.message || "Failed to connect to server"}`);
-        }
+      if (isError) {
+        toast.error(error instanceof Error ? error.message : "Unknown error occurred")
+        return
       }
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unknown error occurred");
+      if (!data) return
+
+      if (data.success) {
+        if (data.rsyncAvailable) {
+          toast.success("Backups will use rsync on the remote (preferred).")
+        } else if (data.scpAvailable) {
+          toast.info("No rsync on remote — backups will fall back to local SCP.")
+        } else {
+          toast.error("No rsync on remote and no local scp — backups cannot run.")
+        }
+      } else {
+        toast.error(`Connection failed: ${data.message || "Failed to connect to server"}`)
+      }
     } finally {
       setTestingBackup(false)
     }
@@ -388,15 +388,15 @@ export default function EditServerPage() {
                 type="button"
                 variant="outline"
                 disabled={testingBackup || loading}
-                onClick={handleTestBackupCapabilities}
+                onClick={handleTestServer}
               >
                 {testingBackup ? (
                   <>
                     <Loader2Icon className="mr-2 h-4 w-4 animate-spin" />
-                    Testing Backup Capabilities...
+                    Testing connection...
                   </>
                 ) : (
-                  <>Test Backup Capabilities</>
+                  <>Test connection</>
                 )}
               </Button>
             </div>

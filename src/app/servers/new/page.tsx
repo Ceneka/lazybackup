@@ -126,11 +126,11 @@ export default function NewServerPage() {
 
       if (result.success) {
         if (result.rsyncAvailable) {
-          toast.success("Rsync is available for optimal backups.");
+          toast.success("Backups will use rsync on the remote (preferred).");
         } else if (result.scpAvailable) {
-          toast.info("Rsync not found, but SCP is available as a fallback method.");
+          toast.info("No rsync on remote — backups will fall back to local SCP.");
         } else {
-          toast.error("Neither Rsync nor SCP found. Backups may not work correctly.");
+          toast.error("No rsync on remote and no local scp — backups cannot run.");
         }
       } else {
         toast.error(`Connection failed: ${result.message || "Failed to connect to server"}`);
@@ -361,17 +361,17 @@ export default function NewServerPage() {
                     {testResult.rsyncAvailable ? (
                       <div className="flex items-center text-green-600">
                         <CheckCircleIcon className="mr-1 h-4 w-4" />
-                        Rsync Available
+                        Will use rsync (preferred)
                       </div>
                     ) : testResult.scpAvailable ? (
                       <div className="flex items-center text-yellow-600">
                         <CheckCircleIcon className="mr-1 h-4 w-4" />
-                        SCP Fallback Available
+                        Will fall back to local SCP
                       </div>
                     ) : (
                       <div className="flex items-center text-red-600">
                         <XCircleIcon className="mr-1 h-4 w-4" />
-                        No Backup Tools Found
+                        No transport (no remote rsync, no local scp)
                       </div>
                     )}
                   </div>

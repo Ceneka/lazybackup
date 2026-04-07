@@ -1,8 +1,8 @@
 import { db } from '@/lib/db';
 import { backupConfigs } from '@/lib/db/schema';
 import {
-  checkRemoteHasRsync,
   connectToServer,
+  getBackupTransportCapabilities,
   resolvePrivateKeyForServer,
   writeTemporarySshIdentityFile,
 } from '@/lib/ssh';
@@ -135,8 +135,7 @@ export async function executeBackup(config: BackupConfigWithServer, historyId: s
 
     const localSshShell = `ssh -p ${config.server.port} -i ${shellSingleQuote(keyPath)} -F /dev/null -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR`;
 
-    // Prefer rsync when present on remote (PATH in non-interactive SSH is often minimal)
-    const isRsyncAvailable = await checkRemoteHasRsync(ssh);
+    const { rsyncAvailable, scpAvailable } = await getBackupTransportCapabilities(ssh);
 
     const { exec } = require('child_process');
     const { promisify } = require('util');
@@ -145,9 +144,9 @@ export async function executeBackup(config: BackupConfigWithServer, historyId: s
     let backupResult;
     let usedMethod = 'rsync';
 
-    if (isRsyncAvailable) {
-      // Use rsync if it's available
-      console.log('Using rsync for backup');
+    // Prefer rsync on the remote when present; otherwise fall back to local scp (never both).
+    if (rsyncAvailable) {
+      console.log('Using rsync for backup (preferred path)');
 
       // Build the rsync command to pull data FROM the server TO the local machine using the utility
       const rsyncCommand = buildRsyncCommand(
@@ -161,9 +160,8 @@ export async function executeBackup(config: BackupConfigWithServer, historyId: s
 
       // Execute rsync locally to pull data from the remote server
       backupResult = await execPromise(rsyncCommand);
-    } else {
-      // Fall back to SCP if rsync is not available
-      console.log('Rsync not available on server, falling back to SCP');
+    } else if (scpAvailable) {
+      console.log('Rsync not on remote host — falling back to local SCP');
       usedMethod = 'scp';
 
       // For SCP, we need to handle exclude patterns differently
@@ -230,6 +228,10 @@ Total file size: ${totalSize}
 Total transferred file size: ${totalSize}`;
 
       backupResult = { stdout: scpOutput, stderr: '' };
+    } else {
+      throw new Error(
+        'Cannot run backup: rsync was not found on the remote host and the SCP client was not found on this machine.'
+      );
     }
 
     console.log(`Backup completed for ${config.name} using ${usedMethod}`);

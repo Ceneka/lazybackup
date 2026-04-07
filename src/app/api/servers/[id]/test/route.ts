@@ -3,7 +3,7 @@ import { servers } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { NextRequest, NextResponse } from 'next/server';
 
-// GET /api/servers/:id/test - Test server connection
+// GET /api/servers/:id/test - SSH connection and backup tool availability (rsync/scp)
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -30,17 +30,16 @@ export async function GET(
       );
     }
 
-    const { testConnection } = await import('@/lib/ssh');
+    const { testServerBackupCapabilities } = await import('@/lib/ssh');
 
-    // Test the connection
-    const result = await testConnection(server);
+    const result = await testServerBackupCapabilities(server);
 
     return NextResponse.json(result);
   } catch (error) {
-    console.error('Failed to test server connection:', error);
+    console.error('Failed to test server:', error);
     return NextResponse.json(
       {
-        error: 'Failed to test server connection',
+        error: 'Failed to test server',
         details: error instanceof Error ? error.message : 'Unknown error'
       },
       { status: 500 }

@@ -1,12 +1,16 @@
+import { execFile } from 'child_process';
 import { randomBytes } from 'crypto';
 import { eq } from 'drizzle-orm';
 import { promises as fs } from 'fs';
 import { tmpdir } from 'os';
 import path from 'path';
+import { promisify } from 'util';
 import { NodeSSH } from 'node-ssh';
 import { db } from '../db';
 import { servers, sshKeys } from '../db/schema';
 import { buildRsyncCommand } from './rsync';
+
+const execFileAsync = promisify(execFile);
 
 export type Server = typeof servers.$inferSelect;
 export type SSHKey = typeof sshKeys.$inferSelect;
@@ -98,7 +102,7 @@ const REMOTE_STANDARD_PATH =
   'PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"';
 
 /**
- * Whether rsync exists on the remote host (for choosing rsync vs scp on the app host).
+ * Whether rsync exists on the remote host. Backups **prefer** this: if true, rsync is used and SCP is not.
  */
 export async function checkRemoteHasRsync(ssh: NodeSSH): Promise<boolean> {
   const r1 = await ssh.execCommand(`${REMOTE_STANDARD_PATH} command -v rsync`);
@@ -112,17 +116,33 @@ export async function checkRemoteHasRsync(ssh: NodeSSH): Promise<boolean> {
 }
 
 /**
- * Whether scp exists on the remote (informational; local scp is what pulls files).
+ * Whether the OpenSSH `scp` client exists on **this** machine (the app host).
+ * Used only as a **fallback** when {@link checkRemoteHasRsync} is false.
  */
-export async function checkRemoteHasScpBinary(ssh: NodeSSH): Promise<boolean> {
-  const r1 = await ssh.execCommand(`${REMOTE_STANDARD_PATH} command -v scp`);
-  if (remoteCommandFound(r1)) {
-    return true;
+export async function checkLocalHasScp(): Promise<boolean> {
+  try {
+    const { stdout } = await execFileAsync('sh', ['-c', 'command -v scp'], {
+      timeout: 5000,
+    });
+    return stdout.trim().length > 0;
+  } catch {
+    return false;
   }
-  const r2 = await ssh.execCommand(
-    '[ -x /usr/bin/scp ] && echo /usr/bin/scp || [ -x /usr/local/bin/scp ] && echo /usr/local/bin/scp || true'
-  );
-  return remoteCommandFound(r2);
+}
+
+/**
+ * Probes what backup execution will do: **rsync on the remote if available**, else **local scp** if available.
+ * `scpAvailable` is still reported when rsync is true (informational); backups never use SCP in that case.
+ */
+export async function getBackupTransportCapabilities(ssh: NodeSSH): Promise<{
+  rsyncAvailable: boolean;
+  scpAvailable: boolean;
+}> {
+  const [rsyncAvailable, scpAvailable] = await Promise.all([
+    checkRemoteHasRsync(ssh),
+    checkLocalHasScp(),
+  ]);
+  return { rsyncAvailable, scpAvailable };
 }
 
 export async function connectToServer(server: Server): Promise<NodeSSH> {
@@ -175,24 +195,8 @@ export async function executeRsyncCommand(
   return ssh.execCommand(rsyncCommand);
 }
 
-export async function testConnection(server: Server): Promise<{ success: boolean; message?: string }> {
-  try {
-    const ssh = await connectToServer(server);
-    const result = await ssh.execCommand('echo "Connection successful"');
-    ssh.dispose();
-    return { success: true, message: "Connection successful" };
-  } catch (error) {
-    console.error(`Connection test failed for server ${server.name}:`, error);
-    return {
-      success: false,
-      message: error instanceof Error ? error.message : 'Unknown error'
-    };
-  }
-}
-
 /**
- * Test server connection and check if rsync is installed
- * Returns information about the available backup methods
+ * Test SSH and report transport: backups **prefer rsync on the remote**, then **fall back to local scp**.
  */
 export async function testServerBackupCapabilities(server: Server): Promise<{
   success: boolean;
@@ -204,27 +208,26 @@ export async function testServerBackupCapabilities(server: Server): Promise<{
     // First connect to the server
     const ssh = await connectToServer(server);
 
-    const isRsyncAvailable = await checkRemoteHasRsync(ssh);
-    const isScpAvailable = await checkRemoteHasScpBinary(ssh);
-
-    // Get the server's OS info for display
-    const osInfo = await ssh.execCommand('uname -a');
+    const { rsyncAvailable, scpAvailable } = await getBackupTransportCapabilities(ssh);
 
     ssh.dispose();
 
     let message = "Connection successful. ";
-    if (isRsyncAvailable) {
-      message += "Rsync is available for optimal backups.";
-    } else if (isScpAvailable) {
-      message += "Rsync not found, but SCP is available for fallback backups.";
+    if (rsyncAvailable) {
+      message +=
+        "Backups will use rsync on the remote host (preferred). SCP is not used when rsync is available.";
+    } else if (scpAvailable) {
+      message +=
+        "Rsync is not on the remote host; backups will fall back to the SCP client on this machine.";
     } else {
-      message += "Neither Rsync nor SCP found. Backups may not work correctly.";
+      message +=
+        "No rsync on the remote host and no SCP client on this machine — nothing to fall back to. Backups cannot run.";
     }
 
     return {
       success: true,
-      rsyncAvailable: isRsyncAvailable,
-      scpAvailable: isScpAvailable,
+      rsyncAvailable,
+      scpAvailable,
       message
     };
   } catch (error) {

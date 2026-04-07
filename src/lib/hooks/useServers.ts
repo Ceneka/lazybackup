@@ -68,8 +68,8 @@ export function useServer(id: string) {
   })
 }
 
-// Test server connection
-export function useTestServerConnection(id: string) {
+/** SSH plus transport probe: prefers rsync on remote, else local scp — GET /api/servers/:id/test */
+export function useTestServer(id: string) {
   return useQuery({
     queryKey: ['servers', id, 'test'],
     queryFn: async () => {
@@ -77,35 +77,17 @@ export function useTestServerConnection(id: string) {
       const data = await response.json()
 
       if (!response.ok) {
-        throw new Error(data.error || "Failed to test connection")
-      }
-
-      return data as { success: boolean; message?: string }
-    },
-    enabled: false // This query won't run automatically
-  })
-}
-
-// Test server backup capabilities
-export function useTestServerBackupCapabilities(id: string) {
-  return useQuery({
-    queryKey: ['servers', id, 'test-backup'],
-    queryFn: async () => {
-      const response = await fetch(`/api/servers/${id}/test-backup`)
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to test backup capabilities")
+        throw new Error(data.error || "Failed to test server")
       }
 
       return data as {
         success: boolean;
         rsyncAvailable: boolean;
         scpAvailable: boolean;
-        message?: string
+        message?: string;
       }
     },
-    enabled: false // This query won't run automatically
+    enabled: false,
   })
 }
 

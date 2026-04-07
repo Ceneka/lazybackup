@@ -136,7 +136,7 @@ export default function ServerPage() {
                   className="flex items-center space-x-2 p-3 rounded-md hover:bg-accent transition-colors"
                 >
                   <ServerIcon className="h-5 w-5" />
-                  <span>Test Connection</span>
+                  <span>Test server (SSH and backup tools)</span>
                 </Link>
                 <DeleteConfirmationDialog
                   title="Are you absolutely sure?"
