@@ -1,6 +1,12 @@
 import { db } from '@/lib/db';
 import { backupConfigs } from '@/lib/db/schema';
-import { buildRsyncCommand } from '@/lib/ssh/rsync';
+import {
+  checkRemoteHasRsync,
+  connectToServer,
+  resolvePrivateKeyForServer,
+  writeTemporarySshIdentityFile,
+} from '@/lib/ssh';
+import { buildRsyncCommand, shellSingleQuote } from '@/lib/ssh/rsync';
 import dayjs from 'dayjs';
 import { eq } from 'drizzle-orm';
 import { Stats } from 'fs';
@@ -43,15 +49,15 @@ type BackupConfigWithServer = {
  * Execute a backup based on its configuration
  */
 export async function executeBackup(config: BackupConfigWithServer, historyId: string): Promise<void> {
+  let ssh: Awaited<ReturnType<typeof connectToServer>> | null = null;
+  let cleanupIdentity: (() => Promise<void>) | undefined;
+
   try {
     console.log(`Starting backup: ${config.name} (${historyId})`);
 
     if (process.env.NEXT_RUNTIME !== 'nodejs') {
       throw new Error('Not in Node.js environment');
     }
-
-    // Import the SSH utilities to use the connectToServer function
-    const { connectToServer } = await import('@/lib/ssh');
 
     // Ensure server object has all required fields for the Server type
     const serverConfig = {
@@ -63,7 +69,7 @@ export async function executeBackup(config: BackupConfigWithServer, historyId: s
     };
 
     // Connect to the server using the comprehensive connection function
-    const ssh = await connectToServer(serverConfig);
+    ssh = await connectToServer(serverConfig);
 
     // Run pre-backup commands if specified
     if (config.preBackupCommands && config.preBackupCommands.trim()) {
@@ -122,9 +128,15 @@ export async function executeBackup(config: BackupConfigWithServer, historyId: s
     // Keep the tilde for the remote path as it will be expanded on the server
     const remoteSource = `${config.server.username}@${config.server.host}:${remotePath}/`;
 
-    // Check if rsync is available on the server
-    const rsyncCheckResult = await ssh.execCommand('which rsync || echo "not_found"');
-    const isRsyncAvailable = !rsyncCheckResult.stdout.includes('not_found') && rsyncCheckResult.stderr === '';
+    // Host-side rsync/scp must use the same key as node-ssh; write temp key and bypass mounted ~/.ssh/config
+    const privateKey = await resolvePrivateKeyForServer(serverConfig);
+    const { path: keyPath, cleanup: cleanupKeyFile } = await writeTemporarySshIdentityFile(privateKey);
+    cleanupIdentity = cleanupKeyFile;
+
+    const localSshShell = `ssh -p ${config.server.port} -i ${shellSingleQuote(keyPath)} -F /dev/null -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR`;
+
+    // Prefer rsync when present on remote (PATH in non-interactive SSH is often minimal)
+    const isRsyncAvailable = await checkRemoteHasRsync(ssh);
 
     const { exec } = require('child_process');
     const { promisify } = require('util');
@@ -138,7 +150,13 @@ export async function executeBackup(config: BackupConfigWithServer, historyId: s
       console.log('Using rsync for backup');
 
       // Build the rsync command to pull data FROM the server TO the local machine using the utility
-      const rsyncCommand = buildRsyncCommand(remoteSource, backupDestination, excludePatterns);
+      const rsyncCommand = buildRsyncCommand(
+        remoteSource,
+        backupDestination,
+        excludePatterns,
+        [],
+        localSshShell
+      );
       console.log(`Executing rsync command: ${rsyncCommand}`);
 
       // Execute rsync locally to pull data from the remote server
@@ -186,8 +204,9 @@ export async function executeBackup(config: BackupConfigWithServer, historyId: s
         // Create parent directory if it doesn't exist
         await fs.mkdir(path.dirname(localFilePath), { recursive: true });
 
-        // Build SCP command
-        const scpCommand = `scp -P ${config.server.port} ${config.server.username}@${config.server.host}:"${remoteFilePath}" "${localFilePath}"`;
+        // Build SCP command (same identity + no system config as rsync)
+        const scpOpts = `-P ${config.server.port} -F /dev/null -i ${shellSingleQuote(keyPath)} -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR`;
+        const scpCommand = `scp ${scpOpts} ${config.server.username}@${config.server.host}:"${remoteFilePath}" "${localFilePath}"`;
 
         scpPromises.push(
           execPromise(scpCommand)
@@ -235,9 +254,6 @@ Total transferred file size: ${totalSize}`;
         logOutput: backupResult.stdout
       }
     );
-
-    // Dispose of the SSH connection
-    ssh.dispose();
   } catch (error) {
     console.error(`Backup failed: ${error}`);
     await updateBackupHistoryFailure(
@@ -245,6 +261,9 @@ Total transferred file size: ${totalSize}`;
       error instanceof Error ? error.message : 'Unknown error'
     );
     throw error;
+  } finally {
+    await cleanupIdentity?.();
+    ssh?.dispose();
   }
 }
 

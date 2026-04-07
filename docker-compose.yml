@@ -16,7 +16,9 @@ services:
       DATABASE_URL: file:/app/data/data.db
     volumes:
       - lazybackup_data:/app/data
-      - "${BACKUP_STORAGE_PATH:-/app/backups}:/app/backups"
+      # Same host dir at both paths: UI/examples use /backups/... but older docs used /app/backups/...
+      - "${BACKUP_STORAGE_PATH:-./backups}:/backups"
+      - "${BACKUP_STORAGE_PATH:-./backups}:/app/backups"
       - "${SSH_KEYS_PATH:-~/.ssh}:/root/.ssh:ro"
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:3000/api/health || exit 1"]

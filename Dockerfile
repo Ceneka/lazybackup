@@ -14,6 +14,8 @@ FROM builder-dependencies AS builder
 WORKDIR /app
 COPY . /app
 COPY --from=builder-dependencies /app/node_modules /app/node_modules
+# Writable SQLite URL for the build: bundling/collecting routes loads @/lib/db; avoid missing /app/data.db issues.
+ENV DATABASE_URL=file:/tmp/lazybackup-build.db
 RUN bun run build
 
 # Install dependencies for production
