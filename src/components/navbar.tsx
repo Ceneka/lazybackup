@@ -70,7 +70,8 @@ export function Navbar() {
         </nav>
 
         {/* Mobile Navigation */}
-        <Sheet open={open} onOpenChange={setOpen}>
+        {/* modal={false}: avoid Radix body pointer-events lock (cleanup can stick and freeze the whole app) */}
+        <Sheet modal={false} open={open} onOpenChange={setOpen}>
           <SheetTrigger asChild className="md:hidden">
             <Button variant="outline" size="icon" className="h-8 w-8 p-0">
               <MenuIcon className="h-4 w-4" />
