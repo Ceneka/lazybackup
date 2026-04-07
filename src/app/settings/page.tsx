@@ -11,11 +11,22 @@ import { Textarea } from "@/components/ui/textarea"
 import { useSettings } from "@/lib/hooks/useSettings"
 import { SSHKey, SystemSSHKey, useSSHKeys } from "@/lib/hooks/useSSHKeys"
 import { KeyIcon, PlusIcon, SettingsIcon, TrashIcon } from "lucide-react"
-import { useEffect, useState } from "react"
+import { useSearchParams } from "next/navigation"
+import { Suspense, useEffect, useLayoutEffect, useState } from "react"
 import { toast } from "sonner"
 
-export default function SettingsPage() {
+function SettingsPageInner() {
+  const searchParams = useSearchParams()
   const [tab, setTab] = useState<string>("general")
+
+  useLayoutEffect(() => {
+    const t = searchParams.get("tab")
+    if (t === "ssh-keys" || t === "general") {
+      setTab(t)
+    } else {
+      setTab("general")
+    }
+  }, [searchParams])
   const settingsQuery = useSettings()
   const keysQuery = useSSHKeys()
 
@@ -87,7 +98,7 @@ export default function SettingsPage() {
         <h1 className="text-3xl font-bold">Settings</h1>
       </div>
 
-      <Tabs defaultValue="general" value={tab} onValueChange={setTab} className="w-full">
+      <Tabs value={tab} onValueChange={setTab} className="w-full">
         <TabsList className="grid w-full grid-cols-2">
           <TabsTrigger value="general" className="flex items-center">
             <SettingsIcon className="mr-2 h-4 w-4" />
@@ -284,4 +295,19 @@ export default function SettingsPage() {
       </Tabs>
     </div>
   )
-} 
+}
+
+export default function SettingsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="space-y-6">
+          <h1 className="text-3xl font-bold">Settings</h1>
+          <div className="flex justify-center py-12 text-muted-foreground">Loading…</div>
+        </div>
+      }
+    >
+      <SettingsPageInner />
+    </Suspense>
+  )
+}
