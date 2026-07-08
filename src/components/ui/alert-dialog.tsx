@@ -4,6 +4,7 @@ import * as AlertDialogPrimitive from "@radix-ui/react-alert-dialog"
 import * as React from "react"
 
 import { buttonVariants } from "@/components/ui/button"
+import { scheduleUnlockRadixPointerEvents } from "@/lib/unlock-radix-pointer-events"
 import { cn } from "@/lib/utils"
 
 function AlertDialog({
@@ -15,7 +16,7 @@ function AlertDialog({
       data-slot="alert-dialog"
       onOpenChange={(open) => {
         if (!open) {
-          setTimeout(() => document.body.style.removeProperty("pointer-events"), 100)
+          scheduleUnlockRadixPointerEvents()
         }
         onOpenChange?.(open)
       }}

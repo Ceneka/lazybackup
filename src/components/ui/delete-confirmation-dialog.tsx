@@ -11,7 +11,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { LoadingButton } from "@/components/ui/loading-button"
 import { TrashIcon } from "lucide-react"
-import React from "react"
+import React, { useRef, useState } from "react"
 
 interface DeleteConfirmationDialogProps {
   title?: string
@@ -32,13 +32,33 @@ export function DeleteConfirmationDialog({
   triggerButtonClassName = "cursor-pointer flex w-full items-center space-x-2 p-3 rounded-md bg-destructive/10 text-destructive-foreground hover:bg-destructive/20 transition-colors",
   children,
 }: DeleteConfirmationDialogProps) {
+  const [open, setOpen] = useState(false)
+  const deleteAfterClose = useRef(false)
+
+  const handleOpenChange = (next: boolean) => {
+    setOpen(next)
+    if (!next && deleteAfterClose.current) {
+      deleteAfterClose.current = false
+      onDelete()
+    }
+  }
+
+  const handleConfirmDelete = () => {
+    deleteAfterClose.current = true
+    setOpen(false)
+  }
+
   return (
-    <AlertDialog>
+    <AlertDialog open={open} onOpenChange={handleOpenChange}>
       <AlertDialogTrigger asChild>
         {children || (
-          <Button variant="destructive" className={triggerButtonClassName}>
+          <Button
+            variant="destructive"
+            className={triggerButtonClassName}
+            disabled={isDeleting}
+          >
             <TrashIcon className="h-5 w-5 mr-2" />
-            <span>{buttonText}</span>
+            <span>{isDeleting ? "Deleting..." : buttonText}</span>
           </Button>
         )}
       </AlertDialogTrigger>
@@ -50,10 +70,10 @@ export function DeleteConfirmationDialog({
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
           <LoadingButton 
             variant="destructive"
-            onClick={onDelete}
+            onClick={handleConfirmDelete}
             isLoading={isDeleting}
             loadingText="Deleting..."
             className="bg-red-500 hover:bg-red-600"
@@ -64,4 +84,4 @@ export function DeleteConfirmationDialog({
       </AlertDialogContent>
     </AlertDialog>
   )
-} 
+}

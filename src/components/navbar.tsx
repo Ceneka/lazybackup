@@ -5,7 +5,7 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 import { cn } from "@/lib/utils"
 import { FolderIcon, HistoryIcon, HomeIcon, MenuIcon, ServerIcon, SettingsIcon } from "lucide-react"
 import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
 import { useState } from "react"
 
 const navItems = [
@@ -38,6 +38,7 @@ const navItems = [
 
 export function Navbar() {
   const pathname = usePathname()
+  const router = useRouter()
   const [open, setOpen] = useState(false)
 
   return (
@@ -84,7 +85,11 @@ export function Navbar() {
                 <Link
                   key={item.href}
                   href={item.href}
-                  onClick={() => setOpen(false)}
+                  onClick={(e) => {
+                    e.preventDefault()
+                    setOpen(false)
+                    window.setTimeout(() => router.push(item.href), 200)
+                  }}
                   className={cn(
                     "flex items-center p-2 transition-colors hover:text-foreground/80",
                     pathname === item.href

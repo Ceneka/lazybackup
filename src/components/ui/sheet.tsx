@@ -4,6 +4,7 @@ import * as React from "react"
 import * as SheetPrimitive from "@radix-ui/react-dialog"
 import { XIcon } from "lucide-react"
 
+import { scheduleUnlockRadixPointerEvents } from "@/lib/unlock-radix-pointer-events"
 import { cn } from "@/lib/utils"
 
 function Sheet({ onOpenChange, ...props }: React.ComponentProps<typeof SheetPrimitive.Root>) {
@@ -12,7 +13,7 @@ function Sheet({ onOpenChange, ...props }: React.ComponentProps<typeof SheetPrim
       data-slot="sheet"
       onOpenChange={(open) => {
         if (!open) {
-          setTimeout(() => document.body.style.removeProperty("pointer-events"), 100)
+          scheduleUnlockRadixPointerEvents()
         }
         onOpenChange?.(open)
       }}
