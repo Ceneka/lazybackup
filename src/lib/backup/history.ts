@@ -56,7 +56,8 @@ export async function updateBackupHistorySuccess(
  */
 export async function updateBackupHistoryFailure(
   historyId: string,
-  error: Error | string
+  error: Error | string,
+  options?: { logOutput?: string }
 ) {
   const errorMessage = error instanceof Error ? error.message : String(error);
   
@@ -66,6 +67,7 @@ export async function updateBackupHistoryFailure(
       endTime: new Date(),
       status: 'failed',
       errorMessage,
+      ...(options?.logOutput ? { logOutput: options.logOutput } : {}),
     })
     .where(eq(backupHistory.id, historyId))
     .returning();

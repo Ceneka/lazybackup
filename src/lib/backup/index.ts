@@ -15,6 +15,11 @@ import * as os from 'os';
 import * as path from 'path';
 import { parseRsyncOutput } from '../utils/rsync-parser';
 import { createBackupHistoryEntry, updateBackupHistoryFailure, updateBackupHistorySuccess } from './history';
+import {
+  buildPreBackupLog,
+  combineBackupLog,
+  formatPreBackupCommandLog,
+} from './log-format';
 
 // Type for backup config with server
 type BackupConfigWithServer = {
@@ -51,6 +56,7 @@ type BackupConfigWithServer = {
 export async function executeBackup(config: BackupConfigWithServer, historyId: string): Promise<void> {
   let ssh: Awaited<ReturnType<typeof connectToServer>> | null = null;
   let cleanupIdentity: (() => Promise<void>) | undefined;
+  let preBackupLog = '';
 
   try {
     console.log(`Starting backup: ${config.name} (${historyId})`);
@@ -75,10 +81,13 @@ export async function executeBackup(config: BackupConfigWithServer, historyId: s
     if (config.preBackupCommands && config.preBackupCommands.trim()) {
       console.log(`Running pre-backup commands for ${config.name}`);
       const commands = config.preBackupCommands.split('\n').filter(Boolean);
+      const commandLogs: string[] = [];
 
       for (const command of commands) {
         console.log(`Executing command: ${command}`);
         const result = await ssh.execCommand(command);
+        const commandLog = formatPreBackupCommandLog(command, result);
+        commandLogs.push(commandLog);
 
         if (result.stderr) {
           console.warn(`Command produced warnings/errors: ${result.stderr}`);
@@ -87,6 +96,7 @@ export async function executeBackup(config: BackupConfigWithServer, historyId: s
         console.log(`Command output: ${result.stdout || 'No output'}`);
       }
 
+      preBackupLog = buildPreBackupLog(commandLogs);
       console.log(`Completed pre-backup commands for ${config.name}`);
     }
 
@@ -253,14 +263,15 @@ Total transferred file size: ${totalSize}`;
       historyId,
       {
         ...parsedOutput,
-        logOutput: backupResult.stdout
+        logOutput: combineBackupLog(preBackupLog, backupResult.stdout, usedMethod),
       }
     );
   } catch (error) {
     console.error(`Backup failed: ${error}`);
     await updateBackupHistoryFailure(
       historyId,
-      error instanceof Error ? error.message : 'Unknown error'
+      error instanceof Error ? error.message : 'Unknown error',
+      preBackupLog ? { logOutput: preBackupLog } : undefined
     );
     throw error;
   } finally {

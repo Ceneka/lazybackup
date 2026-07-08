@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/card"
 import { DeleteConfirmationDialog } from "@/components/ui/delete-confirmation-dialog"
 import { QueryState } from "@/components/ui/query-state"
+import { splitBackupLog } from "@/lib/backup/log-format"
 import { useDeleteHistory, useHistoryDetail } from "@/lib/hooks/useHistory"
 import { formatBytes } from "@/lib/utils"
 import { format, formatDistance } from "date-fns"
@@ -178,16 +179,35 @@ export default function HistoryDetailPage() {
                         </AccordionItem>
                       )}
                       
-                      {query.data.logOutput && (
-                        <AccordionItem value="log">
-                          <AccordionTrigger>Command Output</AccordionTrigger>
-                          <AccordionContent>
-                            <div className="bg-gray-50 p-4 rounded border border-gray-200 whitespace-pre-wrap font-mono text-sm max-h-96 overflow-y-auto">
-                              {query.data.logOutput}
-                            </div>
-                          </AccordionContent>
-                        </AccordionItem>
-                      )}
+                      {query.data.logOutput && (() => {
+                        const { preBackup, transfer } = splitBackupLog(query.data.logOutput)
+
+                        return (
+                          <>
+                            {preBackup && (
+                              <AccordionItem value="pre-backup">
+                                <AccordionTrigger>Pre-Backup Commands</AccordionTrigger>
+                                <AccordionContent>
+                                  <div className="bg-blue-50 p-4 rounded border border-blue-200 whitespace-pre-wrap font-mono text-sm max-h-96 overflow-y-auto">
+                                    {preBackup}
+                                  </div>
+                                </AccordionContent>
+                              </AccordionItem>
+                            )}
+
+                            <AccordionItem value="transfer">
+                              <AccordionTrigger>
+                                {preBackup ? "Backup Transfer" : "Command Output"}
+                              </AccordionTrigger>
+                              <AccordionContent>
+                                <div className="bg-gray-50 p-4 rounded border border-gray-200 whitespace-pre-wrap font-mono text-sm max-h-96 overflow-y-auto">
+                                  {transfer}
+                                </div>
+                              </AccordionContent>
+                            </AccordionItem>
+                          </>
+                        )
+                      })()}
                     </Accordion>
                   </CardContent>
                 </Card>
