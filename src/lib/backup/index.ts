@@ -152,7 +152,7 @@ export async function executeBackup(config: BackupConfigWithServer, historyId: s
     const execPromise = promisify(exec);
 
     let backupResult;
-    let usedMethod = 'rsync';
+    let usedMethod: 'rsync' | 'scp' = 'rsync';
 
     // Prefer rsync on the remote when present; otherwise fall back to local scp (never both).
     if (rsyncAvailable) {
