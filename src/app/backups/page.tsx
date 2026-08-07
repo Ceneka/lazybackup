@@ -1,6 +1,7 @@
 "use client"
 
 import { QueryState } from "@/components/ui/query-state"
+import { formatCronExpression } from "@/lib/cron/format"
 import { useBackups } from "@/lib/hooks/useBackups"
 import { CalendarIcon, FolderIcon, PlusIcon } from "lucide-react"
 import Link from "next/link"
@@ -50,7 +51,9 @@ export default function BackupsPage() {
                   <p>Destination: {backup.destinationPath}</p>
                   <div className="flex items-center mt-1">
                     <CalendarIcon className="h-3 w-3 mr-1" />
-                    <span className="text-xs">{backup.schedule}</span>
+                    <span className="text-xs">
+                      {formatCronExpression(backup.schedule)} ({backup.schedule})
+                    </span>
                   </div>
                 </div>
               </Link>
