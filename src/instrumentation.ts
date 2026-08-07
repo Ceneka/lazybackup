@@ -12,20 +12,9 @@ export async function register() {
   }
 
   try {
-    const { runMigration } = await import('./lib/db/migrate');
-    const { initializeScheduler } = await import('./lib/scheduler');
-
-    console.log('🚀 Server starting - running database migrations...');
-    await runMigration();
-    console.log('✅ Database migrations completed');
-
-    console.log('🚀 Initializing server components...');
-
-    await initializeScheduler();
-
-    console.log('✅ Server components initialized successfully');
+    const { registerNode } = await import('./instrumentation.node');
+    await registerNode();
   } catch (error) {
     console.error('❌ Error during server initialization:', error);
   }
 }
-
