@@ -1,297 +1,315 @@
 "use client"
 
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
 import { QueryState } from "@/components/ui/query-state"
-import { useHistoryStats } from "@/lib/hooks/useHistory"
-import { useStats } from "@/lib/hooks/useStats"
-import { CheckCircleIcon, FolderIcon, HistoryIcon, PlayIcon, PlusIcon, ServerIcon, XCircleIcon } from "lucide-react"
+import { useDashboard } from "@/lib/hooks/useDashboard"
+import { formatBytes } from "@/lib/utils"
+import {
+  CheckCircleIcon,
+  FolderIcon,
+  HardDriveIcon,
+  HistoryIcon,
+  PlayIcon,
+  PlusIcon,
+  ServerIcon,
+  XCircleIcon,
+} from "lucide-react"
 import Link from "next/link"
 import { useEffect, useState } from "react"
 
-// Simple Chart component for backup history
-function BackupHistoryChart({ data }: { data: any[] }) {
-  // Check if we have valid data
-  if (!data || !Array.isArray(data) || data.length < 2) {
-    return (
-      <div className="flex items-center justify-center h-40 bg-muted/20 rounded-lg">
-        <p className="text-muted-foreground">
-          {!data || !Array.isArray(data)
-            ? "No backup data available"
-            : "Need at least 2 backups to display chart"}
-        </p>
-      </div>
-    )
-  }
+function Last30DaysChart({
+  daily,
+}: {
+  daily: Array<{
+    date: string
+    success: number
+    failed: number
+    running: number
+    total: number
+  }>
+}) {
+  const max = Math.max(1, ...daily.map((d) => d.total))
+  const hasAny = daily.some((d) => d.total > 0)
 
-  // Process the data for the chart
-  const chartData = data.map((item, index) => ({
-    status: item.status || 'unknown',
-    date: new Date(item.startTime),
-    index,
-  }))
-
-  // Ensure we have valid dates
-  if (chartData.some(item => isNaN(item.date.getTime()))) {
-    console.error("Invalid date in chart data", data)
+  if (!hasAny) {
     return (
-      <div className="flex items-center justify-center h-40 bg-muted/20 rounded-lg">
-        <p className="text-muted-foreground">Error processing chart data</p>
+      <div className="flex h-36 items-center justify-center rounded-lg bg-muted/20">
+        <p className="text-sm text-muted-foreground">No backup runs in the last 30 days</p>
       </div>
     )
   }
 
   return (
-    <div className="h-40 w-full">
-      <div className="flex flex-col h-full">
-        <div className="flex-1 relative">
-          {/* Chart lines */}
-          <div className="absolute inset-0 flex items-end">
-            {chartData.map((item, i) => (
+    <div className="space-y-2">
+      <div className="flex h-36 items-end gap-0.5">
+        {daily.map((day) => {
+          const px = day.total === 0 ? 3 : Math.max(10, Math.round((day.total / max) * 140))
+          const title = `${day.date}: ${day.success} ok, ${day.failed} failed, ${day.running} running`
+          return (
+            <div key={day.date} className="flex flex-1 flex-col justify-end" title={title}>
               <div
-                key={i}
-                className="flex-1 flex flex-col justify-end items-center"
+                className="mx-auto flex w-full max-w-[10px] flex-col justify-end overflow-hidden rounded-t-sm"
+                style={{ height: `${px}px` }}
               >
-                <div
-                  className={`w-4 rounded-t ${item.status === 'running' ? 'bg-blue-500' :
-                    item.status === 'success' ? 'bg-green-500' :
-                      item.status === 'failed' ? 'bg-red-500' :
-                        'bg-gray-500'
-                    }`}
-                  style={{
-                    height: `${Math.max(20, Math.min(90, (item.index + 1) * 10))}%`,
-                  }}
-                ></div>
+                {day.failed > 0 && (
+                  <div className="w-full bg-red-500" style={{ flex: day.failed }} />
+                )}
+                {day.running > 0 && (
+                  <div className="w-full bg-blue-500" style={{ flex: day.running }} />
+                )}
+                {day.success > 0 && (
+                  <div className="w-full bg-green-500" style={{ flex: day.success }} />
+                )}
+                {day.total === 0 && <div className="w-full flex-1 bg-muted" />}
               </div>
-            ))}
-          </div>
-        </div>
-        <div className="h-6 flex justify-between text-xs text-muted-foreground pt-2">
-          <span>{chartData[0].date.toLocaleDateString()}</span>
-          <span>{chartData[chartData.length - 1].date.toLocaleDateString()}</span>
-        </div>
+            </div>
+          )
+        })}
+      </div>
+      <div className="flex justify-between text-xs text-muted-foreground">
+        <span>{daily[0]?.date}</span>
+        <span>{daily[daily.length - 1]?.date}</span>
       </div>
     </div>
   )
 }
 
 export default function Dashboard() {
-  const query = useStats()
-  const historyStatsQuery = useHistoryStats()
+  const query = useDashboard(30)
   const [isClient, setIsClient] = useState(false)
 
-  // Use this to avoid hydration errors with date-related rendering
   useEffect(() => {
     setIsClient(true)
   }, [])
 
-  // Calculate the success rate
-  const getSuccessRate = () => {
-    if (!query.data) return 0
-    const total = query.data.running + query.data.success + query.data.failed
-    return total > 0 ? Math.round((query.data.success / total) * 100) : 0
-  }
-
   return (
     <div className="space-y-6">
-      <h1 className="text-3xl font-bold">Dashboard</h1>
+      <div className="flex flex-wrap items-end justify-between gap-2">
+        <div>
+          <h1 className="text-3xl font-bold">Dashboard</h1>
+          <p className="text-sm text-muted-foreground">Last 30 days overview</p>
+        </div>
+        <div className="flex gap-3 text-sm text-muted-foreground">
+          <Link href="/servers" className="inline-flex items-center gap-1 hover:text-foreground">
+            <ServerIcon className="h-3.5 w-3.5" />
+            {query.data?.servers ?? "—"} servers
+          </Link>
+          <Link href="/backups" className="inline-flex items-center gap-1 hover:text-foreground">
+            <FolderIcon className="h-3.5 w-3.5" />
+            {query.data?.enabledBackups ?? "—"}/{query.data?.backups ?? "—"} backups enabled
+          </Link>
+        </div>
+      </div>
 
       <QueryState
-        query={query}
-        dataLabel="dashboard stats"
+        query={{
+          isLoading: query.isLoading || (query.isPending && !query.data),
+          isError: query.isError,
+          error: query.error,
+          data: query.data,
+          refetch: query.refetch,
+        }}
+        dataLabel="dashboard"
         loadingComponent={
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {[...Array(3)].map((_, i) => (
-              <div key={i} className="p-6 rounded-lg border bg-card text-card-foreground shadow animate-pulse">
-                <div className="h-5 bg-gray-200 rounded w-1/3 mb-4"></div>
-                <div className="h-8 bg-gray-200 rounded w-1/4"></div>
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+            {[...Array(2)].map((_, i) => (
+              <div
+                key={i}
+                className="animate-pulse rounded-lg border bg-card p-6 shadow"
+              >
+                <div className="mb-4 h-5 w-1/3 rounded bg-muted" />
+                <div className="h-24 rounded bg-muted" />
               </div>
             ))}
           </div>
         }
       >
-        {query.data && (
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-            <Link
-              href="/servers"
-              className="p-6 rounded-lg border bg-card text-card-foreground shadow hover:shadow-md transition-all"
-            >
-              <div className="flex items-center space-x-2 text-muted-foreground mb-4">
-                <ServerIcon className="h-5 w-5" />
-                <span>Total Servers</span>
-              </div>
-              <div className="text-3xl font-bold">{query.data.servers}</div>
-            </Link>
-
-            <Link
-              href="/backups"
-              className="p-6 rounded-lg border bg-card text-card-foreground shadow hover:shadow-md transition-all"
-            >
-              <div className="flex items-center space-x-2 text-muted-foreground mb-4">
-                <FolderIcon className="h-5 w-5" />
-                <span>Backup Configurations</span>
-              </div>
-              <div className="text-3xl font-bold">{query.data.backups}</div>
-            </Link>
-
-            <Link
-              href="/history"
-              className="p-6 rounded-lg border bg-card text-card-foreground shadow hover:shadow-md transition-all"
-            >
-              <div className="flex items-center space-x-2 text-muted-foreground mb-4">
-                <HistoryIcon className="h-5 w-5" />
-                <span>Backup History</span>
-              </div>
-              <div className="text-3xl font-bold">{query.data.history}</div>
-            </Link>
-
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle>Backup Status</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {query.data && (
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-4">
-                        <div className="flex items-center gap-1.5">
-                          <PlayIcon className="h-4 w-4 text-blue-500" />
-                          <span className="text-blue-500 font-medium">{query.data.running}</span>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <CheckCircleIcon className="h-4 w-4 text-green-500" />
-                          <span className="text-green-500 font-medium">{query.data.success}</span>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <XCircleIcon className="h-4 w-4 text-red-500" />
-                          <span className="text-red-500 font-medium">{query.data.failed}</span>
-                        </div>
+        {query.data ? (
+          <>
+            <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
+              <Card className="lg:col-span-3">
+                <CardHeader className="pb-2">
+                  <CardTitle>Backup status</CardTitle>
+                  <CardDescription>
+                    {query.data.totalRuns} run{query.data.totalRuns === 1 ? "" : "s"} in the last{" "}
+                    {query.data.days} days
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex flex-wrap items-end justify-between gap-4">
+                    <div>
+                      <div className="text-4xl font-bold tracking-tight">
+                        {query.data.successRate}%
                       </div>
-                      <div className="text-sm text-muted-foreground">
-                        Success Rate: {isClient ? getSuccessRate() : 0}%
+                      <div className="text-sm text-muted-foreground">Success rate</div>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <div className="flex items-center gap-1.5">
+                        <PlayIcon className="h-4 w-4 text-blue-500" />
+                        <span className="font-medium text-blue-500">
+                          {query.data.statusCounts.running}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <CheckCircleIcon className="h-4 w-4 text-green-500" />
+                        <span className="font-medium text-green-500">
+                          {query.data.statusCounts.success}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <XCircleIcon className="h-4 w-4 text-red-500" />
+                        <span className="font-medium text-red-500">
+                          {query.data.statusCounts.failed}
+                        </span>
                       </div>
                     </div>
-                    <Progress value={isClient ? getSuccessRate() : 0} className="h-1.5" />
                   </div>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-        )}
-      </QueryState>
-
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle>Backup History</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <QueryState
-            query={historyStatsQuery}
-            dataLabel="backup history chart"
-            loadingComponent={
-              <div className="h-40 w-full bg-muted/20 rounded-lg animate-pulse" />
-            }
-          >
-            {historyStatsQuery.data?.chartHistory && historyStatsQuery.data.chartHistory.length > 0 ? (
-              <BackupHistoryChart data={historyStatsQuery.data.chartHistory} />
-            ) : (
-              <div className="flex items-center justify-center h-40 bg-muted/20 rounded-lg">
-                <p className="text-muted-foreground">No backup history data available</p>
-              </div>
-            )}
-          </QueryState>
-          <div className="text-center mt-4">
-            <Link
-              href="/history"
-              className="text-sm text-blue-500 hover:underline"
-            >
-              View all history
-            </Link>
-          </div>
-        </CardContent>
-      </Card>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="p-6 rounded-lg border bg-card text-card-foreground shadow">
-          <h2 className="text-xl font-semibold mb-4">Quick Actions</h2>
-          <div className="space-y-4">
-            <Link
-              href="/servers/new"
-              className="flex items-center space-x-2 p-3 rounded-md hover:bg-accent transition-colors"
-            >
-              <PlusIcon className="h-5 w-5" />
-              <span>Add New Server</span>
-            </Link>
-            <Link
-              href="/backups/new"
-              className="flex items-center space-x-2 p-3 rounded-md hover:bg-accent transition-colors"
-            >
-              <PlusIcon className="h-5 w-5" />
-              <span>Create New Backup</span>
-            </Link>
-          </div>
-        </div>
-
-        <div className="p-6 rounded-lg border bg-card text-card-foreground shadow">
-          <h2 className="text-xl font-semibold mb-4">Recent Activity</h2>
-          <QueryState
-            query={query}
-            loadingComponent={
-              <div className="space-y-4">
-                {[...Array(3)].map((_, i) => (
-                  <div key={i} className="animate-pulse">
-                    <div className="h-4 bg-gray-200 rounded w-3/4 mb-2"></div>
-                    <div className="h-3 bg-gray-200 rounded w-1/2"></div>
+                  <Progress value={query.data.successRate} className="h-2" />
+                  <Last30DaysChart daily={query.data.daily} />
+                  <div className="text-right">
+                    <Link href="/history" className="text-sm text-blue-500 hover:underline">
+                      View all history
+                    </Link>
                   </div>
-                ))}
-              </div>
-            }
-          >
-            {query.data?.recentHistory && query.data.recentHistory.length > 0 ? (
-              <div className="space-y-3">
-                {query.data.recentHistory.map((item: any) => (
+                </CardContent>
+              </Card>
+
+              <Card className="lg:col-span-2">
+                <CardHeader className="pb-2">
+                  <CardTitle className="flex items-center gap-2">
+                    <HardDriveIcon className="h-5 w-5" />
+                    Storage
+                  </CardTitle>
+                  <CardDescription className="truncate" title={query.data.storage.path}>
+                    {query.data.storage.path}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {!query.data.storage.exists ? (
+                    <p className="text-sm text-muted-foreground">
+                      Backup storage path not found yet. It is created when the first backup runs.
+                    </p>
+                  ) : (
+                    <>
+                      <div>
+                        <div className="text-3xl font-bold">{query.data.storage.totalSize}</div>
+                        <div className="text-sm text-muted-foreground">Total on disk</div>
+                      </div>
+                      <dl className="grid grid-cols-2 gap-3 text-sm">
+                        <div className="rounded-md bg-muted/40 p-3">
+                          <dt className="text-muted-foreground">Files</dt>
+                          <dd className="text-lg font-semibold">{query.data.storage.fileCount}</dd>
+                        </div>
+                        <div className="rounded-md bg-muted/40 p-3">
+                          <dt className="text-muted-foreground">Folders</dt>
+                          <dd className="text-lg font-semibold">
+                            {query.data.storage.directoryCount}
+                          </dd>
+                        </div>
+                        <div className="rounded-md bg-muted/40 p-3">
+                          <dt className="text-muted-foreground">Top-level entries</dt>
+                          <dd className="text-lg font-semibold">
+                            {query.data.storage.topLevelEntries}
+                          </dd>
+                        </div>
+                        <div className="rounded-md bg-muted/40 p-3">
+                          <dt className="text-muted-foreground">Avg success size</dt>
+                          <dd className="text-lg font-semibold">
+                            {formatBytes(query.data.avgBackupBytes)}
+                          </dd>
+                        </div>
+                      </dl>
+                      {query.data.storage.latest && (
+                        <p className="text-xs text-muted-foreground">
+                          Newest file: {query.data.storage.latest.name} (
+                          {query.data.storage.latest.size}
+                          {isClient
+                            ? `, ${new Date(query.data.storage.latest.mtime).toLocaleString()}`
+                            : ""}
+                          )
+                        </p>
+                      )}
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+              <div className="rounded-lg border bg-card p-6 text-card-foreground shadow">
+                <h2 className="mb-4 text-xl font-semibold">Quick Actions</h2>
+                <div className="space-y-4">
                   <Link
-                    href={`/history/${item.id}`}
-                    key={item.id}
-                    className="block p-3 rounded-md hover:bg-accent transition-colors"
+                    href="/servers/new"
+                    className="flex items-center space-x-2 rounded-md p-3 transition-colors hover:bg-accent"
                   >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-2">
-                        <div className={`h-2 w-2 rounded-full ${item.status === 'running' ? 'bg-blue-500' :
-                          item.status === 'success' ? 'bg-green-500' :
-                            'bg-red-500'
-                          }`} />
-                        <span>{item.backupConfig?.name || 'Unnamed Backup'}</span>
-                      </div>
-                      <span className="text-sm text-muted-foreground">
-                        {isClient ? new Date(item.startTime).toLocaleString() : ''}
-                      </span>
-                    </div>
-                    {item.status === 'failed' && item.errorMessage && (
-                      <p className="text-sm text-red-500 mt-1 pl-4">
-                        Error: {item.errorMessage}
-                      </p>
-                    )}
+                    <PlusIcon className="h-5 w-5" />
+                    <span>Add New Server</span>
                   </Link>
-                ))}
-                <div className="text-center mt-4">
                   <Link
-                    href="/history"
-                    className="text-sm text-blue-500 hover:underline"
+                    href="/backups/new"
+                    className="flex items-center space-x-2 rounded-md p-3 transition-colors hover:bg-accent"
                   >
-                    View all activity
+                    <PlusIcon className="h-5 w-5" />
+                    <span>Create New Backup</span>
                   </Link>
                 </div>
               </div>
-            ) : (
-              <div className="text-muted-foreground text-center py-6">
-                <HistoryIcon className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                <p>No recent backup activity found</p>
+
+              <div className="rounded-lg border bg-card p-6 text-card-foreground shadow">
+                <h2 className="mb-4 text-xl font-semibold">Recent Activity</h2>
+                {query.data.recentHistory.length > 0 ? (
+                  <div className="space-y-3">
+                    {query.data.recentHistory.map((item: any) => (
+                      <Link
+                        href={`/history/${item.id}`}
+                        key={item.id}
+                        className="block rounded-md p-3 transition-colors hover:bg-accent"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex min-w-0 items-center space-x-2">
+                            <div
+                              className={`h-2 w-2 shrink-0 rounded-full ${
+                                item.status === "running"
+                                  ? "bg-blue-500"
+                                  : item.status === "success"
+                                    ? "bg-green-500"
+                                    : "bg-red-500"
+                              }`}
+                            />
+                            <span className="truncate">
+                              {item.backupConfig?.name || "Unnamed Backup"}
+                            </span>
+                          </div>
+                          <span className="shrink-0 text-sm text-muted-foreground">
+                            {isClient ? new Date(item.startTime).toLocaleString() : ""}
+                          </span>
+                        </div>
+                        {item.status === "failed" && item.errorMessage && (
+                          <p className="mt-1 pl-4 text-sm text-red-500">
+                            Error: {item.errorMessage}
+                          </p>
+                        )}
+                      </Link>
+                    ))}
+                    <div className="mt-4 text-center">
+                      <Link href="/history" className="text-sm text-blue-500 hover:underline">
+                        View all activity
+                      </Link>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="py-6 text-center text-muted-foreground">
+                    <HistoryIcon className="mx-auto mb-2 h-8 w-8 opacity-50" />
+                    <p>No recent backup activity found</p>
+                  </div>
+                )}
               </div>
-            )}
-          </QueryState>
-        </div>
-      </div>
+            </div>
+          </>
+        ) : null}
+      </QueryState>
     </div>
   )
 }
