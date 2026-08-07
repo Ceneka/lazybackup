@@ -1,6 +1,9 @@
+import { formatCronExpression } from '@/lib/cron/format';
+import { buildUpcomingEntry } from '@/lib/cron/next';
 import { db } from '@/lib/db';
 import { backupConfigs } from '@/lib/db/schema';
 import { scheduleBackup, stopBackup } from '@/lib/scheduler';
+import { getAppTimezone } from '@/lib/settings/timezone';
 import { eq } from 'drizzle-orm';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
@@ -42,7 +45,22 @@ export async function GET(
       );
     }
 
-    return NextResponse.json(config);
+    const timeZone = await getAppTimezone();
+    const upcoming = config.enabled
+      ? buildUpcomingEntry(config, timeZone)
+      : {
+          ...buildUpcomingEntry(config, timeZone),
+          nextRun: null,
+          nextRunFormatted: null,
+        };
+
+    return NextResponse.json({
+      ...config,
+      scheduleLabel: formatCronExpression(config.schedule),
+      timezone: timeZone,
+      nextRun: upcoming.nextRun,
+      nextRunFormatted: upcoming.nextRunFormatted,
+    });
   } catch (error) {
     console.error('Failed to fetch backup configuration:', error);
     return NextResponse.json(
@@ -93,7 +111,7 @@ export async function PUT(
 
     // Reschedule the backup if enabled
     if (updatedConfig.enabled) {
-      scheduleBackup(updatedConfig);
+      await scheduleBackup(updatedConfig);
     }
 
     return NextResponse.json(updatedConfig);

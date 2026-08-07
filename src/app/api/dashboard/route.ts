@@ -1,7 +1,9 @@
 import { getBackupStorageStats } from "@/lib/backup/storage-stats"
+import { buildUpcomingEntry } from "@/lib/cron/next"
 import { db } from "@/lib/db"
 import { backupConfigs, backupHistory, servers } from "@/lib/db/schema"
-import { and, desc, gte, sql } from "drizzle-orm"
+import { getAppTimezone } from "@/lib/settings/timezone"
+import { and, desc, eq, gte, sql } from "drizzle-orm"
 import { NextRequest, NextResponse } from "next/server"
 
 function toLocalDateKey(date: Date): string {
@@ -117,6 +119,20 @@ export async function GET(request: NextRequest) {
 
     const storage = await getBackupStorageStats()
 
+    const timeZone = await getAppTimezone()
+    const enabledConfigs = await db.query.backupConfigs.findMany({
+      where: eq(backupConfigs.enabled, true),
+      with: { server: true },
+    })
+    const upcomingBackups = enabledConfigs
+      .map((config) => buildUpcomingEntry(config, timeZone))
+      .filter((entry) => entry.nextRun)
+      .sort((a, b) => {
+        if (!a.nextRun || !b.nextRun) return 0
+        return a.nextRun.localeCompare(b.nextRun)
+      })
+      .slice(0, 8)
+
     return NextResponse.json({
       days,
       since: since.toISOString(),
@@ -132,6 +148,8 @@ export async function GET(request: NextRequest) {
       daily,
       recentHistory,
       storage,
+      timezone: timeZone,
+      upcomingBackups,
     })
   } catch (error) {
     console.error("Error fetching dashboard data:", error)

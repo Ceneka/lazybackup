@@ -3,8 +3,9 @@
 import { DeleteConfirmationDialog } from "@/components/ui/delete-confirmation-dialog"
 import { LoadingButton } from "@/components/ui/loading-button"
 import { QueryState } from "@/components/ui/query-state"
+import { formatCronExpression } from "@/lib/cron/format"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { ArrowLeftIcon, CalendarIcon, FolderIcon, PlayIcon, ServerIcon } from "lucide-react"
+import { ArrowLeftIcon, CalendarIcon, ClockIcon, FolderIcon, PlayIcon, ServerIcon } from "lucide-react"
 import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
 import { toast } from "sonner"
@@ -20,29 +21,13 @@ interface Backup {
   sourcePath: string
   destinationPath: string
   schedule: string
+  scheduleLabel?: string
+  timezone?: string
+  nextRun?: string | null
+  nextRunFormatted?: string | null
   enabled: boolean
   excludePatterns?: string
   preBackupCommands?: string
-}
-
-// Formatter for cron expressions
-const formatCronExpression = (cronExpression: string) => {
-  // This is a very simplified formatter - you might want to use a library like cron-parser
-  const parts = cronExpression.split(' ')
-  if (parts.length !== 5) return cronExpression
-
-  // Very basic interpretation
-  if (parts[0] === '*' && parts[1] === '*' && parts[2] === '*') {
-    return 'Daily'
-  } else if (parts[2] === '*' && parts[4] === '*') {
-    return 'Hourly'
-  } else if (parts[2] === '*') {
-    return 'Daily'
-  } else if (parts[3] === '*') {
-    return 'Monthly'
-  } else {
-    return cronExpression
-  }
 }
 
 export default function BackupDetailPage() {
@@ -54,7 +39,7 @@ export default function BackupDetailPage() {
   // Fetch backup data with useQuery
   const query = useQuery({
     queryKey: ['backup', backupId],
-    queryFn: async () => {
+    queryFn: async (): Promise<Backup | null> => {
       const response = await fetch(`/api/backups/${backupId}`)
 
       if (!response.ok) {
@@ -127,13 +112,9 @@ export default function BackupDetailPage() {
     runBackupMutation.mutate()
   }
 
-  const formatSchedule = (cronExpression: string) => {
-    try {
-      return formatCronExpression(cronExpression)
-    } catch (error) {
-      return cronExpression
-    }
-  }
+  const scheduleLabel = query.data
+    ? query.data.scheduleLabel || formatCronExpression(query.data.schedule)
+    : ""
 
   return (
     <div className="space-y-6">
@@ -191,7 +172,25 @@ export default function BackupDetailPage() {
                   <dt className="text-sm font-medium text-muted-foreground">Schedule</dt>
                   <dd className="text-lg flex items-center space-x-2">
                     <CalendarIcon className="h-4 w-4" />
-                    <span>{formatSchedule(query.data.schedule)} ({query.data.schedule})</span>
+                    <span>{scheduleLabel} ({query.data.schedule})</span>
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-sm font-medium text-muted-foreground">Next run</dt>
+                  <dd className="text-lg flex items-center space-x-2">
+                    <ClockIcon className="h-4 w-4" />
+                    {query.data.enabled ? (
+                      <span>
+                        {query.data.nextRunFormatted || '—'}
+                        {query.data.timezone ? (
+                          <span className="ml-2 text-sm text-muted-foreground">
+                            ({query.data.timezone})
+                          </span>
+                        ) : null}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">Disabled</span>
+                    )}
                   </dd>
                 </div>
                 <div>
@@ -269,4 +268,4 @@ export default function BackupDetailPage() {
       </QueryState>
     </div>
   )
-} 
+}

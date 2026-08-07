@@ -7,6 +7,7 @@ import { useDashboard } from "@/lib/hooks/useDashboard"
 import { formatBytes } from "@/lib/utils"
 import {
   CheckCircleIcon,
+  CalendarClockIcon,
   FolderIcon,
   HardDriveIcon,
   HistoryIcon,
@@ -236,7 +237,7 @@ export default function Dashboard() {
               </Card>
             </div>
 
-            <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
               <div className="rounded-lg border bg-card p-6 text-card-foreground shadow">
                 <h2 className="mb-4 text-xl font-semibold">Quick Actions</h2>
                 <div className="space-y-4">
@@ -303,6 +304,46 @@ export default function Dashboard() {
                   <div className="py-6 text-center text-muted-foreground">
                     <HistoryIcon className="mx-auto mb-2 h-8 w-8 opacity-50" />
                     <p>No recent backup activity found</p>
+                  </div>
+                )}
+              </div>
+
+              <div className="rounded-lg border bg-card p-6 text-card-foreground shadow md:col-span-2 lg:col-span-1">
+                <h2 className="mb-1 text-xl font-semibold">Upcoming Backups</h2>
+                <p className="mb-4 text-xs text-muted-foreground">
+                  Times in {query.data.timezone || "UTC"}
+                </p>
+                {(query.data.upcomingBackups?.length ?? 0) > 0 ? (
+                  <div className="space-y-3">
+                    {query.data.upcomingBackups.map((item) => (
+                      <Link
+                        href={`/backups/${item.id}`}
+                        key={item.id}
+                        className="block rounded-md p-3 transition-colors hover:bg-accent"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="truncate font-medium">{item.name}</div>
+                            <div className="truncate text-xs text-muted-foreground">
+                              {item.scheduleLabel} ({item.schedule})
+                            </div>
+                          </div>
+                          <div className="shrink-0 text-right text-sm text-muted-foreground">
+                            {item.nextRunFormatted || "—"}
+                          </div>
+                        </div>
+                      </Link>
+                    ))}
+                    <div className="mt-4 text-center">
+                      <Link href="/backups" className="text-sm text-blue-500 hover:underline">
+                        View all backups
+                      </Link>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="py-6 text-center text-muted-foreground">
+                    <CalendarClockIcon className="mx-auto mb-2 h-8 w-8 opacity-50" />
+                    <p>No scheduled backups</p>
                   </div>
                 )}
               </div>

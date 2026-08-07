@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query"
+import type { UpcomingBackup } from "@/lib/cron/format"
 
 export type DashboardDaily = {
   date: string
@@ -22,6 +23,8 @@ export type DashboardData = {
   avgBackupBytes: number
   daily: DashboardDaily[]
   recentHistory: any[]
+  timezone: string
+  upcomingBackups: UpcomingBackup[]
   storage: {
     path: string
     exists: boolean
