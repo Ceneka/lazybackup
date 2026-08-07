@@ -6,7 +6,6 @@ import { useEffect, useLayoutEffect } from "react"
 
 /**
  * Guards against Radix UI leaving pointer-events: none on body after Sheet/Dialog/Select closes.
- * Uses MutationObserver so a stuck inline style is cleared immediately, not only on an interval.
  */
 export function BodyPointerEventsGuard() {
   const pathname = usePathname()
@@ -24,6 +23,7 @@ export function BodyPointerEventsGuard() {
   useEffect(() => {
     const unlock = () => unlockRadixPointerEvents()
 
+    // Only watch body/html style — do not observe the whole tree (that fights React).
     const observer = new MutationObserver(unlock)
     observer.observe(document.body, {
       attributes: true,
@@ -34,25 +34,17 @@ export function BodyPointerEventsGuard() {
       attributeFilter: ["style"],
     })
 
-    // Catch select/dialog portals that linger after close
-    const portalObserver = new MutationObserver(() => {
-      scheduleUnlockRadixPointerEvents(50)
-    })
-    portalObserver.observe(document.body, { childList: true, subtree: true })
-
     const onVis = () => {
       if (document.visibilityState === "visible") unlock()
     }
     window.addEventListener("focus", unlock)
     document.addEventListener("visibilitychange", onVis)
-    // Capture-phase pointerdown: if UI is frozen, first interaction clears the lock
     window.addEventListener("pointerdown", unlock, true)
 
     const id = window.setInterval(unlock, 1000)
 
     return () => {
       observer.disconnect()
-      portalObserver.disconnect()
       window.removeEventListener("focus", unlock)
       document.removeEventListener("visibilitychange", onVis)
       window.removeEventListener("pointerdown", unlock, true)
