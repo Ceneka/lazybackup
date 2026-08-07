@@ -19,6 +19,15 @@ export interface SystemSSHKey {
   publicKeyPath?: string
 }
 
+/** Stable helpers — do not recreate inside the hook (breaks useEffect deps). */
+export function isSystemKeyId(id: string): boolean {
+  return id.startsWith("system:")
+}
+
+export function getSystemKeyPathFromId(id: string): string {
+  return id.replace(/^system:/, "")
+}
+
 // Hook for managing SSH keys
 export function useSSHKeys(includeSystem = true) {
   const queryClient = useQueryClient()
@@ -28,11 +37,11 @@ export function useSSHKeys(includeSystem = true) {
     queryKey: ['ssh-keys', { includeSystem }],
     queryFn: async () => {
       const response = await fetch(`/api/ssh-keys?includeSystem=${includeSystem}`)
-      
+
       if (!response.ok) {
         throw new Error("Failed to fetch SSH keys")
       }
-      
+
       return response.json()
     }
   })
@@ -47,12 +56,12 @@ export function useSSHKeys(includeSystem = true) {
         },
         body: JSON.stringify(keyData),
       })
-      
+
       if (!response.ok) {
         const error = await response.json()
         throw new Error(error.error || 'Failed to add SSH key')
       }
-      
+
       return response.json()
     },
     onSuccess: () => {
@@ -70,12 +79,12 @@ export function useSSHKeys(includeSystem = true) {
       const response = await fetch(`/api/ssh-keys/${id}`, {
         method: 'DELETE',
       })
-      
+
       if (!response.ok) {
         const error = await response.json()
         throw new Error(error.error || 'Failed to delete SSH key')
       }
-      
+
       return response.json()
     },
     onSuccess: () => {
@@ -105,9 +114,7 @@ export function useSSHKeys(includeSystem = true) {
     error,
     addKey,
     deleteKey,
-    // Helper to determine if a key is a system key based on ID
-    isSystemKey: (id: string) => id.startsWith('system:'),
-    // Helper to get the path from a system key ID
-    getSystemKeyPath: (id: string) => id.replace('system:', '')
+    isSystemKey: isSystemKeyId,
+    getSystemKeyPath: getSystemKeyPathFromId,
   }
-} 
+}

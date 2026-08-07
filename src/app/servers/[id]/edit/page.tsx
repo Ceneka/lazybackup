@@ -2,7 +2,7 @@
 
 import { Button } from '@/components/ui/button'
 import { useTestServer } from '@/lib/hooks/useServers'
-import { SSHKey, useSSHKeys } from "@/lib/hooks/useSSHKeys"
+import { SSHKey, getSystemKeyPathFromId, isSystemKeyId, useSSHKeys } from "@/lib/hooks/useSSHKeys"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { ArrowLeftIcon, KeyIcon, Loader2Icon } from "lucide-react"
 import Link from "next/link"
@@ -17,7 +17,7 @@ export default function EditServerPage() {
   const queryClient = useQueryClient()
   const [loading, setLoading] = useState(false)
   const [authType, setAuthType] = useState<'password' | 'key'>('password')
-  const { keys, allKeys, isSystemKey, getSystemKeyPath, isLoading: keysLoading } = useSSHKeys(true) // Include system keys
+  const { keys, allKeys, isLoading: keysLoading } = useSSHKeys(true) // Include system keys
 
   const [testingBackup, setTestingBackup] = useState(false)
 
@@ -84,29 +84,43 @@ export default function EditServerPage() {
     setAuthType(e.target.value as 'password' | 'key')
   }
 
-  // When SSH key selection changes, clear the privateKey field and set the appropriate key data
+  // When SSH key selection changes, sync derived key fields (system path vs DB id).
+  // Only update when values actually change — avoid setState loops that freeze Next.js Link.
   useEffect(() => {
-    if (formData.sshKeyId) {
-      // Check if this is a system key
-      if (isSystemKey(formData.sshKeyId)) {
-        const systemPath = getSystemKeyPath(formData.sshKeyId);
-        setFormData(prev => ({
+    if (!formData.sshKeyId) return
+
+    if (isSystemKeyId(formData.sshKeyId)) {
+      const systemPath = getSystemKeyPathFromId(formData.sshKeyId)
+      setFormData((prev) => {
+        if (
+          prev.sshKeyId === "" &&
+          prev.systemKeyPath === systemPath &&
+          prev.privateKey === ""
+        ) {
+          return prev
+        }
+        return {
           ...prev,
-          privateKey: '',
-          sshKeyId: '', // Clear database key ID
-          systemKeyPath: systemPath
-        }))
-      } else {
-        // This is a database key
-        setFormData(prev => ({
-          ...prev,
-          privateKey: '',
-          systemKeyPath: '', // Clear system key path
-          sshKeyId: formData.sshKeyId
-        }))
-      }
+          privateKey: "",
+          sshKeyId: "",
+          systemKeyPath: systemPath,
+        }
+      })
+      return
     }
-  }, [formData.sshKeyId, isSystemKey, getSystemKeyPath])
+
+    setFormData((prev) => {
+      if (prev.privateKey === "" && prev.systemKeyPath === "" && prev.sshKeyId === formData.sshKeyId) {
+        return prev
+      }
+      return {
+        ...prev,
+        privateKey: "",
+        systemKeyPath: "",
+        sshKeyId: formData.sshKeyId,
+      }
+    })
+  }, [formData.sshKeyId])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
