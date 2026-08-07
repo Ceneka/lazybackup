@@ -61,13 +61,16 @@ function SheetContent({
   className,
   children,
   side = "right",
+  showOverlay = true,
   ...props
 }: React.ComponentProps<typeof SheetPrimitive.Content> & {
   side?: "top" | "right" | "bottom" | "left"
+  /** Set false for non-modal sheets (e.g. mobile nav) so a full-screen overlay cannot trap clicks. */
+  showOverlay?: boolean
 }) {
   return (
     <SheetPortal>
-      <SheetOverlay />
+      {showOverlay ? <SheetOverlay /> : null}
       <SheetPrimitive.Content
         data-slot="sheet-content"
         className={cn(

@@ -123,4 +123,15 @@
   body {
     @apply bg-background text-foreground;
   }
+
+  /*
+   * Radix dialogs/sheets set inline pointer-events:none on body and can leave it
+   * stuck after close, freezing all clicks (navbar, Save, etc.). Modal overlays
+   * still capture outside clicks via their own pointer-events. !important beats
+   * the stuck inline style.
+   */
+  html,
+  body {
+    pointer-events: auto !important;
+  }
 }

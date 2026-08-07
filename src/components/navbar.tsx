@@ -5,7 +5,7 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 import { cn } from "@/lib/utils"
 import { FolderIcon, HistoryIcon, HomeIcon, MenuIcon, ServerIcon, SettingsIcon } from "lucide-react"
 import Link from "next/link"
-import { usePathname, useRouter } from "next/navigation"
+import { usePathname } from "next/navigation"
 import { useState } from "react"
 
 const navItems = [
@@ -38,7 +38,6 @@ const navItems = [
 
 export function Navbar() {
   const pathname = usePathname()
-  const router = useRouter()
   const [open, setOpen] = useState(false)
 
   return (
@@ -79,17 +78,13 @@ export function Navbar() {
               <span className="sr-only">Toggle menu</span>
             </Button>
           </SheetTrigger>
-          <SheetContent side="right" className="w-[240px] sm:w-[300px]">
+          <SheetContent side="right" showOverlay={false} className="w-[240px] sm:w-[300px]">
             <nav className="flex flex-col gap-4 mt-8">
               {navItems.map((item) => (
                 <Link
                   key={item.href}
                   href={item.href}
-                  onClick={(e) => {
-                    e.preventDefault()
-                    setOpen(false)
-                    window.setTimeout(() => router.push(item.href), 200)
-                  }}
+                  onClick={() => setOpen(false)}
                   className={cn(
                     "flex items-center p-2 transition-colors hover:text-foreground/80",
                     pathname === item.href

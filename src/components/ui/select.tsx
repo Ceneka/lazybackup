@@ -4,12 +4,25 @@ import * as SelectPrimitive from "@radix-ui/react-select"
 import { CheckIcon, ChevronDownIcon, ChevronUpIcon } from "lucide-react"
 import * as React from "react"
 
+import { scheduleUnlockRadixPointerEvents } from "@/lib/unlock-radix-pointer-events"
 import { cn } from "@/lib/utils"
 
 function Select({
+  onOpenChange,
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Root>) {
-  return <SelectPrimitive.Root data-slot="select" {...props} />
+  return (
+    <SelectPrimitive.Root
+      data-slot="select"
+      onOpenChange={(open) => {
+        if (!open) {
+          scheduleUnlockRadixPointerEvents()
+        }
+        onOpenChange?.(open)
+      }}
+      {...props}
+    />
+  )
 }
 
 function SelectGroup({
