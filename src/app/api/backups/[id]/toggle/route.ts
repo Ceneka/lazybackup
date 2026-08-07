@@ -41,7 +41,7 @@ export async function POST(
     // Handle scheduling based on new status
     if (newEnabledStatus) {
       // If enabling, schedule the backup
-      scheduleBackup(currentConfig);
+      await scheduleBackup({ ...currentConfig, enabled: true });
     } else {
       // If disabling, stop the backup job
       stopBackup(id);

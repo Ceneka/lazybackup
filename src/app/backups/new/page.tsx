@@ -201,7 +201,7 @@ function NewBackupForm() {
                     placeholder="0 0 * * *"
                   />
                   <p className="text-xs text-muted-foreground mt-1">
-                    Format: minute hour day-of-month month day-of-week (e.g., "0 0 * * *" for daily at midnight)
+                    Format: minute hour day-of-month month day-of-week (e.g., &quot;0 0 * * *&quot; for daily at midnight in the app timezone from Settings)
                   </p>
                 </div>
 

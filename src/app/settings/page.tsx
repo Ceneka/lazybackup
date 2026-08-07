@@ -8,11 +8,13 @@ import { LoadingButton } from "@/components/ui/loading-button"
 import { QueryState } from "@/components/ui/query-state"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
+import { COMMON_TIMEZONES, DEFAULT_TIMEZONE, listTimezones } from "@/lib/cron/format"
 import { useSettings } from "@/lib/hooks/useSettings"
 import { SSHKey, SystemSSHKey, useSSHKeys } from "@/lib/hooks/useSSHKeys"
+import { useQueryClient } from "@tanstack/react-query"
 import { KeyIcon, PlusIcon, SettingsIcon, TrashIcon } from "lucide-react"
 import { useSearchParams } from "next/navigation"
-import { Suspense, useEffect, useLayoutEffect, useState } from "react"
+import { Suspense, useEffect, useLayoutEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
 
 function SettingsPageInner() {
@@ -29,6 +31,7 @@ function SettingsPageInner() {
   }, [searchParams])
   const settingsQuery = useSettings()
   const keysQuery = useSSHKeys()
+  const queryClient = useQueryClient()
 
   const [newKeyName, setNewKeyName] = useState("")
   const [newKeyContent, setNewKeyContent] = useState("")
@@ -36,12 +39,22 @@ function SettingsPageInner() {
   // Local state for settings to avoid cursor jumping
   const [localDefaultSshKeyPath, setLocalDefaultSshKeyPath] = useState("")
   const [localSshKeepAliveInterval, setLocalSshKeepAliveInterval] = useState("")
+  const [localTimezone, setLocalTimezone] = useState(DEFAULT_TIMEZONE)
+
+  const timezoneOptions = useMemo(() => {
+    const all = listTimezones()
+    const preferredSet = new Set<string>(COMMON_TIMEZONES)
+    const preferred = [...COMMON_TIMEZONES].filter((tz) => all.includes(tz) || tz === "UTC")
+    const rest = all.filter((tz) => !preferredSet.has(tz))
+    return { preferred, rest }
+  }, [])
 
   // Sync local state with settings data
   useEffect(() => {
     if (settingsQuery.settings) {
       setLocalDefaultSshKeyPath(settingsQuery.settings.defaultSshKeyPath || "")
       setLocalSshKeepAliveInterval(settingsQuery.settings.sshKeepAliveInterval || "60")
+      setLocalTimezone(settingsQuery.settings.timezone || DEFAULT_TIMEZONE)
     }
   }, [settingsQuery.settings])
 
@@ -52,6 +65,20 @@ function SettingsPageInner() {
 
   const handleSaveSshKeepAliveInterval = (value: string) => {
     settingsQuery.updateSetting.mutate({ key: "sshKeepAliveInterval", value })
+  }
+
+  const handleSaveTimezone = (value: string) => {
+    setLocalTimezone(value)
+    settingsQuery.updateSetting.mutate(
+      { key: "timezone", value },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: ["dashboard"] })
+          queryClient.invalidateQueries({ queryKey: ["backup"] })
+          queryClient.invalidateQueries({ queryKey: ["backups"] })
+        },
+      }
+    )
   }
 
   const handleAddKey = async () => {
@@ -126,6 +153,36 @@ function SettingsPageInner() {
               >
                 {settingsQuery.settings && (
                   <div className="space-y-4">
+                    <div>
+                      <Label htmlFor="timezone">Timezone</Label>
+                      <select
+                        id="timezone"
+                        value={localTimezone}
+                        onChange={(e) => handleSaveTimezone(e.target.value)}
+                        className="mt-1 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                      >
+                        <optgroup label="Common">
+                          {timezoneOptions.preferred.map((tz) => (
+                            <option key={tz} value={tz}>
+                              {tz}
+                            </option>
+                          ))}
+                        </optgroup>
+                        <optgroup label="All timezones">
+                          {timezoneOptions.rest.map((tz) => (
+                            <option key={tz} value={tz}>
+                              {tz}
+                            </option>
+                          ))}
+                        </optgroup>
+                      </select>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        Cron schedules (e.g. <code>0 0 * * *</code> = midnight) use this timezone,
+                        independent of the host clock. For Argentina choose{" "}
+                        <code>America/Argentina/Buenos_Aires</code>.
+                      </p>
+                    </div>
+
                     <div>
                       <Label htmlFor="defaultSshKeyPath">Default SSH Key Path</Label>
                       <Input

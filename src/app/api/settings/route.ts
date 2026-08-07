@@ -1,5 +1,10 @@
+import { isValidTimezone } from '@/lib/cron/format';
 import { db } from '@/lib/db';
 import { settings } from '@/lib/db/schema';
+import {
+  TIMEZONE_SETTING_KEY,
+  clearTimezoneCache,
+} from '@/lib/settings/timezone';
 import { eq } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { NextRequest, NextResponse } from 'next/server';
@@ -39,6 +44,17 @@ export async function POST(request: NextRequest) {
     
     // Validate the request body
     const validatedData = settingSchema.parse(body);
+
+    if (
+      validatedData.key === TIMEZONE_SETTING_KEY &&
+      validatedData.value &&
+      !isValidTimezone(validatedData.value)
+    ) {
+      return NextResponse.json(
+        { error: 'Invalid timezone. Use an IANA name like America/Argentina/Buenos_Aires.' },
+        { status: 400 }
+      );
+    }
     
     // Check if setting already exists
     const existingSetting = await db.query.settings.findFirst({
@@ -53,8 +69,6 @@ export async function POST(request: NextRequest) {
           updatedAt: new Date(),
         })
         .where(eq(settings.key, validatedData.key));
-        
-      return NextResponse.json({ key: validatedData.key, value: validatedData.value });
     } else {
       // Create new setting
       const newSetting = {
@@ -66,9 +80,24 @@ export async function POST(request: NextRequest) {
       };
       
       await db.insert(settings).values(newSetting);
-      
-      return NextResponse.json(newSetting, { status: 201 });
     }
+
+    if (validatedData.key === TIMEZONE_SETTING_KEY) {
+      clearTimezoneCache();
+      if (process.env.NEXT_RUNTIME === 'nodejs') {
+        const { restartScheduler } = await import('@/lib/scheduler');
+        await restartScheduler();
+      }
+    }
+
+    if (existingSetting) {
+      return NextResponse.json({ key: validatedData.key, value: validatedData.value });
+    }
+
+    return NextResponse.json(
+      { key: validatedData.key, value: validatedData.value },
+      { status: 201 }
+    );
   } catch (error) {
     console.error('Failed to save setting:', error);
     

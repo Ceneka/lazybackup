@@ -76,7 +76,7 @@ export async function POST(request: NextRequest) {
 
     // Schedule the backup if enabled
     if (completeConfig && completeConfig.enabled) {
-      scheduleBackup(completeConfig);
+      await scheduleBackup(completeConfig);
     }
 
     return NextResponse.json(completeConfig, { status: 201 });

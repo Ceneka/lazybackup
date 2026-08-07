@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { db } from '../db';
 import { backupConfigs, backupHistory } from '../db/schema';
+import { getAppTimezone } from '../settings/timezone';
 
 // Map to store active cron jobs
 const activeJobs = new Map<string, CronJob>();
@@ -18,11 +19,14 @@ export async function initializeScheduler() {
       server: true,
     },
   });
+
+  const timeZone = await getAppTimezone();
+  console.log(`Scheduler timezone: ${timeZone}`);
   
   // Schedule each backup
-  configs.forEach(config => {
-    scheduleBackup(config);
-  });
+  for (const config of configs) {
+    await scheduleBackup(config, timeZone);
+  }
   
   console.log(`Scheduled ${configs.length} backup jobs`);
 }
@@ -70,23 +74,27 @@ export function stopBackup(backupId: string): boolean {
 }
 
 // Schedule a single backup
-export function scheduleBackup(config: any) {
+export async function scheduleBackup(config: any, timeZone?: string) {
   // Cancel existing job if it exists
   stopBackup(config.id);
+
+  const tz = timeZone ?? (await getAppTimezone());
   
-  // Create a new cron job
+  // Create a new cron job in the configured app timezone
   try {
-    const job = new CronJob(
-      config.schedule,
-      () => runBackup(config),
-      null,
-      true
-    );
+    const job = CronJob.from({
+      cronTime: config.schedule,
+      onTick: () => runBackup(config),
+      start: true,
+      timeZone: tz,
+    });
     
     // Store the job
     activeJobs.set(config.id, job);
     
-    console.log(`Scheduled backup job for ${config.name} (${config.id}) with schedule ${config.schedule}`);
+    console.log(
+      `Scheduled backup job for ${config.name} (${config.id}) with schedule ${config.schedule} (${tz})`
+    );
   } catch (error) {
     console.error(`Failed to schedule backup job for ${config.name} (${config.id}):`, error);
   }
@@ -117,5 +125,4 @@ export async function runBackup(config: any) {
     // executeBackup records failure in DB and rethrows; log here for scheduler context
     console.error(`Backup failed for ${config.name}:`, error);
   }
-} 
-
+}
