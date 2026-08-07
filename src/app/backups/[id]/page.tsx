@@ -242,7 +242,7 @@ export default function BackupDetailPage() {
                   <span>Edit Backup Configuration</span>
                 </Link>
                 <Link
-                  href={`/history?backupId=${query.data.id}`}
+                  href={`/history?configId=${query.data.id}`}
                   className="flex items-center space-x-2 p-3 rounded-md hover:bg-accent transition-colors"
                 >
                   <CalendarIcon className="h-5 w-5" />

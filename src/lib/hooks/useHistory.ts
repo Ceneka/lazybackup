@@ -46,6 +46,7 @@ export function useHistoryList(
       const searchParams = new URLSearchParams()
       if (filters.status) searchParams.set("status", filters.status)
       if (filters.configId) searchParams.set("configId", filters.configId)
+      if (filters.search) searchParams.set("search", filters.search)
       searchParams.set("limit", pagination.limit.toString())
       searchParams.set("offset", pagination.offset.toString())
 

@@ -30,62 +30,122 @@ import {
 import { usePaginatedHistory } from "@/lib/hooks/useHistory"
 import { formatBytes } from "@/lib/utils"
 import { format, formatDistance } from "date-fns"
-import { HistoryIcon, RefreshCwIcon, SearchIcon } from "lucide-react"
+import { HistoryIcon, RefreshCwIcon, SearchIcon, XIcon } from "lucide-react"
 import Link from "next/link"
-import { useState } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
+import { Suspense, useEffect, useState } from "react"
 
-export default function HistoryPage() {
+function HistoryPageContent() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const configIdFromUrl =
+    searchParams.get("configId") || searchParams.get("backupId") || ""
+
   const [searchTerm, setSearchTerm] = useState("")
-  
-  const { 
-    data, 
-    isLoading, 
+
+  const {
+    data,
+    isLoading,
     refetch,
     filters,
     updateFilters,
     pagination,
     goToPage
-  } = usePaginatedHistory()
-  
+  } = usePaginatedHistory({
+    configId: configIdFromUrl,
+  })
+
+  // Keep filters in sync when navigating from a backup detail link
+  useEffect(() => {
+    if ((filters.configId || "") !== configIdFromUrl) {
+      updateFilters({ configId: configIdFromUrl })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only react to URL changes
+  }, [configIdFromUrl])
+
+  // Debounce search into the query filter
+  useEffect(() => {
+    const handle = window.setTimeout(() => {
+      if ((filters.search || "") !== searchTerm) {
+        updateFilters({ search: searchTerm })
+      }
+    }, 250)
+    return () => window.clearTimeout(handle)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchTerm])
+
+  const clearConfigFilter = () => {
+    updateFilters({ configId: "" })
+    const params = new URLSearchParams(searchParams.toString())
+    params.delete("configId")
+    params.delete("backupId")
+    const qs = params.toString()
+    router.replace(qs ? `/history?${qs}` : "/history")
+  }
+
   const statusColors = {
     running: "bg-blue-500",
     success: "bg-green-500",
     failed: "bg-red-500",
   }
-  
+
+  const filteredConfigName = data?.filters?.configName
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
-        <h1 className="text-3xl font-bold">Backup History</h1>
-        <LoadingButton 
-          isLoading={isLoading} 
-          onClick={() => refetch()} 
-          variant="outline" 
+        <div>
+          <h1 className="text-3xl font-bold">Backup History</h1>
+          {filters.configId && (
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+              <span>Showing history for</span>
+              <Badge variant="secondary" className="gap-1 font-normal">
+                {filteredConfigName || filters.configId}
+                <button
+                  type="button"
+                  onClick={clearConfigFilter}
+                  className="ml-1 rounded-sm hover:bg-muted"
+                  aria-label="Clear backup filter"
+                >
+                  <XIcon className="h-3 w-3" />
+                </button>
+              </Badge>
+              {filteredConfigName && (
+                <Link
+                  href={`/backups/${filters.configId}`}
+                  className="text-blue-500 hover:underline"
+                >
+                  View backup
+                </Link>
+              )}
+            </div>
+          )}
+        </div>
+        <LoadingButton
+          isLoading={isLoading}
+          onClick={() => refetch()}
+          variant="outline"
           size="icon"
           hideTextWhenLoading={true}
         >
           <RefreshCwIcon className="h-4 w-4" />
         </LoadingButton>
       </div>
-      
+
       <div className="flex gap-4 mb-6">
         <div className="flex-1">
           <div className="relative">
             <SearchIcon className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="Search backups..."
+              placeholder="Search by backup name, server, or path..."
               className="pl-8"
               value={searchTerm}
-              onChange={(e) => {
-                setSearchTerm(e.target.value)
-                // We could add debounce here for better performance
-                updateFilters({ search: e.target.value })
-              }}
+              onChange={(e) => setSearchTerm(e.target.value)}
             />
           </div>
         </div>
         <Select
-          value={filters.status === "" ? "all" : filters.status}
+          value={filters.status === "" || !filters.status ? "all" : filters.status}
           onValueChange={(value) => updateFilters({ status: value === "all" ? "" : value })}
         >
           <SelectTrigger className="w-[180px]">
@@ -99,11 +159,15 @@ export default function HistoryPage() {
           </SelectContent>
         </Select>
       </div>
-      
-      <QueryState 
+
+      <QueryState
         query={{ isLoading, data, error: null, isError: false, refetch }}
         emptyIcon={<HistoryIcon className="h-12 w-12 text-muted-foreground" />}
-        emptyMessage="No backup history found"
+        emptyMessage={
+          filters.configId || filters.search || filters.status
+            ? "No backup history matches these filters"
+            : "No backup history found"
+        }
         dataLabel="backup history"
         isDataEmpty={(data) => !data?.history?.length}
       >
@@ -122,66 +186,58 @@ export default function HistoryPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {data?.history?.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
-                      No backup history found
+                {data?.history?.map((item: any) => (
+                  <TableRow key={item.id}>
+                    <TableCell>
+                      <Link href={`/history/${item.id}`} className="font-medium hover:underline text-primary">
+                        {item.backupConfig.name}
+                      </Link>
+                    </TableCell>
+                    <TableCell>{item.backupConfig.server.name}</TableCell>
+                    <TableCell>
+                      <div className="font-medium">
+                        {format(new Date(item.startTime), "MMM d, yyyy")}
+                      </div>
+                      <div className="text-sm text-muted-foreground">
+                        {format(new Date(item.startTime), "h:mm a")}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      {item.endTime ? (
+                        formatDistance(
+                          new Date(item.startTime),
+                          new Date(item.endTime),
+                          { includeSeconds: true }
+                        )
+                      ) : (
+                        <span className="text-muted-foreground">In progress</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <Badge
+                        className={statusColors[item.status as keyof typeof statusColors] || "bg-gray-500"}
+                      >
+                        {item.status}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      {item.totalSize ? formatBytes(item.totalSize) : "-"}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {item.fileCount || "-"}
                     </TableCell>
                   </TableRow>
-                ) : (
-                  data?.history?.map((item: any) => (
-                    <TableRow key={item.id}>
-                      <TableCell>
-                        <Link href={`/history/${item.id}`} className="font-medium hover:underline text-primary">
-                          {item.backupConfig.name}
-                        </Link>
-                      </TableCell>
-                      <TableCell>{item.backupConfig.server.name}</TableCell>
-                      <TableCell>
-                        <div className="font-medium">
-                          {format(new Date(item.startTime), "MMM d, yyyy")}
-                        </div>
-                        <div className="text-sm text-muted-foreground">
-                          {format(new Date(item.startTime), "h:mm a")}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        {item.endTime ? (
-                          formatDistance(
-                            new Date(item.startTime),
-                            new Date(item.endTime),
-                            { includeSeconds: true }
-                          )
-                        ) : (
-                          <span className="text-muted-foreground">In progress</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <Badge 
-                          className={statusColors[item.status as keyof typeof statusColors] || "bg-gray-500"}
-                        >
-                          {item.status}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        {item.totalSize ? formatBytes(item.totalSize) : "-"}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {item.fileCount || "-"}
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
+                ))}
               </TableBody>
             </Table>
           </div>
-          
+
           {data?.pagination && data.pagination.total > pagination.limit && (
             <Pagination className="mt-4">
               <PaginationContent>
                 <PaginationItem>
-                  <PaginationPrevious 
-                    href="#" 
+                  <PaginationPrevious
+                    href="#"
                     onClick={(e) => {
                       e.preventDefault();
                       if (pagination.offset > 0) {
@@ -191,21 +247,20 @@ export default function HistoryPage() {
                     className={pagination.offset === 0 ? "pointer-events-none opacity-50" : ""}
                   />
                 </PaginationItem>
-                
+
                 {Array.from(
                   { length: Math.ceil(data.pagination.total / pagination.limit) },
                   (_, i) => i
                 ).map((page) => {
-                  // Show only a subset of pages if there are many
                   const currentPage = pagination.offset / pagination.limit;
                   if (
-                    page === 0 || 
+                    page === 0 ||
                     page === Math.ceil(data.pagination.total / pagination.limit) - 1 ||
                     (page >= currentPage - 1 && page <= currentPage + 1)
                   ) {
                     return (
                       <PaginationItem key={page}>
-                        <PaginationLink 
+                        <PaginationLink
                           href="#"
                           onClick={(e) => {
                             e.preventDefault();
@@ -219,17 +274,17 @@ export default function HistoryPage() {
                     );
                   }
                   if (
-                    page === currentPage - 2 || 
+                    page === currentPage - 2 ||
                     page === currentPage + 2
                   ) {
                     return <PaginationItem key={page}>...</PaginationItem>;
                   }
                   return null;
                 })}
-                
+
                 <PaginationItem>
-                  <PaginationNext 
-                    href="#" 
+                  <PaginationNext
+                    href="#"
                     onClick={(e) => {
                       e.preventDefault();
                       if (pagination.offset + pagination.limit < data.pagination.total) {
@@ -246,4 +301,19 @@ export default function HistoryPage() {
       </QueryState>
     </div>
   )
-} 
+}
+
+export default function HistoryPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="space-y-6">
+          <h1 className="text-3xl font-bold">Backup History</h1>
+          <div className="h-40 animate-pulse rounded-md bg-muted/30" />
+        </div>
+      }
+    >
+      <HistoryPageContent />
+    </Suspense>
+  )
+}
