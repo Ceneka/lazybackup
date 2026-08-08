@@ -1,6 +1,10 @@
 import { formatBytes } from "@/lib/utils"
 import { readdir, stat } from "fs/promises"
-import { join } from "path"
+import * as os from "os"
+import { isAbsolute, join, resolve } from "path"
+
+/** Timestamp folder names created when versioning is enabled: YYYY-MM-DD_HH-mm-ss */
+export const VERSION_DIR_PATTERN = /^\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}$/
 
 export type BackupStorageStats = {
   path: string
@@ -17,6 +21,99 @@ export type BackupStorageStats = {
     bytes: number
     mtime: string
   } | null
+}
+
+export type DestinationEntrySummary = {
+  name: string
+  type: "file" | "directory"
+  bytes: number
+  size: string
+  fileCount: number
+  directoryCount: number
+  mtime: string
+  isVersionDir: boolean
+}
+
+export type BackupDestinationSummary = {
+  configuredPath: string
+  path: string
+  exists: boolean
+  totalBytes: number
+  totalSize: string
+  fileCount: number
+  directoryCount: number
+  lastModified: string | null
+  truncated: boolean
+  versioning: {
+    enabled: boolean
+    versionsToKeep: number | null
+    versionCount: number
+    versions: DestinationEntrySummary[]
+  }
+  topLevel: DestinationEntrySummary[]
+}
+
+const DEFAULT_ENTRY_LIMIT = 40
+
+/**
+ * Expand ~ and resolve relative paths the same way backup execution does.
+ */
+export function resolveLocalBackupPath(destinationPath: string): string {
+  let resolved = destinationPath
+  if (resolved.startsWith("~")) {
+    resolved = resolved.replace("~", process.env.HOME || os.homedir())
+  }
+  if (!isAbsolute(resolved)) {
+    resolved = resolve(resolved)
+  }
+  return resolved
+}
+
+type WalkTotals = {
+  bytes: number
+  fileCount: number
+  directoryCount: number
+  latestMtimeMs: number
+}
+
+async function walkTotals(dir: string): Promise<WalkTotals> {
+  const totals: WalkTotals = {
+    bytes: 0,
+    fileCount: 0,
+    directoryCount: 0,
+    latestMtimeMs: 0,
+  }
+
+  async function walk(current: string) {
+    let entries
+    try {
+      entries = await readdir(current, { withFileTypes: true })
+    } catch {
+      return
+    }
+
+    for (const entry of entries) {
+      const fullPath = join(current, entry.name)
+      try {
+        if (entry.isDirectory()) {
+          totals.directoryCount += 1
+          await walk(fullPath)
+        } else if (entry.isFile()) {
+          const fileStat = await stat(fullPath)
+          totals.fileCount += 1
+          totals.bytes += fileStat.size
+          if (fileStat.mtimeMs > totals.latestMtimeMs) {
+            totals.latestMtimeMs = fileStat.mtimeMs
+          }
+        }
+      } catch {
+        // Skip unreadable entries
+      }
+    }
+  }
+
+  await walk(dir)
+  return totals
 }
 
 /**
@@ -95,4 +192,141 @@ export async function getBackupStorageStats(
   result.totalSize = formatBytes(result.totalBytes)
   result.latest = latest
   return result
+}
+
+/**
+ * Summarize what is currently stored at a backup config's destination path.
+ */
+export async function getBackupDestinationSummary(options: {
+  destinationPath: string
+  enableVersioning?: boolean | null
+  versionsToKeep?: number | null
+  entryLimit?: number
+}): Promise<BackupDestinationSummary> {
+  const configuredPath = options.destinationPath
+  const path = resolveLocalBackupPath(configuredPath)
+  const entryLimit = options.entryLimit ?? DEFAULT_ENTRY_LIMIT
+  const enableVersioning = Boolean(options.enableVersioning)
+  const versionsToKeep = options.versionsToKeep ?? null
+
+  const empty: BackupDestinationSummary = {
+    configuredPath,
+    path,
+    exists: false,
+    totalBytes: 0,
+    totalSize: formatBytes(0),
+    fileCount: 0,
+    directoryCount: 0,
+    lastModified: null,
+    truncated: false,
+    versioning: {
+      enabled: enableVersioning,
+      versionsToKeep,
+      versionCount: 0,
+      versions: [],
+    },
+    topLevel: [],
+  }
+
+  let rootStat
+  try {
+    rootStat = await stat(path)
+  } catch {
+    return empty
+  }
+
+  if (!rootStat.isDirectory()) {
+    return empty
+  }
+
+  let entries
+  try {
+    entries = await readdir(path, { withFileTypes: true })
+  } catch {
+    return empty
+  }
+
+  const topLevel: DestinationEntrySummary[] = []
+  let totalBytes = 0
+  let fileCount = 0
+  let directoryCount = 0
+  let lastModifiedMs = rootStat.mtimeMs
+
+  for (const entry of entries) {
+    const fullPath = join(path, entry.name)
+    try {
+      if (entry.isDirectory()) {
+        const dirStat = await stat(fullPath)
+        const nested = await walkTotals(fullPath)
+        directoryCount += 1 + nested.directoryCount
+        fileCount += nested.fileCount
+        totalBytes += nested.bytes
+        const entryMtimeMs = Math.max(dirStat.mtimeMs, nested.latestMtimeMs)
+        if (entryMtimeMs > lastModifiedMs) {
+          lastModifiedMs = entryMtimeMs
+        }
+        topLevel.push({
+          name: entry.name,
+          type: "directory",
+          bytes: nested.bytes,
+          size: formatBytes(nested.bytes),
+          fileCount: nested.fileCount,
+          directoryCount: nested.directoryCount,
+          mtime: new Date(entryMtimeMs || dirStat.mtimeMs).toISOString(),
+          isVersionDir: VERSION_DIR_PATTERN.test(entry.name),
+        })
+      } else if (entry.isFile()) {
+        const fileStat = await stat(fullPath)
+        fileCount += 1
+        totalBytes += fileStat.size
+        if (fileStat.mtimeMs > lastModifiedMs) {
+          lastModifiedMs = fileStat.mtimeMs
+        }
+        topLevel.push({
+          name: entry.name,
+          type: "file",
+          bytes: fileStat.size,
+          size: formatBytes(fileStat.size),
+          fileCount: 1,
+          directoryCount: 0,
+          mtime: fileStat.mtime.toISOString(),
+          isVersionDir: false,
+        })
+      }
+    } catch {
+      // Skip unreadable entries
+    }
+  }
+
+  topLevel.sort((a, b) => {
+    if (a.mtime === b.mtime) {
+      return b.name.localeCompare(a.name)
+    }
+    return b.mtime.localeCompare(a.mtime)
+  })
+
+  const truncated = topLevel.length > entryLimit
+  const limitedTopLevel = topLevel.slice(0, entryLimit)
+  const versions = topLevel
+    .filter((entry) => entry.isVersionDir)
+    .sort((a, b) => b.name.localeCompare(a.name))
+
+  return {
+    configuredPath,
+    path,
+    exists: true,
+    totalBytes,
+    totalSize: formatBytes(totalBytes),
+    fileCount,
+    directoryCount,
+    lastModified: lastModifiedMs ? new Date(lastModifiedMs).toISOString() : null,
+    truncated,
+    versioning: {
+      enabled: enableVersioning,
+      versionsToKeep,
+      versionCount: versions.length,
+      versions: versions.slice(0, entryLimit),
+    },
+    topLevel: limitedTopLevel,
+  }
 }

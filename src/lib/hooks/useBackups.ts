@@ -9,6 +9,10 @@ export interface Backup {
   sourcePath: string
   destinationPath: string
   schedule: string
+  scheduleLabel?: string
+  timezone?: string
+  nextRun?: string | null
+  nextRunFormatted?: string | null
   excludePatterns?: string
   preBackupCommands?: string
   enabled: boolean
@@ -18,8 +22,42 @@ export interface Backup {
   retentionMaxAge?: number
   retentionMaxAgeUnit?: 'days' | 'months'
   retentionMinKeep?: number
+  server?: {
+    id?: string
+    name: string
+  }
   createdAt: string
   updatedAt: string
+}
+
+export interface BackupDestinationEntry {
+  name: string
+  type: 'file' | 'directory'
+  bytes: number
+  size: string
+  fileCount: number
+  directoryCount: number
+  mtime: string
+  isVersionDir: boolean
+}
+
+export interface BackupDestinationSummary {
+  configuredPath: string
+  path: string
+  exists: boolean
+  totalBytes: number
+  totalSize: string
+  fileCount: number
+  directoryCount: number
+  lastModified: string | null
+  truncated: boolean
+  versioning: {
+    enabled: boolean
+    versionsToKeep: number | null
+    versionCount: number
+    versions: BackupDestinationEntry[]
+  }
+  topLevel: BackupDestinationEntry[]
 }
 
 // Query keys
@@ -29,6 +67,7 @@ export const backupKeys = {
   list: (filters: string) => [...backupKeys.lists(), { filters }] as const,
   details: () => [...backupKeys.all, 'detail'] as const,
   detail: (id: string) => [...backupKeys.details(), id] as const,
+  storage: (id: string) => [...backupKeys.detail(id), 'storage'] as const,
 }
 
 // Fetch all backups
@@ -71,6 +110,26 @@ export function useBackup(id: string) {
       return data as Backup
     },
     enabled: !!id
+  })
+}
+
+// Summarize on-disk files at the backup destination
+export function useBackupStorage(id: string) {
+  return useQuery({
+    queryKey: backupKeys.storage(id),
+    queryFn: async () => {
+      const response = await fetch(`/api/backups/${id}/storage`)
+
+      if (!response.ok) {
+        if (response.status === 404) {
+          throw new Error("Backup not found")
+        }
+        throw new Error("Failed to fetch backup storage summary")
+      }
+
+      return response.json() as Promise<BackupDestinationSummary>
+    },
+    enabled: !!id,
   })
 }
 
