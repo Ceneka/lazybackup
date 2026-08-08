@@ -94,13 +94,33 @@ export async function verifySessionToken(
   }
 }
 
+/**
+ * Cookie flags for the session.
+ * Default Secure=false so self-hosted LAN installs over http:// keep working;
+ * browsers silently drop Secure cookies on non-HTTPS. Set AUTH_COOKIE_SECURE=true
+ * when serving behind HTTPS.
+ */
+export function sessionCookieSecure(): boolean {
+  return process.env.AUTH_COOKIE_SECURE === 'true'
+}
+
 export function sessionCookieOptions(maxAge = SESSION_MAX_AGE_SECONDS) {
   return {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
+    secure: sessionCookieSecure(),
     sameSite: 'lax' as const,
     path: '/',
     maxAge,
+  }
+}
+
+export function clearSessionCookieOptions() {
+  return {
+    httpOnly: true,
+    secure: sessionCookieSecure(),
+    sameSite: 'lax' as const,
+    path: '/',
+    maxAge: 0,
   }
 }
 

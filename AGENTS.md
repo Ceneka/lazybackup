@@ -172,6 +172,7 @@ Hooks map 1:1 to API routes; prefer extending existing hooks over ad-hoc `fetch`
 | `BACKUP_STORAGE_PATH` | `./backups` | Host path for backup files + health endpoint scan |
 | `SSH_KEYS_PATH` | `~/.ssh` | Docker volume mount for system keys (read-only) |
 | `AUTH_SECRET` | (auto in settings) | HMAC secret for session cookies; if unset, a random `sessionSecret` is stored in SQLite |
+| `AUTH_COOKIE_SECURE` | unset (`false`) | Set `true` only when serving over HTTPS; Secure cookies are dropped on plain HTTP |
 
 Docker Compose mounts `${BACKUP_STORAGE_PATH}` to both `/backups` and `/app/backups`.
 

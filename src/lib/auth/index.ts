@@ -30,6 +30,8 @@ export {
   createSessionToken,
   verifySessionToken,
   sessionCookieOptions,
+  clearSessionCookieOptions,
+  sessionCookieSecure,
 } from './session'
 
 export {

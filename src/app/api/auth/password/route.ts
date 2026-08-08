@@ -1,6 +1,7 @@
 import {
   assertPasswordStrength,
   clearPasswordHash,
+  clearSessionCookieOptions,
   createSessionCookieValue,
   getPasswordHash,
   hashPassword,
@@ -102,13 +103,7 @@ export async function POST(request: NextRequest) {
     // remove
     await clearPasswordHash()
     const response = NextResponse.json({ ok: true, authEnabled: false })
-    response.cookies.set(SESSION_COOKIE_NAME, '', {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      path: '/',
-      maxAge: 0,
-    })
+    response.cookies.set(SESSION_COOKIE_NAME, '', clearSessionCookieOptions())
     return response
   } catch (error) {
     console.error('Failed to update password:', error)

@@ -27,10 +27,7 @@ function isPublicPath(pathname: string): boolean {
 }
 
 /** Forward Set-Cookie from internal status fetch (session sliding refresh). */
-function forwardSetCookies(
-  from: Response,
-  to: NextResponse
-): void {
+function forwardSetCookies(from: Response, to: NextResponse): void {
   const getSetCookie = (
     from.headers as Headers & { getSetCookie?: () => string[] }
   ).getSetCookie
@@ -52,6 +49,16 @@ function forwardSetCookies(
   }
 }
 
+/**
+ * Always call auth status on loopback. Using `request.url` (e.g.
+ * http://192.168.x.x:3000 from a LAN browser) makes the container fetch its
+ * published host IP, which often hangs on Docker/hairpin NAT — "/" then loads forever.
+ */
+function internalAuthStatusUrl(): string {
+  const port = process.env.PORT || '3000'
+  return `http://127.0.0.1:${port}/api/auth/status`
+}
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
@@ -60,12 +67,12 @@ export async function middleware(request: NextRequest) {
   }
 
   try {
-    const statusUrl = new URL('/api/auth/status', request.url)
-    const statusRes = await fetch(statusUrl, {
+    const statusRes = await fetch(internalAuthStatusUrl(), {
       headers: {
         cookie: request.headers.get('cookie') ?? '',
       },
       cache: 'no-store',
+      signal: AbortSignal.timeout(5_000),
     })
 
     if (!statusRes.ok) {

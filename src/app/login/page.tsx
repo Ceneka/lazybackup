@@ -30,7 +30,8 @@ function LoginForm() {
     try {
       await auth.login.mutateAsync(password)
       const from = searchParams.get("from") || "/"
-      router.replace(from.startsWith("/") ? from : "/")
+      // Full navigation so the new session cookie is sent on the next document request
+      window.location.assign(from.startsWith("/") ? from : "/")
     } catch {
       // toast handled in hook
     }
