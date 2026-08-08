@@ -1,249 +1,124 @@
 # AGENTS.md — LazyBackup
 
-Practical guide for AI coding agents working in this repository.
+Guide for AI coding agents. User-facing setup lives in [README.md](./README.md) and [`.env.example`](./.env.example).
 
-## Project overview
+## Mental model
 
-**LazyBackup** is a self-hosted web app for managing scheduled VPS backups. Users add remote servers over SSH, define backup jobs (source path on the VPS → local destination path), and monitor history from a dashboard.
+- Backups **pull** from the remote VPS to the **LazyBackup host** (`rsync` preferred, `scp` fallback). Destinations like `/backups/foo` are local (Docker volume).
+- **SSH key required to run backups.** Password auth can test/connect via `node-ssh` only; transfer needs a private key (`resolvePrivateKeyForServer`).
+- **Optional app password** (single operator, no users table): first-run set/skip; manage in Settings. Hash in settings → middleware gates pages + `/api/*` (public: `/login`, `/api/auth/*`, `/api/health`). Session cookie `lb_session`, 30-day sliding expiry.
+- Middleware must call auth status via **`http://127.0.0.1:$PORT`**, never `request.url` (LAN/Docker hairpin hangs). Cookies default **non-Secure**; set `AUTH_COOKIE_SECURE=true` only behind HTTPS.
+- Cron runs in the app **timezone** setting. Migrations are **`src/lib/db/migrate.ts`** only (no drizzle `migrations/` folder).
 
-- **GitHub:** https://github.com/Ceneka/lazybackup
-- **Landing page:** https://lazy.zic.ar
-- **Docker image:** `ghcr.io/ceneka/lazybackup:latest`
+Links: [GitHub](https://github.com/Ceneka/lazybackup) · [landing](https://lazy.zic.ar) · image `ghcr.io/ceneka/lazybackup:latest`
 
-### Critical mental model
+## Stack
 
-Backups **pull data from the remote VPS to the machine running LazyBackup** (local `rsync`/`scp`), not push to a remote destination. Destination paths are on the **app host** (e.g. `/backups/mysite` in Docker).
+Bun · Next.js 15 App Router · React 19 · Tailwind 4 / shadcn · TanStack Query · Zod · SQLite (`@libsql/client`) + Drizzle · `node-ssh` · `cron` · `nanoid` (mostly; some history IDs use `randomUUID`)
 
-**Optional app password** (single operator lock, no users table): first-run prompt to set or skip; enable/change/remove later in Settings. When a password hash exists, middleware gates pages + `/api/*` behind a session cookie. When unset, the app is open (trusted self-hosted default). Public: `/login`, `/api/auth/*`, `/api/health`. SSH credentials for VPS access are stored in SQLite.
-
-**SSH key auth is required for backup execution.** Password auth can connect via `node-ssh` for testing, but host-side `rsync`/`scp` needs a private key (`resolvePrivateKeyForServer`).
-
-## Tech stack
-
-| Layer | Technology |
-|-------|------------|
-| Runtime / PM | Bun |
-| Framework | Next.js 15 (App Router), React 19 |
-| UI | Tailwind CSS 4, shadcn/ui (Radix), lucide-react |
-| Data fetching | TanStack React Query (`src/components/providers.tsx`) |
-| Forms / validation | react-hook-form, Zod (API routes) |
-| Database | SQLite via `@libsql/client`, Drizzle ORM |
-| Remote access | node-ssh |
-| Transfer | Local `rsync` (preferred) or local `scp` (fallback) |
-| Scheduling | `cron` package, in-process `CronJob` map |
-| IDs | `nanoid` (most entities), `crypto.randomUUID` (some history entries) |
-| Tests | Bun test (`bun test`) |
-| Deploy | Docker standalone output, GHCR publish on `main` / `v*` tags |
-
-## Directory structure
+## Layout
 
 ```
-src/
-  app/                    # Next.js App Router pages + API routes
-    api/                  # REST API (see below)
-    api/auth/             # Optional app password login
-    login/                # Login page (no navbar)
-    backups/              # Backup config CRUD UI
-    history/              # Backup run history + stats
-    servers/              # VPS server CRUD + connection test
-    settings/             # App settings + SSH key management
-    examples/             # UI component playground (dev reference)
-  components/
-    ui/                   # shadcn primitives + QueryState, DataState, etc.
-  lib/auth/               # App password hash, session cookie, isAuthorized
-  middleware.ts           # Gates app when password is configured
-    navbar.tsx
-    providers.tsx         # QueryClientProvider
-  lib/
-    backup/               # executeBackup, history helpers, log-format
-    db/                   # schema, client, migrate.ts
-    hooks/                # React Query hooks per domain
-    scheduler/            # Cron job registry
-    ssh/                  # connectToServer, rsync helpers, capability checks
-    utils/                # cn(), rsync-parser, formatBytes
-instrumentation.ts        # Startup: migrations + scheduler init
+src/app/           # pages + api/* routes
+src/components/    # ui/*, app-shell, auth-setup-prompt, navbar
+src/lib/auth/      # password hash, session cookie, isAuthorized
+src/lib/backup/    # executeBackup, file-retention, storage-stats, log-format
+src/lib/db/        # schema, client, migrate.ts
+src/lib/hooks/     # React Query hooks (1:1 with APIs)
+src/lib/scheduler/ # CronJob registry (timezone-aware)
+src/lib/ssh/       # connect, rsync/scp helpers
+src/middleware.ts  # app-password gate
+src/instrumentation.ts  # migrate + scheduler (skip during next build)
 ```
 
-Config: `next.config.ts` (standalone output), `drizzle.config.ts`, `docker-compose.yml`, `Dockerfile`, `components.json`.
-
-**Note:** Migrations live in `src/lib/db/migrate.ts` (raw SQL + `PRAGMA` column checks). There is no `migrations/` folder from drizzle-kit generate.
+Alias `@/*` → `src/*`. Config: `next.config.ts` (standalone), `docker-compose.yml`, `Dockerfile`.
 
 ## Architecture
 
 ```
-Browser (React + useQuery)
-    ↓ fetch /api/*
-Next.js API Routes (Zod validate → Drizzle → JSON)
-    ↓
-SQLite (servers, backup_configs, backup_history, ssh_keys, settings)
-
-instrumentation.ts (server start only, NOT during build)
-    → runMigration()
-    → initializeScheduler() → CronJob per enabled backup_config
-
-Backup run (manual or scheduled):
-    connectToServer (node-ssh)
-    → optional pre_backup_commands on remote
-    → check remote rsync / local scp
-    → local rsync -e ssh … OR scp per file
-    → update backup_history (success/failed + log_output)
+Browser (useQuery) → /api/* (Zod → Drizzle → JSON) → SQLite
+instrumentation (nodejs, not during build) → migrate → schedule enabled configs
+Backup: connect → pre-backup cmds → rsync|scp → version/file retention → history + logs
 ```
 
-Build guard: `instrumentation.ts` skips when `NEXT_PHASE === 'phase-production-build'` or `npm_lifecycle_event === 'build'`.
+## Data (`schema.ts`)
 
-Node-only guard: backup/SSH/scheduler code checks `process.env.NEXT_RUNTIME === 'nodejs'`.
+| Table | Notes |
+|-------|--------|
+| `servers` | host/port/user, `authType` password\|key, password / privateKey / `sshKeyId` / `systemKeyPath` |
+| `ssh_keys` | name + content or path |
+| `backup_configs` | remote `sourcePath`, local `destinationPath`, cron, excludes, pre-cmds, `enableVersioning`/`versionsToKeep`, `enableFileRetention`/`retentionMaxAge`(+unit)/`retentionMinKeep` |
+| `backup_history` | status running\|success\|failed, sizes, `logOutput` |
+| `settings` | KV: timezone, SSH defaults, `appPasswordHash`, `sessionSecret`, `authSetupCompleted` |
 
-## Data model (`src/lib/db/schema.ts`)
+Cascade: server → configs → history. Never return `appPasswordHash` / `sessionSecret` from `GET /api/settings`.
 
-| Table | Purpose |
-|-------|---------|
-| `servers` | VPS connection: host, port, username, `authType` (`password` \| `key`), password/privateKey, `sshKeyId`, `systemKeyPath` |
-| `ssh_keys` | Stored keys: name, `privateKeyContent` or `privateKeyPath` |
-| `backup_configs` | Job: `serverId`, name, `sourcePath` (remote), `destinationPath` (local), cron `schedule`, `excludePatterns` (newline-separated), `preBackupCommands`, `enabled`, `enableVersioning`, `versionsToKeep` |
-| `backup_history` | Run: `configId`, `startTime`, `endTime`, `status` (`running` \| `success` \| `failed`), sizes, `errorMessage`, `logOutput` |
-| `settings` | Key-value store (`defaultSshKeyPath`, `sshKeepAliveInterval`, `timezone`, optional `appPasswordHash` / `sessionSecret` / `authSetupCompleted`) |
+## API map
 
-Cascade deletes: server → configs → history.
+Pattern: Zod → Drizzle → `NextResponse.json`; errors `{ error, details? }`.
 
-## API routes
+| Area | Paths |
+|------|--------|
+| Public | `GET /api/health`, `/api/auth/{status,setup,login,logout}` |
+| Auth | `POST /api/auth/password` (set/change/remove) |
+| Servers | `/api/servers`, `/api/servers/[id]`, `…/test`, `POST /api/servers/test` |
+| Backups | `/api/backups`, `/api/backups/[id]`, `…/run`, `…/toggle`, `…/storage`, `POST /api/backups/start` |
+| History | `/api/history`, `/api/history/[id]`, `/api/history/stats?chartData=` |
+| Other | `/api/ssh-keys`, `/api/settings`, `/api/scheduler/restart`, `/api/dashboard`, `/api/seed` (dev only) |
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/health` | DB ping + optional backup dir stats (Docker healthcheck); always public |
-| GET | `/api/auth/status` | `{ authEnabled, authSetupCompleted, authenticated }` (public); refreshes session cookie when authenticated (sliding 30-day expiry) |
-| POST | `/api/auth/setup` | First-run set password or skip (public; only if no password yet) |
-| POST | `/api/auth/login` | Verify password, set session cookie (public) |
-| POST | `/api/auth/logout` | Clear session cookie (public) |
-| POST | `/api/auth/password` | Set / change / remove app password |
-| GET/POST/PUT/DELETE | `/api/servers` | List / create / update / delete servers |
-| GET/PUT/DELETE | `/api/servers/[id]` | Single server |
-| GET | `/api/servers/[id]/test` | Test saved server backup capabilities |
-| POST | `/api/servers/test` | Test unsaved server credentials |
-| GET/POST | `/api/backups` | List / create backup configs (schedules on create if enabled) |
-| GET/PUT/DELETE | `/api/backups/[id]` | Single config (reschedules on update) |
-| POST | `/api/backups/[id]/run` | Manual run (async `executeBackup`) |
-| POST | `/api/backups/[id]/toggle` | Enable/disable + schedule/stop cron |
-| POST | `/api/backups/start` | Start backup by `configId` (hook alias) |
-| GET/POST | `/api/history` | List history (paginated) / create entry |
-| GET/PUT/DELETE | `/api/history/[id]` | Single history record |
-| GET | `/api/history/stats` | Aggregates; `?chartData=true` for dashboard chart |
-| GET/POST | `/api/ssh-keys` | List (`?includeSystem=true` scans `~/.ssh`) / create |
-| GET/PUT/DELETE | `/api/ssh-keys/[id]` | Single stored key |
-| GET/POST/DELETE | `/api/settings` | Settings CRUD (`DELETE ?key=`); never returns `appPasswordHash` / `sessionSecret` |
-| POST | `/api/scheduler/restart` | Restart all cron jobs |
-| POST | `/api/seed` | Dev: insert test server if DB empty |
+## Backup workflow (`lib/backup/index.ts`)
 
-API pattern: parse body with Zod → Drizzle → `NextResponse.json`. Errors return `{ error, details? }`.
+1. Connect → optional remote pre-backup commands (`log-format.ts`).
+2. Resolve local dest (`~` expand, mkdir). Versioning → `YYYY-MM-DD_HH-mm-ss` subfolder.
+3. Remote has rsync → local `rsync -avz -e 'ssh …'`; else local scp per file; else fail.
+4. Temp SSH identity + `-F /dev/null` (ignore host ssh config).
+5. Cleanup: version count and/or age-based file retention (`file-retention.ts`).
+6. History + `combineBackupLog`; on-disk resume via `storage-stats.ts` / `GET …/storage`.
 
-## Backup workflow (`src/lib/backup/index.ts`)
+## Frontend
 
-1. **Connect** via `connectToServer` (password or key).
-2. **Pre-backup commands** (optional): run on remote, log via `log-format.ts`.
-3. **Resolve local destination**: expand `~`, make absolute, `mkdir -p`. If versioning: append `YYYY-MM-DD_HH-mm-ss` subfolder.
-4. **Transport selection:**
-   - Remote has `rsync` → local `rsync -avz --stats -e 'ssh …'` pulling `user@host:source/`.
-   - Else if local `scp` exists → remote `find` + per-file `scp` (slower).
-   - Else → fail.
-5. **Key handling:** `writeTemporarySshIdentityFile` with normalized PEM; SSH uses `-F /dev/null` to ignore host `~/.ssh/config`.
-6. **Version cleanup:** if versioning, delete oldest timestamp dirs beyond `versionsToKeep`.
-7. **History:** `parseRsyncOutput` for stats; `combineBackupLog` merges pre-backup + transfer logs.
+- Bun only; `"use client"` pages + hooks in `lib/hooks/`.
+- Query keys: `backupKeys`, `['servers']`, `['stats']`, `authStatusKey`, etc.
+- UI: `QueryState`, `DataState`, `LoadingButton`, `DeleteConfirmationDialog`, sonner toasts, `cn()`.
+- Mobile `Sheet` uses `modal={false}` (avoids stuck body `pointer-events`).
 
-Scheduled runs use the same `executeBackup` via `src/lib/scheduler/index.ts`.
+## Env & commands
 
-## Frontend conventions
-
-- **Package manager:** Bun (`bun install`, `bun run dev`).
-- **Client pages:** `"use client"` + hooks in `src/lib/hooks/`.
-- **Query keys:** domain objects like `backupKeys`, `['servers']`, `['stats']`.
-- **State UI:** `QueryState`, `DataState`, `LoadingButton`, `DeleteConfirmationDialog`.
-- **Toasts:** `sonner` (`toast.success` / `toast.error`).
-- **Styling:** `cn()` from `src/lib/utils.ts`, Tailwind + shadcn variants.
-- **Mobile nav:** `Sheet` with `modal={false}` (avoids stuck `pointer-events` on body).
-- **Path alias:** `@/*` → `src/*`.
-
-Hooks map 1:1 to API routes; prefer extending existing hooks over ad-hoc `fetch` in pages.
-
-## Environment variables
-
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `DATABASE_URL` | `file:./data.db` | SQLite path (`file:/app/data/data.db` in Docker) |
-| `PORT` | `3000` | HTTP port |
-| `BACKUP_STORAGE_PATH` | `./backups` | Host path for backup files + health endpoint scan |
-| `SSH_KEYS_PATH` | `~/.ssh` | Docker volume mount for system keys (read-only) |
-| `AUTH_SECRET` | (auto in settings) | HMAC secret for session cookies; if unset, a random `sessionSecret` is stored in SQLite |
-| `AUTH_COOKIE_SECURE` | unset (`false`) | Set `true` only when serving over HTTPS; Secure cookies are dropped on plain HTTP |
-
-Docker Compose mounts `${BACKUP_STORAGE_PATH}` to both `/backups` and `/app/backups`.
-
-## Commands
+See README / `.env.example`. Important: `DATABASE_URL`, `PORT`, `BACKUP_STORAGE_PATH`, `SSH_KEYS_PATH`, `AUTH_SECRET`, `AUTH_COOKIE_SECURE`.
 
 ```bash
-bun install
-bun run dev              # Development server
-bun run build            # Production build (standalone)
-bun run start            # Production server (PORT from env)
-bun run lint
-bun test                 # e.g. src/lib/backup/log-format.test.ts
-bun run db:migrate       # Run migrate.ts directly
-bun run db:generate      # drizzle-kit generate (schema reference; migrate.ts is authoritative)
-bun run db:studio        # Drizzle Studio
+bun install && bun run dev
+bun test                 # especially log-format, file-retention, storage-stats, session
+bun run db:migrate       # migrate.ts is authoritative
+bun run build && bun run start
+docker compose up -d
 ```
 
-Docker:
+CI publishes GHCR on `main` / `v*` tags. Startup: migrate + cron via instrumentation. Healthcheck: `GET /api/health`.
 
-```bash
-docker compose up -d     # Uses .env, persists DB in lazybackup_data volume
-# or
-docker run -d -p 3000:3000 -v lazybackup_data:/app/data \
-  -v ./backups:/backups -v ~/.ssh:/root/.ssh:ro \
-  -e DATABASE_URL=file:/app/data/data.db ghcr.io/ceneka/lazybackup:latest
-```
+## Conventions
 
-Production image installs `openssh-client` and `rsync` on the runner stage.
-
-## Deployment
-
-- **CI:** `.github/workflows/publish-ghcr.yml` builds and pushes `ghcr.io/ceneka/lazybackup:latest` on push to `main` or version tags.
-- **Runtime:** Bun runs `server.js` from Next standalone output.
-- **Startup:** `instrumentation.ts` auto-migrates DB and starts cron scheduler.
-- **Health:** `GET /api/health` (compose healthcheck uses curl).
-
-## Code conventions (from `.cursor/rules/rules.mdc`)
-
-- Use Bun, not npm/yarn.
-- Next.js 15 + shadcn/ui patterns.
-- TanStack Query is configured; use it for server state.
-- DRY, but don't over-abstract one-liners.
-- Prefer one good solution over listing alternatives.
-- Minimize diff scope; match surrounding style.
+- Match surrounding style; small diffs; one solid approach.
+- Prefer extending existing hooks over ad-hoc `fetch`.
 - ESLint ignored during builds (`next.config.ts`).
 
-## Common pitfalls
+## Pitfalls
 
-1. **Password-only servers cannot run backups** — only SSH test/connect works; backups need a private key.
-2. **Destination is local** — paths like `/backups/foo` must exist/be writable on the LazyBackup host (mount a volume in Docker).
-3. **Don't run scheduler/migrations during `next build`** — guarded in `instrumentation.ts`; Dockerfile uses temp DB for build.
-4. **Cron schedule strings** — standard 5-field cron passed to `cron` package; invalid expressions fail at schedule time.
-5. **Mixed ID generators** — `nanoid` vs `randomUUID` in history; don't assume one format.
-6. **No LICENSE file** in repo currently — don't reference MIT unless added.
-7. **`/api/seed`** exposes test credentials — dev-only, not for production exposure.
-8. **App password ≠ SSH password** — optional UI lock (`appPasswordHash` in settings); never expose via `GET /api/settings`. Keep `/api/health` public for Docker.
+1. Password-only servers cannot execute backups (need a key).
+2. Destination paths are on the **app host**, not the VPS.
+3. Do not run migrate/scheduler during `next build` (already guarded).
+4. Cron is 5-field; invalid expressions fail at schedule time; respect timezone setting.
+5. Mixed IDs (`nanoid` vs `randomUUID`) — don’t assume one format.
+6. App password ≠ SSH password; keep `/api/health` public.
+7. `/api/seed` is dev-only. No LICENSE in repo — don’t claim MIT.
+8. Auth middleware self-fetch must use loopback, not the browser Host.
 
-## Key files to read first
+## Read first
 
 | Task | Files |
-|------|-------|
-| Backup logic | `src/lib/backup/index.ts`, `src/lib/ssh/index.ts`, `src/lib/ssh/rsync.ts` |
-| Scheduling | `src/lib/scheduler/index.ts`, `src/instrumentation.ts` |
-| Schema / DB | `src/lib/db/schema.ts`, `src/lib/db/migrate.ts` |
-| App password | `src/lib/auth/`, `src/middleware.ts`, `src/app/api/auth/` |
-| API example | `src/app/api/backups/route.ts`, `src/app/api/servers/route.ts` |
-| UI patterns | `src/lib/hooks/useBackups.ts`, `src/components/ui/query-state.tsx` |
-| Log display | `src/lib/backup/log-format.ts`, `src/app/history/[id]/page.tsx` |
-
-## Testing
-
-- Run `bun test` before changing `log-format.ts` or parsers.
-- No E2E test suite; manual verification via UI + `/api/servers/[id]/test`.
-- For backup changes, verify both rsync path and scp fallback behavior if touched.
+|------|--------|
+| Backup / retention / storage | `lib/backup/{index,file-retention,storage-stats,log-format}.ts`, `lib/ssh/` |
+| Scheduling / timezone | `lib/scheduler/`, `instrumentation.ts` |
+| DB | `lib/db/schema.ts`, `lib/db/migrate.ts` |
+| App password | `lib/auth/`, `middleware.ts`, `app/api/auth/` |
+| UI patterns | `lib/hooks/useBackups.ts`, `components/ui/query-state.tsx` |

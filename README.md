@@ -8,9 +8,11 @@ LazyBackup is a self-hosted web app for managing backups of your VPS servers. Co
 
 - **Server management** — Add, edit, and test VPS connections (password or SSH key auth)
 - **Backup jobs** — Configure remote source paths, local destinations, cron schedules, exclude patterns, and pre-backup shell commands
-- **Versioned backups** — Optional timestamped snapshots with automatic retention
-- **Automated scheduling** — In-process cron scheduler runs enabled jobs
-- **History & dashboard** — Track runs, view logs, and monitor success rates
+- **Versioned backups** — Optional timestamped snapshots with automatic count-based retention
+- **File retention** — Optional age-based cleanup for dump-style destinations (keep a minimum number of files)
+- **Automated scheduling** — In-process cron scheduler; set an app timezone so schedules run when you expect
+- **History & dashboard** — Track runs, view logs, next run times, on-disk storage usage, and success rates
+- **Optional app password** — Single-operator lock (set on first run or later in Settings); session cookie lasts 30 days
 
 ## Tech stack
 
@@ -45,16 +47,20 @@ docker run -d \
 Or with Docker Compose (reads `.env`, persists the database volume):
 
 ```bash
+cp .env.example .env   # optional; adjust paths/port
 docker compose up -d
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+Open [http://localhost:3000](http://localhost:3000) (or `http://<lan-ip>:3000` on your network).
+
+> **HTTP vs HTTPS:** On plain HTTP (typical LAN), leave `AUTH_COOKIE_SECURE` unset so the app password session cookie works. Set `AUTH_COOKIE_SECURE=true` only when the UI is served over HTTPS.
 
 ### Manual install
 
 ```bash
 git clone https://github.com/Ceneka/lazybackup.git
 cd lazybackup
+cp .env.example .env   # optional
 bun install
 bun run db:migrate
 bun run dev        # development
@@ -65,18 +71,24 @@ Set `DATABASE_URL` if you want a custom SQLite path (default: `file:./data.db`).
 
 ## Usage
 
-1. **Add a server** — Servers → add host, user, and SSH credentials. Use **Test connection** to verify rsync/scp availability.
-2. **Create a backup** — Backups → pick a server, set the remote `sourcePath` and a **local** `destinationPath` (e.g. `/backups/mysite` in Docker, where `/backups` is your mounted volume).
-3. **Run or schedule** — Trigger a manual run or rely on the cron schedule. View results under History.
+1. **Optional password** — On first visit, set an app password or skip. Change or remove it later under Settings.
+2. **Add a server** — Servers → add host, user, and SSH credentials. Use **Test connection** to verify rsync/scp availability.
+3. **Create a backup** — Backups → pick a server, set the remote `sourcePath` and a **local** `destinationPath` (e.g. `/backups/mysite` in Docker, where `/backups` is your mounted volume). Optionally enable versioning and/or age-based file retention.
+4. **Timezone** — Settings → choose the timezone used for cron schedules and “next run” times.
+5. **Run or schedule** — Trigger a manual run or rely on the cron schedule. View results, logs, and on-disk storage under History and each backup’s detail page.
 
 ### Environment variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DATABASE_URL` | `file:./data.db` | SQLite database location |
+| `DATABASE_URL` | `file:./data.db` | SQLite database location (`file:/app/data/data.db` in Docker) |
 | `PORT` | `3000` | HTTP port |
-| `BACKUP_STORAGE_PATH` | `./backups` | Host directory for backup files |
-| `SSH_KEYS_PATH` | `~/.ssh` | System SSH keys (Docker mount) |
+| `BACKUP_STORAGE_PATH` | `./backups` | Host directory for backup files (Compose mounts this at `/backups` and `/app/backups`) |
+| `SSH_KEYS_PATH` | `~/.ssh` | System SSH keys (Docker mount, read-only) |
+| `AUTH_SECRET` | (auto in settings) | HMAC secret for session cookies; auto-generated in SQLite if unset |
+| `AUTH_COOKIE_SECURE` | unset (`false`) | Set `true` only behind HTTPS; Secure cookies are dropped on plain HTTP |
+
+See [`.env.example`](./.env.example) for a copy-paste template.
 
 ## Development
 
