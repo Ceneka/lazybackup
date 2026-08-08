@@ -1,47 +1,26 @@
-import { db } from '@/lib/db';
-import { servers } from '@/lib/db/schema';
-import { nanoid } from 'nanoid';
+import { seedDemoData } from '@/lib/db/seed-demo';
 import { NextResponse } from 'next/server';
 
-// POST /api/seed - Add a test server to the database
+/**
+ * POST /api/seed — Replace app data with screenshot-friendly demo fixtures.
+ * Dev / local only. Does not touch auth password settings.
+ */
 export async function POST() {
+  if (process.env.NODE_ENV === 'production') {
+    return NextResponse.json({ error: 'Seed is disabled in production' }, { status: 403 });
+  }
+
   try {
-    // Check if we already have servers
-    const existingServers = await db.select().from(servers);
-
-    if (existingServers.length > 0) {
-      return NextResponse.json({
-        message: 'Database already has servers',
-        count: existingServers.length
-      });
-    }
-
-    // Create a test server
-    const testServer = {
-      id: nanoid(),
-      name: 'Test Server',
-      host: 'example.com',
-      port: 22,
-      username: 'testuser',
-      authType: 'password' as const,
-      password: 'password123', // This is just for testing
-      privateKey: null,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-
-    // Insert the test server
-    await db.insert(servers).values(testServer);
-
-    return NextResponse.json({
-      message: 'Test server added successfully',
-      server: testServer
-    }, { status: 201 });
+    const result = await seedDemoData();
+    return NextResponse.json(
+      {
+        message: 'Demo data seeded for screenshots',
+        ...result,
+      },
+      { status: 201 }
+    );
   } catch (error) {
     console.error('Failed to seed database:', error);
-    return NextResponse.json(
-      { error: 'Failed to seed database' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Failed to seed database' }, { status: 500 });
   }
-} 
+}
