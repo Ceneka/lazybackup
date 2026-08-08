@@ -7,14 +7,15 @@ Guide for AI coding agents. User-facing setup lives in [README.md](./README.md) 
 - Backups **pull** from the remote VPS to the **LazyBackup host** (`rsync` preferred, `scp` fallback). Destinations like `/backups/foo` are local (Docker volume).
 - **SSH key required to run backups.** Password auth can test/connect via `node-ssh` only; transfer needs a private key (`resolvePrivateKeyForServer`).
 - **Optional app password** (single operator, no users table): first-run set/skip; manage in Settings. Hash in settings → middleware gates pages + `/api/*` (public: `/login`, `/api/auth/*`, `/api/health`). Session cookie `lb_session`, 30-day sliding expiry.
-- Middleware must call auth status via **`http://127.0.0.1:$PORT`**, never `request.url` (LAN/Docker hairpin hangs). Cookies default **non-Secure**; set `AUTH_COOKIE_SECURE=true` only behind HTTPS.
+- Middleware verifies the session **in-process** (Node.js runtime + SQLite). Never HTTP self-fetch `/api/auth/status` from middleware (LAN Host hangs; loopback from Edge fails → pages load, APIs 401).
+- Cookies default **non-Secure**; set `AUTH_COOKIE_SECURE=true` only behind HTTPS.
 - Cron runs in the app **timezone** setting. Migrations are **`src/lib/db/migrate.ts`** only (no drizzle `migrations/` folder).
 
 Links: [GitHub](https://github.com/Ceneka/lazybackup) · [landing](https://lazy.zic.ar) · image `ghcr.io/ceneka/lazybackup:latest`
 
 ## Stack
 
-Bun · Next.js 15 App Router · React 19 · Tailwind 4 / shadcn · TanStack Query · Zod · SQLite (`@libsql/client`) + Drizzle · `node-ssh` · `cron` · `nanoid` (mostly; some history IDs use `randomUUID`)
+Bun · Next.js 15.5 App Router · React 19 · Tailwind 4 / shadcn · TanStack Query · Zod · SQLite (`@libsql/client`) + Drizzle · `node-ssh` · `cron` · `nanoid` (mostly; some history IDs use `randomUUID`) · auth middleware on Node.js runtime
 
 ## Layout
 
@@ -111,7 +112,7 @@ CI publishes GHCR on `main` / `v*` tags. Startup: migrate + cron via instrumenta
 5. Mixed IDs (`nanoid` vs `randomUUID`) — don’t assume one format.
 6. App password ≠ SSH password; keep `/api/health` public.
 7. `/api/seed` is dev-only. No LICENSE in repo — don’t claim MIT.
-8. Auth middleware self-fetch must use loopback, not the browser Host.
+8. Auth middleware must run on the Node.js runtime and check the session in-process — no self-fetch.
 
 ## Read first
 
