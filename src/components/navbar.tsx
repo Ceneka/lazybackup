@@ -2,8 +2,17 @@
 
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
+import { useAuth } from "@/lib/hooks/useAuth"
 import { cn } from "@/lib/utils"
-import { FolderIcon, HistoryIcon, HomeIcon, MenuIcon, ServerIcon, SettingsIcon } from "lucide-react"
+import {
+  FolderIcon,
+  HistoryIcon,
+  HomeIcon,
+  LogOutIcon,
+  MenuIcon,
+  ServerIcon,
+  SettingsIcon,
+} from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useState } from "react"
@@ -39,6 +48,8 @@ const navItems = [
 export function Navbar() {
   const pathname = usePathname()
   const [open, setOpen] = useState(false)
+  const auth = useAuth()
+  const showLogout = Boolean(auth.data?.authEnabled)
 
   return (
     <header className="sticky top-0 z-[100] w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -67,6 +78,18 @@ export function Navbar() {
               <span className="hidden lg:inline">{item.name}</span>
             </Link>
           ))}
+          {showLogout && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-foreground/60 hover:text-foreground"
+              onClick={() => auth.logout.mutate()}
+              disabled={auth.logout.isPending}
+            >
+              <LogOutIcon className="mr-2 h-4 w-4" />
+              <span className="hidden lg:inline">Logout</span>
+            </Button>
+          )}
         </nav>
 
         {/* Mobile Navigation */}
@@ -96,10 +119,24 @@ export function Navbar() {
                   {item.name}
                 </Link>
               ))}
+              {showLogout && (
+                <button
+                  type="button"
+                  className="flex items-center p-2 text-left text-foreground/60 hover:text-foreground/80"
+                  onClick={() => {
+                    setOpen(false)
+                    auth.logout.mutate()
+                  }}
+                  disabled={auth.logout.isPending}
+                >
+                  <LogOutIcon className="mr-2 h-5 w-5" />
+                  Logout
+                </button>
+              )}
             </nav>
           </SheetContent>
         </Sheet>
       </div>
     </header>
   )
-} 
+}

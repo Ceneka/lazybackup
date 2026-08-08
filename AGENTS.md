@@ -14,7 +14,7 @@ Practical guide for AI coding agents working in this repository.
 
 Backups **pull data from the remote VPS to the machine running LazyBackup** (local `rsync`/`scp`), not push to a remote destination. Destination paths are on the **app host** (e.g. `/backups/mysite` in Docker).
 
-There is **no web UI authentication**. The app assumes a trusted, self-hosted deployment. SSH credentials for VPS access are stored in SQLite.
+**Optional app password** (single operator lock, no users table): first-run prompt to set or skip; enable/change/remove later in Settings. When a password hash exists, middleware gates pages + `/api/*` behind a session cookie. When unset, the app is open (trusted self-hosted default). Public: `/login`, `/api/auth/*`, `/api/health`. SSH credentials for VPS access are stored in SQLite.
 
 **SSH key auth is required for backup execution.** Password auth can connect via `node-ssh` for testing, but host-side `rsync`/`scp` needs a private key (`resolvePrivateKeyForServer`).
 
@@ -41,6 +41,8 @@ There is **no web UI authentication**. The app assumes a trusted, self-hosted de
 src/
   app/                    # Next.js App Router pages + API routes
     api/                  # REST API (see below)
+    api/auth/             # Optional app password login
+    login/                # Login page (no navbar)
     backups/              # Backup config CRUD UI
     history/              # Backup run history + stats
     servers/              # VPS server CRUD + connection test
@@ -48,6 +50,8 @@ src/
     examples/             # UI component playground (dev reference)
   components/
     ui/                   # shadcn primitives + QueryState, DataState, etc.
+  lib/auth/               # App password hash, session cookie, isAuthorized
+  middleware.ts           # Gates app when password is configured
     navbar.tsx
     providers.tsx         # QueryClientProvider
   lib/
@@ -97,7 +101,7 @@ Node-only guard: backup/SSH/scheduler code checks `process.env.NEXT_RUNTIME === 
 | `ssh_keys` | Stored keys: name, `privateKeyContent` or `privateKeyPath` |
 | `backup_configs` | Job: `serverId`, name, `sourcePath` (remote), `destinationPath` (local), cron `schedule`, `excludePatterns` (newline-separated), `preBackupCommands`, `enabled`, `enableVersioning`, `versionsToKeep` |
 | `backup_history` | Run: `configId`, `startTime`, `endTime`, `status` (`running` \| `success` \| `failed`), sizes, `errorMessage`, `logOutput` |
-| `settings` | Key-value store (`defaultSshKeyPath`, `sshKeepAliveInterval`, etc.) |
+| `settings` | Key-value store (`defaultSshKeyPath`, `sshKeepAliveInterval`, `timezone`, optional `appPasswordHash` / `sessionSecret` / `authSetupCompleted`) |
 
 Cascade deletes: server → configs → history.
 
@@ -105,7 +109,12 @@ Cascade deletes: server → configs → history.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/health` | DB ping + optional backup dir stats (Docker healthcheck) |
+| GET | `/api/health` | DB ping + optional backup dir stats (Docker healthcheck); always public |
+| GET | `/api/auth/status` | `{ authEnabled, authSetupCompleted, authenticated }` (public); refreshes session cookie when authenticated (sliding 30-day expiry) |
+| POST | `/api/auth/setup` | First-run set password or skip (public; only if no password yet) |
+| POST | `/api/auth/login` | Verify password, set session cookie (public) |
+| POST | `/api/auth/logout` | Clear session cookie (public) |
+| POST | `/api/auth/password` | Set / change / remove app password |
 | GET/POST/PUT/DELETE | `/api/servers` | List / create / update / delete servers |
 | GET/PUT/DELETE | `/api/servers/[id]` | Single server |
 | GET | `/api/servers/[id]/test` | Test saved server backup capabilities |
@@ -120,7 +129,7 @@ Cascade deletes: server → configs → history.
 | GET | `/api/history/stats` | Aggregates; `?chartData=true` for dashboard chart |
 | GET/POST | `/api/ssh-keys` | List (`?includeSystem=true` scans `~/.ssh`) / create |
 | GET/PUT/DELETE | `/api/ssh-keys/[id]` | Single stored key |
-| GET/POST/DELETE | `/api/settings` | Settings CRUD (`DELETE ?key=`) |
+| GET/POST/DELETE | `/api/settings` | Settings CRUD (`DELETE ?key=`); never returns `appPasswordHash` / `sessionSecret` |
 | POST | `/api/scheduler/restart` | Restart all cron jobs |
 | POST | `/api/seed` | Dev: insert test server if DB empty |
 
@@ -162,6 +171,7 @@ Hooks map 1:1 to API routes; prefer extending existing hooks over ad-hoc `fetch`
 | `PORT` | `3000` | HTTP port |
 | `BACKUP_STORAGE_PATH` | `./backups` | Host path for backup files + health endpoint scan |
 | `SSH_KEYS_PATH` | `~/.ssh` | Docker volume mount for system keys (read-only) |
+| `AUTH_SECRET` | (auto in settings) | HMAC secret for session cookies; if unset, a random `sessionSecret` is stored in SQLite |
 
 Docker Compose mounts `${BACKUP_STORAGE_PATH}` to both `/backups` and `/app/backups`.
 
@@ -217,6 +227,7 @@ Production image installs `openssh-client` and `rsync` on the runner stage.
 5. **Mixed ID generators** — `nanoid` vs `randomUUID` in history; don't assume one format.
 6. **No LICENSE file** in repo currently — don't reference MIT unless added.
 7. **`/api/seed`** exposes test credentials — dev-only, not for production exposure.
+8. **App password ≠ SSH password** — optional UI lock (`appPasswordHash` in settings); never expose via `GET /api/settings`. Keep `/api/health` public for Docker.
 
 ## Key files to read first
 
@@ -225,6 +236,7 @@ Production image installs `openssh-client` and `rsync` on the runner stage.
 | Backup logic | `src/lib/backup/index.ts`, `src/lib/ssh/index.ts`, `src/lib/ssh/rsync.ts` |
 | Scheduling | `src/lib/scheduler/index.ts`, `src/instrumentation.ts` |
 | Schema / DB | `src/lib/db/schema.ts`, `src/lib/db/migrate.ts` |
+| App password | `src/lib/auth/`, `src/middleware.ts`, `src/app/api/auth/` |
 | API example | `src/app/api/backups/route.ts`, `src/app/api/servers/route.ts` |
 | UI patterns | `src/lib/hooks/useBackups.ts`, `src/components/ui/query-state.tsx` |
 | Log display | `src/lib/backup/log-format.ts`, `src/app/history/[id]/page.tsx` |

@@ -1,5 +1,5 @@
+import { AppShell } from "@/components/app-shell";
 import { BodyPointerEventsGuard } from "@/components/body-pointer-events-guard";
-import { Navbar } from "@/components/navbar";
 import { Providers } from "@/components/providers";
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
@@ -24,8 +24,7 @@ export default function RootLayout({
         <Providers>
           <BodyPointerEventsGuard />
           <div className="min-h-screen bg-background flex flex-col">
-            <Navbar />
-            <main className="flex-1 container mx-auto py-6 px-4">{children}</main>
+            <AppShell>{children}</AppShell>
           </div>
           <Toaster />
         </Providers>

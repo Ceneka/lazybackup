@@ -1,3 +1,4 @@
+import { SENSITIVE_SETTING_KEYS } from '@/lib/auth';
 import { isValidTimezone } from '@/lib/cron/format';
 import { db } from '@/lib/db';
 import { settings } from '@/lib/db/schema';
@@ -10,19 +11,28 @@ import { nanoid } from 'nanoid';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 
+const sensitiveKeySet = new Set<string>(SENSITIVE_SETTING_KEYS);
+
 // Setting validation schema
 const settingSchema = z.object({
   key: z.string().min(1, 'Key is required'),
   value: z.string().optional(),
 });
 
-// GET /api/settings - List all settings
+function isSensitiveKey(key: string): boolean {
+  return sensitiveKeySet.has(key);
+}
+
+// GET /api/settings - List all settings (secrets stripped)
 export async function GET() {
   try {
     const allSettings = await db.select().from(settings);
     
     // Convert to key-value object for easier client-side usage
     const settingsObject = allSettings.reduce((acc, setting) => {
+      if (isSensitiveKey(setting.key)) {
+        return acc;
+      }
       acc[setting.key] = setting.value;
       return acc;
     }, {} as Record<string, string | null>);
@@ -44,6 +54,13 @@ export async function POST(request: NextRequest) {
     
     // Validate the request body
     const validatedData = settingSchema.parse(body);
+
+    if (isSensitiveKey(validatedData.key)) {
+      return NextResponse.json(
+        { error: 'This setting cannot be modified via the settings API. Use /api/auth instead.' },
+        { status: 403 }
+      );
+    }
 
     if (
       validatedData.key === TIMEZONE_SETTING_KEY &&
@@ -125,6 +142,13 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json(
         { error: 'Key parameter is required' },
         { status: 400 }
+      );
+    }
+
+    if (isSensitiveKey(key)) {
+      return NextResponse.json(
+        { error: 'This setting cannot be deleted via the settings API. Use /api/auth instead.' },
+        { status: 403 }
       );
     }
     

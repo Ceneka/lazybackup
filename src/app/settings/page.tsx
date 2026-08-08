@@ -9,10 +9,11 @@ import { QueryState } from "@/components/ui/query-state"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { COMMON_TIMEZONES, DEFAULT_TIMEZONE, listTimezones } from "@/lib/cron/format"
+import { useAuth } from "@/lib/hooks/useAuth"
 import { useSettings } from "@/lib/hooks/useSettings"
 import { SSHKey, SystemSSHKey, useSSHKeys } from "@/lib/hooks/useSSHKeys"
 import { useQueryClient } from "@tanstack/react-query"
-import { KeyIcon, PlusIcon, SettingsIcon, TrashIcon } from "lucide-react"
+import { KeyIcon, LockIcon, PlusIcon, SettingsIcon, TrashIcon } from "lucide-react"
 import { useSearchParams } from "next/navigation"
 import { Suspense, useEffect, useLayoutEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
@@ -31,6 +32,7 @@ function SettingsPageInner() {
   }, [searchParams])
   const settingsQuery = useSettings()
   const keysQuery = useSSHKeys()
+  const auth = useAuth()
   const queryClient = useQueryClient()
 
   const [newKeyName, setNewKeyName] = useState("")
@@ -40,6 +42,10 @@ function SettingsPageInner() {
   const [localDefaultSshKeyPath, setLocalDefaultSshKeyPath] = useState("")
   const [localSshKeepAliveInterval, setLocalSshKeepAliveInterval] = useState("")
   const [localTimezone, setLocalTimezone] = useState(DEFAULT_TIMEZONE)
+
+  const [newPassword, setNewPassword] = useState("")
+  const [confirmPassword, setConfirmPassword] = useState("")
+  const [currentPassword, setCurrentPassword] = useState("")
 
   const timezoneOptions = useMemo(() => {
     const all = listTimezones()
@@ -81,6 +87,64 @@ function SettingsPageInner() {
     )
   }
 
+  const clearPasswordFields = () => {
+    setNewPassword("")
+    setConfirmPassword("")
+    setCurrentPassword("")
+  }
+
+  const handleSetPassword = async () => {
+    if (newPassword !== confirmPassword) {
+      toast.error("Passwords do not match")
+      return
+    }
+    try {
+      await auth.updatePassword.mutateAsync({
+        action: "set",
+        password: newPassword,
+      })
+      clearPasswordFields()
+    } catch {
+      // toast in hook
+    }
+  }
+
+  const handleChangePassword = async () => {
+    if (newPassword !== confirmPassword) {
+      toast.error("Passwords do not match")
+      return
+    }
+    try {
+      await auth.updatePassword.mutateAsync({
+        action: "change",
+        currentPassword,
+        password: newPassword,
+      })
+      clearPasswordFields()
+    } catch {
+      // toast in hook
+    }
+  }
+
+  const handleRemovePassword = async () => {
+    if (!currentPassword) {
+      toast.error("Enter your current password to remove protection")
+      return
+    }
+    if (!confirm("Remove the app password? The dashboard will be open again.")) {
+      return
+    }
+    try {
+      await auth.updatePassword.mutateAsync({
+        action: "remove",
+        currentPassword,
+      })
+      clearPasswordFields()
+    } catch {
+      // toast in hook
+    }
+  }
+
   const handleAddKey = async () => {
     if (!newKeyName) {
       toast.error("Key name is required")
@@ -119,6 +183,8 @@ function SettingsPageInner() {
     }
   }
 
+  const authEnabled = Boolean(auth.data?.authEnabled)
+
   return (
     <div className="space-y-6">
       <div className="flex items-center space-x-2">
@@ -137,7 +203,7 @@ function SettingsPageInner() {
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="general" className="mt-6">
+        <TabsContent value="general" className="mt-6 space-y-6">
           <Card className="w-full">
             <CardHeader>
               <CardTitle>General Settings</CardTitle>
@@ -216,6 +282,123 @@ function SettingsPageInner() {
                   </div>
                 )}
               </QueryState>
+            </CardContent>
+          </Card>
+
+          <Card className="w-full">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <LockIcon className="h-5 w-5" />
+                App password
+              </CardTitle>
+              <CardDescription>
+                Optional lock for the whole dashboard and APIs. Scheduled backups are unaffected.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Status:{" "}
+                <span className="font-medium text-foreground">
+                  {auth.isLoading
+                    ? "Loading…"
+                    : authEnabled
+                      ? "Protected"
+                      : "Open (no password)"}
+                </span>
+              </p>
+
+              {!authEnabled ? (
+                <div className="space-y-3 max-w-md">
+                  <div className="space-y-2">
+                    <Label htmlFor="set-password">New password</Label>
+                    <Input
+                      id="set-password"
+                      type="password"
+                      autoComplete="new-password"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      placeholder="At least 4 characters"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="set-confirm">Confirm password</Label>
+                    <Input
+                      id="set-confirm"
+                      type="password"
+                      autoComplete="new-password"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                    />
+                  </div>
+                  <LoadingButton
+                    onClick={() => void handleSetPassword()}
+                    isLoading={auth.updatePassword.isPending}
+                    loadingText="Saving…"
+                    disabled={!newPassword || !confirmPassword}
+                  >
+                    Enable password protection
+                  </LoadingButton>
+                </div>
+              ) : (
+                <div className="space-y-3 max-w-md">
+                  <div className="space-y-2">
+                    <Label htmlFor="current-password">Current password</Label>
+                    <Input
+                      id="current-password"
+                      type="password"
+                      autoComplete="current-password"
+                      value={currentPassword}
+                      onChange={(e) => setCurrentPassword(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="change-password">New password</Label>
+                    <Input
+                      id="change-password"
+                      type="password"
+                      autoComplete="new-password"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      placeholder="Leave blank to only remove"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="change-confirm">Confirm new password</Label>
+                    <Input
+                      id="change-confirm"
+                      type="password"
+                      autoComplete="new-password"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                    />
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <LoadingButton
+                      onClick={() => void handleChangePassword()}
+                      isLoading={
+                        auth.updatePassword.isPending &&
+                        auth.updatePassword.variables?.action === "change"
+                      }
+                      loadingText="Updating…"
+                      disabled={!currentPassword || !newPassword || !confirmPassword}
+                    >
+                      Change password
+                    </LoadingButton>
+                    <LoadingButton
+                      variant="outline"
+                      onClick={() => void handleRemovePassword()}
+                      isLoading={
+                        auth.updatePassword.isPending &&
+                        auth.updatePassword.variables?.action === "remove"
+                      }
+                      loadingText="Removing…"
+                      disabled={!currentPassword}
+                    >
+                      Remove password
+                    </LoadingButton>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
