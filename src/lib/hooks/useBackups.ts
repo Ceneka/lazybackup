@@ -10,7 +10,14 @@ export interface Backup {
   destinationPath: string
   schedule: string
   excludePatterns?: string
+  preBackupCommands?: string
   enabled: boolean
+  enableVersioning?: boolean
+  versionsToKeep?: number
+  enableFileRetention?: boolean
+  retentionMaxAge?: number
+  retentionMaxAgeUnit?: 'days' | 'months'
+  retentionMinKeep?: number
   createdAt: string
   updatedAt: string
 }

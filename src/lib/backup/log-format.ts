@@ -2,6 +2,7 @@ export const LOG_SECTION = {
   preBackup: '========== Pre-Backup Commands ==========',
   transferRsync: '========== Backup Transfer (rsync) ==========',
   transferScp: '========== Backup Transfer (scp) ==========',
+  fileRetention: '========== File Retention ==========',
 } as const;
 
 const TRANSFER_HEADER_RE = /={10} Backup Transfer \((?:rsync|scp)\) ={10}/;
@@ -41,19 +42,45 @@ export function buildPreBackupLog(commandLogs: string[]): string {
 export function combineBackupLog(
   preBackupLog: string,
   transferLog: string,
-  method: 'rsync' | 'scp'
+  method: 'rsync' | 'scp',
+  fileRetentionLog = ''
 ): string {
   const transferHeader =
     method === 'rsync' ? LOG_SECTION.transferRsync : LOG_SECTION.transferScp;
 
-  if (!preBackupLog) {
-    return [transferHeader, '', transferLog].join('\n');
+  const sections: string[] = [];
+
+  if (preBackupLog) {
+    sections.push(preBackupLog);
   }
 
-  return [preBackupLog, '', transferHeader, '', transferLog].join('\n');
+  sections.push([transferHeader, '', transferLog].join('\n'));
+
+  if (fileRetentionLog) {
+    sections.push(fileRetentionLog);
+  }
+
+  return sections.join('\n\n');
 }
 
-export function splitBackupLog(logOutput: string): { preBackup?: string; transfer: string } {
+export function buildFileRetentionLog(deletedFiles: string[]): string {
+  if (deletedFiles.length === 0) {
+    return '';
+  }
+
+  return [
+    LOG_SECTION.fileRetention,
+    '',
+    `Deleted ${deletedFiles.length} file(s):`,
+    ...deletedFiles.map((file) => `- ${file}`),
+  ].join('\n');
+}
+
+export function splitBackupLog(logOutput: string): {
+  preBackup?: string;
+  transfer: string;
+  fileRetention?: string;
+} {
   const transferMatch = logOutput.match(TRANSFER_HEADER_RE);
 
   if (!transferMatch || transferMatch.index === undefined) {
@@ -62,10 +89,21 @@ export function splitBackupLog(logOutput: string): { preBackup?: string; transfe
 
   const transferStart = transferMatch.index;
   const transferHeaderEnd = transferStart + transferMatch[0].length;
-  const transfer = logOutput.slice(transferHeaderEnd).trimStart();
+  let afterTransfer = logOutput.slice(transferHeaderEnd).trimStart();
+
+  let fileRetention: string | undefined;
+  const retentionIndex = afterTransfer.indexOf(LOG_SECTION.fileRetention);
+  if (retentionIndex !== -1) {
+    fileRetention = afterTransfer
+      .slice(retentionIndex + LOG_SECTION.fileRetention.length)
+      .trim() || undefined;
+    afterTransfer = afterTransfer.slice(0, retentionIndex).trimEnd();
+  }
+
+  const transfer = afterTransfer;
 
   if (!logOutput.includes(LOG_SECTION.preBackup)) {
-    return { transfer };
+    return { transfer, fileRetention };
   }
 
   const preStart = logOutput.indexOf(LOG_SECTION.preBackup) + LOG_SECTION.preBackup.length;
@@ -74,5 +112,6 @@ export function splitBackupLog(logOutput: string): { preBackup?: string; transfe
   return {
     preBackup: preBackup || undefined,
     transfer,
+    fileRetention,
   };
 }

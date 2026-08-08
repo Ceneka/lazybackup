@@ -14,8 +14,10 @@ import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
 import { parseRsyncOutput } from '../utils/rsync-parser';
+import { selectFilesToDelete, type RetentionAgeUnit } from './file-retention';
 import { createBackupHistoryEntry, updateBackupHistoryFailure, updateBackupHistorySuccess } from './history';
 import {
+  buildFileRetentionLog,
   buildPreBackupLog,
   combineBackupLog,
   formatPreBackupCommandLog,
@@ -34,6 +36,10 @@ type BackupConfigWithServer = {
   enabled: boolean;
   enableVersioning: boolean;
   versionsToKeep?: number | null;
+  enableFileRetention?: boolean | null;
+  retentionMaxAge?: number | null;
+  retentionMaxAgeUnit?: RetentionAgeUnit | null;
+  retentionMinKeep?: number | null;
   server: {
     id: string;
     name: string;
@@ -256,6 +262,23 @@ Total transferred file size: ${totalSize}`;
       await cleanupOldVersions(baseDir, config.versionsToKeep);
     }
 
+    // File retention: only when versioning is off (mutually exclusive)
+    let fileRetentionLog = '';
+    if (
+      !config.enableVersioning &&
+      config.enableFileRetention &&
+      config.retentionMaxAge &&
+      config.retentionMinKeep
+    ) {
+      const deletedFiles = await cleanupOldFiles(
+        config.destinationPath,
+        config.retentionMaxAge,
+        config.retentionMaxAgeUnit || 'days',
+        config.retentionMinKeep
+      );
+      fileRetentionLog = buildFileRetentionLog(deletedFiles);
+    }
+
     // Update backup history with success
     const parsedOutput = parseRsyncOutput(backupResult.stdout);
 
@@ -263,7 +286,7 @@ Total transferred file size: ${totalSize}`;
       historyId,
       {
         ...parsedOutput,
-        logOutput: combineBackupLog(preBackupLog, backupResult.stdout, usedMethod),
+        logOutput: combineBackupLog(preBackupLog, backupResult.stdout, usedMethod, fileRetentionLog),
       }
     );
   } catch (error) {
@@ -347,6 +370,55 @@ async function cleanupOldVersions(baseDir: string, versionsToKeep: number): Prom
     }
   } catch (error) {
     console.error(`Error cleaning up old backup versions: ${error}`);
+  }
+}
+
+/**
+ * Delete top-level files in destination older than max age, keeping at least minKeep newest.
+ * Returns names of deleted files. Soft-fails (logs and returns []) on error.
+ */
+async function cleanupOldFiles(
+  destinationPath: string,
+  maxAge: number,
+  unit: RetentionAgeUnit,
+  minKeep: number
+): Promise<string[]> {
+  try {
+    let expandedDir = destinationPath;
+    if (expandedDir.startsWith('~')) {
+      expandedDir = expandedDir.replace('~', process.env.HOME || os.homedir());
+    }
+    if (!path.isAbsolute(expandedDir)) {
+      expandedDir = path.resolve(expandedDir);
+    }
+
+    if (!await fs.access(expandedDir).then(() => true).catch(() => false)) {
+      console.log(`Directory does not exist, skipping file retention: ${expandedDir}`);
+      return [];
+    }
+
+    const entries = await fs.readdir(expandedDir, { withFileTypes: true });
+    const files: { name: string; mtimeMs: number }[] = [];
+
+    for (const entry of entries) {
+      if (!entry.isFile()) {
+        continue;
+      }
+      const stat = await fs.stat(path.join(expandedDir, entry.name));
+      files.push({ name: entry.name, mtimeMs: stat.mtimeMs });
+    }
+
+    const toDelete = selectFilesToDelete(files, { maxAge, unit, minKeep });
+
+    for (const name of toDelete) {
+      console.log(`Deleting old backup file (retention): ${name}`);
+      await fs.unlink(path.join(expandedDir, name));
+    }
+
+    return toDelete;
+  } catch (error) {
+    console.error(`Error cleaning up old backup files: ${error}`);
+    return [];
   }
 }
 

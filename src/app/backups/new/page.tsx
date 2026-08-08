@@ -1,8 +1,9 @@
 "use client"
 
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Server } from "@/lib/hooks/useServers"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { ArrowLeftIcon, Loader2Icon, ServerIcon } from "lucide-react"
+import { AlertTriangleIcon, ArrowLeftIcon, Loader2Icon, ServerIcon } from "lucide-react"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Suspense, useState } from "react"
@@ -26,6 +27,10 @@ function NewBackupForm() {
     enabled: true,
     enableVersioning: false,
     versionsToKeep: 5,
+    enableFileRetention: false,
+    retentionMaxAge: 30,
+    retentionMaxAgeUnit: 'days' as 'days' | 'months',
+    retentionMinKeep: 5,
   })
 
   // Fetch servers data with useQuery
@@ -44,13 +49,24 @@ function NewBackupForm() {
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target
+    const checked = type === 'checkbox' ? (e.target as HTMLInputElement).checked : undefined
 
-    setFormData(prev => ({
-      ...prev,
-      [name]: type === 'checkbox'
-        ? (e.target as HTMLInputElement).checked
-        : value
-    }))
+    setFormData(prev => {
+      const next = {
+        ...prev,
+        [name]: type === 'checkbox' ? checked : value,
+      }
+
+      // Versioning and file retention are mutually exclusive
+      if (name === 'enableVersioning' && checked) {
+        next.enableFileRetention = false
+      }
+      if (name === 'enableFileRetention' && checked) {
+        next.enableVersioning = false
+      }
+
+      return next
+    })
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -63,7 +79,12 @@ function NewBackupForm() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(formData),
+        body: JSON.stringify({
+          ...formData,
+          versionsToKeep: Number(formData.versionsToKeep),
+          retentionMaxAge: Number(formData.retentionMaxAge),
+          retentionMinKeep: Number(formData.retentionMinKeep),
+        }),
       })
 
       const data = await response.json()
@@ -260,31 +281,131 @@ function NewBackupForm() {
                     type="checkbox"
                     checked={formData.enableVersioning}
                     onChange={handleChange}
-                    className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                    disabled={formData.enableFileRetention}
+                    className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary disabled:opacity-50"
                   />
                   <label htmlFor="enableVersioning" className="text-sm font-medium">
                     Enable versioning
                   </label>
                 </div>
-
-                <div>
-                  <label htmlFor="versionsToKeep" className="block text-sm font-medium mb-2">
-                    Versions to Keep
-                  </label>
-                  <input
-                    id="versionsToKeep"
-                    name="versionsToKeep"
-                    type="number"
-                    required
-                    value={formData.versionsToKeep}
-                    onChange={handleChange}
-                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                    placeholder="5"
-                  />
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Number of versions to keep
+                {formData.enableFileRetention && (
+                  <p className="text-xs text-muted-foreground -mt-2">
+                    Turn off file retention to use versioning.
                   </p>
+                )}
+
+                {formData.enableVersioning && (
+                  <div>
+                    <label htmlFor="versionsToKeep" className="block text-sm font-medium mb-2">
+                      Versions to Keep
+                    </label>
+                    <input
+                      id="versionsToKeep"
+                      name="versionsToKeep"
+                      type="number"
+                      min={1}
+                      max={100}
+                      required
+                      value={formData.versionsToKeep}
+                      onChange={handleChange}
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                      placeholder="5"
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Number of version folders to keep
+                    </p>
+                  </div>
+                )}
+
+                <div className="flex items-center space-x-2">
+                  <input
+                    id="enableFileRetention"
+                    name="enableFileRetention"
+                    type="checkbox"
+                    checked={formData.enableFileRetention}
+                    onChange={handleChange}
+                    disabled={formData.enableVersioning}
+                    className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary disabled:opacity-50"
+                  />
+                  <label htmlFor="enableFileRetention" className="text-sm font-medium">
+                    Enable file retention
+                  </label>
                 </div>
+                {formData.enableVersioning && (
+                  <p className="text-xs text-muted-foreground -mt-2">
+                    File retention is only available when versioning is off (for dump folders that accumulate files).
+                  </p>
+                )}
+
+                {formData.enableFileRetention && (
+                  <div className="space-y-4 rounded-md border border-destructive/30 bg-destructive/5 p-4">
+                    <Alert variant="destructive">
+                      <AlertTriangleIcon />
+                      <AlertTitle>Be careful — this permanently deletes files</AlertTitle>
+                      <AlertDescription>
+                        <p>
+                          After each successful backup, LazyBackup deletes top-level files in the
+                          destination that are older than the age you set, while always keeping at least the newest
+                          minimum count. Misconfiguration can wipe dump files you still need. Directories are never deleted.
+                        </p>
+                      </AlertDescription>
+                    </Alert>
+
+                    <div className="grid gap-4 sm:grid-cols-[1fr_auto]">
+                      <div>
+                        <label htmlFor="retentionMaxAge" className="block text-sm font-medium mb-2">
+                          Delete files older than
+                        </label>
+                        <input
+                          id="retentionMaxAge"
+                          name="retentionMaxAge"
+                          type="number"
+                          min={1}
+                          max={3650}
+                          required
+                          value={formData.retentionMaxAge}
+                          onChange={handleChange}
+                          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                        />
+                      </div>
+                      <div>
+                        <label htmlFor="retentionMaxAgeUnit" className="block text-sm font-medium mb-2">
+                          Unit
+                        </label>
+                        <select
+                          id="retentionMaxAgeUnit"
+                          name="retentionMaxAgeUnit"
+                          value={formData.retentionMaxAgeUnit}
+                          onChange={handleChange}
+                          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                        >
+                          <option value="days">Days</option>
+                          <option value="months">Months</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label htmlFor="retentionMinKeep" className="block text-sm font-medium mb-2">
+                        Keep at least (newest files)
+                      </label>
+                      <input
+                        id="retentionMinKeep"
+                        name="retentionMinKeep"
+                        type="number"
+                        min={1}
+                        max={10000}
+                        required
+                        value={formData.retentionMinKeep}
+                        onChange={handleChange}
+                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                      />
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Always preserve this many newest files, even if they are older than the age limit.
+                      </p>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="flex justify-end space-x-4">
@@ -324,4 +445,4 @@ export default function NewBackupPage() {
       <NewBackupForm />
     </Suspense>
   )
-} 
+}

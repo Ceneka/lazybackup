@@ -50,6 +50,10 @@ export const backupConfigs = sqliteTable('backup_configs', {
   enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
   enableVersioning: integer('enable_versioning', { mode: 'boolean' }).notNull().default(false),
   versionsToKeep: integer('versions_to_keep').default(5),
+  enableFileRetention: integer('enable_file_retention', { mode: 'boolean' }).notNull().default(false),
+  retentionMaxAge: integer('retention_max_age').default(30),
+  retentionMaxAgeUnit: text('retention_max_age_unit', { enum: ['days', 'months'] }).default('days'),
+  retentionMinKeep: integer('retention_min_keep').default(5),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
 });

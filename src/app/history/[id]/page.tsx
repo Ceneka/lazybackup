@@ -180,7 +180,7 @@ export default function HistoryDetailPage() {
                       )}
                       
                       {query.data.logOutput && (() => {
-                        const { preBackup, transfer } = splitBackupLog(query.data.logOutput)
+                        const { preBackup, transfer, fileRetention } = splitBackupLog(query.data.logOutput)
 
                         return (
                           <>
@@ -205,6 +205,17 @@ export default function HistoryDetailPage() {
                                 </div>
                               </AccordionContent>
                             </AccordionItem>
+
+                            {fileRetention && (
+                              <AccordionItem value="file-retention">
+                                <AccordionTrigger>File Retention</AccordionTrigger>
+                                <AccordionContent>
+                                  <div className="bg-amber-50 p-4 rounded border border-amber-200 whitespace-pre-wrap font-mono text-sm max-h-96 overflow-y-auto">
+                                    {fileRetention}
+                                  </div>
+                                </AccordionContent>
+                              </AccordionItem>
+                            )}
                           </>
                         )
                       })()}

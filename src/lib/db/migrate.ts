@@ -108,6 +108,23 @@ export async function runMigration() {
       await db.run(sql`ALTER TABLE backup_configs ADD COLUMN pre_backup_commands TEXT`);
     }
 
+    // File retention (dump destinations): age-based cleanup with min keep
+    if (!backupColumns.includes('enable_file_retention')) {
+      await db.run(sql`ALTER TABLE backup_configs ADD COLUMN enable_file_retention INTEGER NOT NULL DEFAULT 0`);
+    }
+
+    if (!backupColumns.includes('retention_max_age')) {
+      await db.run(sql`ALTER TABLE backup_configs ADD COLUMN retention_max_age INTEGER DEFAULT 30`);
+    }
+
+    if (!backupColumns.includes('retention_max_age_unit')) {
+      await db.run(sql`ALTER TABLE backup_configs ADD COLUMN retention_max_age_unit TEXT DEFAULT 'days'`);
+    }
+
+    if (!backupColumns.includes('retention_min_keep')) {
+      await db.run(sql`ALTER TABLE backup_configs ADD COLUMN retention_min_keep INTEGER DEFAULT 5`);
+    }
+
     console.log('Migration completed successfully');
   } catch (error) {
     console.error('Migration failed:', error);

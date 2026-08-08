@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import {
   LOG_SECTION,
+  buildFileRetentionLog,
   buildPreBackupLog,
   combineBackupLog,
   formatPreBackupCommandLog,
@@ -118,6 +119,33 @@ describe('combineBackupLog', () => {
     expect(combined).not.toContain(LOG_SECTION.preBackup);
     expect(combined).toContain(LOG_SECTION.transferRsync);
   });
+
+  test('appends file retention section when provided', () => {
+    const retentionLog = buildFileRetentionLog(['old.dump']);
+    const combined = combineBackupLog('', 'rsync output', 'rsync', retentionLog);
+
+    expect(combined).toContain(LOG_SECTION.transferRsync);
+    expect(combined).toContain(LOG_SECTION.fileRetention);
+    expect(combined).toContain('- old.dump');
+    expect(combined.indexOf(LOG_SECTION.transferRsync)).toBeLessThan(
+      combined.indexOf(LOG_SECTION.fileRetention)
+    );
+  });
+});
+
+describe('buildFileRetentionLog', () => {
+  test('returns empty string when nothing was deleted', () => {
+    expect(buildFileRetentionLog([])).toBe('');
+  });
+
+  test('lists deleted files under the retention header', () => {
+    const log = buildFileRetentionLog(['a.dump', 'b.dump']);
+
+    expect(log.startsWith(LOG_SECTION.fileRetention)).toBe(true);
+    expect(log).toContain('Deleted 2 file(s):');
+    expect(log).toContain('- a.dump');
+    expect(log).toContain('- b.dump');
+  });
 });
 
 describe('splitBackupLog', () => {
@@ -161,6 +189,16 @@ describe('splitBackupLog', () => {
     expect(splitBackupLog(combined)).toEqual({
       preBackup: '$ true\nexit code: 0\n(no output)',
       transfer: 'SCP Backup Summary',
+    });
+  });
+
+  test('separates file retention from transfer output', () => {
+    const retentionLog = buildFileRetentionLog(['stale.dump']);
+    const combined = combineBackupLog('', 'rsync stats', 'rsync', retentionLog);
+
+    expect(splitBackupLog(combined)).toEqual({
+      transfer: 'rsync stats',
+      fileRetention: 'Deleted 1 file(s):\n- stale.dump',
     });
   });
 });
