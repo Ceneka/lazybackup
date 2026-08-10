@@ -1,7 +1,9 @@
+import { createHistorySchema } from '@/lib/backup/history-schema';
 import { db } from '@/lib/db';
 import { backupConfigs, backupHistory, servers } from '@/lib/db/schema';
 import { and, desc, eq, inArray, like, or, sql } from 'drizzle-orm';
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
 
 function escapeLike(value: string): string {
   return value.replace(/[\\%_]/g, (ch) => `\\${ch}`);
@@ -120,27 +122,47 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
+    const validated = createHistorySchema.parse(body);
 
-    if (!body.configId || !body.status) {
+    const config = await db.query.backupConfigs.findFirst({
+      where: eq(backupConfigs.id, validated.configId),
+      columns: { id: true },
+    });
+    if (!config) {
       return NextResponse.json(
-        { error: 'Required fields missing: configId and status are required' },
+        { error: 'Backup configuration not found' },
         { status: 400 }
       );
     }
 
-    if (!body.id) {
-      body.id = crypto.randomUUID();
-    }
-
-    if (!body.startTime) {
-      body.startTime = new Date();
-    }
-
-    const newHistoryEntry = await db.insert(backupHistory).values(body).returning();
+    const newHistoryEntry = await db
+      .insert(backupHistory)
+      .values({
+        id: validated.id ?? crypto.randomUUID(),
+        configId: validated.configId,
+        status: validated.status,
+        startTime: validated.startTime ?? new Date(),
+        endTime: validated.endTime ?? null,
+        fileCount: validated.fileCount ?? null,
+        totalSize: validated.totalSize ?? null,
+        transferredSize: validated.transferredSize ?? null,
+        errorMessage: validated.errorMessage ?? null,
+        logOutput: validated.logOutput ?? null,
+        artifactPath: validated.artifactPath ?? null,
+      })
+      .returning();
 
     return NextResponse.json(newHistoryEntry[0], { status: 201 });
   } catch (error) {
     console.error('Error creating backup history entry:', error);
+
+    if (error instanceof z.ZodError) {
+      return NextResponse.json(
+        { error: 'Validation error', details: error.errors },
+        { status: 400 }
+      );
+    }
+
     return NextResponse.json(
       { error: 'Failed to create backup history entry' },
       { status: 500 }

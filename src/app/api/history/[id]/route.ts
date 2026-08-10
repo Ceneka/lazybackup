@@ -1,7 +1,9 @@
+import { updateHistorySchema } from '@/lib/backup/history-schema';
 import { db } from '@/lib/db';
 import { backupHistory } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
 
 // GET /api/history/[id] - Get a specific backup history entry
 export async function GET(
@@ -49,11 +51,11 @@ export async function PUT(
   try {
     const { id } = await params;
     const body = await request.json();
+    const validated = updateHistorySchema.parse(body);
     
-    // Update the history entry
     const updatedHistoryEntry = await db
       .update(backupHistory)
-      .set(body)
+      .set(validated)
       .where(eq(backupHistory.id, id))
       .returning();
     
@@ -67,6 +69,14 @@ export async function PUT(
     return NextResponse.json(updatedHistoryEntry[0]);
   } catch (error) {
     console.error('Error updating backup history entry:', error);
+
+    if (error instanceof z.ZodError) {
+      return NextResponse.json(
+        { error: 'Validation error', details: error.errors },
+        { status: 400 }
+      );
+    }
+
     return NextResponse.json(
       { error: 'Failed to update backup history entry' },
       { status: 500 }
@@ -105,4 +115,4 @@ export async function DELETE(
       { status: 500 }
     );
   }
-} 
+}
