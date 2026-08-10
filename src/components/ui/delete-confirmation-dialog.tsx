@@ -1,3 +1,5 @@
+"use client"
+
 import {
     AlertDialog,
     AlertDialogCancel,
@@ -39,13 +41,16 @@ export function DeleteConfirmationDialog({
     setOpen(next)
     if (!next && deleteAfterClose.current) {
       deleteAfterClose.current = false
+      // Run after close so Radix can unlock pointer-events before route changes.
       onDelete()
     }
   }
 
   const handleConfirmDelete = () => {
+    // Controlled `setOpen(false)` alone does not fire Radix `onOpenChange`,
+    // so go through handleOpenChange or onDelete never runs.
     deleteAfterClose.current = true
-    setOpen(false)
+    handleOpenChange(false)
   }
 
   return (

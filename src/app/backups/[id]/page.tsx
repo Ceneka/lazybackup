@@ -103,7 +103,10 @@ export default function BackupDetailPage() {
       })
 
       if (!response.ok) {
-        throw new Error("Failed to delete backup configuration")
+        const body = (await response.json().catch(() => null)) as {
+          error?: string
+        } | null
+        throw new Error(body?.error || "Failed to delete backup configuration")
       }
 
       return backupId
@@ -115,7 +118,11 @@ export default function BackupDetailPage() {
     },
     onError: (error) => {
       console.error("Error deleting backup configuration:", error)
-      toast.error("Failed to delete backup configuration")
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Failed to delete backup configuration"
+      )
     },
   })
 

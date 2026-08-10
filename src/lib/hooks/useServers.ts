@@ -182,18 +182,32 @@ export function useDeleteServer() {
       })
 
       if (!response.ok) {
-        throw new Error("Failed to delete server")
+        const body = (await response.json().catch(() => null)) as {
+          error?: string
+          backups?: Array<{ id: string; name: string }>
+        } | null
+
+        if (response.status === 409 && body?.backups?.length) {
+          const names = body.backups.map((b) => b.name).join(", ")
+          throw new Error(
+            body.error
+              ? `${body.error} (${names})`
+              : `Server is used by backups: ${names}`
+          )
+        }
+
+        throw new Error(body?.error || "Failed to delete server")
       }
 
       return id
     },
-    onSuccess: (id) => {
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: serverKeys.lists() })
       toast.success("Server deleted successfully")
     },
     onError: (error) => {
       console.error("Error deleting server:", error)
-      toast.error("Failed to delete server")
+      toast.error(error instanceof Error ? error.message : "Failed to delete server")
     }
   })
 } 

@@ -1,8 +1,18 @@
 import { db } from '@/lib/db';
-import { servers, sshKeys } from '@/lib/db/schema';
-import { eq } from 'drizzle-orm';
+import { backupConfigs, servers, sshKeys } from '@/lib/db/schema';
+import { eq, or } from 'drizzle-orm';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+
+function backupRolesForServer(
+  backup: { serverId: string | null; destinationServerId: string | null },
+  serverId: string
+): Array<'source' | 'destination'> {
+  const roles: Array<'source' | 'destination'> = [];
+  if (backup.serverId === serverId) roles.push('source');
+  if (backup.destinationServerId === serverId) roles.push('destination');
+  return roles;
+}
 
 // Server validation schema
 const serverSchema = z.object({
@@ -37,7 +47,27 @@ export async function GET(
       );
     }
 
-    return NextResponse.json(server);
+    const referencingBackups = await db.query.backupConfigs.findMany({
+      where: or(
+        eq(backupConfigs.serverId, id),
+        eq(backupConfigs.destinationServerId, id)
+      ),
+      columns: {
+        id: true,
+        name: true,
+        serverId: true,
+        destinationServerId: true,
+      },
+    });
+
+    return NextResponse.json({
+      ...server,
+      usedByBackups: referencingBackups.map((backup) => ({
+        id: backup.id,
+        name: backup.name,
+        roles: backupRolesForServer(backup, id),
+      })),
+    });
   } catch (error) {
     console.error('Failed to fetch server:', error);
     return NextResponse.json(
@@ -144,6 +174,34 @@ export async function DELETE(
       return NextResponse.json(
         { error: 'Server not found' },
         { status: 404 }
+      );
+    }
+
+    const referencingBackups = await db.query.backupConfigs.findMany({
+      where: or(
+        eq(backupConfigs.serverId, id),
+        eq(backupConfigs.destinationServerId, id)
+      ),
+      columns: {
+        id: true,
+        name: true,
+        serverId: true,
+        destinationServerId: true,
+      },
+    });
+
+    if (referencingBackups.length > 0) {
+      return NextResponse.json(
+        {
+          error:
+            'Server is used by backup configurations. Delete or reassign those backups first.',
+          backups: referencingBackups.map((backup) => ({
+            id: backup.id,
+            name: backup.name,
+            roles: backupRolesForServer(backup, id),
+          })),
+        },
+        { status: 409 }
       );
     }
 

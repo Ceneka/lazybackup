@@ -182,7 +182,7 @@ export function useUpdateBackup() {
 // Delete a backup
 export function useDeleteBackup() {
   const queryClient = useQueryClient()
-  
+
   return useMutation({
     mutationFn: async (id: string) => {
       const response = await fetch(`/api/backups/${id}`, {
@@ -190,18 +190,21 @@ export function useDeleteBackup() {
       })
 
       if (!response.ok) {
-        throw new Error("Failed to delete backup")
+        const body = (await response.json().catch(() => null)) as {
+          error?: string
+        } | null
+        throw new Error(body?.error || "Failed to delete backup")
       }
 
       return id
     },
-    onSuccess: (id) => {
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: backupKeys.lists() })
       toast.success("Backup deleted successfully")
     },
     onError: (error) => {
       console.error("Error deleting backup:", error)
-      toast.error("Failed to delete backup")
+      toast.error(error instanceof Error ? error.message : "Failed to delete backup")
     }
   })
-} 
+}
