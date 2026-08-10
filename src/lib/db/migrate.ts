@@ -125,6 +125,17 @@ export async function runMigration() {
       await db.run(sql`ALTER TABLE backup_configs ADD COLUMN retention_min_keep INTEGER DEFAULT 5`);
     }
 
+    if (!backupColumns.includes('source_type')) {
+      await db.run(sql`ALTER TABLE backup_configs ADD COLUMN source_type TEXT NOT NULL DEFAULT 'path'`);
+    }
+
+    const backupHistoryInfo = await db.run(sql`PRAGMA table_info(backup_history)`);
+    const historyColumns = backupHistoryInfo.rows.map((row: any) => row.name);
+
+    if (!historyColumns.includes('artifact_path')) {
+      await db.run(sql`ALTER TABLE backup_history ADD COLUMN artifact_path TEXT`);
+    }
+
     console.log('Migration completed successfully');
   } catch (error) {
     console.error('Migration failed:', error);

@@ -7,7 +7,8 @@ LazyBackup is a self-hosted web app for managing backups of your VPS servers. Co
 ## Features
 
 - **Server management** — Add, edit, and test VPS connections (password or SSH key auth)
-- **Backup jobs** — Configure remote source paths, local destinations, cron schedules, exclude patterns, and pre-backup shell commands
+- **Backup jobs** — Configure remote source paths or Docker volumes, local destinations, cron schedules, exclude patterns, and pre-backup shell commands
+- **Docker volumes** — Discover named volumes on the remote host, back them up as `.tar.gz`, and restore from History
 - **Versioned backups** — Optional timestamped snapshots with automatic count-based retention
 - **File retention** — Optional age-based cleanup for dump-style destinations (keep a minimum number of files)
 - **Automated scheduling** — In-process cron scheduler; set an app timezone so schedules run when you expect
@@ -72,10 +73,17 @@ Set `DATABASE_URL` if you want a custom SQLite path (default: `file:./data.db`).
 ## Usage
 
 1. **Optional password** — On first visit, set an app password or skip. Change or remove it later under Settings.
-2. **Add a server** — Servers → add host, user, and SSH credentials. Use **Test connection** to verify rsync/scp availability.
-3. **Create a backup** — Backups → pick a server, set the remote `sourcePath` and a **local** `destinationPath` (e.g. `/backups/mysite` in Docker, where `/backups` is your mounted volume). Optionally enable versioning and/or age-based file retention.
+2. **Add a server** — Servers → add host, user, and SSH credentials. Use **Test connection** to verify rsync/scp (and Docker) availability.
+3. **Create a backup** — Backups → pick a server, choose **filesystem path** or **Docker volume**, set a **local** `destinationPath` (e.g. `/backups/mysite` in Docker). For volumes, LazyBackup lists remote named volumes and stores a `.tar.gz`. Optionally enable versioning and/or age-based file retention.
 4. **Timezone** — Settings → choose the timezone used for cron schedules and “next run” times.
 5. **Run or schedule** — Trigger a manual run or rely on the cron schedule. View results, logs, and on-disk storage under History and each backup’s detail page.
+6. **Restore (Docker volumes)** — On a successful volume backup in History, use **Restore Docker Volume** to push the archive back and extract into a named volume (creates the volume if missing). Restores data only — not images, networks, or compose files.
+
+### Docker volume notes
+
+- The SSH user needs permission to run `docker` (typically membership in the `docker` group).
+- Packing uses a temporary `alpine` helper container; the remote host must be able to pull/run that image.
+- Live database volumes can be inconsistent if written during backup — stop the service first via pre-backup commands (e.g. `docker compose stop db`) when you need a consistent snapshot.
 
 ### Environment variables
 

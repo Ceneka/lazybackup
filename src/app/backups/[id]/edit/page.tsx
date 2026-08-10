@@ -3,9 +3,9 @@
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { LoadingButton } from "@/components/ui/loading-button"
 import { QueryState } from "@/components/ui/query-state"
-import { Server } from "@/lib/hooks/useServers"
+import { Server, useServerDockerVolumes } from "@/lib/hooks/useServers"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { AlertTriangleIcon, ArrowLeftIcon, FolderIcon } from "lucide-react"
+import { AlertTriangleIcon, ArrowLeftIcon, FolderIcon, Loader2Icon, RefreshCwIcon } from "lucide-react"
 import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
@@ -21,6 +21,7 @@ export default function EditBackupPage() {
   const [formData, setFormData] = useState({
     serverId: '',
     name: '',
+    sourceType: 'path' as 'path' | 'docker_volume',
     sourcePath: '',
     destinationPath: '',
     schedule: '',
@@ -72,12 +73,17 @@ export default function EditBackupPage() {
     staleTime: 1000 * 60 * 5 // Cache for 5 minutes
   })
 
+  const volumesQuery = useServerDockerVolumes(
+    formData.sourceType === 'docker_volume' ? formData.serverId : ''
+  )
+
   useEffect(() => {
     // If we have backup data, populate the form
     if (backupQuery.data) {
       setFormData({
         serverId: backupQuery.data.serverId || '',
         name: backupQuery.data.name || '',
+        sourceType: backupQuery.data.sourceType || 'path',
         sourcePath: backupQuery.data.sourcePath || '',
         destinationPath: backupQuery.data.destinationPath || '',
         schedule: backupQuery.data.schedule || '',
@@ -109,6 +115,14 @@ export default function EditBackupPage() {
       }
       if (name === 'enableFileRetention' && checked) {
         next.enableVersioning = false
+      }
+
+      if (name === 'sourceType') {
+        next.sourcePath = ''
+      }
+
+      if (name === 'serverId' && prev.sourceType === 'docker_volume') {
+        next.sourcePath = ''
       }
 
       return next
@@ -219,20 +233,96 @@ export default function EditBackupPage() {
                   </div>
 
                   <div>
-                    <label htmlFor="sourcePath" className="block text-sm font-medium mb-2">
-                      Source Path
+                    <label htmlFor="sourceType" className="block text-sm font-medium mb-2">
+                      Source Type
                     </label>
-                    <input
-                      type="text"
-                      id="sourcePath"
-                      name="sourcePath"
-                      required
-                      value={formData.sourcePath}
+                    <select
+                      id="sourceType"
+                      name="sourceType"
+                      value={formData.sourceType}
                       onChange={handleChange}
-                      placeholder="/var/www/mysite"
-                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                    />
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                    >
+                      <option value="path">Filesystem path</option>
+                      <option value="docker_volume">Docker volume</option>
+                    </select>
                   </div>
+
+                  {formData.sourceType === 'docker_volume' ? (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <label htmlFor="sourcePath" className="block text-sm font-medium">
+                          Docker Volume
+                        </label>
+                        <button
+                          type="button"
+                          disabled={!formData.serverId || volumesQuery.isFetching}
+                          onClick={() => volumesQuery.refetch()}
+                          className="inline-flex items-center text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
+                        >
+                          <RefreshCwIcon className={`mr-1 h-3 w-3 ${volumesQuery.isFetching ? 'animate-spin' : ''}`} />
+                          Refresh
+                        </button>
+                      </div>
+                      {!formData.serverId ? (
+                        <p className="text-sm text-muted-foreground">Select a server to discover volumes.</p>
+                      ) : volumesQuery.isLoading ? (
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
+                          <Loader2Icon className="h-4 w-4 animate-spin" />
+                          Loading volumes…
+                        </div>
+                      ) : volumesQuery.isError ? (
+                        <Alert variant="destructive">
+                          <AlertTriangleIcon />
+                          <AlertTitle>Could not list Docker volumes</AlertTitle>
+                          <AlertDescription>
+                            {volumesQuery.error instanceof Error
+                              ? volumesQuery.error.message
+                              : 'Docker must be available and this SSH user needs docker access.'}
+                          </AlertDescription>
+                        </Alert>
+                      ) : (
+                        <select
+                          id="sourcePath"
+                          name="sourcePath"
+                          required
+                          value={formData.sourcePath}
+                          onChange={handleChange}
+                          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                        >
+                          <option value="">Select a volume</option>
+                          {formData.sourcePath &&
+                            !(volumesQuery.data || []).includes(formData.sourcePath) && (
+                              <option value={formData.sourcePath}>{formData.sourcePath} (current)</option>
+                            )}
+                          {(volumesQuery.data || []).map((volume) => (
+                            <option key={volume} value={volume}>
+                              {volume}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                      <p className="text-xs text-muted-foreground">
+                        Requires Docker on the remote host and SSH key auth. Live databases may be inconsistent unless you stop them first (use pre-backup commands).
+                      </p>
+                    </div>
+                  ) : (
+                    <div>
+                      <label htmlFor="sourcePath" className="block text-sm font-medium mb-2">
+                        Source Path
+                      </label>
+                      <input
+                        type="text"
+                        id="sourcePath"
+                        name="sourcePath"
+                        required
+                        value={formData.sourcePath}
+                        onChange={handleChange}
+                        placeholder="/var/www/mysite"
+                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                      />
+                    </div>
+                  )}
 
                   <div>
                     <label htmlFor="destinationPath" className="block text-sm font-medium mb-2">
@@ -282,7 +372,9 @@ export default function EditBackupPage() {
                       className="w-full min-h-[100px] p-2 border rounded"
                     />
                     <p className="text-sm text-muted-foreground mt-1">
-                      Enter patterns to exclude, one per line (e.g., *.log, tmp/*)
+                      {formData.sourceType === 'docker_volume'
+                        ? 'Optional tar exclude patterns, one per line (e.g. lost+found)'
+                        : 'Enter patterns to exclude, one per line (e.g., *.log, tmp/*)'}
                     </p>
                   </div>
 
@@ -299,7 +391,9 @@ export default function EditBackupPage() {
                       className="w-full min-h-[100px] p-2 border rounded"
                     />
                     <p className="text-sm text-muted-foreground mt-1">
-                      Enter commands to run on the remote server before backup starts, one per line
+                      {formData.sourceType === 'docker_volume'
+                        ? 'Optional: e.g. docker compose stop db — run on the remote before packing the volume'
+                        : 'Enter commands to run on the remote server before backup starts, one per line'}
                     </p>
                   </div>
 

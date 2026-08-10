@@ -202,6 +202,7 @@ export async function testServerBackupCapabilities(server: Server): Promise<{
   success: boolean;
   rsyncAvailable: boolean;
   scpAvailable: boolean;
+  dockerAvailable: boolean;
   message?: string;
 }> {
   try {
@@ -209,6 +210,8 @@ export async function testServerBackupCapabilities(server: Server): Promise<{
     const ssh = await connectToServer(server);
 
     const { rsyncAvailable, scpAvailable } = await getBackupTransportCapabilities(ssh);
+    const { checkRemoteDockerAvailable } = await import('../docker/volumes');
+    const dockerAvailable = await checkRemoteDockerAvailable(ssh);
 
     ssh.dispose();
 
@@ -223,11 +226,17 @@ export async function testServerBackupCapabilities(server: Server): Promise<{
       message +=
         "No rsync on the remote host and no SCP client on this machine — nothing to fall back to. Backups cannot run.";
     }
+    if (dockerAvailable) {
+      message += " Docker is available for volume backups.";
+    } else {
+      message += " Docker was not detected (volume backups unavailable).";
+    }
 
     return {
       success: true,
       rsyncAvailable,
       scpAvailable,
+      dockerAvailable,
       message
     };
   } catch (error) {
@@ -236,7 +245,108 @@ export async function testServerBackupCapabilities(server: Server): Promise<{
       success: false,
       rsyncAvailable: false,
       scpAvailable: false,
+      dockerAvailable: false,
       message: error instanceof Error ? error.message : 'Unknown error'
     };
   }
+}
+
+export type PushFileOptions = {
+  localPath: string;
+  remotePath: string;
+  username: string;
+  host: string;
+  port: number;
+  identityKeyPath: string;
+  rsyncAvailable: boolean;
+  scpAvailable: boolean;
+};
+
+/**
+ * Push a local file to the remote host (rsync preferred, else scp).
+ */
+export async function pushFileToRemote(options: PushFileOptions): Promise<{
+  method: 'rsync' | 'scp';
+  stdout: string;
+  stderr: string;
+}> {
+  const { exec } = await import('child_process');
+  const { promisify } = await import('util');
+  const execPromise = promisify(exec);
+  const { shellSingleQuote, buildRsyncCommand } = await import('./rsync');
+
+  const localSshShell = `ssh -p ${options.port} -i ${shellSingleQuote(options.identityKeyPath)} -F /dev/null -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR`;
+  const remoteTarget = `${options.username}@${options.host}:${options.remotePath}`;
+
+  if (options.rsyncAvailable) {
+    const rsyncCommand = buildRsyncCommand(
+      options.localPath,
+      remoteTarget,
+      [],
+      [],
+      localSshShell
+    );
+    const result = await execPromise(rsyncCommand);
+    return { method: 'rsync', stdout: result.stdout, stderr: result.stderr };
+  }
+
+  if (options.scpAvailable) {
+    const scpOpts = `-P ${options.port} -F /dev/null -i ${shellSingleQuote(options.identityKeyPath)} -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR`;
+    const scpCommand = `scp ${scpOpts} ${shellSingleQuote(options.localPath)} ${shellSingleQuote(remoteTarget)}`;
+    const result = await execPromise(scpCommand);
+    return { method: 'scp', stdout: result.stdout, stderr: result.stderr };
+  }
+
+  throw new Error(
+    'Cannot push file: rsync was not found on the remote host and the SCP client was not found on this machine.'
+  );
+}
+
+/**
+ * Pull a remote file to the local host (rsync preferred, else scp).
+ */
+export async function pullFileFromRemote(options: {
+  remotePath: string;
+  localPath: string;
+  username: string;
+  host: string;
+  port: number;
+  identityKeyPath: string;
+  rsyncAvailable: boolean;
+  scpAvailable: boolean;
+}): Promise<{
+  method: 'rsync' | 'scp';
+  stdout: string;
+  stderr: string;
+}> {
+  const { exec } = await import('child_process');
+  const { promisify } = await import('util');
+  const execPromise = promisify(exec);
+  const { shellSingleQuote, buildRsyncCommand } = await import('./rsync');
+
+  const localSshShell = `ssh -p ${options.port} -i ${shellSingleQuote(options.identityKeyPath)} -F /dev/null -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR`;
+  const remoteSource = `${options.username}@${options.host}:${options.remotePath}`;
+
+  if (options.rsyncAvailable) {
+    const rsyncCommand = buildRsyncCommand(
+      remoteSource,
+      options.localPath,
+      [],
+      [],
+      localSshShell
+    );
+    const result = await execPromise(rsyncCommand);
+    return { method: 'rsync', stdout: result.stdout, stderr: result.stderr };
+  }
+
+  if (options.scpAvailable) {
+    const scpOpts = `-P ${options.port} -F /dev/null -i ${shellSingleQuote(options.identityKeyPath)} -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR`;
+    const scpCommand = `scp ${scpOpts} ${shellSingleQuote(remoteSource)} ${shellSingleQuote(options.localPath)}`;
+    const result = await execPromise(scpCommand);
+    return { method: 'scp', stdout: result.stdout, stderr: result.stderr };
+  }
+
+  throw new Error(
+    'Cannot pull file: rsync was not found on the remote host and the SCP client was not found on this machine.'
+  );
 } 

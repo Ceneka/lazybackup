@@ -210,7 +210,15 @@ export default function BackupDetailPage() {
                     </dd>
                   </div>
                   <div>
-                    <dt className="text-sm font-medium text-muted-foreground">Source Path</dt>
+                    <dt className="text-sm font-medium text-muted-foreground">Source Type</dt>
+                    <dd className="text-lg">
+                      {query.data.sourceType === 'docker_volume' ? 'Docker volume' : 'Filesystem path'}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-sm font-medium text-muted-foreground">
+                      {query.data.sourceType === 'docker_volume' ? 'Docker Volume' : 'Source Path'}
+                    </dt>
                     <dd className="text-lg">{query.data.sourcePath}</dd>
                   </div>
                   <div>

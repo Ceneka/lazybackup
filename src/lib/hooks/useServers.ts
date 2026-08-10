@@ -23,7 +23,28 @@ export const serverKeys = {
   list: (filters: string) => [...serverKeys.lists(), { filters }] as const,
   details: () => [...serverKeys.all, 'detail'] as const,
   detail: (id: string) => [...serverKeys.details(), id] as const,
+  dockerVolumes: (id: string) => [...serverKeys.detail(id), 'docker-volumes'] as const,
 }
+
+/** List named Docker volumes on a remote server */
+export function useServerDockerVolumes(serverId: string) {
+  return useQuery({
+    queryKey: serverKeys.dockerVolumes(serverId),
+    queryFn: async () => {
+      const response = await fetch(`/api/servers/${serverId}/docker/volumes`)
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to list Docker volumes')
+      }
+
+      return data.volumes as string[]
+    },
+    enabled: !!serverId,
+    retry: false,
+  })
+}
+
 
 // Fetch all servers
 export function useServers() {
@@ -84,6 +105,7 @@ export function useTestServer(id: string) {
         success: boolean;
         rsyncAvailable: boolean;
         scpAvailable: boolean;
+        dockerAvailable?: boolean;
         message?: string;
       }
     },
@@ -99,6 +121,7 @@ export function useTestNewServerBackupCapabilities() {
     success: boolean;
     rsyncAvailable: boolean;
     scpAvailable: boolean;
+    dockerAvailable?: boolean;
     message?: string;
   } | null>(null)
 

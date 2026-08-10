@@ -6,6 +6,7 @@ export interface Backup {
   id: string
   serverId: string
   name: string
+  sourceType?: 'path' | 'docker_volume'
   sourcePath: string
   destinationPath: string
   schedule: string

@@ -1,8 +1,15 @@
 import { db } from '@/lib/db';
-import { backupConfigs } from '@/lib/db/schema';
+import { backupConfigs, backupHistory } from '@/lib/db/schema';
+import {
+  cleanupRemoteDir,
+  packDockerVolume,
+  restoreDockerVolume,
+} from '@/lib/docker/volumes';
 import {
   connectToServer,
   getBackupTransportCapabilities,
+  pullFileFromRemote,
+  pushFileToRemote,
   resolvePrivateKeyForServer,
   writeTemporarySshIdentityFile,
 } from '@/lib/ssh';
@@ -21,6 +28,7 @@ import {
   buildPreBackupLog,
   combineBackupLog,
   formatPreBackupCommandLog,
+  LOG_SECTION,
 } from './log-format';
 
 // Type for backup config with server
@@ -28,6 +36,7 @@ type BackupConfigWithServer = {
   id: string;
   serverId: string;
   name: string;
+  sourceType?: 'path' | 'docker_volume' | null;
   sourcePath: string;
   destinationPath: string;
   schedule: string;
@@ -56,6 +65,17 @@ type BackupConfigWithServer = {
   };
 };
 
+function expandLocalPath(dest: string): string {
+  let backupDestination = dest;
+  if (backupDestination.startsWith('~')) {
+    backupDestination = backupDestination.replace('~', process.env.HOME || os.homedir());
+  }
+  if (!path.isAbsolute(backupDestination)) {
+    backupDestination = path.resolve(backupDestination);
+  }
+  return backupDestination;
+}
+
 /**
  * Execute a backup based on its configuration
  */
@@ -63,6 +83,7 @@ export async function executeBackup(config: BackupConfigWithServer, historyId: s
   let ssh: Awaited<ReturnType<typeof connectToServer>> | null = null;
   let cleanupIdentity: (() => Promise<void>) | undefined;
   let preBackupLog = '';
+  let remoteTmpDir: string | null = null;
 
   try {
     console.log(`Starting backup: ${config.name} (${historyId})`);
@@ -71,7 +92,6 @@ export async function executeBackup(config: BackupConfigWithServer, historyId: s
       throw new Error('Not in Node.js environment');
     }
 
-    // Ensure server object has all required fields for the Server type
     const serverConfig = {
       ...config.server,
       password: config.server.password || null,
@@ -80,10 +100,8 @@ export async function executeBackup(config: BackupConfigWithServer, historyId: s
       systemKeyPath: config.server.systemKeyPath || null
     };
 
-    // Connect to the server using the comprehensive connection function
     ssh = await connectToServer(serverConfig);
 
-    // Run pre-backup commands if specified
     if (config.preBackupCommands && config.preBackupCommands.trim()) {
       console.log(`Running pre-backup commands for ${config.name}`);
       const commands = config.preBackupCommands.split('\n').filter(Boolean);
@@ -106,45 +124,20 @@ export async function executeBackup(config: BackupConfigWithServer, historyId: s
       console.log(`Completed pre-backup commands for ${config.name}`);
     }
 
-    // Parse exclude patterns
     const excludePatterns = config.excludePatterns
       ? config.excludePatterns.split('\n').filter(Boolean)
       : [];
 
-    // Generate timestamp for versioned backup
     const timestamp = dayjs().format('YYYY-MM-DD_HH-mm-ss');
 
-    // Determine backup destination
-    let backupDestination = config.destinationPath;
+    let backupDestination = expandLocalPath(config.destinationPath);
 
-    // Expand tilde in destination path
-    if (backupDestination.startsWith('~')) {
-      backupDestination = backupDestination.replace('~', process.env.HOME || os.homedir());
-    }
-
-    // Ensure destination path is absolute
-    if (!path.isAbsolute(backupDestination)) {
-      backupDestination = path.resolve(backupDestination);
-    }
-
-    // Check if versioning is enabled
     if (config.enableVersioning) {
       backupDestination = path.join(backupDestination, timestamp);
-
-      // Create the destination directory if it doesn't exist
-      await fs.mkdir(backupDestination, { recursive: true });
-    } else {
-      // Create the destination directory if it doesn't exist
-      await fs.mkdir(backupDestination, { recursive: true });
     }
 
-    // Use username@host:path format for the source
-    let remotePath = config.sourcePath;
+    await fs.mkdir(backupDestination, { recursive: true });
 
-    // Keep the tilde for the remote path as it will be expanded on the server
-    const remoteSource = `${config.server.username}@${config.server.host}:${remotePath}/`;
-
-    // Host-side rsync/scp must use the same key as node-ssh; write temp key and bypass mounted ~/.ssh/config
     const privateKey = await resolvePrivateKeyForServer(serverConfig);
     const { path: keyPath, cleanup: cleanupKeyFile } = await writeTemporarySshIdentityFile(privateKey);
     cleanupIdentity = cleanupKeyFile;
@@ -157,112 +150,142 @@ export async function executeBackup(config: BackupConfigWithServer, historyId: s
     const { promisify } = require('util');
     const execPromise = promisify(exec);
 
-    let backupResult;
-    let usedMethod: 'rsync' | 'scp' = 'rsync';
+    const sourceType = config.sourceType || 'path';
+    let backupResult: { stdout: string; stderr: string };
+    let usedMethod: 'rsync' | 'scp' | 'docker' = 'rsync';
+    let artifactPath = backupDestination;
 
-    // Prefer rsync on the remote when present; otherwise fall back to local scp (never both).
-    if (rsyncAvailable) {
-      console.log('Using rsync for backup (preferred path)');
+    if (sourceType === 'docker_volume') {
+      console.log(`Packing Docker volume: ${config.sourcePath}`);
+      const packed = await packDockerVolume(ssh, config.sourcePath, excludePatterns);
+      remoteTmpDir = packed.remoteTmpDir;
 
-      // Build the rsync command to pull data FROM the server TO the local machine using the utility
-      const rsyncCommand = buildRsyncCommand(
-        remoteSource,
-        backupDestination,
-        excludePatterns,
-        [],
-        localSshShell
-      );
-      console.log(`Executing rsync command: ${rsyncCommand}`);
+      const archiveName = `${config.sourcePath}.tar.gz`;
+      const localArchivePath = path.join(backupDestination, archiveName);
 
-      // Execute rsync locally to pull data from the remote server
-      backupResult = await execPromise(rsyncCommand);
-    } else if (scpAvailable) {
-      console.log('Rsync not on remote host — falling back to local SCP');
-      usedMethod = 'scp';
+      const pull = await pullFileFromRemote({
+        remotePath: packed.remoteArchivePath,
+        localPath: localArchivePath,
+        username: config.server.username,
+        host: config.server.host,
+        port: config.server.port,
+        identityKeyPath: keyPath,
+        rsyncAvailable,
+        scpAvailable,
+      });
 
-      // For SCP, we need to handle exclude patterns differently
-      // We'll use the SSH connection to list files while excluding the patterns, then download each file
+      usedMethod = 'docker';
+      artifactPath = localArchivePath;
 
-      // First, create a temporary script with the file list command
-      const findCommand = await buildFindCommand(remotePath, excludePatterns);
+      const stats = await fs.stat(localArchivePath);
+      const dockerLog = [
+        `Volume: ${config.sourcePath}`,
+        `Archive: ${archiveName}`,
+        `Local path: ${localArchivePath}`,
+        `Size: ${stats.size} bytes`,
+        `Transfer: ${pull.method}`,
+        packed.stdout?.trim() ? `--- pack stdout ---\n${packed.stdout.trim()}` : '',
+        packed.stderr?.trim() ? `--- pack stderr ---\n${packed.stderr.trim()}` : '',
+        pull.stdout?.trim() ? `--- transfer stdout ---\n${pull.stdout.trim()}` : '',
+        pull.stderr?.trim() ? `--- transfer stderr ---\n${pull.stderr.trim()}` : '',
+      ]
+        .filter(Boolean)
+        .join('\n');
 
-      // Execute the find command to get a list of files
-      const fileListResult = await ssh.execCommand(findCommand);
-      const filesToCopy = fileListResult.stdout.split('\n').filter(Boolean);
+      backupResult = { stdout: dockerLog, stderr: '' };
+    } else {
+      const remotePath = config.sourcePath;
+      const remoteSource = `${config.server.username}@${config.server.host}:${remotePath}/`;
 
-      console.log(`Found ${filesToCopy.length} files/directories to copy via SCP`);
+      if (rsyncAvailable) {
+        console.log('Using rsync for backup (preferred path)');
 
-      if (filesToCopy.length === 0) {
-        console.log('No files to copy, skipping backup');
-        throw new Error('No files to copy, skipping backup');
-      }
+        const rsyncCommand = buildRsyncCommand(
+          remoteSource,
+          backupDestination,
+          excludePatterns,
+          [],
+          localSshShell
+        );
+        console.log(`Executing rsync command: ${rsyncCommand}`);
 
-      // Use SCP to download all files
-      const scpPromises = [];
-      let transferredFiles = 0;
-      let totalSize = 0;
+        backupResult = await execPromise(rsyncCommand);
+      } else if (scpAvailable) {
+        console.log('Rsync not on remote host — falling back to local SCP');
+        usedMethod = 'scp';
 
-      for (const filePath of filesToCopy) {
-        // For directories, we need to create them locally first
-        if (filePath.endsWith('/')) {
-          const localDirPath = path.join(backupDestination, filePath);
-          await fs.mkdir(localDirPath, { recursive: true });
-          continue;
+        const findCommand = await buildFindCommand(remotePath, excludePatterns);
+        const fileListResult = await ssh.execCommand(findCommand);
+        const filesToCopy = fileListResult.stdout.split('\n').filter(Boolean);
+
+        console.log(`Found ${filesToCopy.length} files/directories to copy via SCP`);
+
+        if (filesToCopy.length === 0) {
+          console.log('No files to copy, skipping backup');
+          throw new Error('No files to copy, skipping backup');
         }
 
-        // For files, use SCP to download
-        const relativeFilePath = filePath;
-        const remoteFilePath = path.join(remotePath, relativeFilePath);
-        const localFilePath = path.join(backupDestination, relativeFilePath);
+        const scpPromises = [];
+        let transferredFiles = 0;
+        let totalSize = 0;
 
-        // Create parent directory if it doesn't exist
-        await fs.mkdir(path.dirname(localFilePath), { recursive: true });
+        for (const filePath of filesToCopy) {
+          if (filePath.endsWith('/')) {
+            const localDirPath = path.join(backupDestination, filePath);
+            await fs.mkdir(localDirPath, { recursive: true });
+            continue;
+          }
 
-        // Build SCP command (same identity + no system config as rsync)
-        const scpOpts = `-P ${config.server.port} -F /dev/null -i ${shellSingleQuote(keyPath)} -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR`;
-        const scpCommand = `scp ${scpOpts} ${config.server.username}@${config.server.host}:"${remoteFilePath}" "${localFilePath}"`;
+          const relativeFilePath = filePath;
+          const remoteFilePath = path.join(remotePath, relativeFilePath);
+          const localFilePath = path.join(backupDestination, relativeFilePath);
 
-        scpPromises.push(
-          execPromise(scpCommand)
-            .then(() => {
-              transferredFiles++;
-              return fs.stat(localFilePath);
-            })
-            .then((stats: Stats) => {
-              totalSize += stats.size;
-            })
-        );
-      }
+          await fs.mkdir(path.dirname(localFilePath), { recursive: true });
 
-      // Wait for all SCP operations to complete
-      await Promise.all(scpPromises);
+          const scpOpts = `-P ${config.server.port} -F /dev/null -i ${shellSingleQuote(keyPath)} -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR`;
+          const scpCommand = `scp ${scpOpts} ${config.server.username}@${config.server.host}:"${remoteFilePath}" "${localFilePath}"`;
 
-      // Create a simulated result object similar to rsync output
-      const scpOutput = `SCP Backup Summary:
+          scpPromises.push(
+            execPromise(scpCommand)
+              .then(() => {
+                transferredFiles++;
+                return fs.stat(localFilePath);
+              })
+              .then((stats: Stats) => {
+                totalSize += stats.size;
+              })
+          );
+        }
+
+        await Promise.all(scpPromises);
+
+        const scpOutput = `SCP Backup Summary:
 Number of files: ${transferredFiles}
 Total file size: ${totalSize}
 Total transferred file size: ${totalSize}`;
 
-      backupResult = { stdout: scpOutput, stderr: '' };
-    } else {
-      throw new Error(
-        'Cannot run backup: rsync was not found on the remote host and the SCP client was not found on this machine.'
+        backupResult = { stdout: scpOutput, stderr: '' };
+      } else {
+        throw new Error(
+          'Cannot run backup: rsync was not found on the remote host and the SCP client was not found on this machine.'
+        );
+      }
+    }
+
+    if (remoteTmpDir && ssh) {
+      await cleanupRemoteDir(ssh, remoteTmpDir).catch((err) =>
+        console.warn(`Failed to clean remote temp dir: ${err}`)
       );
+      remoteTmpDir = null;
     }
 
     console.log(`Backup completed for ${config.name} using ${usedMethod}`);
 
-    // Clean up old versions if versioning is enabled
     if (config.enableVersioning && config.versionsToKeep) {
-      // Extract the base directory from backupDestination when versioning is enabled
-      const baseDir = config.enableVersioning
-        ? path.dirname(backupDestination)
-        : config.destinationPath;
-
+      const baseDir = path.dirname(backupDestination);
       await cleanupOldVersions(baseDir, config.versionsToKeep);
     }
 
-    // File retention: only when versioning is off (mutually exclusive)
     let fileRetentionLog = '';
     if (
       !config.enableVersioning &&
@@ -279,18 +302,25 @@ Total transferred file size: ${totalSize}`;
       fileRetentionLog = buildFileRetentionLog(deletedFiles);
     }
 
-    // Update backup history with success
-    const parsedOutput = parseRsyncOutput(backupResult.stdout);
+    const parsedOutput =
+      usedMethod === 'docker'
+        ? {
+            fileCount: 1,
+            totalSize: (await fs.stat(artifactPath)).size,
+            transferredSize: (await fs.stat(artifactPath)).size,
+          }
+        : parseRsyncOutput(backupResult.stdout);
 
-    await updateBackupHistorySuccess(
-      historyId,
-      {
-        ...parsedOutput,
-        logOutput: combineBackupLog(preBackupLog, backupResult.stdout, usedMethod, fileRetentionLog),
-      }
-    );
+    await updateBackupHistorySuccess(historyId, {
+      ...parsedOutput,
+      logOutput: combineBackupLog(preBackupLog, backupResult.stdout, usedMethod, fileRetentionLog),
+      artifactPath,
+    });
   } catch (error) {
     console.error(`Backup failed: ${error}`);
+    if (remoteTmpDir && ssh) {
+      await cleanupRemoteDir(ssh, remoteTmpDir).catch(() => {});
+    }
     await updateBackupHistoryFailure(
       historyId,
       error instanceof Error ? error.message : 'Unknown error',
@@ -304,16 +334,134 @@ Total transferred file size: ${totalSize}`;
 }
 
 /**
+ * Restore a successful Docker volume backup onto the remote server.
+ */
+export async function restoreDockerVolumeBackup(
+  historyId: string,
+  volumeName?: string
+): Promise<{ log: string; volumeName: string }> {
+  if (process.env.NEXT_RUNTIME !== 'nodejs') {
+    throw new Error('Not in Node.js environment');
+  }
+
+  const historyEntry = await db.query.backupHistory.findFirst({
+    where: eq(backupHistory.id, historyId),
+    with: {
+      backupConfig: {
+        with: {
+          server: true,
+        },
+      },
+    },
+  });
+
+  if (!historyEntry) {
+    throw new Error('Backup history entry not found');
+  }
+
+  if (historyEntry.status !== 'success') {
+    throw new Error('Only successful backups can be restored');
+  }
+
+  const config = historyEntry.backupConfig;
+  if (!config) {
+    throw new Error('Backup configuration not found for this history entry');
+  }
+
+  if ((config.sourceType || 'path') !== 'docker_volume') {
+    throw new Error('Restore is only supported for Docker volume backups');
+  }
+
+  if (!historyEntry.artifactPath) {
+    throw new Error('This backup has no stored artifact path and cannot be restored');
+  }
+
+  const targetVolume = volumeName?.trim() || config.sourcePath;
+  const artifactPath = historyEntry.artifactPath;
+
+  await fs.access(artifactPath).catch(() => {
+    throw new Error(`Backup artifact not found on disk: ${artifactPath}`);
+  });
+
+  const serverConfig = {
+    ...config.server,
+    password: config.server.password || null,
+    privateKey: config.server.privateKey || null,
+    sshKeyId: config.server.sshKeyId || null,
+    systemKeyPath: config.server.systemKeyPath || null,
+  };
+
+  let ssh: Awaited<ReturnType<typeof connectToServer>> | null = null;
+  let cleanupIdentity: (() => Promise<void>) | undefined;
+  let remoteTmpDir: string | null = null;
+
+  try {
+    ssh = await connectToServer(serverConfig);
+
+    const privateKey = await resolvePrivateKeyForServer(serverConfig);
+    const { path: keyPath, cleanup: cleanupKeyFile } = await writeTemporarySshIdentityFile(privateKey);
+    cleanupIdentity = cleanupKeyFile;
+
+    const { rsyncAvailable, scpAvailable } = await getBackupTransportCapabilities(ssh);
+
+    const mktemp = await ssh.execCommand(
+      'PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" mktemp -d /tmp/lazybackup-docker-XXXXXX'
+    );
+    if ((mktemp.code !== 0 && mktemp.code !== null && mktemp.code !== undefined) || !mktemp.stdout.trim()) {
+      throw new Error(`Failed to create remote temp directory: ${mktemp.stderr || mktemp.stdout}`);
+    }
+    remoteTmpDir = mktemp.stdout.trim();
+
+    const archiveName = path.basename(artifactPath);
+    const remoteTarPath = `${remoteTmpDir}/${archiveName}`;
+
+    const push = await pushFileToRemote({
+      localPath: artifactPath,
+      remotePath: remoteTarPath,
+      username: config.server.username,
+      host: config.server.host,
+      port: config.server.port,
+      identityKeyPath: keyPath,
+      rsyncAvailable,
+      scpAvailable,
+    });
+
+    const restored = await restoreDockerVolume(ssh, targetVolume, remoteTarPath, remoteTmpDir);
+
+    const log = [
+      LOG_SECTION.restore,
+      '',
+      `Volume: ${targetVolume}`,
+      `Artifact: ${artifactPath}`,
+      `Transfer: ${push.method}`,
+      push.stdout?.trim() ? `--- push stdout ---\n${push.stdout.trim()}` : '',
+      push.stderr?.trim() ? `--- push stderr ---\n${push.stderr.trim()}` : '',
+      restored.stdout?.trim() ? `--- extract stdout ---\n${restored.stdout.trim()}` : '',
+      restored.stderr?.trim() ? `--- extract stderr ---\n${restored.stderr.trim()}` : '',
+      'Restore completed successfully.',
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    return { log, volumeName: targetVolume };
+  } finally {
+    if (remoteTmpDir && ssh) {
+      await cleanupRemoteDir(ssh, remoteTmpDir).catch(() => {});
+    }
+    await cleanupIdentity?.();
+    ssh?.dispose();
+  }
+}
+
+/**
  * Builds a find command to list files on the remote server while respecting exclude patterns
  */
 async function buildFindCommand(remotePath: string, excludePatterns: string[] = []): Promise<string> {
   let findCommand = `find "${remotePath}" -type f -o -type d -name "."`;
 
-  // Add exclude patterns to the find command
   if (excludePatterns.length > 0) {
     const excludeExpressions = excludePatterns
       .map(pattern => {
-        // Convert glob patterns to regex patterns for find
         const regexPattern = pattern
           .replace(/\./g, '\\.')
           .replace(/\*/g, '.*')
@@ -326,43 +474,34 @@ async function buildFindCommand(remotePath: string, excludePatterns: string[] = 
     findCommand += ` ${excludeExpressions}`;
   }
 
-  // Print relative paths
   findCommand += ` | sed -e "s|^${remotePath}/||"`;
 
   return findCommand;
 }
 
-// Function to clean up old versions
 async function cleanupOldVersions(baseDir: string, versionsToKeep: number): Promise<void> {
   try {
-    // Expand tilde in base directory path if it exists
     let expandedBaseDir = baseDir;
     if (expandedBaseDir.startsWith('~')) {
       expandedBaseDir = expandedBaseDir.replace('~', process.env.HOME || os.homedir());
     }
 
-    // Ensure the directory exists before attempting to read it
     if (!await fs.access(expandedBaseDir).then(() => true).catch(() => false)) {
       console.log(`Directory does not exist, skipping cleanup: ${expandedBaseDir}`);
       return;
     }
 
-    // Read all directories in the base directory
     const entries = await fs.readdir(expandedBaseDir, { withFileTypes: true });
 
-    // Filter for directories and sort by name (timestamp) in descending order
     const versionDirs = entries
       .filter(entry => entry.isDirectory())
       .map(dir => dir.name)
       .sort()
       .reverse();
 
-    // If we have more versions than we want to keep
     if (versionDirs.length > versionsToKeep) {
-      // Get directories to delete (oldest ones)
       const dirsToDelete = versionDirs.slice(versionsToKeep);
 
-      // Delete each directory
       for (const dir of dirsToDelete) {
         console.log(`Deleting old backup version: ${dir}`);
         await fs.rm(`${expandedBaseDir}/${dir}`, { recursive: true, force: true });
@@ -428,7 +567,6 @@ async function cleanupOldFiles(
  */
 export async function startBackup(configId: string): Promise<string> {
   try {
-    // Get the backup configuration with server details
     const config = await db.query.backupConfigs.findFirst({
       where: eq(backupConfigs.id, configId),
       with: {
@@ -440,10 +578,8 @@ export async function startBackup(configId: string): Promise<string> {
       throw new Error(`Backup configuration with ID ${configId} not found`);
     }
 
-    // Create a new history entry
     const historyEntry = await createBackupHistoryEntry(configId);
 
-    // Execute the backup in the background
     executeBackup(config, historyEntry.id).catch(error => {
       console.error(`Error executing backup: ${error}`);
     });
@@ -453,4 +589,4 @@ export async function startBackup(configId: string): Promise<string> {
     console.error('Failed to start backup:', error);
     throw error;
   }
-} 
+}

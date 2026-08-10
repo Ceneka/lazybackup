@@ -5,6 +5,7 @@ Guide for AI coding agents. User-facing setup lives in [README.md](./README.md) 
 ## Mental model
 
 - Backups **pull** from the remote VPS to the **LazyBackup host** (`rsync` preferred, `scp` fallback). Destinations like `/backups/foo` are local (Docker volume).
+- **Source types:** `path` (remote filesystem) or `docker_volume` (named volume → remote alpine tar → pull `.tar.gz`). Restore pushes the archive back and extracts into a volume.
 - **SSH key required to run backups.** Password auth can test/connect via `node-ssh` only; transfer needs a private key (`resolvePrivateKeyForServer`).
 - **Optional app password** (single operator, no users table): first-run set/skip; manage in Settings. Hash in settings → middleware gates pages + `/api/*` (public: `/login`, `/api/auth/*`, `/api/health`). Session cookie `lb_session`, 30-day sliding expiry.
 - Middleware verifies the session **in-process** (Node.js runtime + SQLite). Never HTTP self-fetch `/api/auth/status` from middleware (LAN Host hangs; loopback from Edge fails → pages load, APIs 401).
@@ -23,11 +24,12 @@ Bun · Next.js 15.5 App Router · React 19 · Tailwind 4 / shadcn · TanStack Qu
 src/app/           # pages + api/* routes
 src/components/    # ui/*, app-shell, auth-setup-prompt, navbar
 src/lib/auth/      # password hash, session cookie, isAuthorized
-src/lib/backup/    # executeBackup, file-retention, storage-stats, log-format
+src/lib/backup/    # executeBackup, restoreDockerVolumeBackup, file-retention, storage-stats, log-format
+src/lib/docker/    # remote volume list/pack/restore helpers
 src/lib/db/        # schema, client, migrate.ts
 src/lib/hooks/     # React Query hooks (1:1 with APIs)
 src/lib/scheduler/ # CronJob registry (timezone-aware)
-src/lib/ssh/       # connect, rsync/scp helpers
+src/lib/ssh/       # connect, rsync/scp pull+push helpers
 src/middleware.ts  # app-password gate
 src/instrumentation.ts  # migrate + scheduler (skip during next build)
 ```
@@ -39,7 +41,8 @@ Alias `@/*` → `src/*`. Config: `next.config.ts` (standalone), `docker-compose.
 ```
 Browser (useQuery) → /api/* (Zod → Drizzle → JSON) → SQLite
 instrumentation (nodejs, not during build) → migrate → schedule enabled configs
-Backup: connect → pre-backup cmds → rsync|scp → version/file retention → history + logs
+Backup: connect → pre-backup cmds → path rsync|scp **or** docker pack+pull → version/file retention → history + artifactPath
+Restore (docker): history artifact → push → alpine extract into volume
 ```
 
 ## Data (`schema.ts`)
@@ -48,8 +51,8 @@ Backup: connect → pre-backup cmds → rsync|scp → version/file retention →
 |-------|--------|
 | `servers` | host/port/user, `authType` password\|key, password / privateKey / `sshKeyId` / `systemKeyPath` |
 | `ssh_keys` | name + content or path |
-| `backup_configs` | remote `sourcePath`, local `destinationPath`, cron, excludes, pre-cmds, `enableVersioning`/`versionsToKeep`, `enableFileRetention`/`retentionMaxAge`(+unit)/`retentionMinKeep` |
-| `backup_history` | status running\|success\|failed, sizes, `logOutput` |
+| `backup_configs` | `sourceType` path\|docker_volume, remote `sourcePath` (path or volume name), local `destinationPath`, cron, excludes, pre-cmds, `enableVersioning`/`versionsToKeep`, `enableFileRetention`/`retentionMaxAge`(+unit)/`retentionMinKeep` |
+| `backup_history` | status running\|success\|failed, sizes, `logOutput`, `artifactPath` (local archive/dir for restore) |
 | `settings` | KV: timezone, SSH defaults, `appPasswordHash`, `sessionSecret`, `authSetupCompleted` |
 
 Cascade: server → configs → history. Never return `appPasswordHash` / `sessionSecret` from `GET /api/settings`.
@@ -62,19 +65,21 @@ Pattern: Zod → Drizzle → `NextResponse.json`; errors `{ error, details? }`.
 |------|--------|
 | Public | `GET /api/health`, `/api/auth/{status,setup,login,logout}` |
 | Auth | `POST /api/auth/password` (set/change/remove) |
-| Servers | `/api/servers`, `/api/servers/[id]`, `…/test`, `POST /api/servers/test` |
+| Servers | `/api/servers`, `/api/servers/[id]`, `…/test`, `…/docker/volumes`, `POST /api/servers/test` |
 | Backups | `/api/backups`, `/api/backups/[id]`, `…/run`, `…/toggle`, `…/storage`, `POST /api/backups/start` |
-| History | `/api/history`, `/api/history/[id]`, `/api/history/stats?chartData=` |
+| History | `/api/history`, `/api/history/[id]`, `…/restore`, `/api/history/stats?chartData=` |
 | Other | `/api/ssh-keys`, `/api/settings`, `/api/scheduler/restart`, `/api/dashboard`, `/api/seed` (dev only) |
 
 ## Backup workflow (`lib/backup/index.ts`)
 
 1. Connect → optional remote pre-backup commands (`log-format.ts`).
 2. Resolve local dest (`~` expand, mkdir). Versioning → `YYYY-MM-DD_HH-mm-ss` subfolder.
-3. Remote has rsync → local `rsync -avz -e 'ssh …'`; else local scp per file; else fail.
-4. Temp SSH identity + `-F /dev/null` (ignore host ssh config).
-5. Cleanup: version count and/or age-based file retention (`file-retention.ts`).
-6. History + `combineBackupLog`; on-disk resume via `storage-stats.ts` / `GET …/storage`.
+3. **Path:** remote rsync → local `rsync -avz -e 'ssh …'`; else local scp per file; else fail.
+4. **Docker volume:** pack with alpine helper on remote → pull `.tar.gz` → store `artifactPath`.
+5. Temp SSH identity + `-F /dev/null` (ignore host ssh config).
+6. Cleanup: version count and/or age-based file retention (`file-retention.ts`).
+7. History + `combineBackupLog`; on-disk resume via `storage-stats.ts` / `GET …/storage`.
+8. **Restore:** `POST /api/history/[id]/restore` → push artifact → extract into volume (`lib/docker/volumes.ts`).
 
 ## Frontend
 
@@ -113,12 +118,14 @@ CI publishes GHCR on `main` / `v*` tags. Startup: migrate + cron via instrumenta
 6. App password ≠ SSH password; keep `/api/health` public.
 7. `/api/seed` is dev-only. No LICENSE in repo — don’t claim MIT.
 8. Auth middleware must run on the Node.js runtime and check the session in-process — no self-fetch.
+9. Docker volume backups need remote `docker` access + ability to pull `alpine`; restore overwrites volume data only.
 
 ## Read first
 
 | Task | Files |
 |------|--------|
 | Backup / retention / storage | `lib/backup/{index,file-retention,storage-stats,log-format}.ts`, `lib/ssh/` |
+| Docker volumes | `lib/docker/volumes.ts`, `GET …/docker/volumes`, `POST …/history/[id]/restore` |
 | Scheduling / timezone | `lib/scheduler/`, `instrumentation.ts` |
 | DB | `lib/db/schema.ts`, `lib/db/migrate.ts` |
 | App password | `lib/auth/`, `middleware.ts`, `app/api/auth/` |

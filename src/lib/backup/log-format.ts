@@ -2,10 +2,13 @@ export const LOG_SECTION = {
   preBackup: '========== Pre-Backup Commands ==========',
   transferRsync: '========== Backup Transfer (rsync) ==========',
   transferScp: '========== Backup Transfer (scp) ==========',
+  transferDocker: '========== Docker Volume Backup ==========',
   fileRetention: '========== File Retention ==========',
+  restore: '========== Docker Volume Restore ==========',
 } as const;
 
-const TRANSFER_HEADER_RE = /={10} Backup Transfer \((?:rsync|scp)\) ={10}/;
+const TRANSFER_HEADER_RE =
+  /={10} (?:Backup Transfer \((?:rsync|scp)\)|Docker Volume Backup) ={10}/;
 
 type CommandResult = {
   stdout: string;
@@ -42,11 +45,15 @@ export function buildPreBackupLog(commandLogs: string[]): string {
 export function combineBackupLog(
   preBackupLog: string,
   transferLog: string,
-  method: 'rsync' | 'scp',
+  method: 'rsync' | 'scp' | 'docker',
   fileRetentionLog = ''
 ): string {
   const transferHeader =
-    method === 'rsync' ? LOG_SECTION.transferRsync : LOG_SECTION.transferScp;
+    method === 'rsync'
+      ? LOG_SECTION.transferRsync
+      : method === 'scp'
+        ? LOG_SECTION.transferScp
+        : LOG_SECTION.transferDocker;
 
   const sections: string[] = [];
 

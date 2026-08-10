@@ -1,3 +1,4 @@
+import { backupConfigSchema } from '@/lib/backup/schema';
 import { formatCronExpression } from '@/lib/cron/format';
 import { buildUpcomingEntry } from '@/lib/cron/next';
 import { db } from '@/lib/db';
@@ -7,34 +8,6 @@ import { getAppTimezone } from '@/lib/settings/timezone';
 import { eq } from 'drizzle-orm';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-
-// Backup config validation schema
-const backupConfigSchema = z
-  .object({
-    serverId: z.string().min(1, 'Server ID is required'),
-    name: z.string().min(1, 'Name is required'),
-    sourcePath: z.string().min(1, 'Source path is required'),
-    destinationPath: z.string().min(1, 'Destination path is required'),
-    schedule: z.string().min(1, 'Schedule is required'),
-    excludePatterns: z.string().optional(),
-    preBackupCommands: z.string().optional(),
-    enabled: z.boolean().default(true),
-    enableVersioning: z.boolean().default(false),
-    versionsToKeep: z.coerce.number().min(1).max(100).optional().default(5),
-    enableFileRetention: z.boolean().default(false),
-    retentionMaxAge: z.coerce.number().min(1).max(3650).optional().default(30),
-    retentionMaxAgeUnit: z.enum(['days', 'months']).default('days'),
-    retentionMinKeep: z.coerce.number().min(1).max(10000).optional().default(5),
-  })
-  .superRefine((data, ctx) => {
-    if (data.enableVersioning && data.enableFileRetention) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'File retention cannot be enabled together with versioning',
-        path: ['enableFileRetention'],
-      });
-    }
-  });
 
 // GET /api/backups/:id - Get a backup configuration
 export async function GET(
@@ -168,4 +141,4 @@ export async function DELETE(
       { status: 500 }
     );
   }
-} 
+}

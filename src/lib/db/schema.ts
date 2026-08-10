@@ -42,6 +42,8 @@ export const backupConfigs = sqliteTable('backup_configs', {
   id: text('id').primaryKey().notNull(),
   serverId: text('server_id').notNull().references(() => servers.id, { onDelete: 'cascade' }),
   name: text('name').notNull(),
+  /** 'path' = remote filesystem path; 'docker_volume' = named Docker volume (sourcePath = volume name) */
+  sourceType: text('source_type', { enum: ['path', 'docker_volume'] }).notNull().default('path'),
   sourcePath: text('source_path').notNull(),
   destinationPath: text('destination_path').notNull(),
   schedule: text('schedule').notNull(), // Cron expression
@@ -70,6 +72,8 @@ export const backupHistory = sqliteTable('backup_history', {
   transferredSize: integer('transferred_size'), // In bytes
   errorMessage: text('error_message'),
   logOutput: text('log_output'),
+  /** Local path to the backup artifact (.tar.gz for docker volumes, directory for path backups) */
+  artifactPath: text('artifact_path'),
 });
 
 // Relations

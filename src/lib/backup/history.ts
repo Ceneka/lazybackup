@@ -31,9 +31,10 @@ export async function updateBackupHistorySuccess(
     totalSize?: number;
     transferredSize?: number;
     logOutput?: string;
+    artifactPath?: string;
   }
 ) {
-  const { fileCount, totalSize, transferredSize, logOutput } = stats;
+  const { fileCount, totalSize, transferredSize, logOutput, artifactPath } = stats;
   
   // Update the history entry with success status and stats
   const updatedEntry = await db.update(backupHistory)
@@ -44,6 +45,7 @@ export async function updateBackupHistorySuccess(
       totalSize,
       transferredSize,
       logOutput,
+      ...(artifactPath !== undefined ? { artifactPath } : {}),
     })
     .where(eq(backupHistory.id, historyId))
     .returning();

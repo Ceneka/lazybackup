@@ -6,6 +6,16 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion"
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -16,9 +26,10 @@ import {
   CardTitle
 } from "@/components/ui/card"
 import { DeleteConfirmationDialog } from "@/components/ui/delete-confirmation-dialog"
+import { LoadingButton } from "@/components/ui/loading-button"
 import { QueryState } from "@/components/ui/query-state"
 import { splitBackupLog } from "@/lib/backup/log-format"
-import { useDeleteHistory, useHistoryDetail } from "@/lib/hooks/useHistory"
+import { useDeleteHistory, useHistoryDetail, useRestoreBackupHistory } from "@/lib/hooks/useHistory"
 import { formatBytes } from "@/lib/utils"
 import { format, formatDistance } from "date-fns"
 import {
@@ -27,9 +38,11 @@ import {
   FileIcon,
   HardDriveIcon,
   HistoryIcon,
+  RotateCcwIcon,
   ServerIcon
 } from "lucide-react"
 import { useParams, useRouter } from "next/navigation"
+import { useEffect, useState } from "react"
 
 export default function HistoryDetailPage() {
   const router = useRouter()
@@ -38,6 +51,17 @@ export default function HistoryDetailPage() {
   
   const query = useHistoryDetail(id)
   const { mutate: deleteHistory, isPending: isDeleting } = useDeleteHistory()
+  const restoreMutation = useRestoreBackupHistory()
+
+  const [restoreOpen, setRestoreOpen] = useState(false)
+  const [restoreVolumeName, setRestoreVolumeName] = useState('')
+  const [restoreLog, setRestoreLog] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (query.data?.backupConfig?.sourcePath) {
+      setRestoreVolumeName(query.data.backupConfig.sourcePath)
+    }
+  }, [query.data?.backupConfig?.sourcePath])
   
   const statusColors = {
     running: "bg-blue-500 hover:bg-blue-500",
@@ -51,6 +75,23 @@ export default function HistoryDetailPage() {
         router.push("/history")
       }
     })
+  }
+
+  const canRestore =
+    query.data?.status === 'success' &&
+    query.data?.backupConfig?.sourceType === 'docker_volume' &&
+    !!query.data?.artifactPath
+
+  const handleRestore = () => {
+    restoreMutation.mutate(
+      { id, volumeName: restoreVolumeName || undefined },
+      {
+        onSuccess: (data) => {
+          setRestoreLog(data.log)
+          setRestoreOpen(false)
+        },
+      }
+    )
   }
   
   return (
@@ -157,11 +198,21 @@ export default function HistoryDetailPage() {
                       </div>
                       <div>{query.data?.totalSize ? formatBytes(query.data.totalSize) : "N/A"}</div>
                     </div>
+
+                    {query.data?.artifactPath && (
+                      <div className="space-y-1 col-span-2">
+                        <div className="flex items-center text-sm text-muted-foreground">
+                          <HardDriveIcon className="w-4 h-4 mr-2" />
+                          Artifact
+                        </div>
+                        <div className="font-mono text-sm break-all">{query.data.artifactPath}</div>
+                      </div>
+                    )}
                   </div>
                 </CardContent>
               </Card>
               
-              {(query.data?.logOutput || query.data?.errorMessage) && (
+              {(query.data?.logOutput || query.data?.errorMessage || restoreLog) && (
                 <Card>
                   <CardHeader>
                     <CardTitle>Log Output</CardTitle>
@@ -219,6 +270,17 @@ export default function HistoryDetailPage() {
                           </>
                         )
                       })()}
+
+                      {restoreLog && (
+                        <AccordionItem value="restore">
+                          <AccordionTrigger>Restore Output</AccordionTrigger>
+                          <AccordionContent>
+                            <div className="bg-green-50 p-4 rounded border border-green-200 whitespace-pre-wrap font-mono text-sm max-h-96 overflow-y-auto">
+                              {restoreLog}
+                            </div>
+                          </AccordionContent>
+                        </AccordionItem>
+                      )}
                     </Accordion>
                   </CardContent>
                 </Card>
@@ -237,6 +299,52 @@ export default function HistoryDetailPage() {
                   >
                     View Backup Configuration
                   </Button>
+
+                  {canRestore && (
+                    <AlertDialog open={restoreOpen} onOpenChange={setRestoreOpen}>
+                      <AlertDialogTrigger asChild>
+                        <Button variant="outline" className="w-full">
+                          <RotateCcwIcon className="h-4 w-4 mr-2" />
+                          Restore Docker Volume
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Restore Docker volume?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            This uploads the backup archive to the remote host and extracts it into
+                            the target volume. Existing files in that volume will be overwritten.
+                            Images, networks, and compose config are not restored.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <div className="space-y-2 py-2">
+                          <label htmlFor="restoreVolumeName" className="text-sm font-medium">
+                            Target volume name
+                          </label>
+                          <input
+                            id="restoreVolumeName"
+                            value={restoreVolumeName}
+                            onChange={(e) => setRestoreVolumeName(e.target.value)}
+                            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                            placeholder={query.data.backupConfig?.sourcePath || 'volume-name'}
+                          />
+                        </div>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel disabled={restoreMutation.isPending}>
+                            Cancel
+                          </AlertDialogCancel>
+                          <LoadingButton
+                            onClick={handleRestore}
+                            isLoading={restoreMutation.isPending}
+                            loadingText="Restoring..."
+                            disabled={!restoreVolumeName.trim() || restoreMutation.isPending}
+                          >
+                            Restore
+                          </LoadingButton>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  )}
                   
                   <DeleteConfirmationDialog
                     title="Are you absolutely sure?"

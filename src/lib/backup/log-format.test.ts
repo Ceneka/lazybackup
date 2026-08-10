@@ -201,4 +201,11 @@ describe('splitBackupLog', () => {
       fileRetention: 'Deleted 1 file(s):\n- stale.dump',
     });
   });
+
+  test('splits docker volume transfer logs', () => {
+    const combined = combineBackupLog('', 'Volume: data\nArchive: data.tar.gz', 'docker');
+    const parts = splitBackupLog(combined);
+    expect(parts.transfer).toContain('Volume: data');
+    expect(parts.preBackup).toBeUndefined();
+  });
 });
