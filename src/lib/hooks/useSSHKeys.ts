@@ -19,6 +19,22 @@ export interface SystemSSHKey {
   publicKeyPath?: string
 }
 
+export interface GeneratedSSHKey {
+  id: string
+  name: string
+  publicKey: string
+  installCommand: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface SSHKeyInstallCommand {
+  id: string
+  name: string
+  publicKey: string
+  installCommand: string
+}
+
 /** Stable helpers — do not recreate inside the hook (breaks useEffect deps). */
 export function isSystemKeyId(id: string): boolean {
   return id.startsWith("system:")
@@ -73,6 +89,33 @@ export function useSSHKeys(includeSystem = true) {
     }
   })
 
+  // Generate a new Ed25519 key + install command for the remote host
+  const generateKey = useMutation({
+    mutationFn: async (name?: string): Promise<GeneratedSSHKey> => {
+      const response = await fetch('/api/ssh-keys/generate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(name ? { name } : {}),
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Failed to generate SSH key')
+      }
+
+      return response.json()
+    },
+    onSuccess: () => {
+      toast.success('SSH key generated — paste the install command on the host')
+      queryClient.invalidateQueries({ queryKey: ['ssh-keys'] })
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : 'Failed to generate SSH key')
+    }
+  })
+
   // Delete SSH key
   const deleteKey = useMutation({
     mutationFn: async (id: string) => {
@@ -113,8 +156,21 @@ export function useSSHKeys(includeSystem = true) {
     isLoading,
     error,
     addKey,
+    generateKey,
     deleteKey,
     isSystemKey: isSystemKeyId,
     getSystemKeyPath: getSystemKeyPathFromId,
   }
+}
+
+/** Fetch (or re-derive) the paste-on-host install command for a stored key. */
+export async function fetchSSHKeyInstallCommand(
+  id: string
+): Promise<SSHKeyInstallCommand> {
+  const response = await fetch(`/api/ssh-keys/${id}/install-command`)
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}))
+    throw new Error(error.error || 'Failed to load install command')
+  }
+  return response.json()
 }

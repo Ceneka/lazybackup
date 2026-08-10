@@ -1,5 +1,6 @@
 "use client"
 
+import { SSHKeyBootstrap } from "@/components/ssh-key-bootstrap"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -11,9 +12,9 @@ import { Textarea } from "@/components/ui/textarea"
 import { COMMON_TIMEZONES, DEFAULT_TIMEZONE, listTimezones } from "@/lib/cron/format"
 import { useAuth } from "@/lib/hooks/useAuth"
 import { useSettings } from "@/lib/hooks/useSettings"
-import { SSHKey, SystemSSHKey, useSSHKeys } from "@/lib/hooks/useSSHKeys"
+import { SSHKey, SystemSSHKey, fetchSSHKeyInstallCommand, useSSHKeys } from "@/lib/hooks/useSSHKeys"
 import { useQueryClient } from "@tanstack/react-query"
-import { KeyIcon, LockIcon, PlusIcon, SettingsIcon, TrashIcon } from "lucide-react"
+import { ClipboardIcon, KeyIcon, LockIcon, PlusIcon, SettingsIcon, TrashIcon } from "lucide-react"
 import { useSearchParams } from "next/navigation"
 import { Suspense, useEffect, useLayoutEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
@@ -168,6 +169,16 @@ function SettingsPageInner() {
   const handleDeleteKey = async (id: string) => {
     if (confirm("Are you sure you want to delete this SSH key?")) {
       await keysQuery.deleteKey.mutateAsync(id)
+    }
+  }
+
+  const handleCopyInstallCommand = async (id: string) => {
+    try {
+      const { installCommand } = await fetchSSHKeyInstallCommand(id)
+      await navigator.clipboard.writeText(installCommand)
+      toast.success("Install command copied — paste it on the host")
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to copy install command")
     }
   }
 
@@ -404,6 +415,9 @@ function SettingsPageInner() {
         </TabsContent>
 
         <TabsContent value="ssh-keys" className="mt-6">
+          <div className="mb-6">
+            <SSHKeyBootstrap />
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <Card className="w-full">
               <CardHeader>
@@ -429,21 +443,34 @@ function SettingsPageInner() {
                   {keysQuery.keys.length > 0 && (
                     <div className="space-y-4">
                       {keysQuery.keys.map((key: SSHKey) => (
-                        <div key={key.id} className="flex items-center justify-between border p-3 rounded-md">
-                          <div>
-                            <p className="font-medium">{key.name}</p>
+                        <div key={key.id} className="flex items-center justify-between border p-3 rounded-md gap-2">
+                          <div className="min-w-0">
+                            <p className="font-medium truncate">{key.name}</p>
                             <p className="text-sm text-muted-foreground">
                               {key.privateKeyPath ? `Path: ${key.privateKeyPath}` : 'Stored in database'}
                             </p>
                           </div>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => handleDeleteKey(key.id)}
-                          >
-                            <TrashIcon className="h-4 w-4" />
-                            <span className="sr-only">Delete</span>
-                          </Button>
+                          <div className="flex shrink-0 items-center">
+                            {(key.privateKeyContent || key.privateKeyPath) && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                title="Copy install command"
+                                onClick={() => handleCopyInstallCommand(key.id)}
+                              >
+                                <ClipboardIcon className="h-4 w-4" />
+                                <span className="sr-only">Copy install command</span>
+                              </Button>
+                            )}
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleDeleteKey(key.id)}
+                            >
+                              <TrashIcon className="h-4 w-4" />
+                              <span className="sr-only">Delete</span>
+                            </Button>
+                          </div>
                         </div>
                       ))}
                     </div>

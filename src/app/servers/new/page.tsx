@@ -1,5 +1,6 @@
 "use client"
 
+import { SSHKeyBootstrap } from "@/components/ssh-key-bootstrap"
 import { Button } from "@/components/ui/button"
 import { SSHKey, getSystemKeyPathFromId, isSystemKeyId, useSSHKeys } from "@/lib/hooks/useSSHKeys"
 import { useTestNewServerBackupCapabilities } from "@/lib/hooks/useServers"
@@ -234,6 +235,22 @@ export default function NewServerPage() {
                   />
                 </div>
 
+                <SSHKeyBootstrap
+                  selectedKeyId={
+                    authType === "key" ? formData.sshKeyId || undefined : undefined
+                  }
+                  suggestedName={formData.name || formData.host}
+                  onKeyGenerated={(key) => {
+                    setAuthType("key")
+                    setFormData((prev) => ({
+                      ...prev,
+                      privateKey: "",
+                      systemKeyPath: "",
+                      sshKeyId: key.id,
+                    }))
+                  }}
+                />
+
                 <div>
                   <label htmlFor="authType" className="block text-sm font-medium mb-2">
                     Authentication Type
@@ -265,6 +282,9 @@ export default function NewServerPage() {
                       className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                       placeholder="Enter password"
                     />
+                    <p className="text-sm text-muted-foreground mt-1">
+                      Password can test a connection, but backups need an SSH key — use Create key above.
+                    </p>
                   </div>
                 ) : (
                   <div className="space-y-4">
@@ -329,7 +349,7 @@ export default function NewServerPage() {
 
                       {!keysLoading && allKeys.length === 0 && (
                         <p className="text-sm text-muted-foreground mt-1">
-                          No SSH keys found. You can add keys in the settings page or enter a key manually below.
+                          No SSH keys found. Create one above, add keys in Settings, or paste a private key below.
                         </p>
                       )}
                     </div>
