@@ -37,4 +37,8 @@ Thumbs.db
 # Project specific
 backups
 README.md
-.cursor 
+.cursor
+
+# Marketing site (Cloudflare Pages / separate Next app) — not part of GHCR image build
+landing
+
