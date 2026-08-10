@@ -6,6 +6,10 @@ on:
       - main
     tags:
       - "v*"
+    paths-ignore:
+      - "**.md"
+      - "LICENSE"
+      - "landing/**"
   workflow_dispatch:
 
 permissions:

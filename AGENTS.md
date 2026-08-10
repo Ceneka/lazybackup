@@ -102,7 +102,7 @@ bun run build && bun run start
 docker compose up -d
 ```
 
-CI publishes GHCR on `main` / `v*` tags. Startup: migrate + cron via instrumentation. Healthcheck: `GET /api/health`.
+CI publishes GHCR on `main` / `v*` tags (skips docs/`LICENSE`/`landing` via `paths-ignore`). Startup: migrate + cron via instrumentation. Healthcheck: `GET /api/health`.
 
 ## Conventions
 
