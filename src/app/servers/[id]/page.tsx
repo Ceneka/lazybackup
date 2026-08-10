@@ -1,11 +1,22 @@
 "use client"
 
 import { DeleteConfirmationDialog } from "@/components/ui/delete-confirmation-dialog"
+import {
+  DetailActionLink,
+  DetailActions,
+  DetailActionsDivider,
+} from "@/components/ui/detail-actions"
 import { QueryState } from "@/components/ui/query-state"
 import { isResourceInUseError } from "@/lib/api/resource-in-use"
 import { useDeleteServer, useServer } from "@/lib/hooks/useServers"
 import { useQueryClient } from "@tanstack/react-query"
-import { ArrowLeftIcon, PencilIcon, ServerIcon } from "lucide-react"
+import {
+  ArrowLeftIcon,
+  CableIcon,
+  FolderPlusIcon,
+  PencilIcon,
+  ServerIcon,
+} from "lucide-react"
 import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
@@ -108,9 +119,9 @@ export default function ServerPage() {
         isDataEmpty={(data) => !data}
       >
         {query.data && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="p-6 rounded-lg border bg-card text-card-foreground shadow">
-              <h2 className="text-xl font-semibold mb-4">Server Details</h2>
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+            <div className="rounded-lg border bg-card p-6 text-card-foreground shadow">
+              <h2 className="mb-4 text-xl font-semibold">Server Details</h2>
               <dl className="space-y-4">
                 <div>
                   <dt className="text-sm font-medium text-muted-foreground">
@@ -166,32 +177,29 @@ export default function ServerPage() {
               )}
             </div>
 
-            <div className="p-6 rounded-lg border bg-card text-card-foreground shadow">
-              <h2 className="text-xl font-semibold mb-4">Actions</h2>
-              <div className="space-y-4">
-                <Link
+            <div className="rounded-lg border bg-card p-6 text-card-foreground shadow">
+              <h2 className="mb-4 text-xl font-semibold">Actions</h2>
+              <DetailActions>
+                <DetailActionLink
                   href={`/servers/${serverId}/edit`}
-                  className="flex items-center space-x-2 p-3 rounded-md bg-secondary hover:bg-secondary/80 transition-colors"
+                  variant="secondary"
                 >
-                  <PencilIcon className="h-5 w-5 mr-2" />
-                  <span>Edit Server</span>
-                </Link>
-                <Link
-                  href={`/backups/new?serverId=${query.data.id}`}
-                  className="flex items-center space-x-2 p-3 rounded-md hover:bg-accent transition-colors"
-                >
-                  <ServerIcon className="h-5 w-5" />
-                  <span>Create Backup for this Server</span>
-                </Link>
-                <Link
-                  href={`/servers/${query.data.id}/test`}
-                  className="flex items-center space-x-2 p-3 rounded-md hover:bg-accent transition-colors"
-                >
-                  <ServerIcon className="h-5 w-5" />
-                  <span>Test server (SSH and backup tools)</span>
-                </Link>
+                  <PencilIcon className="h-4 w-4" />
+                  Edit
+                </DetailActionLink>
+                <DetailActionLink href={`/backups/new?serverId=${query.data.id}`}>
+                  <FolderPlusIcon className="h-4 w-4" />
+                  Create backup
+                </DetailActionLink>
+                <DetailActionLink href={`/servers/${query.data.id}/test`}>
+                  <CableIcon className="h-4 w-4" />
+                  Test connection
+                </DetailActionLink>
+
+                <DetailActionsDivider />
+
                 <DeleteConfirmationDialog
-                  title="Are you absolutely sure?"
+                  title="Delete this server?"
                   description={
                     usedByBackups.length > 0
                       ? "This server is still referenced by backup configurations. Delete will be blocked until those backups are removed or reassigned."
@@ -199,11 +207,11 @@ export default function ServerPage() {
                   }
                   onDelete={handleDelete}
                   isDeleting={deleteServer.isPending}
-                  buttonText="Delete Server"
+                  buttonText="Delete"
                 />
                 {(deleteBlockers?.length || 0) > 0 && (
-                  <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm">
-                    <p className="font-medium text-destructive-foreground">
+                  <div className="mt-2 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm">
+                    <p className="font-medium text-destructive">
                       Cannot delete — still used by:
                     </p>
                     <ul className="mt-2 space-y-1">
@@ -223,7 +231,7 @@ export default function ServerPage() {
                     </ul>
                   </div>
                 )}
-              </div>
+              </DetailActions>
             </div>
           </div>
         )}

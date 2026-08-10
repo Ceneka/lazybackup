@@ -11,6 +11,7 @@ import {
     AlertDialogTrigger
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
+import { detailActionDestructiveClassName } from "@/components/ui/detail-actions"
 import { LoadingButton } from "@/components/ui/loading-button"
 import { TrashIcon } from "lucide-react"
 import React, { useRef, useState } from "react"
@@ -31,7 +32,7 @@ export function DeleteConfirmationDialog({
   onDelete,
   isDeleting,
   buttonText = "Delete",
-  triggerButtonClassName = "cursor-pointer flex w-full items-center space-x-2 p-3 rounded-md bg-destructive/10 text-destructive-foreground hover:bg-destructive/20 transition-colors",
+  triggerButtonClassName = detailActionDestructiveClassName,
   children,
 }: DeleteConfirmationDialogProps) {
   const [open, setOpen] = useState(false)
@@ -62,7 +63,7 @@ export function DeleteConfirmationDialog({
             className={triggerButtonClassName}
             disabled={isDeleting}
           >
-            <TrashIcon className="h-5 w-5 mr-2" />
+            <TrashIcon className="h-4 w-4" />
             <span>{isDeleting ? "Deleting..." : buttonText}</span>
           </Button>
         )}

@@ -1,6 +1,12 @@
 "use client"
 
 import { DeleteConfirmationDialog } from "@/components/ui/delete-confirmation-dialog"
+import {
+  DetailActionLink,
+  DetailActions,
+  DetailActionsDivider,
+  detailActionPrimaryClassName,
+} from "@/components/ui/detail-actions"
 import { LoadingButton } from "@/components/ui/loading-button"
 import { QueryState } from "@/components/ui/query-state"
 import { formatCronExpression } from "@/lib/cron/format"
@@ -19,6 +25,8 @@ import {
   FileIcon,
   FolderIcon,
   HardDriveIcon,
+  HistoryIcon,
+  PencilIcon,
   PlayIcon,
   RefreshCwIcon,
   ServerIcon,
@@ -97,7 +105,6 @@ export default function BackupDetailPage() {
   const storageQuery = useBackupStorage(backupId)
   const deleteBackup = useDeleteBackup()
 
-  // Run backup mutation
   const runBackupMutation = useMutation({
     mutationFn: async () => {
       const response = await fetch(`/api/backups/${backupId}/run`, {
@@ -296,57 +303,50 @@ export default function BackupDetailPage() {
 
               <div className="rounded-lg border bg-card p-6 text-card-foreground shadow">
                 <h2 className="mb-4 text-xl font-semibold">Actions</h2>
-                <div className="space-y-4">
+                <DetailActions>
                   <LoadingButton
                     onClick={handleRunBackup}
                     isLoading={runBackupMutation.isPending}
-                    loadingText="Running..."
-                    className="flex w-full items-center space-x-2 rounded-md bg-primary p-3 text-primary-foreground transition-colors hover:bg-primary/90"
+                    loadingText="Starting…"
+                    className={detailActionPrimaryClassName}
                   >
-                    <PlayIcon className="mr-2 h-5 w-5" />
-                    <span>Run Now</span>
+                    <PlayIcon className="h-4 w-4" />
+                    Run now
                   </LoadingButton>
 
-                  <Link
-                    href={`/backups/${query.data.id}/edit`}
-                    className="flex items-center space-x-2 rounded-md p-3 transition-colors hover:bg-accent"
-                  >
-                    <FolderIcon className="h-5 w-5" />
-                    <span>Edit Backup Configuration</span>
-                  </Link>
-                  <Link
-                    href={`/history?configId=${query.data.id}`}
-                    className="flex items-center space-x-2 rounded-md p-3 transition-colors hover:bg-accent"
-                  >
-                    <CalendarIcon className="h-5 w-5" />
-                    <span>View Backup History</span>
-                  </Link>
+                  <DetailActionLink href={`/backups/${query.data.id}/edit`}>
+                    <PencilIcon className="h-4 w-4" />
+                    Edit
+                  </DetailActionLink>
+
+                  <DetailActionLink href={`/history?configId=${query.data.id}`}>
+                    <HistoryIcon className="h-4 w-4" />
+                    View history
+                  </DetailActionLink>
+
                   {query.data.serverId && (
-                    <Link
-                      href={`/servers/${query.data.serverId}`}
-                      className="flex items-center space-x-2 rounded-md p-3 transition-colors hover:bg-accent"
-                    >
-                      <ServerIcon className="h-5 w-5" />
-                      <span>View source server</span>
-                    </Link>
+                    <DetailActionLink href={`/servers/${query.data.serverId}`}>
+                      <ServerIcon className="h-4 w-4" />
+                      View source server
+                    </DetailActionLink>
                   )}
                   {query.data.destinationServerId && (
-                    <Link
-                      href={`/servers/${query.data.destinationServerId}`}
-                      className="flex items-center space-x-2 rounded-md p-3 transition-colors hover:bg-accent"
-                    >
-                      <ServerIcon className="h-5 w-5" />
-                      <span>View destination server</span>
-                    </Link>
+                    <DetailActionLink href={`/servers/${query.data.destinationServerId}`}>
+                      <ServerIcon className="h-4 w-4" />
+                      View destination server
+                    </DetailActionLink>
                   )}
+
+                  <DetailActionsDivider />
+
                   <DeleteConfirmationDialog
-                    title="Are you absolutely sure?"
+                    title="Delete this backup?"
                     description="This deletes the backup configuration and its history rows. Files already on disk at the destination are not removed."
                     onDelete={handleDelete}
                     isDeleting={deleteBackup.isPending}
                     buttonText="Delete"
                   />
-                </div>
+                </DetailActions>
               </div>
             </div>
 
