@@ -14,7 +14,7 @@ Guide for AI coding agents. User-facing setup lives in [README.md](./README.md) 
 - Cookies default **non-Secure**; set `AUTH_COOKIE_SECURE=true` only behind HTTPS.
 - Cron runs in the app **timezone** setting. Migrations are **`src/lib/db/migrate.ts`** only (no drizzle `migrations/` folder).
 
-Links: [GitHub](https://github.com/Ceneka/lazybackup) · [landing](https://lazy.zic.ar) · image `ghcr.io/ceneka/lazybackup:latest`
+Links: [GitHub](https://github.com/Ceneka/lazybackup) · [landing](https://lazy.zic.ar) (`landing/` static export; Cloudflare Pages root = `landing`, output `out`) · image `ghcr.io/ceneka/lazybackup:latest`
 
 ## Stack
 

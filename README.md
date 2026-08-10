@@ -2,17 +2,21 @@
 
 **[lazy.zic.ar](https://lazy.zic.ar)** · **[GitHub](https://github.com/Ceneka/lazybackup)**
 
-LazyBackup is a self-hosted web app for managing backups of your VPS servers. Connect over SSH, schedule jobs with cron expressions, and pull data from remote paths to a local destination on the machine running LazyBackup (using rsync or scp).
+LazyBackup is a self-hosted web app for managing backups between endpoints: **this host (local)** or any configured **Server**. Connect over SSH, schedule jobs with cron, and transfer filesystem paths or Docker volumes with rsync/scp—including **server→server** (ephemeral direct or relay).
+
+Marketing site (static): [`landing/`](./landing) → [lazy.zic.ar](https://lazy.zic.ar) · [Features](https://lazy.zic.ar/features)
 
 ## Features
 
+- **From → To** — All four directions (local↔local, local↔server, server↔server); destinations can be local or remote
+- **Server → Server** — Ephemeral SSH key for direct rsync, or relay via the LazyBackup host when peers can’t reach each other
 - **Server management** — Add, edit, and test VPS connections (password or SSH key auth)
-- **Backup jobs** — Configure remote source paths or Docker volumes, local destinations, cron schedules, exclude patterns, and pre-backup shell commands
-- **Docker volumes** — Discover named volumes on the remote host, back them up as `.tar.gz`, and restore from History
+- **Backup jobs** — Paths or Docker volumes, cron schedules, exclude patterns, and pre-backup shell commands
+- **Docker volumes** — Discover named volumes on a source server, pack as `.tar.gz` to a destination path, restore from History (local artifact)
 - **Versioned backups** — Optional timestamped snapshots with automatic count-based retention
 - **File retention** — Optional age-based cleanup for dump-style destinations (keep a minimum number of files)
 - **Automated scheduling** — In-process cron scheduler; set an app timezone so schedules run when you expect
-- **History & dashboard** — Track runs, view logs, next run times, on-disk storage usage, and success rates
+- **History & dashboard** — Track runs, view logs, next run times, storage usage, and success rates
 - **Optional app password** — Single-operator lock (set on first run or later in Settings); session cookie lasts 30 days
 
 ## Tech stack
@@ -74,7 +78,7 @@ Set `DATABASE_URL` if you want a custom SQLite path (default: `file:./data.db`).
 
 1. **Optional password** — On first visit, set an app password or skip. Change or remove it later under Settings.
 2. **Add a server** — Servers → add host, user, and SSH credentials. Use **Test connection** to verify rsync/scp (and Docker) availability.
-3. **Create a backup** — Backups → pick a server, choose **filesystem path** or **Docker volume**. Destination defaults to `/backups/<server>/<name>` on the **LazyBackup host** (override allowed; paths must be unique). For volumes, LazyBackup lists remote named volumes and stores a `.tar.gz`. Optionally enable versioning and/or age-based file retention.
+3. **Create a backup** — Backups → pick **From** and **To** (local or server), then **filesystem path** or **Docker volume** (volume sources need a source server). Default dest is still `/backups/<server>/<name>` on this host when To is local. For volumes, LazyBackup lists remote named volumes and lands a `.tar.gz` at the destination path. Optionally enable versioning and/or age-based file retention.
 4. **Timezone** — Settings → choose the timezone used for cron schedules and “next run” times.
 5. **Run or schedule** — Trigger a manual run or rely on the cron schedule. View results, logs, and on-disk storage under History and each backup’s detail page.
 6. **Restore (Docker volumes)** — On a successful volume backup in History, use **Restore Docker Volume** to push the archive back and extract into a named volume (creates the volume if missing). Restores data only — not images, networks, or compose files.
