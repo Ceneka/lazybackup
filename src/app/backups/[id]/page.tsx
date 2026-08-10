@@ -22,6 +22,7 @@ import {
   ArrowLeftIcon,
   CalendarIcon,
   ClockIcon,
+  CopyIcon,
   FileIcon,
   FolderIcon,
   HardDriveIcon,
@@ -317,6 +318,11 @@ export default function BackupDetailPage() {
                   <DetailActionLink href={`/backups/${query.data.id}/edit`}>
                     <PencilIcon className="h-4 w-4" />
                     Edit
+                  </DetailActionLink>
+
+                  <DetailActionLink href={`/backups/new?cloneFrom=${query.data.id}`}>
+                    <CopyIcon className="h-4 w-4" />
+                    Clone
                   </DetailActionLink>
 
                   <DetailActionLink href={`/history?configId=${query.data.id}`}>

@@ -71,6 +71,30 @@ export function backupToFormData(backup: Backup): BackupFormData {
   }
 }
 
+/** Prefill create form from an existing config (unique name + destination). */
+export function cloneToFormData(backup: Backup): BackupFormData {
+  const base = backupToFormData(backup)
+  const name = backup.name.toLowerCase().startsWith("copy of ")
+    ? backup.name
+    : `Copy of ${backup.name}`
+
+  const destinationKind = base.destinationKind
+  let destinationPath = base.destinationPath
+  if (destinationKind === "local") {
+    // Leave empty so auto-suggest builds a unique path from the new name.
+    destinationPath = ""
+  } else if (destinationPath) {
+    destinationPath = `${destinationPath.replace(/\/+$/, "")}-copy`
+  }
+
+  return {
+    ...base,
+    name,
+    destinationPath,
+    enabled: false,
+  }
+}
+
 function endpointLabel(
   kind: EndpointKind,
   serverId: string,

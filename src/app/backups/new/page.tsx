@@ -2,11 +2,13 @@
 
 import {
   BackupConfigForm,
+  cloneToFormData,
   defaultCreateFormData,
   formDataToPayload,
   type BackupFormData,
 } from "@/components/backup-config-form"
 import { QueryState } from "@/components/ui/query-state"
+import { useBackup } from "@/lib/hooks/useBackups"
 import { Server } from "@/lib/hooks/useServers"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { ArrowLeftIcon, ServerIcon } from "lucide-react"
@@ -21,8 +23,9 @@ function NewBackupForm() {
   const queryClient = useQueryClient()
   const [saving, setSaving] = useState(false)
   const prefillServerId = searchParams.get("serverId") || undefined
-  const initialData = defaultCreateFormData(prefillServerId)
+  const cloneFromId = searchParams.get("cloneFrom") || ""
 
+  const cloneQuery = useBackup(cloneFromId)
   const serversQuery = useQuery<Server[]>({
     queryKey: ["servers"],
     queryFn: async () => {
@@ -47,7 +50,7 @@ function NewBackupForm() {
         throw new Error(body.error || "Failed to create backup")
       }
       await queryClient.invalidateQueries({ queryKey: ["backups"] })
-      toast.success("Backup created")
+      toast.success(cloneFromId ? "Backup cloned" : "Backup created")
       router.push(`/backups/${body.id}`)
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to create backup")
@@ -57,12 +60,23 @@ function NewBackupForm() {
   }
 
   const servers = serversQuery.data || []
+  const cloning = Boolean(cloneFromId)
+  const cloneReady = !cloning || Boolean(cloneQuery.data)
+  const initialData =
+    cloning && cloneQuery.data
+      ? cloneToFormData(cloneQuery.data)
+      : defaultCreateFormData(prefillServerId)
+
+  const formReady =
+    !serversQuery.isLoading &&
+    cloneReady &&
+    !(cloning && cloneQuery.isError)
 
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-2">
         <Link
-          href="/backups"
+          href={cloning && cloneFromId ? `/backups/${cloneFromId}` : "/backups"}
           className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground"
         >
           <ArrowLeftIcon className="mr-1 h-4 w-4" />
@@ -71,50 +85,67 @@ function NewBackupForm() {
       </div>
 
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">New backup</h1>
+        <h1 className="text-2xl font-bold tracking-tight">
+          {cloning ? "Clone backup" : "New backup"}
+        </h1>
         <p className="text-muted-foreground">
-          Choose where files come from and where they go — this host or any server.
+          {cloning
+            ? "Review the copy, adjust the destination if needed, then save."
+            : "Choose where files come from and where they go — this host or any server."}
         </p>
       </div>
 
       <div className="rounded-lg border bg-card p-6">
-        <QueryState
-          query={serversQuery}
-          dataLabel="servers"
-          isDataEmpty={() => false}
-        >
-          <div className="space-y-4">
-            {servers.length === 0 && !serversQuery.isLoading && (
-              <div className="flex items-start gap-3 rounded-md border border-dashed p-4 text-sm">
-                <ServerIcon className="h-5 w-5 text-muted-foreground shrink-0 mt-0.5" />
-                <div>
-                  <p className="font-medium">No servers yet</p>
-                  <p className="text-muted-foreground">
-                    You can still copy local → local.{" "}
-                    <Link href="/servers/new" className="underline underline-offset-2">
-                      Add a server
-                    </Link>{" "}
-                    for remote transfers.
-                  </p>
+        {cloning && cloneQuery.isError ? (
+          <p className="text-sm text-destructive">
+            Could not load the backup to clone.{" "}
+            <Link href="/backups" className="underline underline-offset-2">
+              Back to backups
+            </Link>
+          </p>
+        ) : (
+          <QueryState
+            query={serversQuery}
+            dataLabel="servers"
+            isDataEmpty={() => false}
+          >
+            <div className="space-y-4">
+              {servers.length === 0 && !serversQuery.isLoading && (
+                <div className="flex items-start gap-3 rounded-md border border-dashed p-4 text-sm">
+                  <ServerIcon className="h-5 w-5 text-muted-foreground shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-medium">No servers yet</p>
+                    <p className="text-muted-foreground">
+                      You can still copy local → local.{" "}
+                      <Link href="/servers/new" className="underline underline-offset-2">
+                        Add a server
+                      </Link>{" "}
+                      for remote transfers.
+                    </p>
+                  </div>
                 </div>
-              </div>
-            )}
-            {!serversQuery.isLoading && (
-              <BackupConfigForm
-                mode="create"
-                servers={servers}
-                initialData={
-                  servers.length === 0
-                    ? { ...initialData, sourceKind: "local", serverId: "" }
-                    : initialData
-                }
-                submitting={saving}
-                onSubmit={handleSubmit}
-                autoSuggestDestination
-              />
-            )}
-          </div>
-        </QueryState>
+              )}
+              {formReady ? (
+                <BackupConfigForm
+                  mode="create"
+                  servers={servers}
+                  initialData={
+                    servers.length === 0 && !cloning
+                      ? { ...initialData, sourceKind: "local", serverId: "" }
+                      : initialData
+                  }
+                  submitting={saving}
+                  onSubmit={handleSubmit}
+                  autoSuggestDestination={
+                    !cloning || initialData.destinationKind === "local"
+                  }
+                />
+              ) : (
+                <p className="text-sm text-muted-foreground">Loading…</p>
+              )}
+            </div>
+          </QueryState>
+        )}
       </div>
     </div>
   )
