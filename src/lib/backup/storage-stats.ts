@@ -1,7 +1,9 @@
+import { resolveLocalBackupPath } from "@/lib/backup/destination"
 import { formatBytes } from "@/lib/utils"
 import { readdir, stat } from "fs/promises"
-import * as os from "os"
-import { isAbsolute, join, resolve } from "path"
+import { join } from "path"
+
+export { resolveLocalBackupPath }
 
 /** Timestamp folder names created when versioning is enabled: YYYY-MM-DD_HH-mm-ss */
 export const VERSION_DIR_PATTERN = /^\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}$/
@@ -54,20 +56,6 @@ export type BackupDestinationSummary = {
 }
 
 const DEFAULT_ENTRY_LIMIT = 40
-
-/**
- * Expand ~ and resolve relative paths the same way backup execution does.
- */
-export function resolveLocalBackupPath(destinationPath: string): string {
-  let resolved = destinationPath
-  if (resolved.startsWith("~")) {
-    resolved = resolved.replace("~", process.env.HOME || os.homedir())
-  }
-  if (!isAbsolute(resolved)) {
-    resolved = resolve(resolved)
-  }
-  return resolved
-}
 
 type WalkTotals = {
   bytes: number

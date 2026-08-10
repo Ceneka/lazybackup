@@ -3,12 +3,17 @@
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { LoadingButton } from "@/components/ui/loading-button"
 import { QueryState } from "@/components/ui/query-state"
+import {
+  findExactConflictInList,
+  findNestedOverlapsInList,
+} from "@/lib/backup/destination"
+import { useBackups } from "@/lib/hooks/useBackups"
 import { Server, useServerDockerVolumes } from "@/lib/hooks/useServers"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { AlertTriangleIcon, ArrowLeftIcon, FolderIcon, Loader2Icon, RefreshCwIcon } from "lucide-react"
 import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
 
 export default function EditBackupPage() {
@@ -73,9 +78,25 @@ export default function EditBackupPage() {
     staleTime: 1000 * 60 * 5 // Cache for 5 minutes
   })
 
+  const backupsQuery = useBackups()
+
   const volumesQuery = useServerDockerVolumes(
     formData.sourceType === 'docker_volume' ? formData.serverId : ''
   )
+
+  const destinationConflict = useMemo(() => {
+    if (!formData.destinationPath.trim() || !backupsQuery.data) {
+      return null
+    }
+    return findExactConflictInList(backupsQuery.data, formData.destinationPath, backupId)
+  }, [backupsQuery.data, formData.destinationPath, backupId])
+
+  const destinationOverlaps = useMemo(() => {
+    if (!formData.destinationPath.trim() || !backupsQuery.data) {
+      return []
+    }
+    return findNestedOverlapsInList(backupsQuery.data, formData.destinationPath, backupId)
+  }, [backupsQuery.data, formData.destinationPath, backupId])
 
   useEffect(() => {
     // If we have backup data, populate the form
@@ -150,6 +171,11 @@ export default function EditBackupPage() {
       const data = await response.json()
 
       if (!response.ok) {
+        if (response.status === 409 && data.conflictingBackup?.name) {
+          throw new Error(
+            `Destination path is already used by backup "${data.conflictingBackup.name}"`
+          )
+        }
         throw new Error(data.error || 'Failed to update backup configuration')
       }
 
@@ -338,6 +364,40 @@ export default function EditBackupPage() {
                       placeholder="/backups/mysite"
                       className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                     />
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Local path on the LazyBackup host. Must be unique across backup configs.
+                    </p>
+                    {destinationConflict && (
+                      <Alert variant="destructive" className="mt-3">
+                        <AlertTriangleIcon className="h-4 w-4" />
+                        <AlertTitle>Destination already in use</AlertTitle>
+                        <AlertDescription>
+                          Used by{' '}
+                          <Link href={`/backups/${destinationConflict.id}`} className="underline">
+                            {destinationConflict.name}
+                          </Link>
+                          . Choose a different path before saving.
+                        </AlertDescription>
+                      </Alert>
+                    )}
+                    {!destinationConflict && destinationOverlaps.length > 0 && (
+                      <Alert className="mt-3">
+                        <AlertTriangleIcon className="h-4 w-4" />
+                        <AlertTitle>Nested destination</AlertTitle>
+                        <AlertDescription>
+                          This path overlaps with{' '}
+                          {destinationOverlaps.map((item, index) => (
+                            <span key={item.id}>
+                              {index > 0 ? ', ' : ''}
+                              <Link href={`/backups/${item.id}`} className="underline">
+                                {item.name}
+                              </Link>
+                            </span>
+                          ))}
+                          . Retention or versioning on either config can affect the other.
+                        </AlertDescription>
+                      </Alert>
+                    )}
                   </div>
 
                   <div>

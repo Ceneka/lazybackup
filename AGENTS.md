@@ -4,7 +4,7 @@ Guide for AI coding agents. User-facing setup lives in [README.md](./README.md) 
 
 ## Mental model
 
-- Backups **pull** from the remote VPS to the **LazyBackup host** (`rsync` preferred, `scp` fallback). Destinations like `/backups/foo` are local (Docker volume).
+- Backups **pull** from the remote VPS to the **LazyBackup host** (`rsync` preferred, `scp` fallback). Destinations like `/backups/foo` are local (Docker volume). New configs default to `/backups/<server-slug>/<backup-slug>`; destination paths must be unique (resolved-path check on create/update).
 - **Source types:** `path` (remote filesystem) or `docker_volume` (named volume → remote alpine tar → pull `.tar.gz`). Restore pushes the archive back and extracts into a volume.
 - **SSH key required to run backups.** Password auth can test/connect via `node-ssh` only; transfer needs a private key (`resolvePrivateKeyForServer`).
 - **Optional app password** (single operator, no users table): first-run set/skip; manage in Settings. Hash in settings → middleware gates pages + `/api/*` (public: `/login`, `/api/auth/*`, `/api/health`). Session cookie `lb_session`, 30-day sliding expiry.
@@ -111,7 +111,7 @@ CI publishes GHCR on `main` / `v*` tags. Startup: migrate + cron via instrumenta
 ## Pitfalls
 
 1. Password-only servers cannot execute backups (need a key).
-2. Destination paths are on the **app host**, not the VPS.
+2. Destination paths are on the **app host**, not the VPS. They must be unique across configs (API returns 409 on conflict); existing paths are not auto-migrated.
 3. Do not run migrate/scheduler during `next build` (already guarded).
 4. Cron is 5-field; invalid expressions fail at schedule time; respect timezone setting.
 5. Mixed IDs (`nanoid` vs `randomUUID`) — don’t assume one format.
@@ -124,7 +124,7 @@ CI publishes GHCR on `main` / `v*` tags. Startup: migrate + cron via instrumenta
 
 | Task | Files |
 |------|--------|
-| Backup / retention / storage | `lib/backup/{index,file-retention,storage-stats,log-format}.ts`, `lib/ssh/` |
+| Backup / retention / storage | `lib/backup/{index,file-retention,storage-stats,log-format,destination}.ts`, `lib/ssh/` |
 | Docker volumes | `lib/docker/volumes.ts`, `GET …/docker/volumes`, `POST …/history/[id]/restore` |
 | Scheduling / timezone | `lib/scheduler/`, `instrumentation.ts` |
 | DB | `lib/db/schema.ts`, `lib/db/migrate.ts` |

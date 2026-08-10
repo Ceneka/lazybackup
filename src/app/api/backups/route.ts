@@ -1,3 +1,4 @@
+import { findExactDestinationConflict } from '@/lib/backup/destination-guard';
 import { backupConfigSchema } from '@/lib/backup/schema';
 import { db } from '@/lib/db';
 import { backupConfigs } from '@/lib/db/schema';
@@ -32,6 +33,19 @@ export async function POST(request: NextRequest) {
 
     // Validate the request body
     const validatedData = backupConfigSchema.parse(body);
+
+    const conflictingBackup = await findExactDestinationConflict(
+      validatedData.destinationPath
+    );
+    if (conflictingBackup) {
+      return NextResponse.json(
+        {
+          error: `Destination path is already used by backup "${conflictingBackup.name}"`,
+          conflictingBackup,
+        },
+        { status: 409 }
+      );
+    }
 
     // Create a new backup configuration
     const newConfig = {

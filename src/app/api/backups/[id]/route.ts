@@ -1,3 +1,4 @@
+import { findExactDestinationConflict } from '@/lib/backup/destination-guard';
 import { backupConfigSchema } from '@/lib/backup/schema';
 import { formatCronExpression } from '@/lib/cron/format';
 import { buildUpcomingEntry } from '@/lib/cron/next';
@@ -69,6 +70,20 @@ export async function PUT(
 
     // Validate the request body
     const validatedData = backupConfigSchema.parse(body);
+
+    const conflictingBackup = await findExactDestinationConflict(
+      validatedData.destinationPath,
+      id
+    );
+    if (conflictingBackup) {
+      return NextResponse.json(
+        {
+          error: `Destination path is already used by backup "${conflictingBackup.name}"`,
+          conflictingBackup,
+        },
+        { status: 409 }
+      );
+    }
 
     // First stop any existing cron job
     stopBackup(id);

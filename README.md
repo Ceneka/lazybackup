@@ -74,7 +74,7 @@ Set `DATABASE_URL` if you want a custom SQLite path (default: `file:./data.db`).
 
 1. **Optional password** — On first visit, set an app password or skip. Change or remove it later under Settings.
 2. **Add a server** — Servers → add host, user, and SSH credentials. Use **Test connection** to verify rsync/scp (and Docker) availability.
-3. **Create a backup** — Backups → pick a server, choose **filesystem path** or **Docker volume**, set a **local** `destinationPath` (e.g. `/backups/mysite` in Docker). For volumes, LazyBackup lists remote named volumes and stores a `.tar.gz`. Optionally enable versioning and/or age-based file retention.
+3. **Create a backup** — Backups → pick a server, choose **filesystem path** or **Docker volume**. Destination defaults to `/backups/<server>/<name>` on the **LazyBackup host** (override allowed; paths must be unique). For volumes, LazyBackup lists remote named volumes and stores a `.tar.gz`. Optionally enable versioning and/or age-based file retention.
 4. **Timezone** — Settings → choose the timezone used for cron schedules and “next run” times.
 5. **Run or schedule** — Trigger a manual run or rely on the cron schedule. View results, logs, and on-disk storage under History and each backup’s detail page.
 6. **Restore (Docker volumes)** — On a successful volume backup in History, use **Restore Docker Volume** to push the archive back and extract into a named volume (creates the volume if missing). Restores data only — not images, networks, or compose files.

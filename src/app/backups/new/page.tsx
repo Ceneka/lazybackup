@@ -1,12 +1,18 @@
 "use client"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import {
+  findExactConflictInList,
+  findNestedOverlapsInList,
+  suggestDestinationPath,
+} from "@/lib/backup/destination"
+import { useBackups } from "@/lib/hooks/useBackups"
 import { Server, useServerDockerVolumes } from "@/lib/hooks/useServers"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { AlertTriangleIcon, ArrowLeftIcon, Loader2Icon, RefreshCwIcon, ServerIcon } from "lucide-react"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
-import { Suspense, useState } from "react"
+import { Suspense, useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
 
 // Component that uses useSearchParams
@@ -15,6 +21,7 @@ function NewBackupForm() {
   const searchParams = useSearchParams()
   const queryClient = useQueryClient()
   const [saving, setSaving] = useState(false)
+  const [destinationTouched, setDestinationTouched] = useState(false)
 
   const [formData, setFormData] = useState({
     serverId: searchParams.get('serverId') || '',
@@ -37,6 +44,7 @@ function NewBackupForm() {
   const volumesQuery = useServerDockerVolumes(
     formData.sourceType === 'docker_volume' ? formData.serverId : ''
   )
+  const backupsQuery = useBackups()
 
   // Fetch servers data with useQuery
   const { data: servers = [], isLoading: loadingServers } = useQuery<Server[]>({
@@ -52,9 +60,45 @@ function NewBackupForm() {
     }
   })
 
+  const selectedServer = servers.find((server) => server.id === formData.serverId)
+
+  useEffect(() => {
+    if (destinationTouched) {
+      return
+    }
+    if (!selectedServer || !formData.name.trim()) {
+      return
+    }
+    const suggested = suggestDestinationPath({
+      serverName: selectedServer.name,
+      backupName: formData.name,
+    })
+    setFormData((prev) =>
+      prev.destinationPath === suggested ? prev : { ...prev, destinationPath: suggested }
+    )
+  }, [destinationTouched, selectedServer, formData.name])
+
+  const destinationConflict = useMemo(() => {
+    if (!formData.destinationPath.trim() || !backupsQuery.data) {
+      return null
+    }
+    return findExactConflictInList(backupsQuery.data, formData.destinationPath)
+  }, [backupsQuery.data, formData.destinationPath])
+
+  const destinationOverlaps = useMemo(() => {
+    if (!formData.destinationPath.trim() || !backupsQuery.data) {
+      return []
+    }
+    return findNestedOverlapsInList(backupsQuery.data, formData.destinationPath)
+  }, [backupsQuery.data, formData.destinationPath])
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target
     const checked = type === 'checkbox' ? (e.target as HTMLInputElement).checked : undefined
+
+    if (name === 'destinationPath') {
+      setDestinationTouched(true)
+    }
 
     setFormData(prev => {
       const next = {
@@ -103,6 +147,11 @@ function NewBackupForm() {
       const data = await response.json()
 
       if (!response.ok) {
+        if (response.status === 409 && data.conflictingBackup?.name) {
+          throw new Error(
+            `Destination path is already used by backup "${data.conflictingBackup.name}"`
+          )
+        }
         throw new Error(data.error || 'Failed to create backup configuration')
       }
 
@@ -288,8 +337,43 @@ function NewBackupForm() {
                     value={formData.destinationPath}
                     onChange={handleChange}
                     className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                    placeholder="/backups/website"
+                    placeholder="/backups/server-name/backup-name"
                   />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Local path on the LazyBackup host (not the remote server). Defaults to{' '}
+                    <code className="text-xs">/backups/&lt;server&gt;/&lt;name&gt;</code> and must be unique.
+                  </p>
+                  {destinationConflict && (
+                    <Alert variant="destructive" className="mt-3">
+                      <AlertTriangleIcon className="h-4 w-4" />
+                      <AlertTitle>Destination already in use</AlertTitle>
+                      <AlertDescription>
+                        Used by{' '}
+                        <Link href={`/backups/${destinationConflict.id}`} className="underline">
+                          {destinationConflict.name}
+                        </Link>
+                        . Choose a different path.
+                      </AlertDescription>
+                    </Alert>
+                  )}
+                  {!destinationConflict && destinationOverlaps.length > 0 && (
+                    <Alert className="mt-3">
+                      <AlertTriangleIcon className="h-4 w-4" />
+                      <AlertTitle>Nested destination</AlertTitle>
+                      <AlertDescription>
+                        This path overlaps with{' '}
+                        {destinationOverlaps.map((item, index) => (
+                          <span key={item.id}>
+                            {index > 0 ? ', ' : ''}
+                            <Link href={`/backups/${item.id}`} className="underline">
+                              {item.name}
+                            </Link>
+                          </span>
+                        ))}
+                        . Retention or versioning on either config can affect the other.
+                      </AlertDescription>
+                    </Alert>
+                  )}
                 </div>
 
                 <div>
