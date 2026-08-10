@@ -112,6 +112,10 @@ bun test         # Unit tests (Bun)
 
 See [AGENTS.md](./AGENTS.md) for architecture details aimed at contributors and AI agents.
 
+## License
+
+MIT — see [LICENSE](./LICENSE). Anyone may use, modify, and redistribute LazyBackup.
+
 ## Acknowledgements
 
 - [Next.js](https://nextjs.org/)

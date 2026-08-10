@@ -118,7 +118,7 @@ CI publishes GHCR on `main` / `v*` tags. Startup: migrate + cron via instrumenta
 4. Cron is 5-field; invalid expressions fail at schedule time; respect timezone setting.
 5. Mixed IDs (`nanoid` vs `randomUUID`) — don’t assume one format.
 6. App password ≠ SSH password; keep `/api/health` public.
-7. `/api/seed` is dev-only. No LICENSE in repo — don’t claim MIT.
+7. `/api/seed` is dev-only. Licensed under MIT (`LICENSE`).
 8. Auth middleware must run on the Node.js runtime and check the session in-process — no self-fetch.
 9. Docker volume sources need remote `docker` + `alpine`; destinations are always paths (never “to volume”). Restore requires a **local** artifact.
 10. Server→server ephemeral transfer needs source→dest network reachability; otherwise relay is used.
