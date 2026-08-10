@@ -135,10 +135,6 @@ import { LoadingButton } from "@/components/ui/loading-button"
 | `size` | `'default' \| 'sm' \| 'lg' \| 'icon'` | - | Button size |
 | ...other props from `button` | | | All other props from HTML button element |
 
-## Examples
-
-For an interactive demonstration of these components, check out the examples page at `/examples`.
-
 ## Best Practices
 
 1. Use `QueryState` for data fetching operations with TanStack Query
