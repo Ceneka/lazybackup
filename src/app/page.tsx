@@ -146,24 +146,36 @@ export default function Dashboard() {
                       <div className="text-sm text-muted-foreground">Success rate</div>
                     </div>
                     <div className="flex items-center gap-4">
-                      <div className="flex items-center gap-1.5">
+                      <Link
+                        href="/history?status=running"
+                        className="flex items-center gap-1.5 rounded-md transition-opacity hover:opacity-80"
+                        title="View running backups"
+                      >
                         <PlayIcon className="h-4 w-4 text-blue-500" />
                         <span className="font-medium text-blue-500">
                           {query.data.statusCounts.running}
                         </span>
-                      </div>
-                      <div className="flex items-center gap-1.5">
+                      </Link>
+                      <Link
+                        href="/history?status=success"
+                        className="flex items-center gap-1.5 rounded-md transition-opacity hover:opacity-80"
+                        title="View successful backups"
+                      >
                         <CheckCircleIcon className="h-4 w-4 text-green-500" />
                         <span className="font-medium text-green-500">
                           {query.data.statusCounts.success}
                         </span>
-                      </div>
-                      <div className="flex items-center gap-1.5">
+                      </Link>
+                      <Link
+                        href="/history?status=failed"
+                        className="flex items-center gap-1.5 rounded-md transition-opacity hover:opacity-80"
+                        title="View failed backups"
+                      >
                         <XCircleIcon className="h-4 w-4 text-red-500" />
                         <span className="font-medium text-red-500">
                           {query.data.statusCounts.failed}
                         </span>
-                      </div>
+                      </Link>
                     </div>
                   </div>
                   <Progress value={query.data.successRate} className="h-2" />

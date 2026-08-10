@@ -35,11 +35,15 @@ import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Suspense, useEffect, useState } from "react"
 
+const HISTORY_STATUSES = new Set(["running", "success", "failed"])
+
 function HistoryPageContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const configIdFromUrl =
     searchParams.get("configId") || searchParams.get("backupId") || ""
+  const statusParam = searchParams.get("status") || ""
+  const statusFromUrl = HISTORY_STATUSES.has(statusParam) ? statusParam : ""
 
   const [searchTerm, setSearchTerm] = useState("")
 
@@ -53,15 +57,23 @@ function HistoryPageContent() {
     goToPage
   } = usePaginatedHistory({
     configId: configIdFromUrl,
+    status: statusFromUrl,
   })
 
-  // Keep filters in sync when navigating from a backup detail link
+  // Keep filters in sync when navigating from dashboard / backup detail links
   useEffect(() => {
     if ((filters.configId || "") !== configIdFromUrl) {
       updateFilters({ configId: configIdFromUrl })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only react to URL changes
   }, [configIdFromUrl])
+
+  useEffect(() => {
+    if ((filters.status || "") !== statusFromUrl) {
+      updateFilters({ status: statusFromUrl })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only react to URL changes
+  }, [statusFromUrl])
 
   // Debounce search into the query filter
   useEffect(() => {
@@ -146,7 +158,18 @@ function HistoryPageContent() {
         </div>
         <Select
           value={filters.status === "" || !filters.status ? "all" : filters.status}
-          onValueChange={(value) => updateFilters({ status: value === "all" ? "" : value })}
+          onValueChange={(value) => {
+            const status = value === "all" ? "" : value
+            updateFilters({ status })
+            const params = new URLSearchParams(searchParams.toString())
+            if (status) {
+              params.set("status", status)
+            } else {
+              params.delete("status")
+            }
+            const qs = params.toString()
+            router.replace(qs ? `/history?${qs}` : "/history")
+          }}
         >
           <SelectTrigger className="w-[180px]">
             <SelectValue placeholder="Status" />
