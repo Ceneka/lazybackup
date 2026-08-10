@@ -8,7 +8,7 @@ export const revalidate = 0
 
 /**
  * GET /api/backups/:id/storage
- * Summarize files currently stored at this backup's local destination.
+ * Summarize files currently stored at this backup's destination.
  */
 export async function GET(
   _request: NextRequest,
@@ -26,6 +26,9 @@ export async function GET(
 
     const config = await db.query.backupConfigs.findFirst({
       where: eq(backupConfigs.id, id),
+      with: {
+        destinationServer: true,
+      },
     })
 
     if (!config) {
@@ -37,6 +40,8 @@ export async function GET(
 
     const summary = await getBackupDestinationSummary({
       destinationPath: config.destinationPath,
+      destinationKind: config.destinationKind,
+      destinationServerName: config.destinationServer?.name ?? null,
       enableVersioning: config.enableVersioning,
       versionsToKeep: config.versionsToKeep,
     })

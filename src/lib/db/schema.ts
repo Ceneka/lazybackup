@@ -40,9 +40,16 @@ export const servers = sqliteTable('servers', {
 // Backup configurations
 export const backupConfigs = sqliteTable('backup_configs', {
   id: text('id').primaryKey().notNull(),
-  serverId: text('server_id').notNull().references(() => servers.id, { onDelete: 'cascade' }),
+  /** Where data is copied from: LazyBackup host or an SSH server */
+  sourceKind: text('source_kind', { enum: ['local', 'server'] }).notNull().default('server'),
+  /** Source server when sourceKind === 'server' */
+  serverId: text('server_id').references(() => servers.id, { onDelete: 'cascade' }),
+  /** Where data is copied to */
+  destinationKind: text('destination_kind', { enum: ['local', 'server'] }).notNull().default('local'),
+  /** Destination server when destinationKind === 'server' */
+  destinationServerId: text('destination_server_id').references(() => servers.id, { onDelete: 'cascade' }),
   name: text('name').notNull(),
-  /** 'path' = remote filesystem path; 'docker_volume' = named Docker volume (sourcePath = volume name) */
+  /** 'path' = filesystem path; 'docker_volume' = named Docker volume on source server only */
   sourceType: text('source_type', { enum: ['path', 'docker_volume'] }).notNull().default('path'),
   sourcePath: text('source_path').notNull(),
   destinationPath: text('destination_path').notNull(),
@@ -78,7 +85,8 @@ export const backupHistory = sqliteTable('backup_history', {
 
 // Relations
 export const serversRelations = relations(servers, ({ one, many }) => ({
-  backupConfigs: many(backupConfigs),
+  backupConfigs: many(backupConfigs, { relationName: 'backupSourceServer' }),
+  destinationBackupConfigs: many(backupConfigs, { relationName: 'backupDestinationServer' }),
   sshKey: one(sshKeys, {
     fields: [servers.sshKeyId],
     references: [sshKeys.id],
@@ -90,9 +98,16 @@ export const sshKeysRelations = relations(sshKeys, ({ many }) => ({
 }));
 
 export const backupConfigsRelations = relations(backupConfigs, ({ one, many }) => ({
+  /** Source server when sourceKind === 'server' */
   server: one(servers, {
     fields: [backupConfigs.serverId],
     references: [servers.id],
+    relationName: 'backupSourceServer',
+  }),
+  destinationServer: one(servers, {
+    fields: [backupConfigs.destinationServerId],
+    references: [servers.id],
+    relationName: 'backupDestinationServer',
   }),
   backupHistory: many(backupHistory),
 }));

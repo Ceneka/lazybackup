@@ -3,8 +3,12 @@ import { z } from 'zod';
 
 export const backupConfigSchema = z
   .object({
-    serverId: z.string().min(1, 'Server ID is required'),
     name: z.string().min(1, 'Name is required'),
+    sourceKind: z.enum(['local', 'server']).default('server'),
+    /** Source server when sourceKind === 'server' (legacy field name) */
+    serverId: z.string().nullable().optional(),
+    destinationKind: z.enum(['local', 'server']).default('local'),
+    destinationServerId: z.string().nullable().optional(),
     sourceType: z.enum(['path', 'docker_volume']).default('path'),
     sourcePath: z.string().min(1, 'Source path is required'),
     destinationPath: z.string().min(1, 'Destination path is required'),
@@ -20,11 +24,31 @@ export const backupConfigSchema = z
     retentionMinKeep: z.coerce.number().min(1).max(10000).optional().default(5),
   })
   .superRefine((data, ctx) => {
-    if (data.enableVersioning && data.enableFileRetention) {
+    if (data.sourceKind === 'server') {
+      if (!data.serverId || !data.serverId.trim()) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Source server is required',
+          path: ['serverId'],
+        });
+      }
+    }
+
+    if (data.destinationKind === 'server') {
+      if (!data.destinationServerId || !data.destinationServerId.trim()) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Destination server is required',
+          path: ['destinationServerId'],
+        });
+      }
+    }
+
+    if (data.sourceType === 'docker_volume' && data.sourceKind !== 'server') {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: 'File retention cannot be enabled together with versioning',
-        path: ['enableFileRetention'],
+        message: 'Docker volume sources require a source server',
+        path: ['sourceType'],
       });
     }
 
@@ -36,4 +60,32 @@ export const backupConfigSchema = z
         path: ['sourcePath'],
       });
     }
-  });
+
+    if (data.enableVersioning && data.enableFileRetention) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'File retention cannot be enabled together with versioning',
+        path: ['enableFileRetention'],
+      });
+    }
+
+    const sameServer =
+      data.sourceKind === 'server' &&
+      data.destinationKind === 'server' &&
+      data.serverId &&
+      data.destinationServerId &&
+      data.serverId === data.destinationServerId;
+    const bothLocal = data.sourceKind === 'local' && data.destinationKind === 'local';
+    if ((sameServer || bothLocal) && data.sourcePath.trim() === data.destinationPath.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Source and destination cannot be the same path on the same endpoint',
+        path: ['destinationPath'],
+      });
+    }
+  })
+  .transform((data) => ({
+    ...data,
+    serverId: data.sourceKind === 'server' ? data.serverId || null : null,
+    destinationServerId: data.destinationKind === 'server' ? data.destinationServerId || null : null,
+  }));

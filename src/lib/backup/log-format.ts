@@ -45,15 +45,17 @@ export function buildPreBackupLog(commandLogs: string[]): string {
 export function combineBackupLog(
   preBackupLog: string,
   transferLog: string,
-  method: 'rsync' | 'scp' | 'docker',
+  method: string,
   fileRetentionLog = ''
 ): string {
   const transferHeader =
-    method === 'rsync'
+    method === 'rsync' || method.includes('rsync') || method.includes('local')
       ? LOG_SECTION.transferRsync
-      : method === 'scp'
+      : method === 'scp' || method.includes('scp')
         ? LOG_SECTION.transferScp
-        : LOG_SECTION.transferDocker;
+        : method.includes('docker')
+          ? LOG_SECTION.transferDocker
+          : LOG_SECTION.transferRsync;
 
   const sections: string[] = [];
 

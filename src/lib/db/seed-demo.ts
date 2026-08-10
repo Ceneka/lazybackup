@@ -195,7 +195,10 @@ export async function seedDemoData(): Promise<SeedDemoResult> {
   await db.insert(backupConfigs).values([
     {
       id: wpId,
+      sourceKind: 'server',
       serverId: prodId,
+      destinationKind: 'local',
+      destinationServerId: null,
       name: 'WordPress site',
       sourcePath: '/var/www/html',
       destinationPath: '/backups/prod/wordpress',
@@ -214,7 +217,10 @@ export async function seedDemoData(): Promise<SeedDemoResult> {
     },
     {
       id: nginxId,
+      sourceKind: 'server',
       serverId: prodId,
+      destinationKind: 'local',
+      destinationServerId: null,
       name: 'Nginx configs',
       sourcePath: '/etc/nginx',
       destinationPath: '/backups/prod/nginx',
@@ -230,7 +236,10 @@ export async function seedDemoData(): Promise<SeedDemoResult> {
     },
     {
       id: uploadsId,
+      sourceKind: 'server',
       serverId: prodId,
+      destinationKind: 'local',
+      destinationServerId: null,
       name: 'Media uploads',
       sourcePath: '/var/www/html/wp-content/uploads',
       destinationPath: '/backups/prod/uploads',
@@ -249,7 +258,10 @@ export async function seedDemoData(): Promise<SeedDemoResult> {
     },
     {
       id: pgDumpId,
+      sourceKind: 'server',
       serverId: dbHostId,
+      destinationKind: 'local',
+      destinationServerId: null,
       name: 'PostgreSQL nightly dump',
       sourcePath: '/var/backups/postgres',
       destinationPath: '/backups/db/postgres',
@@ -268,7 +280,10 @@ export async function seedDemoData(): Promise<SeedDemoResult> {
     },
     {
       id: stagingAppId,
+      sourceKind: 'server',
       serverId: stagingId,
+      destinationKind: 'local',
+      destinationServerId: null,
       name: 'Staging app root',
       sourcePath: '/opt/app',
       destinationPath: '/backups/staging/app',
@@ -284,7 +299,10 @@ export async function seedDemoData(): Promise<SeedDemoResult> {
     },
     {
       id: blogContentId,
+      sourceKind: 'server',
       serverId: blogId,
+      destinationKind: 'local',
+      destinationServerId: null,
       name: 'Blog content',
       sourcePath: '/home/ubuntu/site',
       destinationPath: '/backups/blog',

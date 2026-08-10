@@ -129,6 +129,102 @@ export async function runMigration() {
       await db.run(sql`ALTER TABLE backup_configs ADD COLUMN source_type TEXT NOT NULL DEFAULT 'path'`);
     }
 
+    // From→To endpoints: nullable source server, destination server, kinds.
+    // SQLite cannot drop NOT NULL on server_id via ALTER — rebuild the table once.
+    const needsEndpointRebuild =
+      !backupColumns.includes('source_kind') ||
+      !backupColumns.includes('destination_kind') ||
+      !backupColumns.includes('destination_server_id') ||
+      backupConfigsInfo.rows.some(
+        (row: any) => row.name === 'server_id' && row.notnull === 1
+      );
+
+    if (needsEndpointRebuild) {
+      console.log('Migrating backup_configs for From→To endpoints...');
+      await db.run(sql`PRAGMA foreign_keys = OFF`);
+      await db.run(sql`
+        CREATE TABLE backup_configs_new (
+          id text PRIMARY KEY NOT NULL,
+          source_kind text NOT NULL DEFAULT 'server',
+          server_id text,
+          destination_kind text NOT NULL DEFAULT 'local',
+          destination_server_id text,
+          name text NOT NULL,
+          source_type text NOT NULL DEFAULT 'path',
+          source_path text NOT NULL,
+          destination_path text NOT NULL,
+          schedule text NOT NULL,
+          exclude_patterns text,
+          pre_backup_commands text,
+          enabled integer DEFAULT true NOT NULL,
+          enable_versioning integer NOT NULL DEFAULT 0,
+          versions_to_keep integer DEFAULT 5,
+          enable_file_retention integer NOT NULL DEFAULT 0,
+          retention_max_age integer DEFAULT 30,
+          retention_max_age_unit text DEFAULT 'days',
+          retention_min_keep integer DEFAULT 5,
+          created_at integer DEFAULT (unixepoch()) NOT NULL,
+          updated_at integer DEFAULT (unixepoch()) NOT NULL,
+          FOREIGN KEY (server_id) REFERENCES servers(id) ON UPDATE no action ON DELETE cascade,
+          FOREIGN KEY (destination_server_id) REFERENCES servers(id) ON UPDATE no action ON DELETE cascade
+        );
+      `);
+
+      // Read fresh columns in case earlier ALTERs just ran in this same migration pass
+      const freshInfo = await db.run(sql`PRAGMA table_info(backup_configs)`);
+      const cols = new Set(freshInfo.rows.map((row: any) => String(row.name)));
+
+      const selectSourceType = cols.has('source_type') ? 'source_type' : `'path'`;
+      const selectPreBackup = cols.has('pre_backup_commands') ? 'pre_backup_commands' : 'NULL';
+      const selectVersioning = cols.has('enable_versioning') ? 'enable_versioning' : '0';
+      const selectVersionsKeep = cols.has('versions_to_keep') ? 'versions_to_keep' : '5';
+      const selectFileRetention = cols.has('enable_file_retention') ? 'enable_file_retention' : '0';
+      const selectRetentionAge = cols.has('retention_max_age') ? 'retention_max_age' : '30';
+      const selectRetentionUnit = cols.has('retention_max_age_unit') ? 'retention_max_age_unit' : `'days'`;
+      const selectRetentionMin = cols.has('retention_min_keep') ? 'retention_min_keep' : '5';
+      const selectSourceKind = cols.has('source_kind') ? 'source_kind' : `'server'`;
+      const selectDestKind = cols.has('destination_kind') ? 'destination_kind' : `'local'`;
+      const selectDestServer = cols.has('destination_server_id') ? 'destination_server_id' : 'NULL';
+
+      await db.run(sql.raw(`
+        INSERT INTO backup_configs_new (
+          id, source_kind, server_id, destination_kind, destination_server_id,
+          name, source_type, source_path, destination_path, schedule,
+          exclude_patterns, pre_backup_commands, enabled,
+          enable_versioning, versions_to_keep,
+          enable_file_retention, retention_max_age, retention_max_age_unit, retention_min_keep,
+          created_at, updated_at
+        )
+        SELECT
+          id,
+          COALESCE(${selectSourceKind}, 'server'),
+          server_id,
+          COALESCE(${selectDestKind}, 'local'),
+          ${selectDestServer},
+          name,
+          COALESCE(${selectSourceType}, 'path'),
+          source_path,
+          destination_path,
+          schedule,
+          exclude_patterns,
+          ${selectPreBackup},
+          enabled,
+          ${selectVersioning},
+          ${selectVersionsKeep},
+          ${selectFileRetention},
+          ${selectRetentionAge},
+          ${selectRetentionUnit},
+          ${selectRetentionMin},
+          created_at,
+          updated_at
+        FROM backup_configs;
+      `));
+
+      await db.run(sql`DROP TABLE backup_configs`);
+      await db.run(sql`ALTER TABLE backup_configs_new RENAME TO backup_configs`);
+      await db.run(sql`PRAGMA foreign_keys = ON`);
+    }
+
     const backupHistoryInfo = await db.run(sql`PRAGMA table_info(backup_history)`);
     const historyColumns = backupHistoryInfo.rows.map((row: any) => row.name);
 

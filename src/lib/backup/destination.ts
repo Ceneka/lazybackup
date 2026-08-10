@@ -1,7 +1,11 @@
+export type EndpointKind = 'local' | 'server';
+
 export type DestinationConfigRef = {
   id: string;
   name: string;
   destinationPath: string;
+  destinationKind?: EndpointKind | null;
+  destinationServerId?: string | null;
 };
 
 export type DestinationConflict = {
@@ -37,6 +41,15 @@ export function resolveLocalBackupPath(destinationPath: string): string {
   return resolved.replace(/[/\\]+$/, '') || (resolved.startsWith('/') ? '/' : resolved);
 }
 
+/** Normalize a remote filesystem path for comparison (trim, collapse trailing slashes). */
+export function normalizeRemotePath(remotePath: string): string {
+  const trimmed = remotePath.trim().replace(/\\/g, '/');
+  if (!trimmed || trimmed === '/') {
+    return '/';
+  }
+  return trimmed.replace(/\/+$/, '');
+}
+
 /**
  * Slug for path segments: lowercase, non-alnum → `-`, collapse/trim dashes.
  */
@@ -69,19 +82,35 @@ export function getSuggestStorageRoot(
 }
 
 export function suggestDestinationPath(options: {
-  serverName: string;
+  serverName?: string;
   backupName: string;
   storageRoot?: string;
 }): string {
   const root = (options.storageRoot ?? getSuggestStorageRoot()).replace(/\/+$/, '') || '/backups';
-  const serverSlug = slugifyName(options.serverName || 'server');
+  const serverSlug = slugifyName(options.serverName || 'local');
   const backupSlug = slugifyName(options.backupName || 'backup');
   return `${root}/${serverSlug}/${backupSlug}`;
 }
 
-/** Normalized key for comparing destinations (resolved + no trailing slash). */
+/** Normalized key for comparing local destinations (resolved + no trailing slash). */
 export function destinationCompareKey(destinationPath: string): string {
   return resolveLocalBackupPath(destinationPath);
+}
+
+/**
+ * Unique key for a destination endpoint (local path or remote server+path).
+ */
+export function destinationEndpointKey(options: {
+  destinationKind?: EndpointKind | null;
+  destinationServerId?: string | null;
+  destinationPath: string;
+}): string {
+  const kind = options.destinationKind || 'local';
+  if (kind === 'server') {
+    const serverId = options.destinationServerId || '';
+    return `server:${serverId}:${normalizeRemotePath(options.destinationPath)}`;
+  }
+  return `local:${destinationCompareKey(options.destinationPath)}`;
 }
 
 export function destinationsAreSame(a: string, b: string): boolean {
@@ -91,16 +120,9 @@ export function destinationsAreSame(a: string, b: string): boolean {
   return destinationCompareKey(a) === destinationCompareKey(b);
 }
 
-/**
- * True if one resolved path is a parent of the other (not the same path).
- */
-export function destinationsNest(a: string, b: string): boolean {
-  if (!a.trim() || !b.trim()) {
-    return false;
-  }
-  const left = destinationCompareKey(a);
-  const right = destinationCompareKey(b);
-  if (left === right) {
+/** True if one absolute/normalized path is a parent of the other (not the same). */
+export function pathsNest(left: string, right: string): boolean {
+  if (!left || !right || left === right) {
     return false;
   }
   const leftFs = left.endsWith('/') ? left : `${left}/`;
@@ -108,20 +130,56 @@ export function destinationsNest(a: string, b: string): boolean {
   return right.startsWith(leftFs) || left.startsWith(rightFs);
 }
 
+/**
+ * True if one resolved local path is a parent of the other (not the same path).
+ */
+export function destinationsNest(a: string, b: string): boolean {
+  if (!a.trim() || !b.trim()) {
+    return false;
+  }
+  return pathsNest(destinationCompareKey(a), destinationCompareKey(b));
+}
+
+function sameDestinationEndpoint(
+  a: DestinationConfigRef,
+  b: { destinationKind?: EndpointKind | null; destinationServerId?: string | null; destinationPath: string }
+): boolean {
+  return (
+    destinationEndpointKey({
+      destinationKind: a.destinationKind,
+      destinationServerId: a.destinationServerId,
+      destinationPath: a.destinationPath,
+    }) ===
+    destinationEndpointKey({
+      destinationKind: b.destinationKind,
+      destinationServerId: b.destinationServerId,
+      destinationPath: b.destinationPath,
+    })
+  );
+}
+
 export function findExactConflictInList(
   configs: DestinationConfigRef[],
   destinationPath: string,
-  excludeConfigId?: string
+  excludeConfigId?: string,
+  options?: {
+    destinationKind?: EndpointKind | null;
+    destinationServerId?: string | null;
+  }
 ): DestinationConflict | null {
   if (!destinationPath.trim()) {
     return null;
   }
-  const target = destinationCompareKey(destinationPath);
+  const target = {
+    destinationKind: options?.destinationKind || 'local',
+    destinationServerId: options?.destinationServerId ?? null,
+    destinationPath,
+  };
   for (const config of configs) {
     if (excludeConfigId && config.id === excludeConfigId) {
       continue;
     }
-    if (destinationCompareKey(config.destinationPath) === target) {
+    if (sameDestinationEndpoint(config, target)) {
       return { id: config.id, name: config.name };
     }
   }
@@ -131,14 +189,35 @@ export function findExactConflictInList(
 export function findNestedOverlapsInList(
   configs: DestinationConfigRef[],
   destinationPath: string,
-  excludeConfigId?: string
+  excludeConfigId?: string,
+  options?: {
+    destinationKind?: EndpointKind | null;
+    destinationServerId?: string | null;
+  }
 ): DestinationConflict[] {
   if (!destinationPath.trim()) {
     return [];
   }
+  const targetKind = options?.destinationKind || 'local';
+  const targetServerId = options?.destinationServerId ?? null;
+
+  // Nesting only applies to local destinations (or the same remote server).
   const overlaps: DestinationConflict[] = [];
   for (const config of configs) {
     if (excludeConfigId && config.id === excludeConfigId) {
+      continue;
+    }
+    const configKind = config.destinationKind || 'local';
+    if (configKind !== targetKind) {
+      continue;
+    }
+    if (targetKind === 'server') {
+      if ((config.destinationServerId || null) !== targetServerId) {
+        continue;
+      }
+      if (pathsNest(normalizeRemotePath(destinationPath), normalizeRemotePath(config.destinationPath))) {
+        overlaps.push({ id: config.id, name: config.name });
+      }
       continue;
     }
     if (destinationsNest(destinationPath, config.destinationPath)) {

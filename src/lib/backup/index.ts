@@ -1,5 +1,5 @@
 import { db } from '@/lib/db';
-import { backupConfigs, backupHistory } from '@/lib/db/schema';
+import { backupConfigs, backupHistory, servers } from '@/lib/db/schema';
 import {
   cleanupRemoteDir,
   packDockerVolume,
@@ -13,6 +13,16 @@ import {
   resolvePrivateKeyForServer,
   writeTemporarySshIdentityFile,
 } from '@/lib/ssh';
+import {
+  cleanupRemoteOldFiles,
+  cleanupRemoteOldVersions,
+  ensureRemoteDirectory,
+  generateEphemeralEd25519KeyPair,
+  installEphemeralAuthorizedKey,
+  probeSourceCanReachDest,
+  removeEphemeralAuthorizedKey,
+  runEphemeralDirectRsync,
+} from '@/lib/ssh/ephemeral';
 import { buildRsyncCommand, shellSingleQuote } from '@/lib/ssh/rsync';
 import dayjs from 'dayjs';
 import { eq } from 'drizzle-orm';
@@ -31,10 +41,14 @@ import {
   LOG_SECTION,
 } from './log-format';
 
-// Type for backup config with server
-type BackupConfigWithServer = {
+type ServerRow = typeof servers.$inferSelect;
+
+export type BackupConfigWithEndpoints = {
   id: string;
-  serverId: string;
+  sourceKind?: 'local' | 'server' | null;
+  serverId?: string | null;
+  destinationKind?: 'local' | 'server' | null;
+  destinationServerId?: string | null;
   name: string;
   sourceType?: 'path' | 'docker_volume' | null;
   sourcePath: string;
@@ -49,20 +63,8 @@ type BackupConfigWithServer = {
   retentionMaxAge?: number | null;
   retentionMaxAgeUnit?: RetentionAgeUnit | null;
   retentionMinKeep?: number | null;
-  server: {
-    id: string;
-    name: string;
-    host: string;
-    port: number;
-    username: string;
-    authType: 'password' | 'key';
-    password?: string | null;
-    privateKey?: string | null;
-    sshKeyId?: string | null;
-    systemKeyPath?: string | null;
-    createdAt: Date;
-    updatedAt: Date;
-  };
+  server?: ServerRow | null;
+  destinationServer?: ServerRow | null;
 };
 
 function expandLocalPath(dest: string): string {
@@ -76,12 +78,308 @@ function expandLocalPath(dest: string): string {
   return backupDestination;
 }
 
+function normalizeServer(server: ServerRow) {
+  return {
+    ...server,
+    password: server.password || null,
+    privateKey: server.privateKey || null,
+    sshKeyId: server.sshKeyId || null,
+    systemKeyPath: server.systemKeyPath || null,
+  };
+}
+
+function sshShellForIdentity(port: number, keyPath: string): string {
+  return `ssh -p ${port} -i ${shellSingleQuote(keyPath)} -F /dev/null -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR`;
+}
+
+async function runLocalPreBackupCommands(commandsText: string): Promise<string> {
+  const { exec } = require('child_process');
+  const { promisify } = require('util');
+  const execPromise = promisify(exec);
+  const commands = commandsText.split('\n').filter(Boolean);
+  const commandLogs: string[] = [];
+
+  for (const command of commands) {
+    console.log(`Executing local command: ${command}`);
+    try {
+      const result = await execPromise(command);
+      commandLogs.push(
+        formatPreBackupCommandLog(command, {
+          code: 0,
+          stdout: result.stdout || '',
+          stderr: result.stderr || '',
+        })
+      );
+    } catch (err: unknown) {
+      const e = err as { code?: number; stdout?: string; stderr?: string; message?: string };
+      commandLogs.push(
+        formatPreBackupCommandLog(command, {
+          code: e.code ?? 1,
+          stdout: e.stdout || '',
+          stderr: e.stderr || e.message || '',
+        })
+      );
+    }
+  }
+
+  return buildPreBackupLog(commandLogs);
+}
+
+async function pullPathFromServer(options: {
+  ssh: Awaited<ReturnType<typeof connectToServer>>;
+  server: ServerRow;
+  remotePath: string;
+  localDestination: string;
+  keyPath: string;
+  excludePatterns: string[];
+}): Promise<{ stdout: string; stderr: string; method: 'rsync' | 'scp' }> {
+  const { exec } = require('child_process');
+  const { promisify } = require('util');
+  const execPromise = promisify(exec);
+
+  const { rsyncAvailable, scpAvailable } = await getBackupTransportCapabilities(options.ssh);
+  const localSshShell = sshShellForIdentity(options.server.port, options.keyPath);
+  const remoteSource = `${options.server.username}@${options.server.host}:${options.remotePath}/`;
+
+  if (rsyncAvailable) {
+    const rsyncCommand = buildRsyncCommand(
+      remoteSource,
+      options.localDestination,
+      options.excludePatterns,
+      [],
+      localSshShell
+    );
+    const result = await execPromise(rsyncCommand);
+    return { stdout: result.stdout, stderr: result.stderr, method: 'rsync' };
+  }
+
+  if (!scpAvailable) {
+    throw new Error(
+      'Cannot pull: rsync was not found on the remote host and the SCP client was not found on this machine.'
+    );
+  }
+
+  const findCommand = await buildFindCommand(options.remotePath, options.excludePatterns);
+  const fileListResult = await options.ssh.execCommand(findCommand);
+  const filesToCopy = fileListResult.stdout.split('\n').filter(Boolean);
+
+  if (filesToCopy.length === 0) {
+    throw new Error('No files to copy, skipping backup');
+  }
+
+  let transferredFiles = 0;
+  let totalSize = 0;
+  const scpPromises = [];
+
+  for (const filePath of filesToCopy) {
+    if (filePath.endsWith('/')) {
+      await fs.mkdir(path.join(options.localDestination, filePath), { recursive: true });
+      continue;
+    }
+
+    const remoteFilePath = path.join(options.remotePath, filePath);
+    const localFilePath = path.join(options.localDestination, filePath);
+    await fs.mkdir(path.dirname(localFilePath), { recursive: true });
+
+    const scpOpts = `-P ${options.server.port} -F /dev/null -i ${shellSingleQuote(options.keyPath)} -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR`;
+    const scpCommand = `scp ${scpOpts} ${options.server.username}@${options.server.host}:"${remoteFilePath}" "${localFilePath}"`;
+
+    scpPromises.push(
+      execPromise(scpCommand)
+        .then(() => {
+          transferredFiles++;
+          return fs.stat(localFilePath);
+        })
+        .then((stats: Stats) => {
+          totalSize += stats.size;
+        })
+    );
+  }
+
+  await Promise.all(scpPromises);
+
+  return {
+    method: 'scp',
+    stdout: `SCP Backup Summary:\nNumber of files: ${transferredFiles}\nTotal file size: ${totalSize}\nTotal transferred file size: ${totalSize}`,
+    stderr: '',
+  };
+}
+
+async function pushPathToServer(options: {
+  ssh: Awaited<ReturnType<typeof connectToServer>>;
+  server: ServerRow;
+  localSource: string;
+  remoteDestination: string;
+  keyPath: string;
+  excludePatterns: string[];
+}): Promise<{ stdout: string; stderr: string; method: 'rsync' | 'scp' }> {
+  const { exec } = require('child_process');
+  const { promisify } = require('util');
+  const execPromise = promisify(exec);
+
+  const { rsyncAvailable, scpAvailable } = await getBackupTransportCapabilities(options.ssh);
+  await ensureRemoteDirectory(options.ssh, options.remoteDestination);
+
+  const localSshShell = sshShellForIdentity(options.server.port, options.keyPath);
+  const source = options.localSource.endsWith('/')
+    ? options.localSource
+    : `${options.localSource}/`;
+  const remoteTarget = `${options.server.username}@${options.server.host}:${options.remoteDestination}`;
+
+  if (rsyncAvailable) {
+    const rsyncCommand = buildRsyncCommand(
+      source,
+      remoteTarget,
+      options.excludePatterns,
+      [],
+      localSshShell
+    );
+    const result = await execPromise(rsyncCommand);
+    return { stdout: result.stdout, stderr: result.stderr, method: 'rsync' };
+  }
+
+  if (!scpAvailable) {
+    throw new Error(
+      'Cannot push: rsync was not found on the remote host and the SCP client was not found on this machine.'
+    );
+  }
+
+  const scpOpts = `-P ${options.server.port} -F /dev/null -i ${shellSingleQuote(options.keyPath)} -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -r`;
+  const scpCommand = `scp ${scpOpts} ${shellSingleQuote(source)} ${shellSingleQuote(remoteTarget)}`;
+  const result = await execPromise(scpCommand);
+  return { stdout: result.stdout, stderr: result.stderr, method: 'scp' };
+}
+
+async function localPathCopy(
+  sourcePath: string,
+  destinationPath: string,
+  excludePatterns: string[]
+): Promise<{ stdout: string; stderr: string }> {
+  const { exec } = require('child_process');
+  const { promisify } = require('util');
+  const execPromise = promisify(exec);
+
+  await fs.mkdir(destinationPath, { recursive: true });
+  const source = sourcePath.endsWith('/') ? sourcePath : `${sourcePath}/`;
+  const rsyncCommand = buildRsyncCommand(source, destinationPath, excludePatterns);
+  return execPromise(rsyncCommand);
+}
+
+async function transferServerToServer(options: {
+  sourceServer: ServerRow;
+  destServer: ServerRow;
+  sourcePath: string;
+  destPath: string;
+  excludePatterns: string[];
+}): Promise<{ stdout: string; stderr: string; mode: 'ephemeral' | 'relay' }> {
+  const sourceConfig = normalizeServer(options.sourceServer);
+  const destConfig = normalizeServer(options.destServer);
+
+  const sourceSsh = await connectToServer(sourceConfig);
+  const destSsh = await connectToServer(destConfig);
+
+  let ephemeralCleanup: (() => Promise<void>) | undefined;
+  let marker: string | undefined;
+
+  try {
+    await ensureRemoteDirectory(destSsh, options.destPath);
+
+    const ephemeral = await generateEphemeralEd25519KeyPair();
+    ephemeralCleanup = ephemeral.cleanup;
+    marker = ephemeral.marker;
+
+    await installEphemeralAuthorizedKey(destSsh, ephemeral.marker, ephemeral.publicKey);
+
+    const reachable = await probeSourceCanReachDest(
+      sourceSsh,
+      options.destServer.host,
+      options.destServer.port
+    );
+
+    if (reachable) {
+      try {
+        const result = await runEphemeralDirectRsync({
+          sourceSsh,
+          sourcePath: options.sourcePath,
+          destUsername: options.destServer.username,
+          destHost: options.destServer.host,
+          destPort: options.destServer.port,
+          destPath: options.destPath,
+          ephemeralPrivateKeyPath: ephemeral.privateKeyPath,
+          excludePatterns: options.excludePatterns,
+        });
+        return {
+          mode: 'ephemeral',
+          stdout: `Transfer mode: ephemeral (direct source→dest)\n${result.stdout}`,
+          stderr: result.stderr,
+        };
+      } catch (directError) {
+        console.warn(`Ephemeral direct transfer failed, falling back to relay: ${directError}`);
+      }
+    } else {
+      console.log('Source cannot reach destination; using relay via LazyBackup host');
+    }
+
+    // Relay: pull to temp on host, push to dest
+    const relayDir = await fs.mkdtemp(path.join(os.tmpdir(), 'lazybackup-relay-'));
+    try {
+      const sourceKey = await resolvePrivateKeyForServer(sourceConfig);
+      const { path: sourceKeyPath, cleanup: cleanupSourceKey } =
+        await writeTemporarySshIdentityFile(sourceKey);
+      try {
+        await pullPathFromServer({
+          ssh: sourceSsh,
+          server: options.sourceServer,
+          remotePath: options.sourcePath,
+          localDestination: relayDir,
+          keyPath: sourceKeyPath,
+          excludePatterns: options.excludePatterns,
+        });
+      } finally {
+        await cleanupSourceKey();
+      }
+
+      const destKey = await resolvePrivateKeyForServer(destConfig);
+      const { path: destKeyPath, cleanup: cleanupDestKey } =
+        await writeTemporarySshIdentityFile(destKey);
+      try {
+        const push = await pushPathToServer({
+          ssh: destSsh,
+          server: options.destServer,
+          localSource: relayDir,
+          remoteDestination: options.destPath,
+          keyPath: destKeyPath,
+          excludePatterns: [],
+        });
+        return {
+          mode: 'relay',
+          stdout: `Transfer mode: relay (via LazyBackup host)\n${push.stdout}`,
+          stderr: push.stderr,
+        };
+      } finally {
+        await cleanupDestKey();
+      }
+    } finally {
+      await fs.rm(relayDir, { recursive: true, force: true }).catch(() => {});
+    }
+  } finally {
+    if (marker) {
+      await removeEphemeralAuthorizedKey(destSsh, marker).catch(() => {});
+    }
+    await ephemeralCleanup?.();
+    sourceSsh.dispose();
+    destSsh.dispose();
+  }
+}
+
 /**
  * Execute a backup based on its configuration
  */
-export async function executeBackup(config: BackupConfigWithServer, historyId: string): Promise<void> {
-  let ssh: Awaited<ReturnType<typeof connectToServer>> | null = null;
+export async function executeBackup(config: BackupConfigWithEndpoints, historyId: string): Promise<void> {
+  let sourceSsh: Awaited<ReturnType<typeof connectToServer>> | null = null;
+  let destSsh: Awaited<ReturnType<typeof connectToServer>> | null = null;
   let cleanupIdentity: (() => Promise<void>) | undefined;
+  let cleanupDestIdentity: (() => Promise<void>) | undefined;
   let preBackupLog = '';
   let remoteTmpDir: string | null = null;
 
@@ -92,188 +390,253 @@ export async function executeBackup(config: BackupConfigWithServer, historyId: s
       throw new Error('Not in Node.js environment');
     }
 
-    const serverConfig = {
-      ...config.server,
-      password: config.server.password || null,
-      privateKey: config.server.privateKey || null,
-      sshKeyId: config.server.sshKeyId || null,
-      systemKeyPath: config.server.systemKeyPath || null
-    };
-
-    ssh = await connectToServer(serverConfig);
-
-    if (config.preBackupCommands && config.preBackupCommands.trim()) {
-      console.log(`Running pre-backup commands for ${config.name}`);
-      const commands = config.preBackupCommands.split('\n').filter(Boolean);
-      const commandLogs: string[] = [];
-
-      for (const command of commands) {
-        console.log(`Executing command: ${command}`);
-        const result = await ssh.execCommand(command);
-        const commandLog = formatPreBackupCommandLog(command, result);
-        commandLogs.push(commandLog);
-
-        if (result.stderr) {
-          console.warn(`Command produced warnings/errors: ${result.stderr}`);
-        }
-
-        console.log(`Command output: ${result.stdout || 'No output'}`);
-      }
-
-      preBackupLog = buildPreBackupLog(commandLogs);
-      console.log(`Completed pre-backup commands for ${config.name}`);
-    }
-
+    const sourceKind = config.sourceKind || 'server';
+    const destinationKind = config.destinationKind || 'local';
+    const sourceType = config.sourceType || 'path';
     const excludePatterns = config.excludePatterns
       ? config.excludePatterns.split('\n').filter(Boolean)
       : [];
-
     const timestamp = dayjs().format('YYYY-MM-DD_HH-mm-ss');
 
-    let backupDestination = expandLocalPath(config.destinationPath);
-
-    if (config.enableVersioning) {
-      backupDestination = path.join(backupDestination, timestamp);
+    if (sourceKind === 'server' && !config.server) {
+      throw new Error('Source server is missing from backup configuration');
+    }
+    if (destinationKind === 'server' && !config.destinationServer) {
+      throw new Error('Destination server is missing from backup configuration');
+    }
+    if (sourceType === 'docker_volume' && sourceKind !== 'server') {
+      throw new Error('Docker volume backups require a source server');
     }
 
-    await fs.mkdir(backupDestination, { recursive: true });
-
-    const privateKey = await resolvePrivateKeyForServer(serverConfig);
-    const { path: keyPath, cleanup: cleanupKeyFile } = await writeTemporarySshIdentityFile(privateKey);
-    cleanupIdentity = cleanupKeyFile;
-
-    const localSshShell = `ssh -p ${config.server.port} -i ${shellSingleQuote(keyPath)} -F /dev/null -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR`;
-
-    const { rsyncAvailable, scpAvailable } = await getBackupTransportCapabilities(ssh);
-
-    const { exec } = require('child_process');
-    const { promisify } = require('util');
-    const execPromise = promisify(exec);
-
-    const sourceType = config.sourceType || 'path';
-    let backupResult: { stdout: string; stderr: string };
-    let usedMethod: 'rsync' | 'scp' | 'docker' = 'rsync';
-    let artifactPath = backupDestination;
-
-    if (sourceType === 'docker_volume') {
-      console.log(`Packing Docker volume: ${config.sourcePath}`);
-      const packed = await packDockerVolume(ssh, config.sourcePath, excludePatterns);
-      remoteTmpDir = packed.remoteTmpDir;
-
-      const archiveName = `${config.sourcePath}.tar.gz`;
-      const localArchivePath = path.join(backupDestination, archiveName);
-
-      const pull = await pullFileFromRemote({
-        remotePath: packed.remoteArchivePath,
-        localPath: localArchivePath,
-        username: config.server.username,
-        host: config.server.host,
-        port: config.server.port,
-        identityKeyPath: keyPath,
-        rsyncAvailable,
-        scpAvailable,
-      });
-
-      usedMethod = 'docker';
-      artifactPath = localArchivePath;
-
-      const stats = await fs.stat(localArchivePath);
-      const dockerLog = [
-        `Volume: ${config.sourcePath}`,
-        `Archive: ${archiveName}`,
-        `Local path: ${localArchivePath}`,
-        `Size: ${stats.size} bytes`,
-        `Transfer: ${pull.method}`,
-        packed.stdout?.trim() ? `--- pack stdout ---\n${packed.stdout.trim()}` : '',
-        packed.stderr?.trim() ? `--- pack stderr ---\n${packed.stderr.trim()}` : '',
-        pull.stdout?.trim() ? `--- transfer stdout ---\n${pull.stdout.trim()}` : '',
-        pull.stderr?.trim() ? `--- transfer stderr ---\n${pull.stderr.trim()}` : '',
-      ]
-        .filter(Boolean)
-        .join('\n');
-
-      backupResult = { stdout: dockerLog, stderr: '' };
-    } else {
-      const remotePath = config.sourcePath;
-      const remoteSource = `${config.server.username}@${config.server.host}:${remotePath}/`;
-
-      if (rsyncAvailable) {
-        console.log('Using rsync for backup (preferred path)');
-
-        const rsyncCommand = buildRsyncCommand(
-          remoteSource,
-          backupDestination,
-          excludePatterns,
-          [],
-          localSshShell
-        );
-        console.log(`Executing rsync command: ${rsyncCommand}`);
-
-        backupResult = await execPromise(rsyncCommand);
-      } else if (scpAvailable) {
-        console.log('Rsync not on remote host — falling back to local SCP');
-        usedMethod = 'scp';
-
-        const findCommand = await buildFindCommand(remotePath, excludePatterns);
-        const fileListResult = await ssh.execCommand(findCommand);
-        const filesToCopy = fileListResult.stdout.split('\n').filter(Boolean);
-
-        console.log(`Found ${filesToCopy.length} files/directories to copy via SCP`);
-
-        if (filesToCopy.length === 0) {
-          console.log('No files to copy, skipping backup');
-          throw new Error('No files to copy, skipping backup');
-        }
-
-        const scpPromises = [];
-        let transferredFiles = 0;
-        let totalSize = 0;
-
-        for (const filePath of filesToCopy) {
-          if (filePath.endsWith('/')) {
-            const localDirPath = path.join(backupDestination, filePath);
-            await fs.mkdir(localDirPath, { recursive: true });
-            continue;
+    // Pre-backup commands
+    if (config.preBackupCommands && config.preBackupCommands.trim()) {
+      if (sourceKind === 'server' && config.server) {
+        sourceSsh = await connectToServer(normalizeServer(config.server));
+        console.log(`Running pre-backup commands for ${config.name}`);
+        const commands = config.preBackupCommands.split('\n').filter(Boolean);
+        const commandLogs: string[] = [];
+        for (const command of commands) {
+          console.log(`Executing command: ${command}`);
+          const result = await sourceSsh.execCommand(command);
+          commandLogs.push(formatPreBackupCommandLog(command, result));
+          if (result.stderr) {
+            console.warn(`Command produced warnings/errors: ${result.stderr}`);
           }
-
-          const relativeFilePath = filePath;
-          const remoteFilePath = path.join(remotePath, relativeFilePath);
-          const localFilePath = path.join(backupDestination, relativeFilePath);
-
-          await fs.mkdir(path.dirname(localFilePath), { recursive: true });
-
-          const scpOpts = `-P ${config.server.port} -F /dev/null -i ${shellSingleQuote(keyPath)} -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR`;
-          const scpCommand = `scp ${scpOpts} ${config.server.username}@${config.server.host}:"${remoteFilePath}" "${localFilePath}"`;
-
-          scpPromises.push(
-            execPromise(scpCommand)
-              .then(() => {
-                transferredFiles++;
-                return fs.stat(localFilePath);
-              })
-              .then((stats: Stats) => {
-                totalSize += stats.size;
-              })
-          );
         }
-
-        await Promise.all(scpPromises);
-
-        const scpOutput = `SCP Backup Summary:
-Number of files: ${transferredFiles}
-Total file size: ${totalSize}
-Total transferred file size: ${totalSize}`;
-
-        backupResult = { stdout: scpOutput, stderr: '' };
+        preBackupLog = buildPreBackupLog(commandLogs);
       } else {
-        throw new Error(
-          'Cannot run backup: rsync was not found on the remote host and the SCP client was not found on this machine.'
-        );
+        preBackupLog = await runLocalPreBackupCommands(config.preBackupCommands);
       }
     }
 
-    if (remoteTmpDir && ssh) {
-      await cleanupRemoteDir(ssh, remoteTmpDir).catch((err) =>
+    // Resolve destination path (with optional versioning subdir)
+    let localDestination: string | null = null;
+    let remoteDestination: string | null = null;
+
+    if (destinationKind === 'local') {
+      localDestination = expandLocalPath(config.destinationPath);
+      if (config.enableVersioning) {
+        localDestination = path.join(localDestination, timestamp);
+      }
+      await fs.mkdir(localDestination, { recursive: true });
+    } else if (config.destinationServer) {
+      remoteDestination = config.destinationPath.replace(/\/+$/, '') || config.destinationPath;
+      if (config.enableVersioning) {
+        remoteDestination = `${remoteDestination}/${timestamp}`;
+      }
+      destSsh = await connectToServer(normalizeServer(config.destinationServer));
+      await ensureRemoteDirectory(destSsh, remoteDestination);
+    }
+
+    let backupResult: { stdout: string; stderr: string };
+    let usedMethod: string = 'rsync';
+    let artifactPath =
+      destinationKind === 'local' ? localDestination! : remoteDestination!;
+
+    // --- Docker volume source ---
+    if (sourceType === 'docker_volume') {
+      if (!config.server) {
+        throw new Error('Source server required for docker volume backup');
+      }
+      if (!sourceSsh) {
+        sourceSsh = await connectToServer(normalizeServer(config.server));
+      }
+
+      const privateKey = await resolvePrivateKeyForServer(normalizeServer(config.server));
+      const { path: keyPath, cleanup: cleanupKeyFile } = await writeTemporarySshIdentityFile(privateKey);
+      cleanupIdentity = cleanupKeyFile;
+
+      console.log(`Packing Docker volume: ${config.sourcePath}`);
+      const packed = await packDockerVolume(sourceSsh, config.sourcePath, excludePatterns);
+      remoteTmpDir = packed.remoteTmpDir;
+      const archiveName = `${config.sourcePath}.tar.gz`;
+
+      const { rsyncAvailable, scpAvailable } = await getBackupTransportCapabilities(sourceSsh);
+
+      if (destinationKind === 'local' && localDestination) {
+        const localArchivePath = path.join(localDestination, archiveName);
+        const pull = await pullFileFromRemote({
+          remotePath: packed.remoteArchivePath,
+          localPath: localArchivePath,
+          username: config.server.username,
+          host: config.server.host,
+          port: config.server.port,
+          identityKeyPath: keyPath,
+          rsyncAvailable,
+          scpAvailable,
+        });
+        usedMethod = 'docker';
+        artifactPath = localArchivePath;
+        const stats = await fs.stat(localArchivePath);
+        backupResult = {
+          stdout: [
+            `Volume: ${config.sourcePath}`,
+            `Archive: ${archiveName}`,
+            `Local path: ${localArchivePath}`,
+            `Size: ${stats.size} bytes`,
+            `Transfer: ${pull.method}`,
+            packed.stdout?.trim() ? `--- pack stdout ---\n${packed.stdout.trim()}` : '',
+            pull.stdout?.trim() ? `--- transfer stdout ---\n${pull.stdout.trim()}` : '',
+          ]
+            .filter(Boolean)
+            .join('\n'),
+          stderr: '',
+        };
+      } else if (destinationKind === 'server' && config.destinationServer && remoteDestination) {
+        // Pack on source → relay/ephemeral to dest path as .tar.gz
+        const relayFile = path.join(os.tmpdir(), `lazybackup-docker-${Date.now()}-${archiveName}`);
+        try {
+          await pullFileFromRemote({
+            remotePath: packed.remoteArchivePath,
+            localPath: relayFile,
+            username: config.server.username,
+            host: config.server.host,
+            port: config.server.port,
+            identityKeyPath: keyPath,
+            rsyncAvailable,
+            scpAvailable,
+          });
+
+          if (!destSsh) {
+            destSsh = await connectToServer(normalizeServer(config.destinationServer));
+          }
+          const destKey = await resolvePrivateKeyForServer(normalizeServer(config.destinationServer));
+          const { path: destKeyPath, cleanup: cleanupDestKey } =
+            await writeTemporarySshIdentityFile(destKey);
+          cleanupDestIdentity = cleanupDestKey;
+
+          const { rsyncAvailable: destRsync, scpAvailable: destScp } =
+            await getBackupTransportCapabilities(destSsh);
+          const remoteArchivePath = `${remoteDestination.replace(/\/+$/, '')}/${archiveName}`;
+          const push = await pushFileToRemote({
+            localPath: relayFile,
+            remotePath: remoteArchivePath,
+            username: config.destinationServer.username,
+            host: config.destinationServer.host,
+            port: config.destinationServer.port,
+            identityKeyPath: destKeyPath,
+            rsyncAvailable: destRsync,
+            scpAvailable: destScp,
+          });
+
+          usedMethod = 'docker-relay';
+          artifactPath = remoteArchivePath;
+          backupResult = {
+            stdout: [
+              `Volume: ${config.sourcePath}`,
+              `Archive: ${archiveName}`,
+              `Remote path: ${remoteArchivePath}`,
+              `Transfer mode: relay`,
+              push.stdout?.trim() ? `--- push stdout ---\n${push.stdout.trim()}` : '',
+            ]
+              .filter(Boolean)
+              .join('\n'),
+            stderr: '',
+          };
+        } finally {
+          await fs.unlink(relayFile).catch(() => {});
+        }
+      } else {
+        throw new Error('Invalid destination for docker volume backup');
+      }
+    } else if (sourceKind === 'local' && destinationKind === 'local' && localDestination) {
+      const localSource = expandLocalPath(config.sourcePath);
+      backupResult = await localPathCopy(localSource, localDestination, excludePatterns);
+      usedMethod = 'local-rsync';
+      artifactPath = localDestination;
+    } else if (sourceKind === 'local' && destinationKind === 'server' && config.destinationServer && remoteDestination) {
+      if (!destSsh) {
+        destSsh = await connectToServer(normalizeServer(config.destinationServer));
+      }
+      const destKey = await resolvePrivateKeyForServer(normalizeServer(config.destinationServer));
+      const { path: destKeyPath, cleanup: cleanupDestKey } =
+        await writeTemporarySshIdentityFile(destKey);
+      cleanupDestIdentity = cleanupDestKey;
+
+      const localSource = expandLocalPath(config.sourcePath);
+      const push = await pushPathToServer({
+        ssh: destSsh,
+        server: config.destinationServer,
+        localSource,
+        remoteDestination,
+        keyPath: destKeyPath,
+        excludePatterns,
+      });
+      backupResult = push;
+      usedMethod = `push-${push.method}`;
+      artifactPath = remoteDestination;
+    } else if (sourceKind === 'server' && destinationKind === 'local' && config.server && localDestination) {
+      if (!sourceSsh) {
+        sourceSsh = await connectToServer(normalizeServer(config.server));
+      }
+      const privateKey = await resolvePrivateKeyForServer(normalizeServer(config.server));
+      const { path: keyPath, cleanup: cleanupKeyFile } = await writeTemporarySshIdentityFile(privateKey);
+      cleanupIdentity = cleanupKeyFile;
+
+      const pull = await pullPathFromServer({
+        ssh: sourceSsh,
+        server: config.server,
+        remotePath: config.sourcePath,
+        localDestination,
+        keyPath,
+        excludePatterns,
+      });
+      backupResult = pull;
+      usedMethod = pull.method;
+      artifactPath = localDestination;
+    } else if (
+      sourceKind === 'server' &&
+      destinationKind === 'server' &&
+      config.server &&
+      config.destinationServer &&
+      remoteDestination
+    ) {
+      // Dispose pre-opened sessions; transferServerToServer manages its own
+      if (sourceSsh) {
+        sourceSsh.dispose();
+        sourceSsh = null;
+      }
+      if (destSsh) {
+        destSsh.dispose();
+        destSsh = null;
+      }
+
+      const transfer = await transferServerToServer({
+        sourceServer: config.server,
+        destServer: config.destinationServer,
+        sourcePath: config.sourcePath,
+        destPath: remoteDestination,
+        excludePatterns,
+      });
+      backupResult = transfer;
+      usedMethod = `s2s-${transfer.mode}`;
+      artifactPath = remoteDestination;
+    } else {
+      throw new Error(`Unsupported transfer direction: ${sourceKind} → ${destinationKind}`);
+    }
+
+    if (remoteTmpDir && sourceSsh) {
+      await cleanupRemoteDir(sourceSsh, remoteTmpDir).catch((err) =>
         console.warn(`Failed to clean remote temp dir: ${err}`)
       );
       remoteTmpDir = null;
@@ -281,29 +644,54 @@ Total transferred file size: ${totalSize}`;
 
     console.log(`Backup completed for ${config.name} using ${usedMethod}`);
 
-    if (config.enableVersioning && config.versionsToKeep) {
-      const baseDir = path.dirname(backupDestination);
-      await cleanupOldVersions(baseDir, config.versionsToKeep);
-    }
-
+    // Version / file retention
     let fileRetentionLog = '';
-    if (
-      !config.enableVersioning &&
-      config.enableFileRetention &&
-      config.retentionMaxAge &&
-      config.retentionMinKeep
-    ) {
-      const deletedFiles = await cleanupOldFiles(
-        config.destinationPath,
-        config.retentionMaxAge,
-        config.retentionMaxAgeUnit || 'days',
+    if (destinationKind === 'local' && localDestination) {
+      if (config.enableVersioning && config.versionsToKeep) {
+        const baseDir = path.dirname(localDestination);
+        await cleanupOldVersions(baseDir, config.versionsToKeep);
+      }
+      if (
+        !config.enableVersioning &&
+        config.enableFileRetention &&
+        config.retentionMaxAge &&
         config.retentionMinKeep
-      );
-      fileRetentionLog = buildFileRetentionLog(deletedFiles);
+      ) {
+        const deletedFiles = await cleanupOldFiles(
+          config.destinationPath,
+          config.retentionMaxAge,
+          config.retentionMaxAgeUnit || 'days',
+          config.retentionMinKeep
+        );
+        fileRetentionLog = buildFileRetentionLog(deletedFiles);
+      }
+    } else if (destinationKind === 'server' && config.destinationServer && remoteDestination) {
+      if (!destSsh) {
+        destSsh = await connectToServer(normalizeServer(config.destinationServer));
+      }
+      if (config.enableVersioning && config.versionsToKeep) {
+        const baseDir = path.posix.dirname(remoteDestination);
+        await cleanupRemoteOldVersions(destSsh, baseDir, config.versionsToKeep);
+      }
+      if (
+        !config.enableVersioning &&
+        config.enableFileRetention &&
+        config.retentionMaxAge &&
+        config.retentionMinKeep
+      ) {
+        const deleted = await cleanupRemoteOldFiles(
+          destSsh,
+          config.destinationPath,
+          config.retentionMaxAge,
+          config.retentionMaxAgeUnit || 'days',
+          config.retentionMinKeep
+        );
+        fileRetentionLog = buildFileRetentionLog(deleted);
+      }
     }
 
     const parsedOutput =
-      usedMethod === 'docker'
+      usedMethod.startsWith('docker') && destinationKind === 'local'
         ? {
             fileCount: 1,
             totalSize: (await fs.stat(artifactPath)).size,
@@ -318,8 +706,8 @@ Total transferred file size: ${totalSize}`;
     });
   } catch (error) {
     console.error(`Backup failed: ${error}`);
-    if (remoteTmpDir && ssh) {
-      await cleanupRemoteDir(ssh, remoteTmpDir).catch(() => {});
+    if (remoteTmpDir && sourceSsh) {
+      await cleanupRemoteDir(sourceSsh, remoteTmpDir).catch(() => {});
     }
     await updateBackupHistoryFailure(
       historyId,
@@ -329,12 +717,15 @@ Total transferred file size: ${totalSize}`;
     throw error;
   } finally {
     await cleanupIdentity?.();
-    ssh?.dispose();
+    await cleanupDestIdentity?.();
+    sourceSsh?.dispose();
+    destSsh?.dispose();
   }
 }
 
 /**
  * Restore a successful Docker volume backup onto the remote server.
+ * Requires the artifact to exist on the LazyBackup host (local destination backups).
  */
 export async function restoreDockerVolumeBackup(
   historyId: string,
@@ -350,6 +741,7 @@ export async function restoreDockerVolumeBackup(
       backupConfig: {
         with: {
           server: true,
+          destinationServer: true,
         },
       },
     },
@@ -376,6 +768,16 @@ export async function restoreDockerVolumeBackup(
     throw new Error('This backup has no stored artifact path and cannot be restored');
   }
 
+  if ((config.destinationKind || 'local') !== 'local') {
+    throw new Error(
+      'Restore is only supported when the backup destination is on the LazyBackup host'
+    );
+  }
+
+  if (!config.server) {
+    throw new Error('Source server is missing; cannot restore Docker volume');
+  }
+
   const targetVolume = volumeName?.trim() || config.sourcePath;
   const artifactPath = historyEntry.artifactPath;
 
@@ -383,13 +785,7 @@ export async function restoreDockerVolumeBackup(
     throw new Error(`Backup artifact not found on disk: ${artifactPath}`);
   });
 
-  const serverConfig = {
-    ...config.server,
-    password: config.server.password || null,
-    privateKey: config.server.privateKey || null,
-    sshKeyId: config.server.sshKeyId || null,
-    systemKeyPath: config.server.systemKeyPath || null,
-  };
+  const serverConfig = normalizeServer(config.server);
 
   let ssh: Awaited<ReturnType<typeof connectToServer>> | null = null;
   let cleanupIdentity: (() => Promise<void>) | undefined;
@@ -453,20 +849,16 @@ export async function restoreDockerVolumeBackup(
   }
 }
 
-/**
- * Builds a find command to list files on the remote server while respecting exclude patterns
- */
 async function buildFindCommand(remotePath: string, excludePatterns: string[] = []): Promise<string> {
   let findCommand = `find "${remotePath}" -type f -o -type d -name "."`;
 
   if (excludePatterns.length > 0) {
     const excludeExpressions = excludePatterns
-      .map(pattern => {
+      .map((pattern) => {
         const regexPattern = pattern
           .replace(/\./g, '\\.')
           .replace(/\*/g, '.*')
           .replace(/\?/g, '.');
-
         return `-not -path "${remotePath}/${regexPattern}"`;
       })
       .join(' ');
@@ -486,7 +878,7 @@ async function cleanupOldVersions(baseDir: string, versionsToKeep: number): Prom
       expandedBaseDir = expandedBaseDir.replace('~', process.env.HOME || os.homedir());
     }
 
-    if (!await fs.access(expandedBaseDir).then(() => true).catch(() => false)) {
+    if (!(await fs.access(expandedBaseDir).then(() => true).catch(() => false))) {
       console.log(`Directory does not exist, skipping cleanup: ${expandedBaseDir}`);
       return;
     }
@@ -494,8 +886,8 @@ async function cleanupOldVersions(baseDir: string, versionsToKeep: number): Prom
     const entries = await fs.readdir(expandedBaseDir, { withFileTypes: true });
 
     const versionDirs = entries
-      .filter(entry => entry.isDirectory())
-      .map(dir => dir.name)
+      .filter((entry) => entry.isDirectory())
+      .map((dir) => dir.name)
       .sort()
       .reverse();
 
@@ -512,10 +904,6 @@ async function cleanupOldVersions(baseDir: string, versionsToKeep: number): Prom
   }
 }
 
-/**
- * Delete top-level files in destination older than max age, keeping at least minKeep newest.
- * Returns names of deleted files. Soft-fails (logs and returns []) on error.
- */
 async function cleanupOldFiles(
   destinationPath: string,
   maxAge: number,
@@ -531,7 +919,7 @@ async function cleanupOldFiles(
       expandedDir = path.resolve(expandedDir);
     }
 
-    if (!await fs.access(expandedDir).then(() => true).catch(() => false)) {
+    if (!(await fs.access(expandedDir).then(() => true).catch(() => false))) {
       console.log(`Directory does not exist, skipping file retention: ${expandedDir}`);
       return [];
     }
@@ -563,7 +951,6 @@ async function cleanupOldFiles(
 
 /**
  * Start a backup for a specific config
- * Creates a history entry and executes the backup
  */
 export async function startBackup(configId: string): Promise<string> {
   try {
@@ -571,6 +958,7 @@ export async function startBackup(configId: string): Promise<string> {
       where: eq(backupConfigs.id, configId),
       with: {
         server: true,
+        destinationServer: true,
       },
     });
 
@@ -580,7 +968,7 @@ export async function startBackup(configId: string): Promise<string> {
 
     const historyEntry = await createBackupHistoryEntry(configId);
 
-    executeBackup(config, historyEntry.id).catch(error => {
+    executeBackup(config, historyEntry.id).catch((error) => {
       console.error(`Error executing backup: ${error}`);
     });
 

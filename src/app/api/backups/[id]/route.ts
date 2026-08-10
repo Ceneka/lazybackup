@@ -10,6 +10,11 @@ import { eq } from 'drizzle-orm';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 
+const backupWithEndpoints = {
+  server: true,
+  destinationServer: true,
+} as const;
+
 // GET /api/backups/:id - Get a backup configuration
 export async function GET(
   request: NextRequest,
@@ -21,9 +26,7 @@ export async function GET(
     // Get the backup configuration
     const config = await db.query.backupConfigs.findFirst({
       where: eq(backupConfigs.id, id),
-      with: {
-        server: true,
-      },
+      with: backupWithEndpoints,
     });
 
     if (!config) {
@@ -73,7 +76,11 @@ export async function PUT(
 
     const conflictingBackup = await findExactDestinationConflict(
       validatedData.destinationPath,
-      id
+      id,
+      {
+        destinationKind: validatedData.destinationKind,
+        destinationServerId: validatedData.destinationServerId,
+      }
     );
     if (conflictingBackup) {
       return NextResponse.json(
@@ -99,9 +106,7 @@ export async function PUT(
     // Get the updated configuration with server details
     const updatedConfig = await db.query.backupConfigs.findFirst({
       where: eq(backupConfigs.id, id),
-      with: {
-        server: true,
-      },
+      with: backupWithEndpoints,
     });
 
     if (!updatedConfig) {

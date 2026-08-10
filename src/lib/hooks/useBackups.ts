@@ -4,7 +4,10 @@ import { toast } from "sonner"
 // Type definitions
 export interface Backup {
   id: string
-  serverId: string
+  sourceKind?: 'local' | 'server'
+  serverId?: string | null
+  destinationKind?: 'local' | 'server'
+  destinationServerId?: string | null
   name: string
   sourceType?: 'path' | 'docker_volume'
   sourcePath: string
@@ -26,7 +29,13 @@ export interface Backup {
   server?: {
     id?: string
     name: string
-  }
+    host?: string
+  } | null
+  destinationServer?: {
+    id?: string
+    name: string
+    host?: string
+  } | null
   createdAt: string
   updatedAt: string
 }
@@ -46,6 +55,8 @@ export interface BackupDestinationSummary {
   configuredPath: string
   path: string
   exists: boolean
+  remote?: boolean
+  remoteServerName?: string | null
   totalBytes: number
   totalSize: string
   fileCount: number

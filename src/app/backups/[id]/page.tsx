@@ -203,10 +203,37 @@ export default function BackupDetailPage() {
                 <h2 className="mb-4 text-xl font-semibold">Backup Details</h2>
                 <dl className="space-y-4">
                   <div>
-                    <dt className="text-sm font-medium text-muted-foreground">Server</dt>
+                    <dt className="text-sm font-medium text-muted-foreground">From</dt>
                     <dd className="flex items-center space-x-2 text-lg">
-                      <ServerIcon className="h-4 w-4" />
-                      <span>{query.data.server?.name || "Unknown Server"}</span>
+                      {(query.data.sourceKind || "server") === "local" ? (
+                        <HardDriveIcon className="h-4 w-4" />
+                      ) : (
+                        <ServerIcon className="h-4 w-4" />
+                      )}
+                      <span>
+                        {(query.data.sourceKind || "server") === "local"
+                          ? "This host"
+                          : query.data.server?.name || "Unknown server"}
+                        {query.data.sourceType === "docker_volume"
+                          ? ` · volume ${query.data.sourcePath}`
+                          : ` · ${query.data.sourcePath}`}
+                      </span>
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-sm font-medium text-muted-foreground">To</dt>
+                    <dd className="flex items-center space-x-2 text-lg">
+                      {(query.data.destinationKind || "local") === "local" ? (
+                        <HardDriveIcon className="h-4 w-4" />
+                      ) : (
+                        <ServerIcon className="h-4 w-4" />
+                      )}
+                      <span>
+                        {(query.data.destinationKind || "local") === "local"
+                          ? "This host"
+                          : query.data.destinationServer?.name || "Unknown server"}
+                        {` · ${query.data.destinationPath}`}
+                      </span>
                     </dd>
                   </div>
                   <div>
@@ -214,16 +241,6 @@ export default function BackupDetailPage() {
                     <dd className="text-lg">
                       {query.data.sourceType === 'docker_volume' ? 'Docker volume' : 'Filesystem path'}
                     </dd>
-                  </div>
-                  <div>
-                    <dt className="text-sm font-medium text-muted-foreground">
-                      {query.data.sourceType === 'docker_volume' ? 'Docker Volume' : 'Source Path'}
-                    </dt>
-                    <dd className="text-lg">{query.data.sourcePath}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-sm font-medium text-muted-foreground">Destination Path</dt>
-                    <dd className="text-lg">{query.data.destinationPath}</dd>
                   </div>
                   <div>
                     <dt className="text-sm font-medium text-muted-foreground">Schedule</dt>
@@ -322,13 +339,24 @@ export default function BackupDetailPage() {
                     <CalendarIcon className="h-5 w-5" />
                     <span>View Backup History</span>
                   </Link>
-                  <Link
-                    href={`/servers/${query.data.serverId}`}
-                    className="flex items-center space-x-2 rounded-md p-3 transition-colors hover:bg-accent"
-                  >
-                    <ServerIcon className="h-5 w-5" />
-                    <span>View Server Details</span>
-                  </Link>
+                  {query.data.serverId && (
+                    <Link
+                      href={`/servers/${query.data.serverId}`}
+                      className="flex items-center space-x-2 rounded-md p-3 transition-colors hover:bg-accent"
+                    >
+                      <ServerIcon className="h-5 w-5" />
+                      <span>View source server</span>
+                    </Link>
+                  )}
+                  {query.data.destinationServerId && (
+                    <Link
+                      href={`/servers/${query.data.destinationServerId}`}
+                      className="flex items-center space-x-2 rounded-md p-3 transition-colors hover:bg-accent"
+                    >
+                      <ServerIcon className="h-5 w-5" />
+                      <span>View destination server</span>
+                    </Link>
+                  )}
                   <DeleteConfirmationDialog
                     title="Are you absolutely sure?"
                     description="This will permanently delete this backup configuration. This action cannot be undone."
@@ -348,7 +376,9 @@ export default function BackupDetailPage() {
                     On-disk backups
                   </h2>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    Resume of files stored at this destination on the LazyBackup host.
+                    {(query.data.destinationKind || "local") === "server"
+                      ? "Destination is on a remote server — local disk listing is unavailable."
+                      : "Resume of files stored at this destination on the LazyBackup host."}
                   </p>
                 </div>
                 <button
@@ -372,7 +402,17 @@ export default function BackupDetailPage() {
                 emptyMessage="No storage summary available"
                 isDataEmpty={(data) => !data}
               >
-                {storage && (
+                {storage && storage.remote ? (
+                  <div className="space-y-2 text-sm">
+                    <p>
+                      Remote destination
+                      {storage.remoteServerName ? ` on ${storage.remoteServerName}` : ""}
+                    </p>
+                    <p className="font-mono text-xs text-muted-foreground" title={storage.path}>
+                      {storage.path}
+                    </p>
+                  </div>
+                ) : storage && (
                   <div className="space-y-5">
                     {!storage.exists ? (
                       <p className="text-sm text-muted-foreground">

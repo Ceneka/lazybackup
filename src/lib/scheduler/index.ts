@@ -17,6 +17,7 @@ export async function initializeScheduler() {
     where: eq(backupConfigs.enabled, true),
     with: {
       server: true,
+      destinationServer: true,
     },
   });
 

@@ -18,6 +18,7 @@ export async function POST(
       where: eq(backupConfigs.id, id),
       with: {
         server: true,
+        destinationServer: true,
       },
     });
 

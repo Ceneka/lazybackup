@@ -67,6 +67,7 @@ export async function GET(request: NextRequest) {
         backupConfig: {
           with: {
             server: true,
+            destinationServer: true,
           },
         },
       },

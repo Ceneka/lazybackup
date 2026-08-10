@@ -40,6 +40,9 @@ export type BackupDestinationSummary = {
   configuredPath: string
   path: string
   exists: boolean
+  /** When true, destination lives on a remote server — local disk walk was skipped */
+  remote?: boolean
+  remoteServerName?: string | null
   totalBytes: number
   totalSize: string
   fileCount: number
@@ -184,23 +187,51 @@ export async function getBackupStorageStats(
 
 /**
  * Summarize what is currently stored at a backup config's destination path.
+ * Remote destinations return a marker summary (no local filesystem walk).
  */
 export async function getBackupDestinationSummary(options: {
   destinationPath: string
+  destinationKind?: 'local' | 'server' | null
+  destinationServerName?: string | null
   enableVersioning?: boolean | null
   versionsToKeep?: number | null
   entryLimit?: number
 }): Promise<BackupDestinationSummary> {
   const configuredPath = options.destinationPath
-  const path = resolveLocalBackupPath(configuredPath)
-  const entryLimit = options.entryLimit ?? DEFAULT_ENTRY_LIMIT
   const enableVersioning = Boolean(options.enableVersioning)
   const versionsToKeep = options.versionsToKeep ?? null
+
+  if ((options.destinationKind || 'local') === 'server') {
+    return {
+      configuredPath,
+      path: configuredPath,
+      exists: true,
+      remote: true,
+      remoteServerName: options.destinationServerName ?? null,
+      totalBytes: 0,
+      totalSize: formatBytes(0),
+      fileCount: 0,
+      directoryCount: 0,
+      lastModified: null,
+      truncated: false,
+      versioning: {
+        enabled: enableVersioning,
+        versionsToKeep,
+        versionCount: 0,
+        versions: [],
+      },
+      topLevel: [],
+    }
+  }
+
+  const path = resolveLocalBackupPath(configuredPath)
+  const entryLimit = options.entryLimit ?? DEFAULT_ENTRY_LIMIT
 
   const empty: BackupDestinationSummary = {
     configuredPath,
     path,
     exists: false,
+    remote: false,
     totalBytes: 0,
     totalSize: formatBytes(0),
     fileCount: 0,

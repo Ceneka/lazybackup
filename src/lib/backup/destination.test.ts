@@ -101,3 +101,56 @@ describe('findNestedOverlapsInList', () => {
     expect(findNestedOverlapsInList(configs, '/backups/site', '1')).toEqual([]);
   });
 });
+
+describe('remote destination conflicts', () => {
+  const configs = [
+    {
+      id: '1',
+      name: 'Local',
+      destinationPath: '/backups/shared',
+      destinationKind: 'local' as const,
+      destinationServerId: null,
+    },
+    {
+      id: '2',
+      name: 'Remote A',
+      destinationPath: '/backups/shared',
+      destinationKind: 'server' as const,
+      destinationServerId: 'srv-a',
+    },
+    {
+      id: '3',
+      name: 'Remote B',
+      destinationPath: '/data/out',
+      destinationKind: 'server' as const,
+      destinationServerId: 'srv-b',
+    },
+  ];
+
+  test('same path on local vs remote does not conflict', () => {
+    expect(
+      findExactConflictInList(configs, '/backups/shared', undefined, {
+        destinationKind: 'server',
+        destinationServerId: 'srv-new',
+      })
+    ).toBeNull();
+  });
+
+  test('same path on same remote server conflicts', () => {
+    expect(
+      findExactConflictInList(configs, '/backups/shared/', undefined, {
+        destinationKind: 'server',
+        destinationServerId: 'srv-a',
+      })
+    ).toEqual({ id: '2', name: 'Remote A' });
+  });
+
+  test('same path on different remote servers does not conflict', () => {
+    expect(
+      findExactConflictInList(configs, '/data/out', undefined, {
+        destinationKind: 'server',
+        destinationServerId: 'srv-a',
+      })
+    ).toBeNull();
+  });
+});

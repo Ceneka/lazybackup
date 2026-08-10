@@ -7,13 +7,16 @@ import { nanoid } from 'nanoid';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 
+const backupWithEndpoints = {
+  server: true,
+  destinationServer: true,
+} as const;
+
 // GET /api/backups - List all backup configurations
 export async function GET() {
   try {
     const configs = await db.query.backupConfigs.findMany({
-      with: {
-        server: true,
-      },
+      with: backupWithEndpoints,
     });
 
     return NextResponse.json(configs);
@@ -35,7 +38,12 @@ export async function POST(request: NextRequest) {
     const validatedData = backupConfigSchema.parse(body);
 
     const conflictingBackup = await findExactDestinationConflict(
-      validatedData.destinationPath
+      validatedData.destinationPath,
+      undefined,
+      {
+        destinationKind: validatedData.destinationKind,
+        destinationServerId: validatedData.destinationServerId,
+      }
     );
     if (conflictingBackup) {
       return NextResponse.json(
@@ -61,9 +69,7 @@ export async function POST(request: NextRequest) {
     // Get the complete configuration with server details
     const completeConfig = await db.query.backupConfigs.findFirst({
       where: eq(backupConfigs.id, newConfig.id),
-      with: {
-        server: true,
-      },
+      with: backupWithEndpoints,
     });
 
     if (process.env.NEXT_RUNTIME !== 'nodejs') {
