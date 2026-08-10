@@ -2,27 +2,19 @@
 
 import { DeleteConfirmationDialog } from "@/components/ui/delete-confirmation-dialog"
 import { QueryState } from "@/components/ui/query-state"
-import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { isResourceInUseError } from "@/lib/api/resource-in-use"
+import { useDeleteServer, useServer } from "@/lib/hooks/useServers"
+import { useQueryClient } from "@tanstack/react-query"
 import { ArrowLeftIcon, PencilIcon, ServerIcon } from "lucide-react"
 import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { toast } from "sonner"
 
 type UsedByBackup = {
   id: string
   name: string
   roles: Array<"source" | "destination">
-}
-
-type ServerDetail = {
-  id: string
-  name: string
-  host: string
-  port: number
-  username: string
-  authType: string
-  usedByBackups?: UsedByBackup[]
 }
 
 function roleLabel(roles: UsedByBackup["roles"]) {
@@ -37,73 +29,41 @@ export default function ServerPage() {
   const router = useRouter()
   const params = useParams()
   const serverId = params.id as string
-  const [deleting, setDeleting] = useState(false)
   const [deleteBlockers, setDeleteBlockers] = useState<UsedByBackup[] | null>(
     null
   )
   const queryClient = useQueryClient()
+  const query = useServer(serverId)
+  const deleteServer = useDeleteServer()
 
-  // Fetch server data with useQuery
-  const query = useQuery({
-    queryKey: ["server", serverId],
-    queryFn: async (): Promise<ServerDetail | null> => {
-      const response = await fetch(`/api/servers/${serverId}`)
-
-      if (!response.ok) {
-        if (response.status === 404) {
-          toast.error("Server not found")
-          router.push("/servers")
-          return null
-        }
-        throw new Error("Failed to fetch server")
-      }
-
-      return response.json()
-    },
-  })
+  useEffect(() => {
+    if (query.error?.message === "Server not found") {
+      toast.error("Server not found")
+      router.push("/servers")
+    }
+  }, [query.error, router])
 
   const usedByBackups = query.data?.usedByBackups ?? []
 
-  const handleDelete = async () => {
-    setDeleting(true)
+  const handleDelete = () => {
     setDeleteBlockers(null)
-    try {
-      const response = await fetch(`/api/servers/${serverId}`, {
-        method: "DELETE",
-      })
-
-      if (!response.ok) {
-        const body = (await response.json().catch(() => null)) as {
-          error?: string
-          backups?: UsedByBackup[]
-        } | null
-
-        if (response.status === 409 && body?.backups?.length) {
-          setDeleteBlockers(body.backups)
-          toast.error(
-            body.error ||
-              "Server is used by backup configurations. Delete or reassign those backups first."
+    deleteServer.mutate(serverId, {
+      onSuccess: () => {
+        router.push("/servers")
+      },
+      onError: (error) => {
+        if (isResourceInUseError(error)) {
+          setDeleteBlockers(
+            error.resources.map((r) => ({
+              id: r.id,
+              name: r.name,
+              roles: (r.roles as UsedByBackup["roles"]) || ["source"],
+            }))
           )
-          queryClient.invalidateQueries({ queryKey: ["server", serverId] })
-          return
+          queryClient.invalidateQueries({ queryKey: ["servers", "detail", serverId] })
         }
-
-        throw new Error(body?.error || "Failed to delete server")
-      }
-
-      // Invalidate servers query cache
-      queryClient.invalidateQueries({ queryKey: ["servers"] })
-
-      toast.success("Server deleted successfully")
-      router.push("/servers")
-    } catch (error) {
-      console.error("Error deleting server:", error)
-      toast.error(
-        error instanceof Error ? error.message : "Failed to delete server"
-      )
-    } finally {
-      setDeleting(false)
-    }
+      },
+    })
   }
 
   return (
@@ -180,7 +140,7 @@ export default function ServerPage() {
 
               {usedByBackups.length > 0 && (
                 <div className="mt-6 rounded-lg border border-amber-500/30 bg-amber-500/5 p-4">
-                  <h3 className="text-sm font-semibold text-amber-200">
+                  <h3 className="text-sm font-semibold text-amber-700 dark:text-amber-200">
                     Used by {usedByBackups.length} backup
                     {usedByBackups.length === 1 ? "" : "s"}
                   </h3>
@@ -192,7 +152,7 @@ export default function ServerPage() {
                       <li key={backup.id}>
                         <Link
                           href={`/backups/${backup.id}`}
-                          className="text-sm font-medium text-emerald-300 hover:underline"
+                          className="text-sm font-medium text-primary hover:underline"
                         >
                           {backup.name}
                         </Link>
@@ -238,7 +198,7 @@ export default function ServerPage() {
                       : "This will permanently delete this server. This action cannot be undone."
                   }
                   onDelete={handleDelete}
-                  isDeleting={deleting}
+                  isDeleting={deleteServer.isPending}
                   buttonText="Delete Server"
                 />
                 {(deleteBlockers?.length || 0) > 0 && (

@@ -8,6 +8,7 @@ import {
   backupKeys,
   useBackup,
   useBackupStorage,
+  useDeleteBackup,
   type BackupDestinationEntry,
 } from "@/lib/hooks/useBackups"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
@@ -94,37 +95,7 @@ export default function BackupDetailPage() {
 
   const query = useBackup(backupId)
   const storageQuery = useBackupStorage(backupId)
-
-  // Delete mutation
-  const deleteMutation = useMutation({
-    mutationFn: async () => {
-      const response = await fetch(`/api/backups/${backupId}`, {
-        method: "DELETE",
-      })
-
-      if (!response.ok) {
-        const body = (await response.json().catch(() => null)) as {
-          error?: string
-        } | null
-        throw new Error(body?.error || "Failed to delete backup configuration")
-      }
-
-      return backupId
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["backups"] })
-      toast.success("Backup configuration deleted successfully")
-      router.push("/backups")
-    },
-    onError: (error) => {
-      console.error("Error deleting backup configuration:", error)
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "Failed to delete backup configuration"
-      )
-    },
-  })
+  const deleteBackup = useDeleteBackup()
 
   // Run backup mutation
   const runBackupMutation = useMutation({
@@ -150,8 +121,12 @@ export default function BackupDetailPage() {
     },
   })
 
-  const handleDelete = async () => {
-    deleteMutation.mutate()
+  const handleDelete = () => {
+    deleteBackup.mutate(backupId, {
+      onSuccess: () => {
+        router.push("/backups")
+      },
+    })
   }
 
   const handleRunBackup = async () => {
@@ -368,7 +343,7 @@ export default function BackupDetailPage() {
                     title="Are you absolutely sure?"
                     description="This deletes the backup configuration and its history rows. Files already on disk at the destination are not removed."
                     onDelete={handleDelete}
-                    isDeleting={deleteMutation.isPending}
+                    isDeleting={deleteBackup.isPending}
                     buttonText="Delete"
                   />
                 </div>

@@ -198,8 +198,9 @@ export function useDeleteBackup() {
 
       return id
     },
-    onSuccess: () => {
+    onSuccess: (id) => {
       queryClient.invalidateQueries({ queryKey: backupKeys.lists() })
+      queryClient.invalidateQueries({ queryKey: backupKeys.detail(id) })
       toast.success("Backup deleted successfully")
     },
     onError: (error) => {

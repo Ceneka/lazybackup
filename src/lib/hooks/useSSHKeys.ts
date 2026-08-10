@@ -1,3 +1,4 @@
+import { resourceInUseFromResponse } from "@/lib/api/resource-in-use"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 
@@ -130,16 +131,12 @@ export function useSSHKeys(includeSystem = true) {
           servers?: Array<{ id: string; name: string }>
         }
 
-        if (response.status === 409 && error.servers?.length) {
-          const names = error.servers.map((s) => s.name).join(', ')
-          const err = new Error(
-            error.error
-              ? `${error.error} (${names})`
-              : `SSH key is used by servers: ${names}`
-          ) as Error & { servers?: Array<{ id: string; name: string }> }
-          err.servers = error.servers
-          throw err
-        }
+        const inUse = resourceInUseFromResponse(
+          response.status,
+          error,
+          'SSH key is used by servers'
+        )
+        if (inUse) throw inUse
 
         throw new Error(error.error || 'Failed to delete SSH key')
       }

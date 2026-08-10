@@ -1,3 +1,4 @@
+import { resourceInUseFromResponse } from "@/lib/api/resource-in-use"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 import { toast } from "sonner"
@@ -14,6 +15,11 @@ export interface Server {
   privateKey?: string
   createdAt: string
   updatedAt: string
+  usedByBackups?: Array<{
+    id: string
+    name: string
+    roles: Array<"source" | "destination">
+  }>
 }
 
 // Query keys
@@ -184,25 +190,24 @@ export function useDeleteServer() {
       if (!response.ok) {
         const body = (await response.json().catch(() => null)) as {
           error?: string
-          backups?: Array<{ id: string; name: string }>
+          backups?: Array<{ id: string; name: string; roles?: string[] }>
         } | null
 
-        if (response.status === 409 && body?.backups?.length) {
-          const names = body.backups.map((b) => b.name).join(", ")
-          throw new Error(
-            body.error
-              ? `${body.error} (${names})`
-              : `Server is used by backups: ${names}`
-          )
-        }
+        const inUse = resourceInUseFromResponse(
+          response.status,
+          body,
+          "Server is used by backups"
+        )
+        if (inUse) throw inUse
 
         throw new Error(body?.error || "Failed to delete server")
       }
 
       return id
     },
-    onSuccess: () => {
+    onSuccess: (id) => {
       queryClient.invalidateQueries({ queryKey: serverKeys.lists() })
+      queryClient.invalidateQueries({ queryKey: serverKeys.detail(id) })
       toast.success("Server deleted successfully")
     },
     onError: (error) => {
