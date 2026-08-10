@@ -206,7 +206,9 @@ export default function BackupDetailPage() {
                           : query.data.server?.name || "Unknown server"}
                         {query.data.sourceType === "docker_volume"
                           ? ` · volume ${query.data.sourcePath}`
-                          : ` · ${query.data.sourcePath}`}
+                          : query.data.sourceType === "database"
+                            ? ` · ${query.data.dbEngine || "db"} ${query.data.sourcePath}`
+                            : ` · ${query.data.sourcePath}`}
                       </span>
                     </dd>
                   </div>
@@ -229,7 +231,11 @@ export default function BackupDetailPage() {
                   <div>
                     <dt className="text-sm font-medium text-muted-foreground">Source Type</dt>
                     <dd className="text-lg">
-                      {query.data.sourceType === 'docker_volume' ? 'Docker volume' : 'Filesystem path'}
+                      {query.data.sourceType === "docker_volume"
+                        ? "Docker volume"
+                        : query.data.sourceType === "database"
+                          ? `Database dump (${query.data.dbEngine || "unknown"})`
+                          : "Filesystem path"}
                     </dd>
                   </div>
                   <div>

@@ -208,4 +208,11 @@ describe('splitBackupLog', () => {
     expect(parts.transfer).toContain('Volume: data');
     expect(parts.preBackup).toBeUndefined();
   });
+
+  test('splits database dump transfer logs', () => {
+    const combined = combineBackupLog('', 'Engine: postgres\nDatabase: app', 'database');
+    expect(combined).toContain(LOG_SECTION.transferDatabase);
+    const parts = splitBackupLog(combined);
+    expect(parts.transfer).toContain('Engine: postgres');
+  });
 });

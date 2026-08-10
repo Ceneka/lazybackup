@@ -1,6 +1,16 @@
 import { db } from '@/lib/db';
 import { backupConfigs, backupHistory, servers } from '@/lib/db/schema';
 import {
+  archiveFileNameForDatabase,
+  cleanupLocalDbTmpDir,
+  cleanupRemoteDbTmpDir,
+  connectionFromConfig,
+  packDatabaseDumpLocal,
+  packDatabaseDumpRemote,
+  restoreDatabaseLocal,
+  restoreDatabaseRemote,
+} from '@/lib/database';
+import {
   cleanupRemoteDir,
   packDockerVolume,
   restoreDockerVolume,
@@ -50,12 +60,19 @@ export type BackupConfigWithEndpoints = {
   destinationKind?: 'local' | 'server' | null;
   destinationServerId?: string | null;
   name: string;
-  sourceType?: 'path' | 'docker_volume' | null;
+  sourceType?: 'path' | 'docker_volume' | 'database' | null;
   sourcePath: string;
   destinationPath: string;
   schedule: string;
   excludePatterns?: string | null;
   preBackupCommands?: string | null;
+  dbEngine?: 'postgres' | 'mysql' | 'mariadb' | null;
+  dbClient?: 'native' | 'docker' | null;
+  dbContainer?: string | null;
+  dbHost?: string | null;
+  dbPort?: number | null;
+  dbUser?: string | null;
+  dbPassword?: string | null;
   enabled: boolean;
   enableVersioning: boolean;
   versionsToKeep?: number | null;
@@ -382,6 +399,9 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
   let cleanupDestIdentity: (() => Promise<void>) | undefined;
   let preBackupLog = '';
   let remoteTmpDir: string | null = null;
+  let localDbTmpDir: string | null = null;
+  /** 'docker' | 'database' — how to clean remoteTmpDir */
+  let remoteTmpKind: 'docker' | 'database' | null = null;
 
   try {
     console.log(`Starting backup: ${config.name} (${historyId})`);
@@ -453,8 +473,189 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
     let artifactPath =
       destinationKind === 'local' ? localDestination! : remoteDestination!;
 
-    // --- Docker volume source ---
-    if (sourceType === 'docker_volume') {
+    // --- Database dump source ---
+    if (sourceType === 'database') {
+      const dbConn = connectionFromConfig(config);
+      const archiveName = archiveFileNameForDatabase(dbConn.database);
+      console.log(`Dumping database: ${dbConn.engine}/${dbConn.database}`);
+
+      let packedArchivePath: string;
+      let packStdout = '';
+
+      if (sourceKind === 'local') {
+        const packed = await packDatabaseDumpLocal(dbConn);
+        localDbTmpDir = packed.tmpDir;
+        packedArchivePath = packed.archivePath;
+        packStdout = packed.stdout;
+      } else {
+        if (!config.server) {
+          throw new Error('Source server required for remote database backup');
+        }
+        if (!sourceSsh) {
+          sourceSsh = await connectToServer(normalizeServer(config.server));
+        }
+        const packed = await packDatabaseDumpRemote(sourceSsh, dbConn);
+        remoteTmpDir = packed.tmpDir;
+        remoteTmpKind = 'database';
+        packedArchivePath = packed.archivePath;
+        packStdout = packed.stdout;
+      }
+
+      if (sourceKind === 'local' && destinationKind === 'local' && localDestination) {
+        const localArchivePath = path.join(localDestination, archiveName);
+        await fs.copyFile(packedArchivePath, localArchivePath);
+        usedMethod = 'database';
+        artifactPath = localArchivePath;
+        const stats = await fs.stat(localArchivePath);
+        backupResult = {
+          stdout: [
+            `Engine: ${dbConn.engine}`,
+            `Database: ${dbConn.database}`,
+            `Client: ${dbConn.client}`,
+            `Archive: ${archiveName}`,
+            `Local path: ${localArchivePath}`,
+            `Size: ${stats.size} bytes`,
+            packStdout?.trim() ? `--- dump stdout ---\n${packStdout.trim()}` : '',
+          ]
+            .filter(Boolean)
+            .join('\n'),
+          stderr: '',
+        };
+      } else if (sourceKind === 'local' && destinationKind === 'server' && config.destinationServer && remoteDestination) {
+        if (!destSsh) {
+          destSsh = await connectToServer(normalizeServer(config.destinationServer));
+        }
+        const destKey = await resolvePrivateKeyForServer(normalizeServer(config.destinationServer));
+        const { path: destKeyPath, cleanup: cleanupDestKey } =
+          await writeTemporarySshIdentityFile(destKey);
+        cleanupDestIdentity = cleanupDestKey;
+        const { rsyncAvailable: destRsync, scpAvailable: destScp } =
+          await getBackupTransportCapabilities(destSsh);
+        const remoteArchivePath = `${remoteDestination.replace(/\/+$/, '')}/${archiveName}`;
+        const push = await pushFileToRemote({
+          localPath: packedArchivePath,
+          remotePath: remoteArchivePath,
+          username: config.destinationServer.username,
+          host: config.destinationServer.host,
+          port: config.destinationServer.port,
+          identityKeyPath: destKeyPath,
+          rsyncAvailable: destRsync,
+          scpAvailable: destScp,
+        });
+        usedMethod = 'database';
+        artifactPath = remoteArchivePath;
+        backupResult = {
+          stdout: [
+            `Engine: ${dbConn.engine}`,
+            `Database: ${dbConn.database}`,
+            `Archive: ${archiveName}`,
+            `Remote path: ${remoteArchivePath}`,
+            push.stdout?.trim() ? `--- push stdout ---\n${push.stdout.trim()}` : '',
+          ]
+            .filter(Boolean)
+            .join('\n'),
+          stderr: '',
+        };
+      } else if (sourceKind === 'server' && config.server && destinationKind === 'local' && localDestination) {
+        const privateKey = await resolvePrivateKeyForServer(normalizeServer(config.server));
+        const { path: keyPath, cleanup: cleanupKeyFile } = await writeTemporarySshIdentityFile(privateKey);
+        cleanupIdentity = cleanupKeyFile;
+        const { rsyncAvailable, scpAvailable } = await getBackupTransportCapabilities(sourceSsh!);
+        const localArchivePath = path.join(localDestination, archiveName);
+        const pull = await pullFileFromRemote({
+          remotePath: packedArchivePath,
+          localPath: localArchivePath,
+          username: config.server.username,
+          host: config.server.host,
+          port: config.server.port,
+          identityKeyPath: keyPath,
+          rsyncAvailable,
+          scpAvailable,
+        });
+        usedMethod = 'database';
+        artifactPath = localArchivePath;
+        const stats = await fs.stat(localArchivePath);
+        backupResult = {
+          stdout: [
+            `Engine: ${dbConn.engine}`,
+            `Database: ${dbConn.database}`,
+            `Archive: ${archiveName}`,
+            `Local path: ${localArchivePath}`,
+            `Size: ${stats.size} bytes`,
+            `Transfer: ${pull.method}`,
+            packStdout?.trim() ? `--- dump stdout ---\n${packStdout.trim()}` : '',
+            pull.stdout?.trim() ? `--- transfer stdout ---\n${pull.stdout.trim()}` : '',
+          ]
+            .filter(Boolean)
+            .join('\n'),
+          stderr: '',
+        };
+      } else if (
+        sourceKind === 'server' &&
+        config.server &&
+        destinationKind === 'server' &&
+        config.destinationServer &&
+        remoteDestination
+      ) {
+        const privateKey = await resolvePrivateKeyForServer(normalizeServer(config.server));
+        const { path: keyPath, cleanup: cleanupKeyFile } = await writeTemporarySshIdentityFile(privateKey);
+        cleanupIdentity = cleanupKeyFile;
+        const { rsyncAvailable, scpAvailable } = await getBackupTransportCapabilities(sourceSsh!);
+        const relayFile = path.join(os.tmpdir(), `lazybackup-db-${Date.now()}-${archiveName}`);
+        try {
+          await pullFileFromRemote({
+            remotePath: packedArchivePath,
+            localPath: relayFile,
+            username: config.server.username,
+            host: config.server.host,
+            port: config.server.port,
+            identityKeyPath: keyPath,
+            rsyncAvailable,
+            scpAvailable,
+          });
+          if (!destSsh) {
+            destSsh = await connectToServer(normalizeServer(config.destinationServer));
+          }
+          const destKey = await resolvePrivateKeyForServer(normalizeServer(config.destinationServer));
+          const { path: destKeyPath, cleanup: cleanupDestKey } =
+            await writeTemporarySshIdentityFile(destKey);
+          cleanupDestIdentity = cleanupDestKey;
+          const { rsyncAvailable: destRsync, scpAvailable: destScp } =
+            await getBackupTransportCapabilities(destSsh);
+          const remoteArchivePath = `${remoteDestination.replace(/\/+$/, '')}/${archiveName}`;
+          const push = await pushFileToRemote({
+            localPath: relayFile,
+            remotePath: remoteArchivePath,
+            username: config.destinationServer.username,
+            host: config.destinationServer.host,
+            port: config.destinationServer.port,
+            identityKeyPath: destKeyPath,
+            rsyncAvailable: destRsync,
+            scpAvailable: destScp,
+          });
+          usedMethod = 'database-relay';
+          artifactPath = remoteArchivePath;
+          backupResult = {
+            stdout: [
+              `Engine: ${dbConn.engine}`,
+              `Database: ${dbConn.database}`,
+              `Archive: ${archiveName}`,
+              `Remote path: ${remoteArchivePath}`,
+              `Transfer mode: relay`,
+              push.stdout?.trim() ? `--- push stdout ---\n${push.stdout.trim()}` : '',
+            ]
+              .filter(Boolean)
+              .join('\n'),
+            stderr: '',
+          };
+        } finally {
+          await fs.unlink(relayFile).catch(() => {});
+        }
+      } else {
+        throw new Error('Invalid destination for database backup');
+      }
+    } else if (sourceType === 'docker_volume') {
+      // --- Docker volume source ---
       if (!config.server) {
         throw new Error('Source server required for docker volume backup');
       }
@@ -469,6 +670,7 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
       console.log(`Packing Docker volume: ${config.sourcePath}`);
       const packed = await packDockerVolume(sourceSsh, config.sourcePath, excludePatterns);
       remoteTmpDir = packed.remoteTmpDir;
+      remoteTmpKind = 'docker';
       const archiveName = `${config.sourcePath}.tar.gz`;
 
       const { rsyncAvailable, scpAvailable } = await getBackupTransportCapabilities(sourceSsh);
@@ -636,10 +838,18 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
     }
 
     if (remoteTmpDir && sourceSsh) {
-      await cleanupRemoteDir(sourceSsh, remoteTmpDir).catch((err) =>
-        console.warn(`Failed to clean remote temp dir: ${err}`)
-      );
+      const cleanup =
+        remoteTmpKind === 'database'
+          ? cleanupRemoteDbTmpDir(sourceSsh, remoteTmpDir)
+          : cleanupRemoteDir(sourceSsh, remoteTmpDir);
+      await cleanup.catch((err) => console.warn(`Failed to clean remote temp dir: ${err}`));
       remoteTmpDir = null;
+    }
+    if (localDbTmpDir) {
+      await cleanupLocalDbTmpDir(localDbTmpDir).catch((err) =>
+        console.warn(`Failed to clean local db temp dir: ${err}`)
+      );
+      localDbTmpDir = null;
     }
 
     console.log(`Backup completed for ${config.name} using ${usedMethod}`);
@@ -691,7 +901,8 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
     }
 
     const parsedOutput =
-      usedMethod.startsWith('docker') && destinationKind === 'local'
+      (usedMethod.startsWith('docker') || usedMethod.startsWith('database')) &&
+      destinationKind === 'local'
         ? {
             fileCount: 1,
             totalSize: (await fs.stat(artifactPath)).size,
@@ -707,7 +918,14 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
   } catch (error) {
     console.error(`Backup failed: ${error}`);
     if (remoteTmpDir && sourceSsh) {
-      await cleanupRemoteDir(sourceSsh, remoteTmpDir).catch(() => {});
+      const cleanup =
+        remoteTmpKind === 'database'
+          ? cleanupRemoteDbTmpDir(sourceSsh, remoteTmpDir)
+          : cleanupRemoteDir(sourceSsh, remoteTmpDir);
+      await cleanup.catch(() => {});
+    }
+    if (localDbTmpDir) {
+      await cleanupLocalDbTmpDir(localDbTmpDir).catch(() => {});
     }
     await updateBackupHistoryFailure(
       historyId,
@@ -843,6 +1061,155 @@ export async function restoreDockerVolumeBackup(
   } finally {
     if (remoteTmpDir && ssh) {
       await cleanupRemoteDir(ssh, remoteTmpDir).catch(() => {});
+    }
+    await cleanupIdentity?.();
+    ssh?.dispose();
+  }
+}
+
+/**
+ * Restore a successful database dump onto the source (local or SSH) using config connection settings.
+ * Requires the artifact on the LazyBackup host (local destination backups).
+ */
+export async function restoreDatabaseBackup(
+  historyId: string,
+  databaseName?: string
+): Promise<{ log: string; database: string }> {
+  if (process.env.NEXT_RUNTIME !== 'nodejs') {
+    throw new Error('Not in Node.js environment');
+  }
+
+  const historyEntry = await db.query.backupHistory.findFirst({
+    where: eq(backupHistory.id, historyId),
+    with: {
+      backupConfig: {
+        with: {
+          server: true,
+          destinationServer: true,
+        },
+      },
+    },
+  });
+
+  if (!historyEntry) {
+    throw new Error('Backup history entry not found');
+  }
+
+  if (historyEntry.status !== 'success') {
+    throw new Error('Only successful backups can be restored');
+  }
+
+  const config = historyEntry.backupConfig;
+  if (!config) {
+    throw new Error('Backup configuration not found for this history entry');
+  }
+
+  if ((config.sourceType || 'path') !== 'database') {
+    throw new Error('Restore is only supported for database backups');
+  }
+
+  if (!historyEntry.artifactPath) {
+    throw new Error('This backup has no stored artifact path and cannot be restored');
+  }
+
+  if ((config.destinationKind || 'local') !== 'local') {
+    throw new Error(
+      'Restore is only supported when the backup destination is on the LazyBackup host'
+    );
+  }
+
+  const artifactPath = historyEntry.artifactPath;
+  await fs.access(artifactPath).catch(() => {
+    throw new Error(`Backup artifact not found on disk: ${artifactPath}`);
+  });
+
+  const dbConn = connectionFromConfig({
+    ...config,
+    sourcePath: databaseName?.trim() || config.sourcePath,
+  });
+  const sourceKind = config.sourceKind || 'server';
+
+  if (sourceKind === 'local') {
+    const restored = await restoreDatabaseLocal(dbConn, artifactPath);
+    const log = [
+      LOG_SECTION.restore,
+      '',
+      `Engine: ${dbConn.engine}`,
+      `Database: ${dbConn.database}`,
+      `Client: ${dbConn.client}`,
+      `Artifact: ${artifactPath}`,
+      restored.stdout?.trim() ? `--- restore stdout ---\n${restored.stdout.trim()}` : '',
+      restored.stderr?.trim() ? `--- restore stderr ---\n${restored.stderr.trim()}` : '',
+      'Restore completed successfully.',
+    ]
+      .filter(Boolean)
+      .join('\n');
+    return { log, database: dbConn.database };
+  }
+
+  if (!config.server) {
+    throw new Error('Source server is missing; cannot restore database');
+  }
+
+  const serverConfig = normalizeServer(config.server);
+  let ssh: Awaited<ReturnType<typeof connectToServer>> | null = null;
+  let cleanupIdentity: (() => Promise<void>) | undefined;
+  let remoteTmpDir: string | null = null;
+
+  try {
+    ssh = await connectToServer(serverConfig);
+    const privateKey = await resolvePrivateKeyForServer(serverConfig);
+    const { path: keyPath, cleanup: cleanupKeyFile } = await writeTemporarySshIdentityFile(privateKey);
+    cleanupIdentity = cleanupKeyFile;
+    const { rsyncAvailable, scpAvailable } = await getBackupTransportCapabilities(ssh);
+
+    const mktemp = await ssh.execCommand(
+      'PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" mktemp -d /tmp/lazybackup-db-XXXXXX'
+    );
+    if (
+      (mktemp.code !== 0 && mktemp.code !== null && mktemp.code !== undefined) ||
+      !mktemp.stdout.trim()
+    ) {
+      throw new Error(`Failed to create remote temp directory: ${mktemp.stderr || mktemp.stdout}`);
+    }
+    remoteTmpDir = mktemp.stdout.trim();
+    const archiveName = path.basename(artifactPath);
+    const remoteArchivePath = `${remoteTmpDir}/${archiveName}`;
+
+    const push = await pushFileToRemote({
+      localPath: artifactPath,
+      remotePath: remoteArchivePath,
+      username: config.server.username,
+      host: config.server.host,
+      port: config.server.port,
+      identityKeyPath: keyPath,
+      rsyncAvailable,
+      scpAvailable,
+    });
+
+    const restored = await restoreDatabaseRemote(ssh, dbConn, remoteArchivePath);
+
+    const log = [
+      LOG_SECTION.restore,
+      '',
+      `Engine: ${dbConn.engine}`,
+      `Database: ${dbConn.database}`,
+      `Client: ${dbConn.client}`,
+      `Artifact: ${artifactPath}`,
+      `Transfer: ${push.method}`,
+      push.stdout?.trim() ? `--- push stdout ---\n${push.stdout.trim()}` : '',
+      push.stderr?.trim() ? `--- push stderr ---\n${push.stderr.trim()}` : '',
+      restored.stdout?.trim() ? `--- restore stdout ---\n${restored.stdout.trim()}` : '',
+      restored.stderr?.trim() ? `--- restore stderr ---\n${restored.stderr.trim()}` : '',
+      'Restore completed successfully.',
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    return { log, database: dbConn.database };
+  } finally {
+    if (remoteTmpDir && ssh) {
+      await cleanupRemoteDbTmpDir(ssh, remoteTmpDir).catch(() => {});
     }
     await cleanupIdentity?.();
     ssh?.dispose();

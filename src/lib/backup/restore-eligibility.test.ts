@@ -53,6 +53,17 @@ describe('canRestoreDockerVolumeBackup', () => {
       })
     ).toBe(false);
   });
+
+  test('allows successful database dump with local artifact', () => {
+    expect(
+      canRestoreDockerVolumeBackup({
+        status: 'success',
+        sourceType: 'database',
+        destinationKind: 'local',
+        artifactPath: '/backups/app.sql.gz',
+      })
+    ).toBe(true);
+  });
 });
 
 describe('restoreBlockedReason', () => {
@@ -75,5 +86,16 @@ describe('restoreBlockedReason', () => {
         artifactPath: '/x',
       })
     ).toBeNull();
+  });
+
+  test('uses database wording for failed database restore', () => {
+    expect(
+      restoreBlockedReason({
+        status: 'failed',
+        sourceType: 'database',
+        destinationKind: 'local',
+        artifactPath: '/x',
+      })
+    ).toMatch(/database/);
   });
 });

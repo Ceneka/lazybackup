@@ -65,12 +65,15 @@ export default function HistoryDetailPage() {
   const restoreMutation = useRestoreBackupHistory()
 
   const [restoreOpen, setRestoreOpen] = useState(false)
-  const [restoreVolumeName, setRestoreVolumeName] = useState('')
+  const [restoreTargetName, setRestoreTargetName] = useState('')
   const [restoreLog, setRestoreLog] = useState<string | null>(null)
+
+  const restoreSourceType = query.data?.backupConfig?.sourceType || 'path'
+  const isDatabaseRestore = restoreSourceType === 'database'
 
   useEffect(() => {
     if (query.data?.backupConfig?.sourcePath) {
-      setRestoreVolumeName(query.data.backupConfig.sourcePath)
+      setRestoreTargetName(query.data.backupConfig.sourcePath)
     }
   }, [query.data?.backupConfig?.sourcePath])
   
@@ -104,7 +107,9 @@ export default function HistoryDetailPage() {
 
   const handleRestore = () => {
     restoreMutation.mutate(
-      { id, volumeName: restoreVolumeName || undefined },
+      isDatabaseRestore
+        ? { id, databaseName: restoreTargetName || undefined }
+        : { id, volumeName: restoreTargetName || undefined },
       {
         onSuccess: (data) => {
           setRestoreLog(data.log)
@@ -329,28 +334,35 @@ export default function HistoryDetailPage() {
                         <AlertDialogTrigger asChild>
                           <DetailActionButton type="button" variant="ghost">
                             <RotateCcwIcon className="h-4 w-4" />
-                            Restore volume
+                            {isDatabaseRestore ? "Restore database" : "Restore volume"}
                           </DetailActionButton>
                         </AlertDialogTrigger>
                         <AlertDialogContent>
                           <AlertDialogHeader>
-                            <AlertDialogTitle>Restore Docker volume?</AlertDialogTitle>
+                            <AlertDialogTitle>
+                              {isDatabaseRestore
+                                ? "Restore database dump?"
+                                : "Restore Docker volume?"}
+                            </AlertDialogTitle>
                             <AlertDialogDescription>
-                              This uploads the backup archive to the remote host and extracts it into
-                              the target volume. Existing files in that volume will be overwritten.
-                              Images, networks, and compose config are not restored.
+                              {isDatabaseRestore
+                                ? "This loads the .sql.gz dump into the target database using the backup’s connection settings. Existing objects may be overwritten or conflict depending on the dump contents."
+                                : "This uploads the backup archive to the remote host and extracts it into the target volume. Existing files in that volume will be overwritten. Images, networks, and compose config are not restored."}
                             </AlertDialogDescription>
                           </AlertDialogHeader>
                           <div className="space-y-2 py-2">
-                            <label htmlFor="restoreVolumeName" className="text-sm font-medium">
-                              Target volume name
+                            <label htmlFor="restoreTargetName" className="text-sm font-medium">
+                              {isDatabaseRestore ? "Target database name" : "Target volume name"}
                             </label>
                             <input
-                              id="restoreVolumeName"
-                              value={restoreVolumeName}
-                              onChange={(e) => setRestoreVolumeName(e.target.value)}
+                              id="restoreTargetName"
+                              value={restoreTargetName}
+                              onChange={(e) => setRestoreTargetName(e.target.value)}
                               className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                              placeholder={query.data.backupConfig?.sourcePath || 'volume-name'}
+                              placeholder={
+                                query.data.backupConfig?.sourcePath ||
+                                (isDatabaseRestore ? "database" : "volume-name")
+                              }
                             />
                           </div>
                           <AlertDialogFooter>
@@ -361,7 +373,7 @@ export default function HistoryDetailPage() {
                               onClick={handleRestore}
                               isLoading={restoreMutation.isPending}
                               loadingText="Restoring..."
-                              disabled={!restoreVolumeName.trim() || restoreMutation.isPending}
+                              disabled={!restoreTargetName.trim() || restoreMutation.isPending}
                             >
                               Restore
                             </LoadingButton>

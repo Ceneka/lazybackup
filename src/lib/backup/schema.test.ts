@@ -100,6 +100,83 @@ describe('backupConfigSchema', () => {
     expect(result.success).toBe(false);
   });
 
+  test('accepts database dump on local source', () => {
+    const parsed = backupConfigSchema.parse({
+      sourceKind: 'local',
+      destinationKind: 'local',
+      name: 'DB dump',
+      sourceType: 'database',
+      sourcePath: 'appdb',
+      destinationPath: '/backups/db',
+      schedule: '0 0 * * *',
+      dbEngine: 'postgres',
+      dbClient: 'native',
+      dbUser: 'app',
+      dbPassword: 'secret',
+      dbHost: '127.0.0.1',
+    });
+    expect(parsed.sourceType).toBe('database');
+    expect(parsed.dbEngine).toBe('postgres');
+    expect(parsed.dbHost).toBe('127.0.0.1');
+    expect(parsed.serverId).toBeNull();
+  });
+
+  test('requires container for docker database client', () => {
+    const result = backupConfigSchema.safeParse({
+      ...base,
+      sourceType: 'database',
+      sourcePath: 'appdb',
+      dbEngine: 'mysql',
+      dbClient: 'docker',
+      dbUser: 'root',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test('accepts docker database client with container', () => {
+    const parsed = backupConfigSchema.parse({
+      ...base,
+      sourceType: 'database',
+      sourcePath: 'appdb',
+      dbEngine: 'postgres',
+      dbClient: 'docker',
+      dbContainer: 'postgres',
+      dbUser: 'postgres',
+      dbPassword: '',
+    });
+    expect(parsed.dbContainer).toBe('postgres');
+    expect(parsed.dbPassword).toBe('');
+  });
+
+  test('clears db fields when sourceType is path', () => {
+    const parsed = backupConfigSchema.parse({
+      ...base,
+      sourcePath: '/data',
+      sourceType: 'path',
+      dbEngine: 'postgres',
+      dbClient: 'native',
+      dbUser: 'x',
+    });
+    expect(parsed.dbEngine).toBeNull();
+    expect(parsed.dbUser).toBeNull();
+  });
+
+  test('allows database name equal to destination path string', () => {
+    const parsed = backupConfigSchema.parse({
+      sourceKind: 'local',
+      destinationKind: 'local',
+      name: 'OK',
+      sourceType: 'database',
+      sourcePath: 'same',
+      destinationPath: 'same',
+      schedule: '0 0 * * *',
+      dbEngine: 'postgres',
+      dbClient: 'native',
+      dbUser: 'u',
+    });
+    expect(parsed.sourcePath).toBe('same');
+  });
+
   test('rejects versioning with file retention', () => {
     const result = backupConfigSchema.safeParse({
       ...base,

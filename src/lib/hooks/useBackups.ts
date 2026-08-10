@@ -9,7 +9,7 @@ export interface Backup {
   destinationKind?: 'local' | 'server'
   destinationServerId?: string | null
   name: string
-  sourceType?: 'path' | 'docker_volume'
+  sourceType?: 'path' | 'docker_volume' | 'database'
   sourcePath: string
   destinationPath: string
   schedule: string
@@ -19,6 +19,13 @@ export interface Backup {
   nextRunFormatted?: string | null
   excludePatterns?: string
   preBackupCommands?: string
+  dbEngine?: 'postgres' | 'mysql' | 'mariadb' | null
+  dbClient?: 'native' | 'docker' | null
+  dbContainer?: string | null
+  dbHost?: string | null
+  dbPort?: number | null
+  dbUser?: string | null
+  dbPassword?: string | null
   enabled: boolean
   enableVersioning?: boolean
   versionsToKeep?: number

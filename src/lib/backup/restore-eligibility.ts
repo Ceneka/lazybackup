@@ -5,30 +5,40 @@ export type RestoreEligibilityInput = {
   artifactPath?: string | null;
 };
 
+function isRestorableSourceType(sourceType: string | null | undefined): boolean {
+  const t = sourceType || 'path';
+  return t === 'docker_volume' || t === 'database';
+}
+
 /**
- * Whether History UI should offer Docker volume restore.
- * Must match restoreDockerVolumeBackup guards (local dest + artifact on disk).
+ * Whether History UI should offer restore (Docker volume or database dump).
+ * Must match restore guards (local dest + artifact on disk).
  */
 export function canRestoreDockerVolumeBackup(
   input: RestoreEligibilityInput
 ): boolean {
   return (
     input.status === 'success' &&
-    (input.sourceType || 'path') === 'docker_volume' &&
+    isRestorableSourceType(input.sourceType) &&
     (input.destinationKind || 'local') === 'local' &&
     Boolean(input.artifactPath)
   );
 }
 
-/** Explain why restore is unavailable when it is a volume backup but still blocked. */
+/** Alias — restore applies to volume and database dumps. */
+export const canRestoreBackup = canRestoreDockerVolumeBackup;
+
+/** Explain why restore is unavailable when it is a volume/database backup but still blocked. */
 export function restoreBlockedReason(
   input: RestoreEligibilityInput
 ): string | null {
-  if ((input.sourceType || 'path') !== 'docker_volume') {
+  const sourceType = input.sourceType || 'path';
+  if (!isRestorableSourceType(sourceType)) {
     return null;
   }
+  const kindLabel = sourceType === 'database' ? 'database' : 'volume';
   if (input.status !== 'success') {
-    return 'Only successful volume backups can be restored.';
+    return `Only successful ${kindLabel} backups can be restored.`;
   }
   if ((input.destinationKind || 'local') !== 'local') {
     return 'Restore needs the archive on this host — remote destinations are not supported.';

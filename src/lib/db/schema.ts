@@ -49,13 +49,23 @@ export const backupConfigs = sqliteTable('backup_configs', {
   /** Destination server when destinationKind === 'server' */
   destinationServerId: text('destination_server_id').references(() => servers.id, { onDelete: 'cascade' }),
   name: text('name').notNull(),
-  /** 'path' = filesystem path; 'docker_volume' = named Docker volume on source server only */
-  sourceType: text('source_type', { enum: ['path', 'docker_volume'] }).notNull().default('path'),
+  /** 'path' | 'docker_volume' (server only) | 'database' (local or server; sourcePath = DB name) */
+  sourceType: text('source_type', { enum: ['path', 'docker_volume', 'database'] })
+    .notNull()
+    .default('path'),
   sourcePath: text('source_path').notNull(),
   destinationPath: text('destination_path').notNull(),
   schedule: text('schedule').notNull(), // Cron expression
   excludePatterns: text('exclude_patterns'), // JSON string of patterns to exclude
   preBackupCommands: text('pre_backup_commands'), // Commands to run before backup starts
+  /** Database dump settings when sourceType === 'database' */
+  dbEngine: text('db_engine', { enum: ['postgres', 'mysql', 'mariadb'] }),
+  dbClient: text('db_client', { enum: ['native', 'docker'] }),
+  dbContainer: text('db_container'),
+  dbHost: text('db_host'),
+  dbPort: integer('db_port'),
+  dbUser: text('db_user'),
+  dbPassword: text('db_password'),
   enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
   enableVersioning: integer('enable_versioning', { mode: 'boolean' }).notNull().default(false),
   versionsToKeep: integer('versions_to_keep').default(5),
@@ -79,7 +89,7 @@ export const backupHistory = sqliteTable('backup_history', {
   transferredSize: integer('transferred_size'), // In bytes
   errorMessage: text('error_message'),
   logOutput: text('log_output'),
-  /** Local path to the backup artifact (.tar.gz for docker volumes, directory for path backups) */
+  /** Local/remote path to artifact (.tar.gz / .sql.gz for volume|database, directory for path) */
   artifactPath: text('artifact_path'),
 });
 

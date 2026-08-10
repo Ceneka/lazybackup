@@ -30,12 +30,19 @@ export type BackupFormData = {
   serverId: string
   destinationKind: EndpointKind
   destinationServerId: string
-  sourceType: "path" | "docker_volume"
+  sourceType: "path" | "docker_volume" | "database"
   sourcePath: string
   destinationPath: string
   schedule: string
   excludePatterns: string
   preBackupCommands: string
+  dbEngine: "postgres" | "mysql" | "mariadb"
+  dbClient: "native" | "docker"
+  dbContainer: string
+  dbHost: string
+  dbPort: string
+  dbUser: string
+  dbPassword: string
   enabled: boolean
   enableVersioning: boolean
   versionsToKeep: number
@@ -61,6 +68,13 @@ export function backupToFormData(backup: Backup): BackupFormData {
     schedule: backup.schedule,
     excludePatterns: backup.excludePatterns || "",
     preBackupCommands: backup.preBackupCommands || "",
+    dbEngine: backup.dbEngine || "postgres",
+    dbClient: backup.dbClient || "native",
+    dbContainer: backup.dbContainer || "",
+    dbHost: backup.dbHost || "127.0.0.1",
+    dbPort: backup.dbPort != null ? String(backup.dbPort) : "",
+    dbUser: backup.dbUser || "",
+    dbPassword: backup.dbPassword || "",
     enabled: backup.enabled,
     enableVersioning: Boolean(backup.enableVersioning),
     versionsToKeep: backup.versionsToKeep ?? 5,
@@ -131,6 +145,7 @@ export function BackupConfigForm({
 }: BackupConfigFormProps) {
   const [formData, setFormData] = useState<BackupFormData>(initialData)
   const [destinationTouched, setDestinationTouched] = useState(!autoSuggestDestination)
+  const [testingDb, setTestingDb] = useState(false)
   const backupsQuery = useBackups()
 
   const volumesQuery = useServerDockerVolumes(
@@ -213,7 +228,9 @@ export function BackupConfigForm({
     servers,
     formData.sourceType === "docker_volume"
       ? `volume:${formData.sourcePath || "…"}`
-      : formData.sourcePath || "…"
+      : formData.sourceType === "database"
+        ? `db:${formData.sourcePath || "…"}`
+        : formData.sourcePath || "…"
   )} → ${endpointLabel(
     formData.destinationKind,
     formData.destinationServerId,
@@ -230,7 +247,9 @@ export function BackupConfigForm({
     setFormData((prev) => {
       const next = { ...prev, [key]: value }
       if (key === "sourceKind" && value === "local") {
-        next.sourceType = "path"
+        if (next.sourceType === "docker_volume") {
+          next.sourceType = "path"
+        }
         next.serverId = ""
       }
       if (key === "destinationKind" && value === "local") {
@@ -238,6 +257,11 @@ export function BackupConfigForm({
       }
       if (key === "sourceType" && value === "docker_volume") {
         next.sourcePath = ""
+      }
+      if (key === "sourceType" && value === "database") {
+        if (!next.dbHost) next.dbHost = "127.0.0.1"
+        if (!next.dbEngine) next.dbEngine = "postgres"
+        if (!next.dbClient) next.dbClient = "native"
       }
       if ((key === "serverId" || key === "sourceType") && next.sourceType === "docker_volume") {
         if (key === "serverId") {
@@ -250,7 +274,7 @@ export function BackupConfigForm({
 
   function handleSwap() {
     if (!canSwap) {
-      toast.error("Cannot swap when source is a Docker volume")
+      toast.error("Cannot swap when source is a Docker volume or database")
       return
     }
     setDestinationTouched(true)
@@ -379,7 +403,7 @@ export function BackupConfigForm({
           </div>
         )}
 
-        {isSource && kind === "server" && (
+        {isSource && (
           <div className="space-y-1">
             <label className="text-xs text-muted-foreground" htmlFor={`${idPrefix}-source-type`}>
               Source type
@@ -389,11 +413,15 @@ export function BackupConfigForm({
               className={inputClass}
               value={formData.sourceType}
               onChange={(e) =>
-                updateField("sourceType", e.target.value as "path" | "docker_volume")
+                updateField(
+                  "sourceType",
+                  e.target.value as "path" | "docker_volume" | "database"
+                )
               }
             >
               <option value="path">Filesystem path</option>
-              <option value="docker_volume">Docker volume</option>
+              {kind === "server" && <option value="docker_volume">Docker volume</option>}
+              <option value="database">Database dump</option>
             </select>
           </div>
         )}
@@ -458,6 +486,21 @@ export function BackupConfigForm({
               </Alert>
             )}
           </div>
+        ) : isSource && formData.sourceType === "database" ? (
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground" htmlFor={`${idPrefix}-db-name`}>
+              Database name
+            </label>
+            <input
+              id={`${idPrefix}-db-name`}
+              type="text"
+              className={inputClass}
+              value={path}
+              onChange={(e) => onPathChange(e.target.value)}
+              placeholder="app"
+              required
+            />
+          </div>
         ) : (
           <div className="space-y-1">
             <label className="text-xs text-muted-foreground" htmlFor={`${idPrefix}-path`}>
@@ -481,6 +524,49 @@ export function BackupConfigForm({
         )}
       </div>
     )
+  }
+
+  async function handleTestDatabase() {
+    if (formData.sourceKind === "server" && !formData.serverId) {
+      toast.error("Select a source server first")
+      return
+    }
+    if (!formData.sourcePath.trim() || !formData.dbUser.trim()) {
+      toast.error("Database name and user are required")
+      return
+    }
+    if (formData.dbClient === "docker" && !formData.dbContainer.trim()) {
+      toast.error("Container name is required for docker client mode")
+      return
+    }
+    setTestingDb(true)
+    try {
+      const res = await fetch("/api/backups/database/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sourceKind: formData.sourceKind,
+          serverId: formData.sourceKind === "server" ? formData.serverId : null,
+          dbEngine: formData.dbEngine,
+          dbClient: formData.dbClient,
+          dbContainer: formData.dbClient === "docker" ? formData.dbContainer : null,
+          dbHost: formData.dbHost || "127.0.0.1",
+          dbPort: formData.dbPort ? Number(formData.dbPort) : null,
+          dbUser: formData.dbUser,
+          dbPassword: formData.dbPassword,
+          sourcePath: formData.sourcePath,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        throw new Error(data.error || "Connection test failed")
+      }
+      toast.success("Database connection OK")
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Connection test failed")
+    } finally {
+      setTestingDb(false)
+    }
   }
 
   return (
@@ -547,6 +633,140 @@ export function BackupConfigForm({
 
         <p className="text-xs text-muted-foreground font-mono break-all">{summary}</p>
 
+        {formData.sourceType === "database" && (
+          <div className="space-y-3 rounded-md border p-4">
+            <div className="flex items-center justify-between gap-2">
+              <h4 className="text-sm font-medium">Database connection</h4>
+              <LoadingButton
+                type="button"
+                variant="outline"
+                size="sm"
+                isLoading={testingDb}
+                loadingText="Testing…"
+                onClick={handleTestDatabase}
+              >
+                Test connection
+              </LoadingButton>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground" htmlFor="db-engine">
+                  Engine
+                </label>
+                <select
+                  id="db-engine"
+                  className={inputClass}
+                  value={formData.dbEngine}
+                  onChange={(e) =>
+                    updateField(
+                      "dbEngine",
+                      e.target.value as "postgres" | "mysql" | "mariadb"
+                    )
+                  }
+                >
+                  <option value="postgres">PostgreSQL</option>
+                  <option value="mysql">MySQL</option>
+                  <option value="mariadb">MariaDB</option>
+                </select>
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground" htmlFor="db-client">
+                  Client
+                </label>
+                <select
+                  id="db-client"
+                  className={inputClass}
+                  value={formData.dbClient}
+                  onChange={(e) =>
+                    updateField("dbClient", e.target.value as "native" | "docker")
+                  }
+                >
+                  <option value="native">Native (pg_dump / mysqldump on host)</option>
+                  <option value="docker">Docker exec (into container)</option>
+                </select>
+              </div>
+              {formData.dbClient === "docker" && (
+                <div className="space-y-1 sm:col-span-2">
+                  <label className="text-xs text-muted-foreground" htmlFor="db-container">
+                    Container name
+                  </label>
+                  <input
+                    id="db-container"
+                    type="text"
+                    className={inputClass}
+                    value={formData.dbContainer}
+                    onChange={(e) => updateField("dbContainer", e.target.value)}
+                    placeholder="postgres"
+                    required
+                  />
+                </div>
+              )}
+              {formData.dbClient === "native" && (
+                <>
+                  <div className="space-y-1">
+                    <label className="text-xs text-muted-foreground" htmlFor="db-host">
+                      Host
+                    </label>
+                    <input
+                      id="db-host"
+                      type="text"
+                      className={inputClass}
+                      value={formData.dbHost}
+                      onChange={(e) => updateField("dbHost", e.target.value)}
+                      placeholder="127.0.0.1"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs text-muted-foreground" htmlFor="db-port">
+                      Port (optional)
+                    </label>
+                    <input
+                      id="db-port"
+                      type="number"
+                      className={inputClass}
+                      value={formData.dbPort}
+                      onChange={(e) => updateField("dbPort", e.target.value)}
+                      placeholder={formData.dbEngine === "postgres" ? "5432" : "3306"}
+                    />
+                  </div>
+                </>
+              )}
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground" htmlFor="db-user">
+                  User
+                </label>
+                <input
+                  id="db-user"
+                  type="text"
+                  className={inputClass}
+                  value={formData.dbUser}
+                  onChange={(e) => updateField("dbUser", e.target.value)}
+                  required
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground" htmlFor="db-password">
+                  Password
+                </label>
+                <input
+                  id="db-password"
+                  type="password"
+                  className={inputClass}
+                  value={formData.dbPassword}
+                  onChange={(e) => updateField("dbPassword", e.target.value)}
+                  autoComplete="new-password"
+                />
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Dumps a logical <code className="text-xs">.sql.gz</code> via{" "}
+              {formData.dbEngine === "postgres" ? "pg_dump" : "mysqldump"}
+              {formData.dbClient === "docker" ? " inside the container" : " on the source host"}.
+              Prefer this over Docker volume backups for live databases.
+            </p>
+          </div>
+        )}
+
         {formData.destinationKind === "local" && (
           <p className="text-xs text-muted-foreground">
             Local destinations live on the LazyBackup host
@@ -599,19 +819,21 @@ export function BackupConfigForm({
           </p>
         </div>
 
-        <div className="space-y-2">
-          <label htmlFor="excludePatterns" className="block text-sm font-medium">
-            Exclude patterns
-          </label>
-          <textarea
-            id="excludePatterns"
-            className={inputClass}
-            value={formData.excludePatterns}
-            onChange={(e) => updateField("excludePatterns", e.target.value)}
-            rows={3}
-            placeholder={"*.log\nnode_modules/\n.tmp"}
-          />
-        </div>
+        {formData.sourceType !== "database" && (
+          <div className="space-y-2">
+            <label htmlFor="excludePatterns" className="block text-sm font-medium">
+              Exclude patterns
+            </label>
+            <textarea
+              id="excludePatterns"
+              className={inputClass}
+              value={formData.excludePatterns}
+              onChange={(e) => updateField("excludePatterns", e.target.value)}
+              rows={3}
+              placeholder={"*.log\nnode_modules/\n.tmp"}
+            />
+          </div>
+        )}
 
         <div className="space-y-2">
           <label htmlFor="preBackupCommands" className="block text-sm font-medium">
@@ -779,6 +1001,13 @@ export function defaultCreateFormData(prefillServerId?: string): BackupFormData 
     schedule: "0 0 * * *",
     excludePatterns: "",
     preBackupCommands: "",
+    dbEngine: "postgres",
+    dbClient: "native",
+    dbContainer: "",
+    dbHost: "127.0.0.1",
+    dbPort: "",
+    dbUser: "",
+    dbPassword: "",
     enabled: true,
     enableVersioning: false,
     versionsToKeep: 5,
@@ -800,8 +1029,22 @@ export function formDataToPayload(data: BackupFormData) {
     sourcePath: data.sourcePath,
     destinationPath: data.destinationPath,
     schedule: data.schedule,
-    excludePatterns: data.excludePatterns || undefined,
+    excludePatterns:
+      data.sourceType === "database" ? undefined : data.excludePatterns || undefined,
     preBackupCommands: data.preBackupCommands || undefined,
+    dbEngine: data.sourceType === "database" ? data.dbEngine : null,
+    dbClient: data.sourceType === "database" ? data.dbClient : null,
+    dbContainer:
+      data.sourceType === "database" && data.dbClient === "docker"
+        ? data.dbContainer
+        : null,
+    dbHost: data.sourceType === "database" ? data.dbHost || "127.0.0.1" : null,
+    dbPort:
+      data.sourceType === "database" && data.dbPort
+        ? Number(data.dbPort)
+        : null,
+    dbUser: data.sourceType === "database" ? data.dbUser : null,
+    dbPassword: data.sourceType === "database" ? data.dbPassword : null,
     enabled: data.enabled,
     enableVersioning: data.enableVersioning,
     versionsToKeep: data.versionsToKeep,

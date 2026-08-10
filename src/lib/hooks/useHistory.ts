@@ -29,9 +29,10 @@ export type BackupHistory = {
   backupConfig: {
     id: string
     name: string
-    sourceType?: 'path' | 'docker_volume'
+    sourceType?: 'path' | 'docker_volume' | 'database'
     sourcePath?: string
     destinationKind?: 'local' | 'server'
+    dbEngine?: string | null
     server: {
       id: string
       name: string
@@ -121,20 +122,22 @@ export function useDeleteHistory() {
   })
 }
 
-/** Restore a successful Docker volume backup onto the remote host */
+/** Restore a successful Docker volume or database dump backup */
 export function useRestoreBackupHistory() {
   return useMutation({
     mutationFn: async ({
       id,
       volumeName,
+      databaseName,
     }: {
       id: string
       volumeName?: string
+      databaseName?: string
     }) => {
       const res = await fetch(`/api/history/${id}/restore`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ volumeName }),
+        body: JSON.stringify({ volumeName, databaseName }),
       })
 
       const data = await res.json()
@@ -142,10 +145,19 @@ export function useRestoreBackupHistory() {
         throw new Error(data.error || "Failed to restore backup")
       }
 
-      return data as { success: boolean; volumeName: string; log: string }
+      return data as {
+        success: boolean
+        volumeName?: string
+        database?: string
+        log: string
+      }
     },
     onSuccess: (data) => {
-      toast.success(`Restored volume "${data.volumeName}" successfully`)
+      if (data.database) {
+        toast.success(`Restored database "${data.database}" successfully`)
+      } else {
+        toast.success(`Restored volume "${data.volumeName}" successfully`)
+      }
     },
     onError: (error) => {
       toast.error(error instanceof Error ? error.message : "Failed to restore backup")

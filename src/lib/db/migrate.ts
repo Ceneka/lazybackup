@@ -225,6 +225,32 @@ export async function runMigration() {
       await db.run(sql`PRAGMA foreign_keys = ON`);
     }
 
+    // Database dump source columns (after any rebuild so they are not dropped)
+    const backupConfigsAfter = await db.run(sql`PRAGMA table_info(backup_configs)`);
+    const backupColsAfter = backupConfigsAfter.rows.map((row: any) => row.name);
+
+    if (!backupColsAfter.includes('db_engine')) {
+      await db.run(sql`ALTER TABLE backup_configs ADD COLUMN db_engine TEXT`);
+    }
+    if (!backupColsAfter.includes('db_client')) {
+      await db.run(sql`ALTER TABLE backup_configs ADD COLUMN db_client TEXT`);
+    }
+    if (!backupColsAfter.includes('db_container')) {
+      await db.run(sql`ALTER TABLE backup_configs ADD COLUMN db_container TEXT`);
+    }
+    if (!backupColsAfter.includes('db_host')) {
+      await db.run(sql`ALTER TABLE backup_configs ADD COLUMN db_host TEXT`);
+    }
+    if (!backupColsAfter.includes('db_port')) {
+      await db.run(sql`ALTER TABLE backup_configs ADD COLUMN db_port INTEGER`);
+    }
+    if (!backupColsAfter.includes('db_user')) {
+      await db.run(sql`ALTER TABLE backup_configs ADD COLUMN db_user TEXT`);
+    }
+    if (!backupColsAfter.includes('db_password')) {
+      await db.run(sql`ALTER TABLE backup_configs ADD COLUMN db_password TEXT`);
+    }
+
     const backupHistoryInfo = await db.run(sql`PRAGMA table_info(backup_history)`);
     const historyColumns = backupHistoryInfo.rows.map((row: any) => row.name);
 

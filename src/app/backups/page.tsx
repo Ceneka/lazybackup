@@ -16,7 +16,9 @@ function endpointShort(backup: Backup, side: "from" | "to"): string {
     const path =
       backup.sourceType === "docker_volume"
         ? `volume:${backup.sourcePath}`
-        : backup.sourcePath
+        : backup.sourceType === "database"
+          ? `db:${backup.sourcePath}`
+          : backup.sourcePath
     return `${label}:${path}`
   }
   const kind = backup.destinationKind || "local"

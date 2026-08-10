@@ -3,12 +3,13 @@ export const LOG_SECTION = {
   transferRsync: '========== Backup Transfer (rsync) ==========',
   transferScp: '========== Backup Transfer (scp) ==========',
   transferDocker: '========== Docker Volume Backup ==========',
+  transferDatabase: '========== Database Dump Backup ==========',
   fileRetention: '========== File Retention ==========',
-  restore: '========== Docker Volume Restore ==========',
+  restore: '========== Restore ==========',
 } as const;
 
 const TRANSFER_HEADER_RE =
-  /={10} (?:Backup Transfer \((?:rsync|scp)\)|Docker Volume Backup) ={10}/;
+  /={10} (?:Backup Transfer \((?:rsync|scp)\)|Docker Volume Backup|Database Dump Backup) ={10}/;
 
 type CommandResult = {
   stdout: string;
@@ -55,7 +56,9 @@ export function combineBackupLog(
         ? LOG_SECTION.transferScp
         : method.includes('docker')
           ? LOG_SECTION.transferDocker
-          : LOG_SECTION.transferRsync;
+          : method.includes('database')
+            ? LOG_SECTION.transferDatabase
+            : LOG_SECTION.transferRsync;
 
   const sections: string[] = [];
 
