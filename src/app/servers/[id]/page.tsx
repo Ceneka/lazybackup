@@ -30,10 +30,10 @@ type UsedByBackup = {
 
 function roleLabel(roles: UsedByBackup["roles"]) {
   if (roles.includes("source") && roles.includes("destination")) {
-    return "source & destination"
+    return "Source & destination"
   }
-  if (roles.includes("destination")) return "destination"
-  return "source"
+  if (roles.includes("destination")) return "Destination"
+  return "Source"
 }
 
 export default function ServerPage() {
@@ -119,119 +119,127 @@ export default function ServerPage() {
         isDataEmpty={(data) => !data}
       >
         {query.data && (
-          <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-            <div className="rounded-lg border bg-card p-6 text-card-foreground shadow">
-              <h2 className="mb-4 text-xl font-semibold">Server Details</h2>
-              <dl className="space-y-4">
-                <div>
-                  <dt className="text-sm font-medium text-muted-foreground">
-                    Host
-                  </dt>
-                  <dd className="text-lg">{query.data.host}</dd>
-                </div>
-                <div>
-                  <dt className="text-sm font-medium text-muted-foreground">
-                    Port
-                  </dt>
-                  <dd className="text-lg">{query.data.port}</dd>
-                </div>
-                <div>
-                  <dt className="text-sm font-medium text-muted-foreground">
-                    Username
-                  </dt>
-                  <dd className="text-lg">{query.data.username}</dd>
-                </div>
-                <div>
-                  <dt className="text-sm font-medium text-muted-foreground">
-                    Authentication Type
-                  </dt>
-                  <dd className="text-lg capitalize">{query.data.authType}</dd>
-                </div>
-              </dl>
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+              <div className="rounded-lg border bg-card p-6 text-card-foreground shadow">
+                <h2 className="mb-4 text-xl font-semibold">Server Details</h2>
+                <dl className="space-y-4">
+                  <div>
+                    <dt className="text-sm font-medium text-muted-foreground">
+                      Host
+                    </dt>
+                    <dd className="text-lg">{query.data.host}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-sm font-medium text-muted-foreground">
+                      Port
+                    </dt>
+                    <dd className="text-lg">{query.data.port}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-sm font-medium text-muted-foreground">
+                      Username
+                    </dt>
+                    <dd className="text-lg">{query.data.username}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-sm font-medium text-muted-foreground">
+                      Authentication Type
+                    </dt>
+                    <dd className="text-lg capitalize">{query.data.authType}</dd>
+                  </div>
+                </dl>
+              </div>
 
-              {usedByBackups.length > 0 && (
-                <div className="mt-6 rounded-lg border border-amber-500/30 bg-amber-500/5 p-4">
-                  <h3 className="text-sm font-semibold text-amber-700 dark:text-amber-200">
-                    Used by {usedByBackups.length} backup
-                    {usedByBackups.length === 1 ? "" : "s"}
-                  </h3>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    Delete or reassign these before removing this server.
-                  </p>
-                  <ul className="mt-3 space-y-2">
-                    {usedByBackups.map((backup) => (
-                      <li key={backup.id}>
-                        <Link
-                          href={`/backups/${backup.id}`}
-                          className="text-sm font-medium text-primary hover:underline"
-                        >
-                          {backup.name}
-                        </Link>
-                        <span className="ml-2 text-xs text-muted-foreground">
-                          ({roleLabel(backup.roles)})
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
+              <div className="rounded-lg border bg-card p-6 text-card-foreground shadow">
+                <h2 className="mb-4 text-xl font-semibold">Actions</h2>
+                <DetailActions>
+                  <DetailActionLink
+                    href={`/servers/${serverId}/edit`}
+                    variant="secondary"
+                  >
+                    <PencilIcon className="h-4 w-4" />
+                    Edit
+                  </DetailActionLink>
+                  <DetailActionLink href={`/backups/new?serverId=${query.data.id}`}>
+                    <FolderPlusIcon className="h-4 w-4" />
+                    Create backup
+                  </DetailActionLink>
+                  <DetailActionLink href={`/servers/${query.data.id}/test`}>
+                    <CableIcon className="h-4 w-4" />
+                    Test connection
+                  </DetailActionLink>
+
+                  <DetailActionsDivider />
+
+                  <DeleteConfirmationDialog
+                    title="Delete this server?"
+                    description={
+                      usedByBackups.length > 0
+                        ? "This server is still referenced by backup configurations. Delete will be blocked until those backups are removed or reassigned."
+                        : "This will permanently delete this server. This action cannot be undone."
+                    }
+                    onDelete={handleDelete}
+                    isDeleting={deleteServer.isPending}
+                    buttonText="Delete"
+                  />
+                  {(deleteBlockers?.length || 0) > 0 && (
+                    <div className="mt-2 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm">
+                      <p className="font-medium text-destructive">
+                        Cannot delete — still used by:
+                      </p>
+                      <ul className="mt-2 space-y-1">
+                        {(deleteBlockers ?? []).map((backup) => (
+                          <li key={backup.id}>
+                            <Link
+                              href={`/backups/${backup.id}`}
+                              className="underline hover:no-underline"
+                            >
+                              {backup.name}
+                            </Link>
+                            <span className="ml-2 text-muted-foreground">
+                              ({roleLabel(backup.roles)})
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </DetailActions>
+              </div>
             </div>
 
             <div className="rounded-lg border bg-card p-6 text-card-foreground shadow">
-              <h2 className="mb-4 text-xl font-semibold">Actions</h2>
-              <DetailActions>
-                <DetailActionLink
-                  href={`/servers/${serverId}/edit`}
-                  variant="secondary"
-                >
-                  <PencilIcon className="h-4 w-4" />
-                  Edit
-                </DetailActionLink>
-                <DetailActionLink href={`/backups/new?serverId=${query.data.id}`}>
-                  <FolderPlusIcon className="h-4 w-4" />
-                  Create backup
-                </DetailActionLink>
-                <DetailActionLink href={`/servers/${query.data.id}/test`}>
-                  <CableIcon className="h-4 w-4" />
-                  Test connection
-                </DetailActionLink>
+              <div className="mb-4">
+                <h2 className="text-xl font-semibold">Used by backups</h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Backup configurations that use this server as a source or destination.
+                </p>
+              </div>
 
-                <DetailActionsDivider />
-
-                <DeleteConfirmationDialog
-                  title="Delete this server?"
-                  description={
-                    usedByBackups.length > 0
-                      ? "This server is still referenced by backup configurations. Delete will be blocked until those backups are removed or reassigned."
-                      : "This will permanently delete this server. This action cannot be undone."
-                  }
-                  onDelete={handleDelete}
-                  isDeleting={deleteServer.isPending}
-                  buttonText="Delete"
-                />
-                {(deleteBlockers?.length || 0) > 0 && (
-                  <div className="mt-2 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm">
-                    <p className="font-medium text-destructive">
-                      Cannot delete — still used by:
-                    </p>
-                    <ul className="mt-2 space-y-1">
-                      {(deleteBlockers ?? []).map((backup) => (
-                        <li key={backup.id}>
-                          <Link
-                            href={`/backups/${backup.id}`}
-                            className="underline hover:no-underline"
-                          >
-                            {backup.name}
-                          </Link>
-                          <span className="ml-2 text-muted-foreground">
-                            ({roleLabel(backup.roles)})
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </DetailActions>
+              {usedByBackups.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No backups reference this server yet.
+                </p>
+              ) : (
+                <ul className="divide-y rounded-md border">
+                  {usedByBackups.map((backup) => (
+                    <li key={backup.id}>
+                      <Link
+                        href={`/backups/${backup.id}`}
+                        className="flex items-center justify-between gap-3 px-3 py-3 transition-colors hover:bg-accent/50"
+                      >
+                        <span className="min-w-0 truncate font-medium">
+                          {backup.name}
+                        </span>
+                        <span className="shrink-0 rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                          {roleLabel(backup.roles)}
+                        </span>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           </div>
         )}
