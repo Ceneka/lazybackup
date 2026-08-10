@@ -31,6 +31,7 @@ export type BackupHistory = {
     name: string
     sourceType?: 'path' | 'docker_volume'
     sourcePath?: string
+    destinationKind?: 'local' | 'server'
     server: {
       id: string
       name: string

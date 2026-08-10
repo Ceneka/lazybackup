@@ -29,6 +29,10 @@ import { DeleteConfirmationDialog } from "@/components/ui/delete-confirmation-di
 import { LoadingButton } from "@/components/ui/loading-button"
 import { QueryState } from "@/components/ui/query-state"
 import { splitBackupLog } from "@/lib/backup/log-format"
+import {
+  canRestoreDockerVolumeBackup,
+  restoreBlockedReason,
+} from "@/lib/backup/restore-eligibility"
 import { useDeleteHistory, useHistoryDetail, useRestoreBackupHistory } from "@/lib/hooks/useHistory"
 import { formatBytes } from "@/lib/utils"
 import { format, formatDistance } from "date-fns"
@@ -77,10 +81,19 @@ export default function HistoryDetailPage() {
     })
   }
 
-  const canRestore =
-    query.data?.status === 'success' &&
-    query.data?.backupConfig?.sourceType === 'docker_volume' &&
-    !!query.data?.artifactPath
+  const canRestore = canRestoreDockerVolumeBackup({
+    status: query.data?.status,
+    sourceType: query.data?.backupConfig?.sourceType,
+    destinationKind: query.data?.backupConfig?.destinationKind,
+    artifactPath: query.data?.artifactPath,
+  })
+
+  const restoreBlockReason = restoreBlockedReason({
+    status: query.data?.status,
+    sourceType: query.data?.backupConfig?.sourceType,
+    destinationKind: query.data?.backupConfig?.destinationKind,
+    artifactPath: query.data?.artifactPath,
+  })
 
   const handleRestore = () => {
     restoreMutation.mutate(
@@ -345,10 +358,14 @@ export default function HistoryDetailPage() {
                       </AlertDialogContent>
                     </AlertDialog>
                   )}
+
+                  {!canRestore && restoreBlockReason && (
+                    <p className="text-sm text-muted-foreground">{restoreBlockReason}</p>
+                  )}
                   
                   <DeleteConfirmationDialog
                     title="Are you absolutely sure?"
-                    description="This will permanently delete this backup history entry. This action cannot be undone."
+                    description="This deletes the history row only. Backup files on disk (if any) are left in place."
                     onDelete={handleDelete}
                     isDeleting={isDeleting}
                     buttonText="Delete History Entry"

@@ -11,6 +11,7 @@ export interface SSHKey {
   createdAt: string
   updatedAt: string
   isSystemKey?: boolean // Flag to indicate if this is a system key reference
+  usedByServers?: Array<{ id: string; name: string }>
 }
 
 export interface SystemSSHKey {
@@ -124,7 +125,22 @@ export function useSSHKeys(includeSystem = true) {
       })
 
       if (!response.ok) {
-        const error = await response.json()
+        const error = (await response.json().catch(() => ({}))) as {
+          error?: string
+          servers?: Array<{ id: string; name: string }>
+        }
+
+        if (response.status === 409 && error.servers?.length) {
+          const names = error.servers.map((s) => s.name).join(', ')
+          const err = new Error(
+            error.error
+              ? `${error.error} (${names})`
+              : `SSH key is used by servers: ${names}`
+          ) as Error & { servers?: Array<{ id: string; name: string }> }
+          err.servers = error.servers
+          throw err
+        }
+
         throw new Error(error.error || 'Failed to delete SSH key')
       }
 

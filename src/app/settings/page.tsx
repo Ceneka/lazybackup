@@ -1,6 +1,7 @@
 "use client"
 
 import { SSHKeyBootstrap } from "@/components/ssh-key-bootstrap"
+import { DeleteConfirmationDialog } from "@/components/ui/delete-confirmation-dialog"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -15,6 +16,7 @@ import { useSettings } from "@/lib/hooks/useSettings"
 import { SSHKey, SystemSSHKey, fetchSSHKeyInstallCommand, useSSHKeys } from "@/lib/hooks/useSSHKeys"
 import { useQueryClient } from "@tanstack/react-query"
 import { ClipboardIcon, KeyIcon, LockIcon, PlusIcon, SettingsIcon, TrashIcon } from "lucide-react"
+import Link from "next/link"
 import { useSearchParams } from "next/navigation"
 import { Suspense, useEffect, useLayoutEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
@@ -167,8 +169,10 @@ function SettingsPageInner() {
   }
 
   const handleDeleteKey = async (id: string) => {
-    if (confirm("Are you sure you want to delete this SSH key?")) {
+    try {
       await keysQuery.deleteKey.mutateAsync(id)
+    } catch {
+      // toast in mutation
     }
   }
 
@@ -443,12 +447,28 @@ function SettingsPageInner() {
                   {keysQuery.keys.length > 0 && (
                     <div className="space-y-4">
                       {keysQuery.keys.map((key: SSHKey) => (
-                        <div key={key.id} className="flex items-center justify-between border p-3 rounded-md gap-2">
+                        <div key={key.id} className="flex items-start justify-between border p-3 rounded-md gap-2">
                           <div className="min-w-0">
                             <p className="font-medium truncate">{key.name}</p>
                             <p className="text-sm text-muted-foreground">
                               {key.privateKeyPath ? `Path: ${key.privateKeyPath}` : 'Stored in database'}
                             </p>
+                            {(key.usedByServers?.length ?? 0) > 0 && (
+                              <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
+                                Used by{" "}
+                                {key.usedByServers!.map((server, i) => (
+                                  <span key={server.id}>
+                                    {i > 0 ? ", " : ""}
+                                    <Link
+                                      href={`/servers/${server.id}`}
+                                      className="underline hover:no-underline"
+                                    >
+                                      {server.name}
+                                    </Link>
+                                  </span>
+                                ))}
+                              </p>
+                            )}
                           </div>
                           <div className="flex shrink-0 items-center">
                             {(key.privateKeyContent || key.privateKeyPath) && (
@@ -462,14 +482,23 @@ function SettingsPageInner() {
                                 <span className="sr-only">Copy install command</span>
                               </Button>
                             )}
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => handleDeleteKey(key.id)}
+                            <DeleteConfirmationDialog
+                              title="Delete this SSH key?"
+                              description={
+                                (key.usedByServers?.length ?? 0) > 0
+                                  ? "This key is still assigned to servers. Delete will be blocked until you reassign those servers."
+                                  : "This removes the key from LazyBackup. Host authorized_keys are not changed."
+                              }
+                              onDelete={() => handleDeleteKey(key.id)}
+                              isDeleting={keysQuery.deleteKey.isPending}
+                              buttonText="Delete"
+                              triggerButtonClassName="inline-flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground"
                             >
-                              <TrashIcon className="h-4 w-4" />
-                              <span className="sr-only">Delete</span>
-                            </Button>
+                              <Button variant="ghost" size="icon" disabled={keysQuery.deleteKey.isPending}>
+                                <TrashIcon className="h-4 w-4" />
+                                <span className="sr-only">Delete</span>
+                              </Button>
+                            </DeleteConfirmationDialog>
                           </div>
                         </div>
                       ))}

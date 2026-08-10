@@ -1,5 +1,6 @@
 import { db } from '@/lib/db';
-import { sshKeys } from '@/lib/db/schema';
+import { servers, sshKeys } from '@/lib/db/schema';
+import { findServersUsingSshKey } from '@/lib/ssh/key-usage';
 import { promises as fs } from 'fs';
 import { nanoid } from 'nanoid';
 import { NextRequest, NextResponse } from 'next/server';
@@ -64,6 +65,14 @@ export async function GET(request: NextRequest) {
   try {
     // Get stored SSH keys from database
     const storedKeys = await db.select().from(sshKeys);
+    const allServers = await db
+      .select({ id: servers.id, name: servers.name, sshKeyId: servers.sshKeyId })
+      .from(servers);
+
+    const storedKeysWithUsage = storedKeys.map((key) => ({
+      ...key,
+      usedByServers: findServersUsingSshKey(allServers, key.id),
+    }));
 
     // If system keys are requested, find and include them
     let systemKeys: SystemSSHKey[] = [];
@@ -72,7 +81,7 @@ export async function GET(request: NextRequest) {
     }
 
     return NextResponse.json({
-      storedKeys,
+      storedKeys: storedKeysWithUsage,
       systemKeys
     });
   } catch (error) {

@@ -1,5 +1,6 @@
 import { db } from '@/lib/db';
 import { sshKeys } from '@/lib/db/schema';
+import { findServersUsingSshKey } from '@/lib/ssh/key-usage';
 import { eq } from 'drizzle-orm';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
@@ -32,7 +33,12 @@ export async function GET(
       );
     }
 
-    return NextResponse.json(key);
+    const allServers = await db.query.servers.findMany({
+      columns: { id: true, name: true, sshKeyId: true },
+    });
+    const usedByServers = findServersUsingSshKey(allServers, id);
+
+    return NextResponse.json({ ...key, usedByServers });
   } catch (error) {
     console.error('Failed to fetch SSH key:', error);
     return NextResponse.json(
@@ -100,7 +106,31 @@ export async function DELETE(
   try {
     const { id } = await params;
 
-    // Delete the SSH key
+    const existing = await db.query.sshKeys.findFirst({
+      where: eq(sshKeys.id, id),
+      columns: { id: true },
+    });
+
+    if (!existing) {
+      return NextResponse.json({ error: 'SSH key not found' }, { status: 404 });
+    }
+
+    const allServers = await db.query.servers.findMany({
+      columns: { id: true, name: true, sshKeyId: true },
+    });
+    const usedByServers = findServersUsingSshKey(allServers, id);
+
+    if (usedByServers.length > 0) {
+      return NextResponse.json(
+        {
+          error:
+            'SSH key is used by servers. Reassign or delete those servers first.',
+          servers: usedByServers,
+        },
+        { status: 409 }
+      );
+    }
+
     await db.delete(sshKeys).where(eq(sshKeys.id, id));
 
     return NextResponse.json({ success: true });
@@ -111,4 +141,4 @@ export async function DELETE(
       { status: 500 }
     );
   }
-} 
+}

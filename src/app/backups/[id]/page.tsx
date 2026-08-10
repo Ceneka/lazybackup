@@ -366,7 +366,7 @@ export default function BackupDetailPage() {
                   )}
                   <DeleteConfirmationDialog
                     title="Are you absolutely sure?"
-                    description="This will permanently delete this backup configuration. This action cannot be undone."
+                    description="This deletes the backup configuration and its history rows. Files already on disk at the destination are not removed."
                     onDelete={handleDelete}
                     isDeleting={deleteMutation.isPending}
                     buttonText="Delete"
