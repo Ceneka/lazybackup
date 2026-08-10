@@ -26,6 +26,12 @@ import {
   CardTitle
 } from "@/components/ui/card"
 import { DeleteConfirmationDialog } from "@/components/ui/delete-confirmation-dialog"
+import {
+  DetailActionButton,
+  DetailActionLink,
+  DetailActions,
+  DetailActionsDivider,
+} from "@/components/ui/detail-actions"
 import { LoadingButton } from "@/components/ui/loading-button"
 import { QueryState } from "@/components/ui/query-state"
 import { splitBackupLog } from "@/lib/backup/log-format"
@@ -40,10 +46,11 @@ import {
   ArrowLeftIcon,
   ClockIcon,
   FileIcon,
+  FolderIcon,
   HardDriveIcon,
   HistoryIcon,
   RotateCcwIcon,
-  ServerIcon
+  ServerIcon,
 } from "lucide-react"
 import { useParams, useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
@@ -305,71 +312,80 @@ export default function HistoryDetailPage() {
                 <CardHeader>
                   <CardTitle>Actions</CardTitle>
                 </CardHeader>
-                <CardContent className="space-y-4">
-                  <Button 
-                    className="w-full"
-                    onClick={() => router.push(`/backups/${query.data?.backupConfig?.id}`)}
-                  >
-                    View Backup Configuration
-                  </Button>
+                <CardContent>
+                  <DetailActions>
+                    {query.data.backupConfig?.id && (
+                      <DetailActionLink
+                        href={`/backups/${query.data.backupConfig.id}`}
+                        variant="secondary"
+                      >
+                        <FolderIcon className="h-4 w-4" />
+                        View backup
+                      </DetailActionLink>
+                    )}
 
-                  {canRestore && (
-                    <AlertDialog open={restoreOpen} onOpenChange={setRestoreOpen}>
-                      <AlertDialogTrigger asChild>
-                        <Button variant="outline" className="w-full">
-                          <RotateCcwIcon className="h-4 w-4 mr-2" />
-                          Restore Docker Volume
-                        </Button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>Restore Docker volume?</AlertDialogTitle>
-                          <AlertDialogDescription>
-                            This uploads the backup archive to the remote host and extracts it into
-                            the target volume. Existing files in that volume will be overwritten.
-                            Images, networks, and compose config are not restored.
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <div className="space-y-2 py-2">
-                          <label htmlFor="restoreVolumeName" className="text-sm font-medium">
-                            Target volume name
-                          </label>
-                          <input
-                            id="restoreVolumeName"
-                            value={restoreVolumeName}
-                            onChange={(e) => setRestoreVolumeName(e.target.value)}
-                            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                            placeholder={query.data.backupConfig?.sourcePath || 'volume-name'}
-                          />
-                        </div>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel disabled={restoreMutation.isPending}>
-                            Cancel
-                          </AlertDialogCancel>
-                          <LoadingButton
-                            onClick={handleRestore}
-                            isLoading={restoreMutation.isPending}
-                            loadingText="Restoring..."
-                            disabled={!restoreVolumeName.trim() || restoreMutation.isPending}
-                          >
-                            Restore
-                          </LoadingButton>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
-                  )}
+                    {canRestore && (
+                      <AlertDialog open={restoreOpen} onOpenChange={setRestoreOpen}>
+                        <AlertDialogTrigger asChild>
+                          <DetailActionButton type="button" variant="ghost">
+                            <RotateCcwIcon className="h-4 w-4" />
+                            Restore volume
+                          </DetailActionButton>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Restore Docker volume?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              This uploads the backup archive to the remote host and extracts it into
+                              the target volume. Existing files in that volume will be overwritten.
+                              Images, networks, and compose config are not restored.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <div className="space-y-2 py-2">
+                            <label htmlFor="restoreVolumeName" className="text-sm font-medium">
+                              Target volume name
+                            </label>
+                            <input
+                              id="restoreVolumeName"
+                              value={restoreVolumeName}
+                              onChange={(e) => setRestoreVolumeName(e.target.value)}
+                              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                              placeholder={query.data.backupConfig?.sourcePath || 'volume-name'}
+                            />
+                          </div>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel disabled={restoreMutation.isPending}>
+                              Cancel
+                            </AlertDialogCancel>
+                            <LoadingButton
+                              onClick={handleRestore}
+                              isLoading={restoreMutation.isPending}
+                              loadingText="Restoring..."
+                              disabled={!restoreVolumeName.trim() || restoreMutation.isPending}
+                            >
+                              Restore
+                            </LoadingButton>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    )}
 
-                  {!canRestore && restoreBlockReason && (
-                    <p className="text-sm text-muted-foreground">{restoreBlockReason}</p>
-                  )}
-                  
-                  <DeleteConfirmationDialog
-                    title="Are you absolutely sure?"
-                    description="This deletes the history row only. Backup files on disk (if any) are left in place."
-                    onDelete={handleDelete}
-                    isDeleting={isDeleting}
-                    buttonText="Delete History Entry"
-                  />
+                    {!canRestore && restoreBlockReason && (
+                      <p className="px-3 py-1 text-sm text-muted-foreground">
+                        {restoreBlockReason}
+                      </p>
+                    )}
+
+                    <DetailActionsDivider />
+
+                    <DeleteConfirmationDialog
+                      title="Delete this history entry?"
+                      description="This deletes the history row only. Backup files on disk (if any) are left in place."
+                      onDelete={handleDelete}
+                      isDeleting={isDeleting}
+                      buttonText="Delete"
+                    />
+                  </DetailActions>
                 </CardContent>
               </Card>
             </div>
