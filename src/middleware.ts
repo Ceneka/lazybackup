@@ -35,6 +35,8 @@ function isPublicPath(pathname: string): boolean {
  * Auth gate on the Node.js runtime so we can read SQLite / verify the session
  * in-process. Do not HTTP self-fetch /api/auth/status: Edge→LAN Host hangs,
  * and Edge→127.0.0.1 often fails — which fail-opens pages but 401s APIs.
+ *
+ * Accepts session cookie or Authorization: Bearer <api-token>.
  */
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
@@ -44,10 +46,13 @@ export async function middleware(request: NextRequest) {
   }
 
   try {
-    const status = await getAuthStatus(request.headers.get('cookie'))
+    const status = await getAuthStatus(
+      request.headers.get('cookie'),
+      request.headers.get('authorization')
+    )
 
     if (status.authEnabled && !status.authenticated) {
-      if (pathname.startsWith('/api/')) {
+      if (pathname.startsWith('/api/') || pathname === '/mcp' || pathname.startsWith('/mcp/')) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
       }
 
@@ -60,14 +65,16 @@ export async function middleware(request: NextRequest) {
     }
 
     const response = NextResponse.next()
-    if (status.authEnabled && status.authenticated) {
+    // Only slide session cookies for browser sessions (not Bearer)
+    const hasBearer = Boolean(request.headers.get('authorization')?.match(/^Bearer\s+/i))
+    if (status.authEnabled && status.authenticated && !hasBearer) {
       const token = await createSessionCookieValue()
       response.cookies.set(SESSION_COOKIE_NAME, token, sessionCookieOptions())
     }
     return response
   } catch (error) {
     console.error('Auth middleware error:', error)
-    if (pathname.startsWith('/api/')) {
+    if (pathname.startsWith('/api/') || pathname === '/mcp' || pathname.startsWith('/mcp/')) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
     return NextResponse.next()

@@ -119,6 +119,31 @@ export const backupHistory = sqliteTable('backup_history', {
   artifactPath: text('artifact_path'),
 });
 
+/** Machine API tokens for MCP / Bearer auth (hash only; plaintext shown once) */
+export const apiTokens = sqliteTable('api_tokens', {
+  id: text('id').primaryKey().notNull(),
+  name: text('name').notNull(),
+  /** argon2 hash of the full token */
+  tokenHash: text('token_hash').notNull(),
+  /** First characters for UI display, e.g. lb_xxxx… */
+  tokenPrefix: text('token_prefix').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+  lastUsedAt: integer('last_used_at', { mode: 'timestamp' }),
+  revokedAt: integer('revoked_at', { mode: 'timestamp' }),
+});
+
+/** Audit trail for Bearer / MCP actions (no secrets) */
+export const auditLog = sqliteTable('audit_log', {
+  id: text('id').primaryKey().notNull(),
+  /** api token id when Bearer-authenticated; null for session or unknown */
+  tokenId: text('token_id').references(() => apiTokens.id, { onDelete: 'set null' }),
+  tokenName: text('token_name'),
+  action: text('action').notNull(),
+  detail: text('detail'),
+  ok: integer('ok', { mode: 'boolean' }).notNull().default(true),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+});
+
 // Relations
 export const serversRelations = relations(servers, ({ one, many }) => ({
   backupConfigs: many(backupConfigs, { relationName: 'backupSourceServer' }),

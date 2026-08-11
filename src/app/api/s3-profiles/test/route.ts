@@ -14,7 +14,7 @@ export async function POST(request: NextRequest) {
     console.error('S3 connection test failed:', error);
     if (error instanceof z.ZodError) {
       return NextResponse.json(
-        { error: 'Validation error', details: error.errors },
+        { error: 'Validation error', details: error.issues },
         { status: 400 }
       );
     }

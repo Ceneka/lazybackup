@@ -1,6 +1,7 @@
 "use client"
 
 import { SSHKeyBootstrap } from "@/components/ssh-key-bootstrap"
+import { McpSettingsPanel } from "@/components/mcp-settings-panel"
 import { DeleteConfirmationDialog } from "@/components/ui/delete-confirmation-dialog"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
@@ -15,7 +16,7 @@ import { useAuth } from "@/lib/hooks/useAuth"
 import { useSettings } from "@/lib/hooks/useSettings"
 import { SSHKey, SystemSSHKey, fetchSSHKeyInstallCommand, useSSHKeys } from "@/lib/hooks/useSSHKeys"
 import { useQueryClient } from "@tanstack/react-query"
-import { ClipboardIcon, KeyIcon, LockIcon, PlusIcon, SettingsIcon, TrashIcon } from "lucide-react"
+import { ClipboardIcon, KeyIcon, LockIcon, PlusIcon, SettingsIcon, TrashIcon, BotIcon } from "lucide-react"
 import Link from "next/link"
 import { useSearchParams } from "next/navigation"
 import { Suspense, useEffect, useLayoutEffect, useMemo, useState } from "react"
@@ -27,7 +28,7 @@ function SettingsPageInner() {
 
   useLayoutEffect(() => {
     const t = searchParams.get("tab")
-    if (t === "ssh-keys" || t === "general") {
+    if (t === "ssh-keys" || t === "general" || t === "mcp") {
       setTab(t)
     } else {
       setTab("general")
@@ -207,10 +208,14 @@ function SettingsPageInner() {
       </div>
 
       <Tabs value={tab} onValueChange={setTab} className="w-full">
-        <TabsList className="grid w-full grid-cols-2">
+        <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="general" className="flex items-center">
             <SettingsIcon className="mr-2 h-4 w-4" />
             General Settings
+          </TabsTrigger>
+          <TabsTrigger value="mcp" className="flex items-center">
+            <BotIcon className="mr-2 h-4 w-4" />
+            API / MCP
           </TabsTrigger>
           <TabsTrigger value="ssh-keys" className="flex items-center">
             <KeyIcon className="mr-2 h-4 w-4" />
@@ -416,6 +421,10 @@ function SettingsPageInner() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="mcp" className="mt-6 space-y-6">
+          <McpSettingsPanel />
         </TabsContent>
 
         <TabsContent value="ssh-keys" className="mt-6">

@@ -1,5 +1,10 @@
 import { cookies } from 'next/headers'
 import {
+  parseBearerToken,
+  verifyApiToken,
+  type VerifiedApiToken,
+} from './api-tokens'
+import {
   SESSION_COOKIE_NAME,
   createSessionToken,
   verifySessionToken,
@@ -43,6 +48,18 @@ export {
   getSessionSecret,
 } from './settings'
 
+export {
+  createApiToken,
+  listApiTokens,
+  revokeApiToken,
+  verifyApiToken,
+  parseBearerToken,
+  type PublicApiToken,
+  type VerifiedApiToken,
+} from './api-tokens'
+
+export { writeAuditLog, type AuditActor } from './audit'
+
 export async function isAuthEnabled(): Promise<boolean> {
   const hash = await getPasswordHash()
   return Boolean(hash)
@@ -59,8 +76,8 @@ export async function getSessionFromCookies(
   return verifySessionToken(secret, token)
 }
 
-/** Single gate: unlocked OR valid session. */
-export async function isAuthorized(
+/** Valid session cookie only (not Bearer). Used to manage API tokens. */
+export async function isSessionAuthorized(
   cookieHeader?: string | null
 ): Promise<boolean> {
   const enabled = await isAuthEnabled()
@@ -75,11 +92,66 @@ export async function isAuthorized(
   return getSessionFromCookies()
 }
 
-export async function getAuthStatus(cookieHeader?: string | null) {
+export type AuthResolution = {
+  authorized: boolean
+  /** Present when authenticated via API token */
+  apiToken?: VerifiedApiToken
+  via: 'unlocked' | 'session' | 'bearer' | 'none'
+}
+
+/**
+ * Resolve auth from cookie and/or Authorization Bearer.
+ * Prefer Bearer when both are present (machine clients).
+ */
+export async function resolveAuth(
+  cookieHeader?: string | null,
+  authorizationHeader?: string | null
+): Promise<AuthResolution> {
+  const enabled = await isAuthEnabled()
+  if (!enabled) {
+    return { authorized: true, via: 'unlocked' }
+  }
+
+  const bearer = parseBearerToken(authorizationHeader)
+  if (bearer) {
+    const apiToken = await verifyApiToken(bearer)
+    if (apiToken) {
+      return { authorized: true, apiToken, via: 'bearer' }
+    }
+  }
+
+  if (cookieHeader !== undefined) {
+    const token = parseCookieValue(cookieHeader, SESSION_COOKIE_NAME)
+    const secret = await getSessionSecret()
+    if (await verifySessionToken(secret, token)) {
+      return { authorized: true, via: 'session' }
+    }
+    return { authorized: false, via: 'none' }
+  }
+
+  if (await getSessionFromCookies()) {
+    return { authorized: true, via: 'session' }
+  }
+  return { authorized: false, via: 'none' }
+}
+
+/** Single gate: unlocked OR valid session OR valid Bearer API token. */
+export async function isAuthorized(
+  cookieHeader?: string | null,
+  authorizationHeader?: string | null
+): Promise<boolean> {
+  const result = await resolveAuth(cookieHeader, authorizationHeader)
+  return result.authorized
+}
+
+export async function getAuthStatus(
+  cookieHeader?: string | null,
+  authorizationHeader?: string | null
+) {
   const authEnabled = await isAuthEnabled()
   const authSetupCompleted = await isAuthSetupCompleted()
   const authenticated = authEnabled
-    ? await isAuthorized(cookieHeader)
+    ? await isAuthorized(cookieHeader, authorizationHeader)
     : true
 
   return { authEnabled, authSetupCompleted, authenticated }

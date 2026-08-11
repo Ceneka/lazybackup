@@ -18,6 +18,7 @@ Marketing site (static): [`landing/`](./landing) → [lazy.zic.ar](https://lazy.
 - **Automated scheduling** — In-process cron scheduler; set an app timezone so schedules run when you expect
 - **History & dashboard** — Track runs, view logs, next run times, storage usage, and success rates
 - **Optional app password** — Single-operator lock (set on first run or later in Settings); session cookie lasts 30 days
+- **MCP / API tokens** — Let Cursor, Claude, or other agents manage backups via Streamable HTTP MCP at `/mcp` (Settings → API / MCP)
 
 ## Tech stack
 
@@ -82,6 +83,31 @@ Set `DATABASE_URL` if you want a custom SQLite path (default: `file:./data.db`).
 4. **Timezone** — Settings → choose the timezone used for cron schedules and “next run” times.
 5. **Run or schedule** — Trigger a manual run or rely on the cron schedule. View results, logs, and on-disk storage under History and each backup’s detail page.
 6. **Restore (Docker volumes)** — On a successful volume backup in History, use **Restore Docker Volume** to push the archive back and extract into a named volume (creates the volume if missing). Restores data only — not images, networks, or compose files.
+
+### MCP (agent access)
+
+Connect Cursor, Claude, VS Code, or other MCP clients to this instance:
+
+1. Enable an **app password** (recommended) under Settings.
+2. Open **Settings → API / MCP**, create a token, and copy it immediately (shown once).
+3. Use **Add to Cursor** / **Add to VS Code**, or copy `mcp.json` / Claude config / Claude Code CLI.
+
+Example `mcp.json` (replace host and token):
+
+```json
+{
+  "mcpServers": {
+    "lazybackup": {
+      "url": "https://your-host/mcp",
+      "headers": {
+        "Authorization": "Bearer lb_…"
+      }
+    }
+  }
+}
+```
+
+The token has full operator access (same gate as the UI). Prefer HTTPS or a trusted LAN. Revoke tokens anytime from the same Settings tab. Destructive MCP tools require `confirm: true`.
 
 ### Docker volume notes
 

@@ -288,6 +288,30 @@ export async function runMigration() {
       );
     }
 
+    await db.run(sql`
+      CREATE TABLE IF NOT EXISTS api_tokens (
+        id TEXT PRIMARY KEY NOT NULL,
+        name TEXT NOT NULL,
+        token_hash TEXT NOT NULL,
+        token_prefix TEXT NOT NULL,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        last_used_at INTEGER,
+        revoked_at INTEGER
+      );
+    `);
+
+    await db.run(sql`
+      CREATE TABLE IF NOT EXISTS audit_log (
+        id TEXT PRIMARY KEY NOT NULL,
+        token_id TEXT REFERENCES api_tokens(id) ON DELETE SET NULL,
+        token_name TEXT,
+        action TEXT NOT NULL,
+        detail TEXT,
+        ok INTEGER NOT NULL DEFAULT 1,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch())
+      );
+    `);
+
     console.log('Migration completed successfully');
   } catch (error) {
     console.error('Migration failed:', error);

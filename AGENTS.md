@@ -11,6 +11,7 @@ Guide for AI coding agents. User-facing setup lives in [README.md](./README.md) 
 - For **database + docker client** on a server source, the form can list running containers and auto-fill credentials from `docker inspect` env (`POSTGRES_*` / `MYSQL_*` / `MARIADB_*`).
 - **SSH key required** for any server endpoint involved in transfer. Password auth can test/connect via `node-ssh` only.
 - **Optional app password** (single operator, no users table): first-run set/skip; manage in Settings. Hash in settings → middleware gates pages + `/api/*` (public: `/login`, `/api/auth/*`, `/api/health`). Session cookie `lb_session`, 30-day sliding expiry.
+- **API tokens** (Settings → API / MCP): Bearer `Authorization` for agents; hashed in `api_tokens`. Streamable HTTP MCP at `/mcp` (same auth gate). Token CRUD requires a browser session (tokens cannot mint tokens).
 - Middleware verifies the session **in-process** (Node.js runtime + SQLite). Never HTTP self-fetch `/api/auth/status` from middleware (LAN Host hangs; loopback from Edge fails → pages load, APIs 401).
 - Cookies default **non-Secure**; set `AUTH_COOKIE_SECURE=true` only behind HTTPS.
 - Cron runs in the app **timezone** setting. Migrations are **`src/lib/db/migrate.ts`** only (no drizzle `migrations/` folder).
@@ -60,6 +61,8 @@ Restore (volume/database, local or S3 dest): history artifact → download from 
 | `backup_configs` | `sourceKind`/`destinationKind` local\|server\|s3, nullable `serverId` / `destinationServerId` / `sourceS3ProfileId` / `destinationS3ProfileId`, `sourceType` path\|docker_volume\|database, `sourcePath`/`destinationPath` (prefix when S3), `db_*` for dumps, cron, excludes, pre-cmds, versioning + file retention |
 | `backup_history` | status running\|success\|failed, sizes, `logOutput`, `artifactPath` (local path or `s3://bucket/key`) |
 | `settings` | KV: timezone, SSH defaults, `appPasswordHash`, `sessionSecret`, `authSetupCompleted` |
+| `api_tokens` | Named Bearer tokens (SHA-256 hash + prefix); used by MCP / machine clients |
+| `audit_log` | Token/MCP action audit (no secrets) |
 
 Cascade: server/S3 profile → configs → history. Never return `appPasswordHash` / `sessionSecret` from `GET /api/settings`.
 
@@ -71,6 +74,7 @@ Pattern: Zod → Drizzle → `NextResponse.json`; errors `{ error, details? }`.
 |------|--------|
 | Public | `GET /api/health`, `/api/auth/{status,setup,login,logout}` |
 | Auth | `POST /api/auth/password` (set/change/remove) |
+| API tokens | `/api/api-tokens`, `/api/api-tokens/[id]` (session-only manage); MCP `GET|POST|DELETE /mcp` |
 | Servers | `/api/servers`, `/api/servers/[id]`, `…/test`, `…/docker/volumes`, `…/docker/containers`, `…/docker/containers/[name]/db-hints`, `POST /api/servers/test` |
 | S3 | `/api/s3-profiles`, `/api/s3-profiles/[id]`, `…/test`, `POST /api/s3-profiles/test` |
 | Backups | `/api/backups`, `/api/backups/[id]`, `…/run`, `…/toggle`, `…/storage`, `POST /api/backups/start`, `POST /api/backups/database/test` |
