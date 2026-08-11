@@ -21,6 +21,140 @@ export type BlogPost = {
 
 export const posts: BlogPost[] = [
   {
+    slug: "manage-backups-with-mcp",
+    title: "Manage LazyBackup with MCP",
+    description:
+      "Point Cursor, Claude, or any MCP client at your self-hosted LazyBackup instance—API tokens, /mcp, and one-click install.",
+    date: "2026-08-11",
+    dateLabel: "Aug 11, 2026",
+    readingMinutes: 5,
+    tags: ["product", "mcp", "agents"],
+    cover: {
+      src: "/screenshots/dashboard.png",
+      alt: "LazyBackup dashboard — the same instance agents can manage over MCP",
+    },
+    body: [
+      {
+        type: "p",
+        text: "LazyBackup already runs where you want it—home lab, VPS, or a spare box on the LAN. The new piece is letting your coding agent talk to that instance the same way you do in the UI: list jobs, kick a run, tweak a schedule, check history.",
+      },
+      {
+        type: "p",
+        text: "That’s what MCP (Model Context Protocol) is for. LazyBackup exposes a Streamable HTTP endpoint at /mcp on the same app. No separate agent on every VPS, no local bridge process you have to keep updated—just URL + token.",
+      },
+      {
+        type: "callout",
+        text: "HTTP MCP lives on the server. Cursor or Claude on your laptop connects to https://your-host/mcp with a Bearer API token. stdio would only wrap the same API from a local process; for self-hosted LazyBackup, in-app HTTP is the fit.",
+      },
+      {
+        type: "h2",
+        text: "Create a token",
+      },
+      {
+        type: "ol",
+        items: [
+          "Enable an app password (recommended) so the UI and API aren’t open on the network.",
+          "Open Settings → API / MCP.",
+          "Create a token, copy it immediately—plaintext is shown once.",
+          "Revoke anytime from the same list if a laptop or agent is gone.",
+        ],
+      },
+      {
+        type: "p",
+        text: "Tokens are full operator access (same gate as a logged-in session). Treat them like the app password. Prefer HTTPS, or keep the instance on a trusted LAN.",
+      },
+      {
+        type: "h2",
+        text: "One-click install",
+      },
+      {
+        type: "p",
+        text: "After you create a token, LazyBackup builds client-specific install helpers from your current origin:",
+      },
+      {
+        type: "ul",
+        items: [
+          "Add to Cursor — official deeplink that opens an install confirm with url + Authorization header",
+          "Add to VS Code — vscode:mcp/install link",
+          "Copy mcp.json — generic config for any client",
+          "Copy Claude config — paste into Connectors / desktop config",
+          "Copy Claude Code CLI — claude mcp add --transport http …",
+        ],
+      },
+      {
+        type: "code",
+        lang: "json",
+        code: `{
+  "mcpServers": {
+    "lazybackup": {
+      "url": "https://your-host/mcp",
+      "headers": {
+        "Authorization": "Bearer lb_…"
+      }
+    }
+  }
+}`,
+      },
+      {
+        type: "h2",
+        text: "What the agent can do",
+      },
+      {
+        type: "p",
+        text: "Tools are curated for agents—not a raw dump of every REST route. Descriptions encode From → To rules (path, Docker volume, database; local / server / S3).",
+      },
+      {
+        type: "ul",
+        items: [
+          "Inspect: list_backups, get_backup, list_history, get_dashboard, list_servers, list_s3_profiles",
+          "Operate: run_backup, toggle_backup",
+          "Manage: create_backup, update_backup, create_server, update_server",
+          "Destructive (need confirm=true): delete_backup, delete_server, restore_history",
+        ],
+      },
+      {
+        type: "p",
+        text: "Secrets (SSH keys, DB passwords, S3 secrets) are redacted in responses. History logs are truncated so the model isn’t buried in rsync noise. Token use bumps last-used time and writes an audit row—enough to answer “what did the agent do?”",
+      },
+      {
+        type: "img",
+        src: "/screenshots/dashboard.png",
+        alt: "LazyBackup dashboard",
+        caption: "Same dashboard your agent can summarize with get_dashboard.",
+      },
+      {
+        type: "h2",
+        text: "A prompt that works",
+      },
+      {
+        type: "code",
+        lang: "text",
+        code: `List my LazyBackup jobs and run the one named "WordPress site" if it isn’t already running.
+If anything failed in the last day, summarize the error from history.`,
+      },
+      {
+        type: "p",
+        text: "Or: “Add a nightly database dump from server X to this host under /backups/app-db”—then review the create_backup payload before you let it confirm anything destructive.",
+      },
+      {
+        type: "h2",
+        text: "Security notes",
+      },
+      {
+        type: "ul",
+        items: [
+          "App password locks the browser UI; API tokens are for machines.",
+          "Token management itself requires a session cookie—Bearer tokens cannot mint new tokens.",
+          "If you skip the app password, /mcp is open like the rest of the API—fine on localhost, risky on a public VPS.",
+        ],
+      },
+      {
+        type: "callout",
+        text: "Deploy LazyBackup, open Settings → API / MCP, hit Add to Cursor, and ask your agent to manage backups on the box you already trust.",
+      },
+    ],
+  },
+  {
     slug: "introducing-lazybackup",
     title: "Introducing LazyBackup",
     description:
