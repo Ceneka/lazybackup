@@ -11,7 +11,7 @@ Guide for AI coding agents. User-facing setup lives in [README.md](./README.md) 
 - For **database + docker client** on a server source, the form can list running containers and auto-fill credentials from `docker inspect` env (`POSTGRES_*` / `MYSQL_*` / `MARIADB_*`).
 - **SSH key required** for any server endpoint involved in a **transfer** (host-side rsync/scp). Password auth works for Test connection and other `node-ssh` operations (list volumes/containers, remote shell cmds); it is not enough alone to pull/push path backups.
 - **Optional app password** (single operator, no users table): first-run set/skip; manage in Settings. Hash in settings → middleware gates pages + `/api/*` (public: `/login`, `/api/auth/*`, `/api/health`). Session cookie `lb_session`, 30-day sliding expiry.
-- **API tokens** (Settings → API / MCP): Bearer `Authorization` for agents; hashed in `api_tokens`. Streamable HTTP MCP at `/mcp` (same auth gate). Token CRUD requires a browser session (tokens cannot mint tokens).
+- **API tokens** (Settings → API / MCP): Bearer `Authorization` for agents; hashed in `api_tokens`. Streamable HTTP MCP at `/mcp` (same auth gate). Token CRUD requires a browser session (tokens cannot mint tokens). Opt-in `remote_exec` permission gates `exec_command` and setting/changing `preBackupCommands` (session/unlocked always allowed).
 - Middleware verifies the session **in-process** (Node.js runtime + SQLite). Never HTTP self-fetch `/api/auth/status` from middleware (LAN Host hangs; loopback from Edge fails → pages load, APIs 401).
 - Cookies default **non-Secure**; set `AUTH_COOKIE_SECURE=true` only behind HTTPS.
 - Cron runs in the app **timezone** setting. Migrations are **`src/lib/db/migrate.ts`** only (no drizzle `migrations/` folder).
@@ -63,7 +63,7 @@ Restore (volume/database, local or S3 dest): history artifact → download from 
 | `backup_configs` | `sourceKind`/`destinationKind` local\|server\|s3, nullable `serverId` / `destinationServerId` / `sourceS3ProfileId` / `destinationS3ProfileId`, `sourceType` path\|docker_volume\|database, `sourcePath`/`destinationPath` (prefix when S3), `db_*` for dumps, cron, excludes, pre-cmds, versioning + file retention, optional last validation (`lastValidatedAt` / `lastValidationOk` / `lastValidationChecks`; cleared on config update) |
 | `backup_history` | status running\|success\|failed, sizes, `logOutput`, `artifactPath` (local path or `s3://bucket/key`) |
 | `settings` | KV: timezone, SSH defaults, `appPasswordHash`, `sessionSecret`, `authSetupCompleted`, failure webhook URL/method/headers/body |
-| `api_tokens` | Named Bearer tokens (SHA-256 hash + prefix); used by MCP / machine clients |
+| `api_tokens` | Named Bearer tokens (SHA-256 hash + prefix); optional JSON `permissions` (e.g. `["remote_exec"]`); used by MCP / machine clients |
 | `audit_log` | Token/MCP action audit (no secrets) |
 
 Cascade: server/S3 profile → configs → history. Never return `appPasswordHash` / `sessionSecret` from `GET /api/settings`.
@@ -77,8 +77,8 @@ Pattern: Zod → Drizzle → `NextResponse.json`; errors `{ error, details? }`.
 | Public | `GET /api/health`, `/api/auth/{status,setup,login,logout}` |
 | Auth | `POST /api/auth/password` (set/change/remove) |
 | API tokens | `/api/api-tokens`, `/api/api-tokens/[id]` (session-only manage); MCP `GET|POST|DELETE /mcp` |
-| MCP discovery | Tools: `find_server`, `list_docker_volumes`, `list_docker_containers`, `get_container_db_hints`, `test_server`, `test_database` (wrap existing SSH/Docker/DB helpers) |
-| Servers | `/api/servers`, `/api/servers/[id]`, `…/test`, `…/docker/volumes`, `…/docker/containers`, `…/docker/containers/[name]/db-hints`, `POST /api/servers/test` |
+| MCP discovery | Tools: `find_server`, `list_docker_volumes`, `list_docker_containers`, `get_container_db_hints`, `test_server`, `test_database`, `exec_command` (SSH shell; needs `remote_exec`) |
+| Servers | `/api/servers`, `/api/servers/[id]`, `…/test`, `…/exec` (remote shell; Bearer needs `remote_exec`), `…/docker/volumes`, `…/docker/containers`, `…/docker/containers/[name]/db-hints`, `POST /api/servers/test` |
 | S3 | `/api/s3-profiles`, `/api/s3-profiles/[id]`, `…/test`, `POST /api/s3-profiles/test` |
 | Backups | `/api/backups`, `/api/backups/[id]`, `…/run`, `…/validate`, `…/toggle`, `…/storage`, `POST /api/backups/start`, `POST /api/backups/database/test` |
 | History | `/api/history`, `/api/history/[id]`, `…/restore`, `/api/history/stats?chartData=` |
@@ -139,6 +139,7 @@ CI publishes GHCR on `main` / `v*` tags (skips docs/`LICENSE`/`landing` via `pat
 10. Server→server ephemeral transfer needs source→dest network reachability; otherwise relay is used.
 11. Database dumps need client tools on the source (`pg_dump`/`mysqldump` or inside the DB container). Do not stream dump SQL through `execCommand` stdout — always write a temp `.sql.gz` then transfer.
 12. S3 sources only support `sourceType=path` (object prefix). Use `@aws-sdk/client-s3` with custom endpoint + path-style for MinIO/R2/B2.
+13. Bearer tokens without `remote_exec` cannot set/change `preBackupCommands` or call `exec_command` / `POST …/servers/:id/exec`. Browser sessions always can. Existing tokens default to no `remote_exec` after migration — recreate with the checkbox if needed.
 
 ## Read first
 

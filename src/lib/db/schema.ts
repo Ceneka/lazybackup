@@ -128,10 +128,12 @@ export const backupHistory = sqliteTable('backup_history', {
 export const apiTokens = sqliteTable('api_tokens', {
   id: text('id').primaryKey().notNull(),
   name: text('name').notNull(),
-  /** argon2 hash of the full token */
+  /** SHA-256 hash of the full token */
   tokenHash: text('token_hash').notNull(),
   /** First characters for UI display, e.g. lb_xxxx… */
   tokenPrefix: text('token_prefix').notNull(),
+  /** JSON array of ApiTokenPermission, e.g. ["remote_exec"] */
+  permissions: text('permissions').notNull().default('[]'),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
   lastUsedAt: integer('last_used_at', { mode: 'timestamp' }),
   revokedAt: integer('revoked_at', { mode: 'timestamp' }),

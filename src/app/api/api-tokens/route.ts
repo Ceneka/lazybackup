@@ -2,12 +2,14 @@ import {
   createApiToken,
   isSessionAuthorized,
   listApiTokens,
+  normalizeApiTokenPermissionsInput,
 } from '@/lib/auth'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 
 const createSchema = z.object({
   name: z.string().min(1, 'Name is required').max(100),
+  permissions: z.array(z.string()).optional(),
 })
 
 async function requireSession(request: NextRequest) {
@@ -43,8 +45,9 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json()
-    const { name } = createSchema.parse(body)
-    const { token, plaintext } = await createApiToken(name)
+    const { name, permissions: rawPermissions } = createSchema.parse(body)
+    const permissions = normalizeApiTokenPermissionsInput(rawPermissions)
+    const { token, plaintext } = await createApiToken(name, permissions)
     return NextResponse.json({ ...token, token: plaintext }, { status: 201 })
   } catch (error) {
     console.error('Failed to create API token:', error)

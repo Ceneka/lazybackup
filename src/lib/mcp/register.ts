@@ -13,12 +13,20 @@ const DISCOVER_FIRST = `Never invent server names, volume names, container names
 Always resolve with find_server / list_servers / list_docker_volumes / list_docker_containers first.
 For database dumps prefer get_container_db_hints then test_database before create_backup.`
 
-function ctx(actor?: AuditActor): ops.McpOpsContext {
-  return { actor }
+const REMOTE_EXEC_NOTE =
+  'Requires API token remote_exec permission (or a browser session). Prefer this over setting preBackupCommands just to run a one-off command.'
+
+function ctx(actor: AuditActor | undefined, canRemoteExec: boolean): ops.McpOpsContext {
+  return { actor, canRemoteExec }
 }
 
-export function registerLazyBackupTools(server: McpServer, actor?: AuditActor) {
-  const c = ctx(actor)
+export function registerLazyBackupTools(
+  server: McpServer,
+  options?: { actor?: AuditActor; canRemoteExec?: boolean }
+) {
+  const actor = options?.actor
+  const canRemoteExec = options?.canRemoteExec ?? false
+  const c = ctx(actor, canRemoteExec)
 
   // --- Discovery & verify (call these before create_*) ---
 
@@ -111,6 +119,28 @@ export function registerLazyBackupTools(server: McpServer, actor?: AuditActor) {
     async (args) => discovery.testDatabaseOp(c, args)
   )
 
+  server.registerTool(
+    'exec_command',
+    {
+      title: 'Execute remote command',
+      description: `Run a shell command over SSH on a configured server. ${REMOTE_EXEC_NOTE} Requires confirm=true. Output may be truncated.`,
+      inputSchema: z.object({
+        serverId: z.string().describe('Server id from find_server or list_servers'),
+        command: z.string().min(1).describe('Shell command to run on the remote host'),
+        confirm: z.boolean().describe('Must be true to execute'),
+        timeoutMs: z
+          .number()
+          .int()
+          .min(1000)
+          .max(300_000)
+          .optional()
+          .describe('Optional timeout in ms (default 120000)'),
+      }),
+    },
+    async ({ serverId, command, confirm, timeoutMs }) =>
+      ops.execCommandOp(c, serverId, command, confirm, timeoutMs)
+  )
+
   // --- Backups ---
 
   server.registerTool(
@@ -142,7 +172,8 @@ export function registerLazyBackupTools(server: McpServer, actor?: AuditActor) {
       description: `Create a backup configuration. ${BACKUP_GUIDE}
 ${DISCOVER_FIRST}
 Required: name, sourceKind, destinationKind, sourceType, sourcePath, destinationPath, schedule (5-field cron).
-When sourceKind=server set serverId from find_server; for docker_volume use list_docker_volumes; for database use get_container_db_hints + test_database.`,
+When sourceKind=server set serverId from find_server; for docker_volume use list_docker_volumes; for database use get_container_db_hints + test_database.
+Setting or changing preBackupCommands requires remote_exec (prefer exec_command for one-off shell).`,
       inputSchema: z.object({
         config: z
           .record(z.string(), z.unknown())
@@ -156,7 +187,8 @@ When sourceKind=server set serverId from find_server; for docker_volume use list
     'update_backup',
     {
       title: 'Update backup',
-      description: `Replace a backup configuration by id with a full config object. ${BACKUP_GUIDE} ${DISCOVER_FIRST}`,
+      description: `Replace a backup configuration by id with a full config object. ${BACKUP_GUIDE} ${DISCOVER_FIRST}
+Setting or changing preBackupCommands requires remote_exec.`,
       inputSchema: z.object({
         id: z.string(),
         config: z.record(z.string(), z.unknown()),

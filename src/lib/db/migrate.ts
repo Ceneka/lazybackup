@@ -306,11 +306,20 @@ export async function runMigration() {
         name TEXT NOT NULL,
         token_hash TEXT NOT NULL,
         token_prefix TEXT NOT NULL,
+        permissions TEXT NOT NULL DEFAULT '[]',
         created_at INTEGER NOT NULL DEFAULT (unixepoch()),
         last_used_at INTEGER,
         revoked_at INTEGER
       );
     `);
+
+    const apiTokensInfo = await db.run(sql`PRAGMA table_info(api_tokens)`);
+    const apiTokenColumns = apiTokensInfo.rows.map((row: { name: string }) => row.name);
+    if (!apiTokenColumns.includes('permissions')) {
+      await db.run(
+        sql`ALTER TABLE api_tokens ADD COLUMN permissions TEXT NOT NULL DEFAULT '[]'`
+      );
+    }
 
     await db.run(sql`
       CREATE TABLE IF NOT EXISTS audit_log (

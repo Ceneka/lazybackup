@@ -1,4 +1,9 @@
 import { redactBackup } from '@/lib/api/redact';
+import {
+  RemoteExecPermissionError,
+  assertCanSetPreBackupCommands,
+  resolveAuth,
+} from '@/lib/auth';
 import { findExactDestinationConflict } from '@/lib/backup/destination-guard';
 import { backupConfigSchema } from '@/lib/backup/schema';
 import { attachLastValidation } from '@/lib/backup/validate';
@@ -42,10 +47,19 @@ export async function GET() {
 // POST /api/backups - Create a new backup configuration
 export async function POST(request: NextRequest) {
   try {
+    const auth = await resolveAuth(
+      request.headers.get('cookie'),
+      request.headers.get('authorization')
+    );
+    if (!auth.authorized) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const body = await request.json();
 
     // Validate the request body
     const validatedData = backupConfigSchema.parse(body);
+    assertCanSetPreBackupCommands(auth, validatedData.preBackupCommands);
 
     const conflictingBackup = await findExactDestinationConflict(
       validatedData.destinationPath,
@@ -110,6 +124,10 @@ export async function POST(request: NextRequest) {
     );
   } catch (error) {
     console.error('Failed to create backup configuration:', error);
+
+    if (error instanceof RemoteExecPermissionError) {
+      return NextResponse.json({ error: error.message }, { status: 403 });
+    }
 
     if (error instanceof z.ZodError) {
       return NextResponse.json(

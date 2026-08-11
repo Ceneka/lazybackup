@@ -58,6 +58,21 @@ export {
   type VerifiedApiToken,
 } from './api-tokens'
 
+export {
+  API_TOKEN_PERMISSIONS,
+  REMOTE_EXEC_DENIED,
+  RemoteExecPermissionError,
+  assertCanSetPreBackupCommands,
+  authAllowsRemoteExec,
+  authHasPermission,
+  normalizeApiTokenPermissionsInput,
+  parseApiTokenPermissions,
+  preBackupChangeRequiresRemoteExec,
+  serializeApiTokenPermissions,
+  type ApiTokenPermission,
+  type AuthPermissionView,
+} from './permissions'
+
 export { writeAuditLog, type AuditActor } from './audit'
 
 export async function isAuthEnabled(): Promise<boolean> {

@@ -41,6 +41,7 @@ function formatDate(value: string | null | undefined) {
 export function McpSettingsPanel() {
   const tokensQuery = useApiTokens()
   const [newName, setNewName] = useState('MCP agent')
+  const [allowRemoteExec, setAllowRemoteExec] = useState(false)
   const [created, setCreated] = useState<CreatedApiToken | null>(null)
 
   const origin = typeof window !== 'undefined' ? window.location.origin : ''
@@ -58,9 +59,14 @@ export function McpSettingsPanel() {
 
   const handleCreate = async () => {
     try {
-      const result = await tokensQuery.createToken.mutateAsync(newName.trim() || 'MCP agent')
+      const permissions = allowRemoteExec ? (['remote_exec'] as const) : []
+      const result = await tokensQuery.createToken.mutateAsync({
+        name: newName.trim() || 'MCP agent',
+        permissions: [...permissions],
+      })
       setCreated(result)
       setNewName('MCP agent')
+      setAllowRemoteExec(false)
     } catch {
       // toast in hook
     }
@@ -73,13 +79,14 @@ export function McpSettingsPanel() {
           <CardTitle>API tokens &amp; MCP</CardTitle>
           <CardDescription>
             Create a token so Cursor, Claude, or other agents can manage this LazyBackup
-            instance over MCP at <code className="text-xs">/mcp</code>. Tokens have full
-            operator access — treat them like the app password. Prefer HTTPS (or a trusted
-            LAN) when exposing the instance.
+            instance over MCP at <code className="text-xs">/mcp</code>. Tokens can manage
+            backups and servers; remote shell (<code className="text-xs">exec_command</code>)
+            and changing pre-backup commands require an explicit permission. Prefer HTTPS (or
+            a trusted LAN) when exposing the instance.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
-          <div className="space-y-2">
+          <div className="space-y-3">
             <Label htmlFor="token-name">New token name</Label>
             <div className="flex flex-col gap-2 sm:flex-row">
               <Input
@@ -97,6 +104,22 @@ export function McpSettingsPanel() {
                 Create token
               </LoadingButton>
             </div>
+            <label className="flex items-start gap-2 text-sm max-w-xl cursor-pointer">
+              <input
+                type="checkbox"
+                className="mt-1"
+                checked={allowRemoteExec}
+                onChange={(e) => setAllowRemoteExec(e.target.checked)}
+              />
+              <span>
+                <span className="font-medium">Allow remote command execution</span>
+                <span className="block text-muted-foreground">
+                  Grants <code className="text-xs">remote_exec</code>: MCP/API{' '}
+                  <code className="text-xs">exec_command</code> on servers, and setting or
+                  changing pre-backup commands. Leave off for read/manage-only agents.
+                </span>
+              </span>
+            </label>
           </div>
 
           {created && install && (
@@ -178,6 +201,9 @@ export function McpSettingsPanel() {
                       <p className="text-xs text-muted-foreground">
                         {token.tokenPrefix} · created {formatDate(token.createdAt)} · last used{' '}
                         {formatDate(token.lastUsedAt)}
+                        {token.permissions?.includes('remote_exec')
+                          ? ' · remote_exec'
+                          : ''}
                       </p>
                     </div>
                     <Button

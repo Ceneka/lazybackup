@@ -1,4 +1,9 @@
 import { redactBackup } from '@/lib/api/redact';
+import {
+  RemoteExecPermissionError,
+  assertCanSetPreBackupCommands,
+  resolveAuth,
+} from '@/lib/auth';
 import { findExactDestinationConflict } from '@/lib/backup/destination-guard';
 import { backupConfigSchema } from '@/lib/backup/schema';
 import { attachLastValidation } from '@/lib/backup/validate';
@@ -77,10 +82,34 @@ export async function PUT(
   const { id } = await params;
 
   try {
+    const auth = await resolveAuth(
+      request.headers.get('cookie'),
+      request.headers.get('authorization')
+    );
+    if (!auth.authorized) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const body = await request.json();
 
     // Validate the request body
     const validatedData = backupConfigSchema.parse(body);
+
+    const existing = await db.query.backupConfigs.findFirst({
+      where: eq(backupConfigs.id, id),
+    });
+    if (!existing) {
+      return NextResponse.json(
+        { error: 'Backup configuration not found' },
+        { status: 404 }
+      );
+    }
+
+    assertCanSetPreBackupCommands(
+      auth,
+      validatedData.preBackupCommands,
+      existing.preBackupCommands
+    );
 
     const conflictingBackup = await findExactDestinationConflict(
       validatedData.destinationPath,
@@ -98,16 +127,6 @@ export async function PUT(
           conflictingBackup,
         },
         { status: 409 }
-      );
-    }
-
-    const existing = await db.query.backupConfigs.findFirst({
-      where: eq(backupConfigs.id, id),
-    });
-    if (!existing) {
-      return NextResponse.json(
-        { error: 'Backup configuration not found' },
-        { status: 404 }
       );
     }
 
@@ -159,6 +178,10 @@ export async function PUT(
     return NextResponse.json(redacted);
   } catch (error) {
     console.error('Failed to update backup configuration:', error);
+
+    if (error instanceof RemoteExecPermissionError) {
+      return NextResponse.json({ error: error.message }, { status: 403 });
+    }
 
     if (error instanceof z.ZodError) {
       return NextResponse.json(

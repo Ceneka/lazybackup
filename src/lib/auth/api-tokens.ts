@@ -3,6 +3,11 @@ import { db } from '@/lib/db'
 import { apiTokens } from '@/lib/db/schema'
 import { and, desc, eq, isNull } from 'drizzle-orm'
 import { nanoid } from 'nanoid'
+import {
+  parseApiTokenPermissions,
+  serializeApiTokenPermissions,
+  type ApiTokenPermission,
+} from './permissions'
 
 const TOKEN_PREFIX = 'lb_'
 const TOKEN_BYTES = 32
@@ -13,6 +18,7 @@ export type PublicApiToken = {
   id: string
   name: string
   tokenPrefix: string
+  permissions: ApiTokenPermission[]
   createdAt: Date
   lastUsedAt: Date | null
   revokedAt: Date | null
@@ -23,6 +29,7 @@ function toPublic(row: ApiTokenRecord): PublicApiToken {
     id: row.id,
     name: row.name,
     tokenPrefix: row.tokenPrefix,
+    permissions: parseApiTokenPermissions(row.permissions),
     createdAt: row.createdAt,
     lastUsedAt: row.lastUsedAt ?? null,
     revokedAt: row.revokedAt ?? null,
@@ -38,7 +45,10 @@ export function hashApiToken(token: string): string {
  * Generate a new API token. Returns plaintext once; only the hash is stored.
  * Format: `lb_<hex>`
  */
-export async function createApiToken(name: string): Promise<{
+export async function createApiToken(
+  name: string,
+  permissions: readonly ApiTokenPermission[] = []
+): Promise<{
   token: PublicApiToken
   plaintext: string
 }> {
@@ -56,6 +66,7 @@ export async function createApiToken(name: string): Promise<{
     name: trimmed,
     tokenHash: hashApiToken(plaintext),
     tokenPrefix: `${plaintext.slice(0, 11)}…`,
+    permissions: serializeApiTokenPermissions(permissions),
     createdAt: now,
     lastUsedAt: null,
     revokedAt: null,
@@ -92,6 +103,7 @@ export async function revokeApiToken(id: string): Promise<PublicApiToken | null>
 export type VerifiedApiToken = {
   id: string
   name: string
+  permissions: ApiTokenPermission[]
 }
 
 /**
@@ -115,7 +127,11 @@ export async function verifyApiToken(
     .where(eq(apiTokens.id, row.id))
     .catch(() => undefined)
 
-  return { id: row.id, name: row.name }
+  return {
+    id: row.id,
+    name: row.name,
+    permissions: parseApiTokenPermissions(row.permissions),
+  }
 }
 
 export function parseBearerToken(

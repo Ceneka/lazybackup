@@ -112,7 +112,7 @@ Example `mcp.json` (replace host and token):
 }
 ```
 
-The token has full operator access (same gate as the UI). Prefer HTTPS or a trusted LAN. Revoke tokens anytime from the same Settings tab. Destructive MCP tools require `confirm: true`.
+Tokens can manage backups and servers. **Remote shell** (`exec_command` / `POST /api/servers/:id/exec`) and **setting or changing pre-backup commands** require the opt-in **Allow remote command execution** permission when creating the token (browser sessions always have it). Prefer HTTPS or a trusted LAN. Revoke tokens anytime from the same Settings tab. Destructive MCP tools (`delete_*`, `restore_history`, `exec_command`) require `confirm: true`.
 
 ### Failure notifications
 

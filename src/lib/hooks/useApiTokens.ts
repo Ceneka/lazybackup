@@ -3,16 +3,24 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 
+export type ApiTokenPermission = 'remote_exec'
+
 export type ApiToken = {
   id: string
   name: string
   tokenPrefix: string
+  permissions: ApiTokenPermission[]
   createdAt: string
   lastUsedAt: string | null
   revokedAt: string | null
 }
 
 export type CreatedApiToken = ApiToken & { token: string }
+
+export type CreateApiTokenInput = {
+  name: string
+  permissions?: ApiTokenPermission[]
+}
 
 export const apiTokenKeys = {
   all: ['api-tokens'] as const,
@@ -40,11 +48,11 @@ export function useApiTokens() {
   })
 
   const createToken = useMutation({
-    mutationFn: async (name: string): Promise<CreatedApiToken> => {
+    mutationFn: async (input: CreateApiTokenInput): Promise<CreatedApiToken> => {
       const response = await fetch('/api/api-tokens', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name }),
+        body: JSON.stringify(input),
       })
       if (!response.ok) throw new Error(await parseError(response))
       return response.json()

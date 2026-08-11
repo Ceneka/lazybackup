@@ -1,4 +1,4 @@
-import { resolveAuth } from '@/lib/auth'
+import { authAllowsRemoteExec, resolveAuth } from '@/lib/auth'
 import { registerLazyBackupTools } from '@/lib/mcp/register'
 import { createMcpHandler } from 'mcp-handler'
 
@@ -25,9 +25,11 @@ async function handle(req: Request) {
       ? { tokenName: 'session' }
       : undefined
 
+  const canRemoteExec = authAllowsRemoteExec(resolved)
+
   const requestHandler = createMcpHandler(
     (server) => {
-      registerLazyBackupTools(server, actor)
+      registerLazyBackupTools(server, { actor, canRemoteExec })
     },
     {
       serverInfo: {
@@ -38,7 +40,8 @@ async function handle(req: Request) {
 Never invent server, volume, container, or S3 profile names/ids — call find_server, list_docker_volumes, list_docker_containers, get_container_db_hints, list_s3_profiles first.
 Verify with test_server / test_database before create_backup when possible.
 Use list_backups / get_dashboard to inspect state; run_backup to start jobs.
-Destructive tools (delete_*, restore_history) require confirm=true.`,
+Destructive tools (delete_*, restore_history, exec_command) require confirm=true.
+exec_command and changing preBackupCommands require the API token remote_exec permission (or a browser session). Prefer exec_command for one-off shell instead of abusing preBackupCommands.`,
     }
   )
 

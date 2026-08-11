@@ -1,7 +1,12 @@
 import { findExactDestinationConflict } from '@/lib/backup/destination-guard'
 import { backupConfigSchema } from '@/lib/backup/schema'
 import { restoreDatabaseBackup, restoreDockerVolumeBackup, executeBackup } from '@/lib/backup'
-import { writeAuditLog, type AuditActor } from '@/lib/auth/audit'
+import {
+  REMOTE_EXEC_DENIED,
+  assertCanSetPreBackupCommands,
+  writeAuditLog,
+  type AuditActor,
+} from '@/lib/auth'
 import { redactBackup, redactS3, redactServer } from '@/lib/api/redact'
 import { attachLastValidation } from '@/lib/backup/validate'
 import { db } from '@/lib/db'
@@ -13,6 +18,7 @@ import {
   sshKeys,
 } from '@/lib/db/schema'
 import { scheduleBackup, stopBackup } from '@/lib/scheduler'
+import { execRemoteCommand } from '@/lib/ssh/exec-remote'
 import { and, desc, eq, or } from 'drizzle-orm'
 import { nanoid } from 'nanoid'
 import { z } from 'zod'
@@ -84,6 +90,24 @@ function redactBackupForMcp(config: Record<string, unknown>) {
 
 export type McpOpsContext = {
   actor?: AuditActor
+  /** Browser session / unlocked = true; Bearer only when token has remote_exec */
+  canRemoteExec: boolean
+}
+
+function assertMcpCanSetPreBackup(
+  ctx: McpOpsContext,
+  incoming: string | null | undefined,
+  existing?: string | null
+) {
+  assertCanSetPreBackupCommands(
+    {
+      authorized: true,
+      via: ctx.canRemoteExec ? 'session' : 'bearer',
+      apiToken: ctx.canRemoteExec ? undefined : { permissions: [] },
+    },
+    incoming,
+    existing
+  )
 }
 
 export async function listBackupsOp(_ctx: McpOpsContext) {
@@ -105,6 +129,7 @@ export async function getBackupOp(_ctx: McpOpsContext, id: string) {
 export async function createBackupOp(ctx: McpOpsContext, input: unknown) {
   return audited(ctx.actor, 'create_backup', undefined, async () => {
     const validatedData = backupConfigSchema.parse(input)
+    assertMcpCanSetPreBackup(ctx, validatedData.preBackupCommands)
     const conflictingBackup = await findExactDestinationConflict(
       validatedData.destinationPath,
       undefined,
@@ -150,6 +175,7 @@ export async function updateBackupOp(ctx: McpOpsContext, id: string, input: unkn
       where: eq(backupConfigs.id, id),
     })
     if (!existing) throw new Error(`Backup not found: ${id}`)
+    assertMcpCanSetPreBackup(ctx, validatedData.preBackupCommands, existing.preBackupCommands)
 
     const conflictingBackup = await findExactDestinationConflict(
       validatedData.destinationPath,
@@ -484,4 +510,29 @@ export async function getDashboardOp(_ctx: McpOpsContext) {
       errorMessage: r.errorMessage,
     })),
   })
+}
+
+/**
+ * Direct SSH command on a configured server.
+ * Requires remote_exec permission (Bearer) or a browser session.
+ */
+export async function execCommandOp(
+  ctx: McpOpsContext,
+  serverId: string,
+  command: string,
+  confirm: boolean,
+  timeoutMs?: number
+) {
+  if (!ctx.canRemoteExec) {
+    return errorResult(REMOTE_EXEC_DENIED)
+  }
+  if (!confirm) {
+    return errorResult('Refusing to execute: pass confirm=true to proceed')
+  }
+  return audited(ctx.actor, 'exec_command', serverId, async () => {
+    const result = await execRemoteCommand(serverId, command, { timeoutMs })
+    return jsonResult(result)
+  }).catch((error) =>
+    errorResult(error instanceof Error ? error.message : 'Failed to execute command')
+  )
 }
