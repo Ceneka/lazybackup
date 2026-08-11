@@ -8,6 +8,7 @@ import { formatBytes } from "@/lib/utils"
 import {
   CheckCircleIcon,
   CalendarClockIcon,
+  CloudIcon,
   FolderIcon,
   HardDriveIcon,
   HistoryIcon,
@@ -91,10 +92,14 @@ export default function Dashboard() {
           <h1 className="text-3xl font-bold">Dashboard</h1>
           <p className="text-sm text-muted-foreground">Last 30 days overview</p>
         </div>
-        <div className="flex gap-3 text-sm text-muted-foreground">
+        <div className="flex flex-wrap gap-3 text-sm text-muted-foreground">
           <Link href="/servers" className="inline-flex items-center gap-1 hover:text-foreground">
             <ServerIcon className="h-3.5 w-3.5" />
             {query.data?.servers ?? "—"} servers
+          </Link>
+          <Link href="/s3-profiles" className="inline-flex items-center gap-1 hover:text-foreground">
+            <CloudIcon className="h-3.5 w-3.5" />
+            {query.data?.s3Profiles ?? "—"} S3
           </Link>
           <Link href="/backups" className="inline-flex items-center gap-1 hover:text-foreground">
             <FolderIcon className="h-3.5 w-3.5" />
@@ -259,6 +264,13 @@ export default function Dashboard() {
                   >
                     <PlusIcon className="h-5 w-5" />
                     <span>Add New Server</span>
+                  </Link>
+                  <Link
+                    href="/s3-profiles/new"
+                    className="flex items-center space-x-2 rounded-md p-3 transition-colors hover:bg-accent"
+                  >
+                    <PlusIcon className="h-5 w-5" />
+                    <span>Add S3 Profile</span>
                   </Link>
                   <Link
                     href="/backups/new"

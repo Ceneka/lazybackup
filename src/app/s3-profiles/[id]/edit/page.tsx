@@ -57,7 +57,20 @@ export default function EditS3ProfilePage() {
   }
 
   if (!profileQuery.data) {
-    return <p className="text-muted-foreground">S3 profile not found.</p>
+    return (
+      <div className="py-8 text-center">
+        <h2 className="text-2xl font-bold">S3 profile not found</h2>
+        <p className="mt-2 mb-4 text-muted-foreground">
+          The profile you&apos;re trying to edit doesn&apos;t exist or has been deleted.
+        </p>
+        <Link
+          href="/s3-profiles"
+          className="inline-flex h-10 items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+        >
+          Back to S3 Profiles
+        </Link>
+      </div>
+    )
   }
 
   const profile = profileQuery.data
@@ -74,11 +87,15 @@ export default function EditS3ProfilePage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <Link href="/s3-profiles" className="text-muted-foreground hover:text-foreground">
-            <ArrowLeftIcon className="h-5 w-5" />
+        <div className="flex items-center space-x-2">
+          <Link
+            href="/s3-profiles"
+            className="inline-flex h-10 w-10 items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50"
+          >
+            <ArrowLeftIcon className="h-4 w-4" />
+            <span className="sr-only">Back to S3 profiles</span>
           </Link>
-          <h1 className="text-2xl font-bold">Edit S3 profile</h1>
+          <h1 className="text-3xl font-bold">Edit S3 Profile</h1>
         </div>
         <DeleteConfirmationDialog
           title="Delete S3 profile?"
@@ -100,7 +117,7 @@ export default function EditS3ProfilePage() {
       <S3ProfileForm
         initial={initial}
         submitting={submitting}
-        submitLabel="Save changes"
+        submitLabel="Save Changes"
         onSubmit={handleSubmit}
       />
     </div>

@@ -48,16 +48,20 @@ export default function NewS3ProfilePage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-3">
-        <Link href="/s3-profiles" className="text-muted-foreground hover:text-foreground">
-          <ArrowLeftIcon className="h-5 w-5" />
+      <div className="flex items-center space-x-2">
+        <Link
+          href="/s3-profiles"
+          className="inline-flex h-10 w-10 items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50"
+        >
+          <ArrowLeftIcon className="h-4 w-4" />
+          <span className="sr-only">Back to S3 profiles</span>
         </Link>
-        <h1 className="text-2xl font-bold">Add S3 profile</h1>
+        <h1 className="text-3xl font-bold">Add S3 Profile</h1>
       </div>
       <S3ProfileForm
         initial={empty}
         submitting={submitting}
-        submitLabel="Create profile"
+        submitLabel="Create Profile"
         onSubmit={handleSubmit}
       />
     </div>

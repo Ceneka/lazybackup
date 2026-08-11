@@ -10,14 +10,14 @@ export default function S3ProfilesPage() {
 
   return (
     <div>
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">S3 profiles</h1>
+      <div className="mb-6 flex items-center justify-between">
+        <h1 className="text-2xl font-bold">S3 Profiles</h1>
         <Link
           href="/s3-profiles/new"
-          className="inline-flex items-center justify-center rounded-md text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 h-10 px-4 py-2"
+          className="inline-flex h-10 items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground ring-offset-background transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50"
         >
           <PlusIcon className="mr-2 h-4 w-4" />
-          Add profile
+          Add Profile
         </Link>
       </div>
 
@@ -26,25 +26,28 @@ export default function S3ProfilesPage() {
         dataLabel="S3 profiles"
         errorIcon={<CloudIcon className="h-12 w-12 text-red-500" />}
         emptyIcon={<CloudIcon className="h-12 w-12 text-muted-foreground" />}
-        emptyMessage="No S3 profiles yet"
+        emptyMessage="No S3 profiles found"
       >
         {query.data && query.data.length > 0 && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
             {query.data.map((profile) => (
               <Link
                 key={profile.id}
                 href={`/s3-profiles/${profile.id}/edit`}
-                className="group block p-6 bg-card text-card-foreground rounded-lg border shadow-sm hover:shadow-md transition-shadow"
+                className="group block rounded-lg border bg-card p-6 text-card-foreground shadow-sm transition-shadow hover:shadow-md"
               >
-                <div className="flex items-center gap-2">
-                  <CloudIcon className="h-5 w-5 text-muted-foreground" />
-                  <h3 className="font-medium">{profile.name}</h3>
+                <div className="flex items-start justify-between">
+                  <div className="flex items-center">
+                    <CloudIcon className="mr-2 h-5 w-5 text-muted-foreground" />
+                    <h3 className="font-medium">{profile.name}</h3>
+                  </div>
                 </div>
-                <div className="mt-2 text-sm text-muted-foreground space-y-1">
+                <div className="mt-2 space-y-1 text-sm text-muted-foreground">
                   <p className="truncate">{profile.endpoint}</p>
                   <p>
-                    Bucket: {profile.bucket} · {profile.region}
+                    Bucket: {profile.bucket}
                   </p>
+                  <p>Region: {profile.region}</p>
                 </div>
               </Link>
             ))}

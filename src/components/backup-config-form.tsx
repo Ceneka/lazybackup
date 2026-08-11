@@ -596,22 +596,7 @@ export function BackupConfigForm({
               </Alert>
             )}
           </div>
-        ) : isSource && formData.sourceType === "database" ? (
-          <div className="space-y-1">
-            <label className="text-xs text-muted-foreground" htmlFor={`${idPrefix}-db-name`}>
-              Database name
-            </label>
-            <input
-              id={`${idPrefix}-db-name`}
-              type="text"
-              className={inputClass}
-              value={path}
-              onChange={(e) => onPathChange(e.target.value)}
-              placeholder="app"
-              required
-            />
-          </div>
-        ) : (
+        ) : !(isSource && formData.sourceType === "database") ? (
           <div className="space-y-1">
             <label className="text-xs text-muted-foreground" htmlFor={`${idPrefix}-path`}>
               {kind === "local"
@@ -641,7 +626,7 @@ export function BackupConfigForm({
               required
             />
           </div>
-        )}
+        ) : null}
       </div>
     )
   }
@@ -977,6 +962,20 @@ export function BackupConfigForm({
                   </div>
                 </>
               )}
+              <div className="space-y-1 sm:col-span-2">
+                <label className="text-xs text-muted-foreground" htmlFor="db-name">
+                  Database name
+                </label>
+                <input
+                  id="db-name"
+                  type="text"
+                  className={inputClass}
+                  value={formData.sourcePath}
+                  onChange={(e) => updateField("sourcePath", e.target.value)}
+                  placeholder="app"
+                  required
+                />
+              </div>
               <div className="space-y-1">
                 <label className="text-xs text-muted-foreground" htmlFor="db-user">
                   User

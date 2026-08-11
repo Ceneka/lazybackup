@@ -1,7 +1,7 @@
 import { getBackupStorageStats } from "@/lib/backup/storage-stats"
 import { buildUpcomingEntry } from "@/lib/cron/next"
 import { db } from "@/lib/db"
-import { backupConfigs, backupHistory, servers } from "@/lib/db/schema"
+import { backupConfigs, backupHistory, s3Profiles, servers } from "@/lib/db/schema"
 import { getAppTimezone } from "@/lib/settings/timezone"
 import { and, desc, eq, gte, sql } from "drizzle-orm"
 import { NextRequest, NextResponse } from "next/server"
@@ -31,6 +31,9 @@ export async function GET(request: NextRequest) {
     const [serverCountRow] = await db
       .select({ count: sql<number>`count(*)` })
       .from(servers)
+    const [s3CountRow] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(s3Profiles)
     const [backupCountRow] = await db
       .select({ count: sql<number>`count(*)` })
       .from(backupConfigs)
@@ -137,6 +140,7 @@ export async function GET(request: NextRequest) {
       days,
       since: since.toISOString(),
       servers: Number(serverCountRow?.count || 0),
+      s3Profiles: Number(s3CountRow?.count || 0),
       backups: Number(backupCountRow?.count || 0),
       enabledBackups: Number(enabledCountRow?.count || 0),
       statusCounts,

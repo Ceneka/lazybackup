@@ -13,6 +13,7 @@ export type DashboardData = {
   days: number
   since: string
   servers: number
+  s3Profiles: number
   backups: number
   enabledBackups: number
   statusCounts: { running: number; success: number; failed: number }
