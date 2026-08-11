@@ -1,6 +1,10 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  applyWebhookTemplate,
+  applyWebhookUrlTemplate,
   buildBackupFailedPayload,
+  parseWebhookHeaders,
+  parseWebhookMethod,
   postFailureWebhook,
   validateFailureWebhookUrl,
 } from './failure-webhook';
@@ -52,6 +56,56 @@ describe('buildBackupFailedPayload', () => {
   });
 });
 
+describe('applyWebhookTemplate', () => {
+  test('replaces known tags', () => {
+    expect(
+      applyWebhookTemplate('Hi {{backupName}}: {{errorMessage}}', {
+        backupName: 'Daily',
+        errorMessage: 'nope',
+      })
+    ).toBe('Hi Daily: nope');
+  });
+
+  test('leaves unknown tags', () => {
+    expect(applyWebhookTemplate('{{unknown}}', {})).toBe('{{unknown}}');
+  });
+
+  test('URL template encodes values', () => {
+    expect(
+      applyWebhookUrlTemplate('https://x/?msg={{errorMessage}}', {
+        errorMessage: 'disk full & busy',
+      })
+    ).toBe('https://x/?msg=disk%20full%20%26%20busy');
+  });
+});
+
+describe('parseWebhookHeaders', () => {
+  test('parses line format', () => {
+    const result = parseWebhookHeaders('Authorization: Bearer x\nX-Custom: 1');
+    expect(result).toEqual({
+      ok: true,
+      headers: { Authorization: 'Bearer x', 'X-Custom': '1' },
+    });
+  });
+
+  test('parses JSON object', () => {
+    const result = parseWebhookHeaders('{"Authorization":"Bearer x"}');
+    expect(result).toEqual({ ok: true, headers: { Authorization: 'Bearer x' } });
+  });
+
+  test('rejects bad line', () => {
+    expect(parseWebhookHeaders('NoColon').ok).toBe(false);
+  });
+});
+
+describe('parseWebhookMethod', () => {
+  test('defaults to POST', () => {
+    expect(parseWebhookMethod(undefined)).toBe('POST');
+    expect(parseWebhookMethod('get')).toBe('GET');
+    expect(parseWebhookMethod('PUT')).toBe('PUT');
+  });
+});
+
 describe('postFailureWebhook', () => {
   test('POSTs JSON and returns ok on 200', async () => {
     const calls: { url: string; init?: RequestInit }[] = [];
@@ -77,6 +131,62 @@ describe('postFailureWebhook', () => {
       event: 'backup.failed',
       historyId: 'h1',
     });
+  });
+
+  test('applies custom body, headers, and URL tags', async () => {
+    const calls: { url: string; init?: RequestInit }[] = [];
+    const fetchImpl: typeof fetch = async (input, init) => {
+      calls.push({ url: String(input), init });
+      return new Response('ok', { status: 200 });
+    };
+
+    const payload = buildBackupFailedPayload({
+      historyId: 'h1',
+      backupName: 'Daily',
+      errorMessage: 'boom',
+      endedAt: new Date('2026-08-10T12:00:00.000Z'),
+    });
+
+    const result = await postFailureWebhook(
+      {
+        url: 'https://hooks.example.com/{{historyId}}',
+        method: 'POST',
+        headersRaw: 'X-Name: {{backupName}}\nContent-Type: application/json',
+        bodyTemplate: '{"text":"{{errorMessage}}"}',
+      },
+      payload,
+      { fetchImpl }
+    );
+    expect(result.ok).toBe(true);
+    expect(calls[0].url).toBe('https://hooks.example.com/h1');
+    expect(calls[0].init?.headers).toMatchObject({
+      'X-Name': 'Daily',
+      'Content-Type': 'application/json',
+    });
+    expect(calls[0].init?.body).toBe('{"text":"boom"}');
+  });
+
+  test('GET skips body', async () => {
+    const calls: { url: string; init?: RequestInit }[] = [];
+    const fetchImpl: typeof fetch = async (input, init) => {
+      calls.push({ url: String(input), init });
+      return new Response('ok', { status: 200 });
+    };
+
+    const result = await postFailureWebhook(
+      {
+        url: 'https://kuma.example.com/api/push/t?msg={{errorMessage}}',
+        method: 'GET',
+        headersRaw: '',
+        bodyTemplate: 'ignored',
+      },
+      buildBackupFailedPayload({ historyId: 'h1', errorMessage: 'x y' }),
+      { fetchImpl }
+    );
+    expect(result.ok).toBe(true);
+    expect(calls[0].init?.method).toBe('GET');
+    expect(calls[0].init?.body).toBeUndefined();
+    expect(calls[0].url).toContain('msg=x%20y');
   });
 
   test('returns not ok on HTTP error without throwing', async () => {

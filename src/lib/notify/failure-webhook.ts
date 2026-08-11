@@ -1,6 +1,20 @@
 export const FAILURE_WEBHOOK_URL_KEY = 'failureWebhookUrl';
+export const FAILURE_WEBHOOK_METHOD_KEY = 'failureWebhookMethod';
+export const FAILURE_WEBHOOK_HEADERS_KEY = 'failureWebhookHeaders';
+export const FAILURE_WEBHOOK_BODY_KEY = 'failureWebhookBody';
 
 export const WEBHOOK_TIMEOUT_MS = 5_000;
+
+export const WEBHOOK_TAG_KEYS = [
+  'event',
+  'backupName',
+  'configId',
+  'historyId',
+  'errorMessage',
+  'endedAt',
+] as const;
+
+export type WebhookTagKey = (typeof WEBHOOK_TAG_KEYS)[number];
 
 export type BackupFailedPayload = {
   event: 'backup.failed';
@@ -11,12 +25,112 @@ export type BackupFailedPayload = {
   endedAt: string;
 };
 
+export type WebhookHttpMethod = 'GET' | 'POST' | 'PUT';
+
+export type FailureWebhookConfig = {
+  url: string;
+  method: WebhookHttpMethod;
+  /** Raw header lines or JSON object string from settings */
+  headersRaw: string;
+  /** Body template; empty means default JSON payload (POST/PUT only) */
+  bodyTemplate: string;
+};
+
 export type WebhookUrlValidation =
   | { ok: true; url: string }
   | { ok: false; error: string };
 
+export type WebhookPreset = {
+  id: string;
+  name: string;
+  description: string;
+  method: WebhookHttpMethod;
+  url: string;
+  headers: string;
+  body: string;
+};
+
+/** Presets shown in Settings — placeholders the operator replaces. */
+export const WEBHOOK_PRESETS: WebhookPreset[] = [
+  {
+    id: 'default',
+    name: 'Default JSON',
+    description: 'POST the built-in backup.failed object (empty body template).',
+    method: 'POST',
+    url: 'https://hooks.example.com/lazybackup',
+    headers: 'Content-Type: application/json',
+    body: '',
+  },
+  {
+    id: 'discord',
+    name: 'Discord',
+    description: 'Incoming webhook — paste your Discord webhook URL.',
+    method: 'POST',
+    url: 'https://discord.com/api/webhooks/ID/TOKEN',
+    headers: 'Content-Type: application/json',
+    body: JSON.stringify(
+      {
+        content:
+          '**Backup failed:** {{backupName}}\n```{{errorMessage}}```\n_History:_ `{{historyId}}` · {{endedAt}}',
+      },
+      null,
+      2
+    ),
+  },
+  {
+    id: 'telegram',
+    name: 'Telegram',
+    description: 'Bot API sendMessage — replace BOT_TOKEN and CHAT_ID.',
+    method: 'POST',
+    url: 'https://api.telegram.org/botBOT_TOKEN/sendMessage',
+    headers: 'Content-Type: application/json',
+    body: JSON.stringify(
+      {
+        chat_id: 'CHAT_ID',
+        text: 'Backup failed: {{backupName}}\n{{errorMessage}}\n({{endedAt}})',
+        disable_web_page_preview: true,
+      },
+      null,
+      2
+    ),
+  },
+  {
+    id: 'kuma',
+    name: 'Uptime Kuma',
+    description: 'Push monitor — status=down with the error in msg.',
+    method: 'GET',
+    url: 'https://kuma.example.com/api/push/TOKEN?status=down&msg={{errorMessage}}&ping=',
+    headers: '',
+    body: '',
+  },
+  {
+    id: 'ntfy',
+    name: 'ntfy',
+    description: 'Simple topic publish (optional auth header).',
+    method: 'POST',
+    url: 'https://ntfy.sh/your-topic',
+    headers: 'Title: LazyBackup failure\nPriority: high\nTags: warning,backup',
+    body: '{{backupName}}: {{errorMessage}}',
+  },
+  {
+    id: 'slack',
+    name: 'Slack',
+    description: 'Incoming webhook with a text field.',
+    method: 'POST',
+    url: 'https://hooks.slack.com/services/T00/B00/XXX',
+    headers: 'Content-Type: application/json',
+    body: JSON.stringify(
+      {
+        text: 'Backup failed: *{{backupName}}*\n```{{errorMessage}}```',
+      },
+      null,
+      2
+    ),
+  },
+];
+
 /**
- * Validate a failure webhook URL.
+ * Validate a failure webhook URL (after tag substitution for the final request).
  * HTTPS is required except for localhost / private LAN hosts (http allowed for self-host).
  */
 export function validateFailureWebhookUrl(
@@ -91,18 +205,161 @@ export function buildBackupFailedPayload(input: {
   };
 }
 
+export function payloadToTags(payload: BackupFailedPayload): Record<WebhookTagKey, string> {
+  return {
+    event: payload.event,
+    backupName: payload.backupName ?? '',
+    configId: payload.configId ?? '',
+    historyId: payload.historyId,
+    errorMessage: payload.errorMessage,
+    endedAt: payload.endedAt,
+  };
+}
+
 /**
- * POST JSON to the webhook URL. Returns false on validation/network/HTTP failure.
+ * Replace `{{tag}}` placeholders. Unknown tags are left as-is.
+ * Values are inserted as-is (caller should URL-encode when building query strings if needed).
+ */
+export function applyWebhookTemplate(
+  template: string,
+  tags: Record<string, string>,
+  options?: { encodeUriComponent?: boolean }
+): string {
+  return template.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (full, key: string) => {
+    if (!(key in tags)) return full;
+    const value = tags[key] ?? '';
+    return options?.encodeUriComponent ? encodeURIComponent(value) : value;
+  });
+}
+
+/**
+ * For URL templates, encode tag values so query strings stay valid.
+ */
+export function applyWebhookUrlTemplate(
+  template: string,
+  tags: Record<string, string>
+): string {
+  return applyWebhookTemplate(template, tags, { encodeUriComponent: true });
+}
+
+export function parseWebhookMethod(raw: string | null | undefined): WebhookHttpMethod {
+  const upper = (raw ?? 'POST').trim().toUpperCase();
+  if (upper === 'GET' || upper === 'PUT') return upper;
+  return 'POST';
+}
+
+/**
+ * Parse headers from either:
+ * - JSON object: `{"Authorization":"Bearer x"}`
+ * - Line format: `Name: value` (one per line)
+ */
+export function parseWebhookHeaders(
+  raw: string | null | undefined
+): { ok: true; headers: Record<string, string> } | { ok: false; error: string } {
+  const trimmed = (raw ?? '').trim();
+  if (!trimmed) {
+    return { ok: true, headers: {} };
+  }
+
+  if (trimmed.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(trimmed) as unknown;
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return { ok: false, error: 'Headers JSON must be an object' };
+      }
+      const headers: Record<string, string> = {};
+      for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+        if (typeof value !== 'string') {
+          return { ok: false, error: `Header "${key}" must be a string` };
+        }
+        headers[key] = value;
+      }
+      return { ok: true, headers };
+    } catch {
+      return { ok: false, error: 'Invalid headers JSON' };
+    }
+  }
+
+  const headers: Record<string, string> = {};
+  for (const line of trimmed.split(/\r?\n/)) {
+    const t = line.trim();
+    if (!t) continue;
+    const idx = t.indexOf(':');
+    if (idx <= 0) {
+      return {
+        ok: false,
+        error: `Invalid header line "${t}" (use Name: value or a JSON object)`,
+      };
+    }
+    const name = t.slice(0, idx).trim();
+    const value = t.slice(idx + 1).trim();
+    if (!name) {
+      return { ok: false, error: 'Header name cannot be empty' };
+    }
+    headers[name] = value;
+  }
+  return { ok: true, headers };
+}
+
+export function buildDefaultWebhookBody(payload: BackupFailedPayload): string {
+  return JSON.stringify(payload);
+}
+
+/**
+ * POST/GET/PUT to the webhook URL with optional header/body templates.
  * Never throws.
  */
 export async function postFailureWebhook(
-  url: string,
+  config: FailureWebhookConfig | string,
   payload: BackupFailedPayload,
   options?: { fetchImpl?: typeof fetch; timeoutMs?: number }
 ): Promise<{ ok: boolean; error?: string }> {
-  const validation = validateFailureWebhookUrl(url);
+  const cfg: FailureWebhookConfig =
+    typeof config === 'string'
+      ? { url: config, method: 'POST', headersRaw: '', bodyTemplate: '' }
+      : config;
+
+  const tags = payloadToTags(payload);
+  const resolvedUrl = applyWebhookUrlTemplate(cfg.url, tags).trim();
+  const validation = validateFailureWebhookUrl(resolvedUrl);
   if (!validation.ok) {
     return { ok: false, error: validation.error };
+  }
+
+  const headersParsed = parseWebhookHeaders(cfg.headersRaw);
+  if (!headersParsed.ok) {
+    return { ok: false, error: headersParsed.error };
+  }
+
+  const headers: Record<string, string> = {};
+  for (const [name, value] of Object.entries(headersParsed.headers)) {
+    headers[name] = applyWebhookTemplate(value, tags);
+  }
+
+  const method = parseWebhookMethod(cfg.method);
+  let body: string | undefined;
+
+  if (method !== 'GET') {
+    const template = cfg.bodyTemplate.trim();
+    body = template
+      ? applyWebhookTemplate(template, tags)
+      : buildDefaultWebhookBody(payload);
+
+    const hasContentType = Object.keys(headers).some(
+      (k) => k.toLowerCase() === 'content-type'
+    );
+    if (!hasContentType) {
+      // Default JSON when body looks like JSON or is the built-in payload
+      const looksJson =
+        !template ||
+        (body.trim().startsWith('{') && body.trim().endsWith('}')) ||
+        (body.trim().startsWith('[') && body.trim().endsWith(']'));
+      if (looksJson) {
+        headers['Content-Type'] = 'application/json';
+      } else {
+        headers['Content-Type'] = 'text/plain; charset=utf-8';
+      }
+    }
   }
 
   const fetchImpl = options?.fetchImpl ?? fetch;
@@ -112,9 +369,9 @@ export async function postFailureWebhook(
 
   try {
     const response = await fetchImpl(validation.url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      method,
+      headers,
+      body,
       signal: controller.signal,
     });
     if (!response.ok) {
@@ -134,6 +391,32 @@ export async function postFailureWebhook(
   }
 }
 
+async function loadWebhookConfigFromDb(): Promise<FailureWebhookConfig | null> {
+  const { db } = await import('@/lib/db');
+  const { settings } = await import('@/lib/db/schema');
+  const { inArray } = await import('drizzle-orm');
+
+  const keys = [
+    FAILURE_WEBHOOK_URL_KEY,
+    FAILURE_WEBHOOK_METHOD_KEY,
+    FAILURE_WEBHOOK_HEADERS_KEY,
+    FAILURE_WEBHOOK_BODY_KEY,
+  ];
+  const rows = await db.query.settings.findMany({
+    where: inArray(settings.key, keys),
+  });
+  const map = Object.fromEntries(rows.map((r) => [r.key, r.value ?? '']));
+  const url = map[FAILURE_WEBHOOK_URL_KEY]?.trim();
+  if (!url) return null;
+
+  return {
+    url,
+    method: parseWebhookMethod(map[FAILURE_WEBHOOK_METHOD_KEY]),
+    headersRaw: map[FAILURE_WEBHOOK_HEADERS_KEY] ?? '',
+    bodyTemplate: map[FAILURE_WEBHOOK_BODY_KEY] ?? '',
+  };
+}
+
 /**
  * Look up settings + history context and fire the failure webhook (fire-and-forget safe).
  */
@@ -144,15 +427,12 @@ export async function notifyBackupFailure(input: {
   backupName?: string | null;
 }): Promise<void> {
   try {
-    const { db } = await import('@/lib/db');
-    const { settings, backupConfigs, backupHistory } = await import('@/lib/db/schema');
-    const { eq } = await import('drizzle-orm');
+    const config = await loadWebhookConfigFromDb();
+    if (!config) return;
 
-    const webhookSetting = await db.query.settings.findFirst({
-      where: eq(settings.key, FAILURE_WEBHOOK_URL_KEY),
-    });
-    const url = webhookSetting?.value?.trim();
-    if (!url) return;
+    const { db } = await import('@/lib/db');
+    const { backupConfigs, backupHistory } = await import('@/lib/db/schema');
+    const { eq } = await import('drizzle-orm');
 
     let configId = input.configId ?? null;
     let backupName = input.backupName ?? null;
@@ -172,11 +452,11 @@ export async function notifyBackupFailure(input: {
     }
 
     if (configId && !backupName) {
-      const config = await db.query.backupConfigs.findFirst({
+      const configRow = await db.query.backupConfigs.findFirst({
         where: eq(backupConfigs.id, configId),
         columns: { name: true },
       });
-      backupName = config?.name ?? null;
+      backupName = configRow?.name ?? null;
     }
 
     const payload = buildBackupFailedPayload({
@@ -186,7 +466,7 @@ export async function notifyBackupFailure(input: {
       backupName,
     });
 
-    const result = await postFailureWebhook(url, payload);
+    const result = await postFailureWebhook(config, payload);
     if (!result.ok) {
       console.error(`Failure webhook failed: ${result.error}`);
     }
