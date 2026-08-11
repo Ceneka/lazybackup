@@ -26,6 +26,54 @@ export type ValidateBackupResult = {
   checks: ValidateCheck[];
 };
 
+export type StoredValidation = {
+  ok: boolean;
+  at: string;
+  checks: ValidateCheck[];
+};
+
+export function parseStoredValidationChecks(raw: string | null | undefined): ValidateCheck[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as ValidateCheck[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Shape stored validation columns for API responses. */
+export function formatLastValidation(config: {
+  lastValidatedAt?: Date | null;
+  lastValidationOk?: boolean | null;
+  lastValidationChecks?: string | null;
+}): StoredValidation | null {
+  if (!config.lastValidatedAt) return null;
+  return {
+    ok: Boolean(config.lastValidationOk),
+    at:
+      config.lastValidatedAt instanceof Date
+        ? config.lastValidatedAt.toISOString()
+        : new Date(config.lastValidatedAt).toISOString(),
+    checks: parseStoredValidationChecks(config.lastValidationChecks),
+  };
+}
+
+/** Replace raw validation columns with a nested `lastValidation` object. */
+export function attachLastValidation<T extends Record<string, unknown>>(config: T) {
+  const lastValidation = formatLastValidation({
+    lastValidatedAt: config.lastValidatedAt as Date | null | undefined,
+    lastValidationOk: config.lastValidationOk as boolean | null | undefined,
+    lastValidationChecks: config.lastValidationChecks as string | null | undefined,
+  });
+  const copy = { ...config } as Record<string, unknown>;
+  delete copy.lastValidatedAt;
+  delete copy.lastValidationOk;
+  delete copy.lastValidationChecks;
+  copy.lastValidation = lastValidation;
+  return copy as T & { lastValidation: StoredValidation | null };
+}
+
 function expandLocalPath(dest: string): string {
   if (dest.startsWith('~')) {
     return path.join(os.homedir(), dest.slice(1));

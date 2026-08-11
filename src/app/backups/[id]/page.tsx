@@ -5,6 +5,7 @@ import {
   DetailActionLink,
   DetailActions,
   DetailActionsDivider,
+  detailActionDestructiveClassName,
   detailActionPrimaryClassName,
   detailActionSecondaryClassName,
 } from "@/components/ui/detail-actions"
@@ -47,6 +48,17 @@ import { toast } from "sonner"
 function formatMtime(value: string | null | undefined) {
   if (!value) return "—"
   return new Date(value).toLocaleString()
+}
+
+function validationSummary(checks: { status: string }[]) {
+  const pass = checks.filter((c) => c.status === "pass").length
+  const warn = checks.filter((c) => c.status === "warn").length
+  const fail = checks.filter((c) => c.status === "fail").length
+  const parts: string[] = []
+  parts.push(`${pass} passed`)
+  if (warn > 0) parts.push(`${warn} warning${warn === 1 ? "" : "s"}`)
+  if (fail > 0) parts.push(`${fail} failed`)
+  return parts.join(" · ")
 }
 
 function EntryRows({
@@ -113,6 +125,17 @@ export default function BackupDetailPage() {
   const storageQuery = useBackupStorage(backupId)
   const deleteBackup = useDeleteBackup()
   const [validateResult, setValidateResult] = useState<ValidateBackupResult | null>(null)
+  const [checksExpanded, setChecksExpanded] = useState(false)
+
+  const displayedValidation: ValidateBackupResult | null =
+    validateResult ??
+    (query.data?.lastValidation
+      ? {
+          ok: query.data.lastValidation.ok,
+          checks: query.data.lastValidation.checks,
+          at: query.data.lastValidation.at,
+        }
+      : null)
 
   const runBackupMutation = useMutation({
     mutationFn: async () => {
@@ -142,6 +165,9 @@ export default function BackupDetailPage() {
     mutationFn: () => validateBackup(backupId),
     onSuccess: (result) => {
       setValidateResult(result)
+      setChecksExpanded(!result.ok)
+      queryClient.invalidateQueries({ queryKey: backupKeys.detail(backupId) })
+      queryClient.invalidateQueries({ queryKey: backupKeys.lists() })
       if (result.ok) {
         const warns = result.checks.filter((c) => c.status === "warn")
         if (warns.length > 0) {
@@ -155,7 +181,6 @@ export default function BackupDetailPage() {
       }
     },
     onError: (error) => {
-      setValidateResult(null)
       toast.error(error instanceof Error ? error.message : "Failed to validate backup")
     },
   })
@@ -223,7 +248,7 @@ export default function BackupDetailPage() {
       >
         {query.data && (
           <div className="space-y-6">
-            <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+            <div className="grid grid-cols-1 items-start gap-6 md:grid-cols-2">
               <div className="rounded-lg border bg-card p-6 text-card-foreground shadow">
                 <h2 className="mb-4 text-xl font-semibold">Backup Details</h2>
                 <dl className="space-y-4">
@@ -343,7 +368,7 @@ export default function BackupDetailPage() {
                 </dl>
               </div>
 
-              <div className="rounded-lg border bg-card p-6 text-card-foreground shadow">
+              <div className="w-full self-start rounded-lg border bg-card p-6 text-card-foreground shadow">
                 <h2 className="mb-4 text-xl font-semibold">Actions</h2>
                 <DetailActions>
                   <LoadingButton
@@ -352,7 +377,7 @@ export default function BackupDetailPage() {
                     loadingText="Starting…"
                     className={detailActionPrimaryClassName}
                   >
-                    <PlayIcon className="h-4 w-4" />
+                    <PlayIcon />
                     Run now
                   </LoadingButton>
 
@@ -363,35 +388,35 @@ export default function BackupDetailPage() {
                     variant="secondary"
                     className={detailActionSecondaryClassName}
                   >
-                    <ShieldCheckIcon className="h-4 w-4" />
+                    <ShieldCheckIcon />
                     Validate
                   </LoadingButton>
 
                   <DetailActionLink href={`/backups/${query.data.id}/edit`}>
-                    <PencilIcon className="h-4 w-4" />
+                    <PencilIcon />
                     Edit
                   </DetailActionLink>
 
                   <DetailActionLink href={`/backups/new?cloneFrom=${query.data.id}`}>
-                    <CopyIcon className="h-4 w-4" />
+                    <CopyIcon />
                     Clone
                   </DetailActionLink>
 
                   <DetailActionLink href={`/history?configId=${query.data.id}`}>
-                    <HistoryIcon className="h-4 w-4" />
+                    <HistoryIcon />
                     View history
                   </DetailActionLink>
 
                   {query.data.serverId && (
                     <DetailActionLink href={`/servers/${query.data.serverId}`}>
-                      <ServerIcon className="h-4 w-4" />
-                      View source server
+                      <ServerIcon />
+                      Source server
                     </DetailActionLink>
                   )}
                   {query.data.destinationServerId && (
                     <DetailActionLink href={`/servers/${query.data.destinationServerId}`}>
-                      <ServerIcon className="h-4 w-4" />
-                      View destination server
+                      <ServerIcon />
+                      Dest. server
                     </DetailActionLink>
                   )}
 
@@ -403,40 +428,67 @@ export default function BackupDetailPage() {
                     onDelete={handleDelete}
                     isDeleting={deleteBackup.isPending}
                     buttonText="Delete"
+                    triggerButtonClassName={detailActionDestructiveClassName}
                   />
                 </DetailActions>
 
-                {validateResult && (
-                  <div className="mt-4 space-y-2 border-t pt-4">
-                    <p className="text-sm font-medium">
-                      Validation{" "}
-                      {validateResult.ok ? (
-                        <span className="text-green-600 dark:text-green-400">passed</span>
-                      ) : (
-                        <span className="text-destructive">failed</span>
-                      )}
-                    </p>
-                    <ul className="space-y-2 text-sm">
-                      {validateResult.checks.map((check) => (
-                        <li
-                          key={check.id}
-                          className="flex gap-2 rounded-md border bg-muted/30 px-3 py-2"
-                        >
-                          {check.status === "pass" ? (
-                            <CheckCircle2Icon className="mt-0.5 h-4 w-4 shrink-0 text-green-600 dark:text-green-400" />
-                          ) : check.status === "warn" ? (
-                            <AlertTriangleIcon className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+                {displayedValidation ? (
+                  <div className="mt-3 space-y-2 border-t pt-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium">
+                          Validation{" "}
+                          {displayedValidation.ok ? (
+                            <span className="text-green-600 dark:text-green-400">passed</span>
                           ) : (
-                            <XCircleIcon className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+                            <span className="text-destructive">failed</span>
                           )}
-                          <div className="min-w-0">
-                            <div className="font-medium">{check.label}</div>
-                            <p className="text-xs text-muted-foreground">{check.message}</p>
-                          </div>
-                        </li>
-                      ))}
-                    </ul>
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {displayedValidation.at
+                            ? isClient
+                              ? formatMtime(displayedValidation.at)
+                              : "—"
+                            : "Just now"}
+                          {" · "}
+                          {validationSummary(displayedValidation.checks)}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setChecksExpanded((v) => !v)}
+                        className="shrink-0 cursor-pointer text-xs text-muted-foreground underline-offset-2 hover:underline"
+                      >
+                        {checksExpanded ? "Hide" : "Details"}
+                      </button>
+                    </div>
+                    {checksExpanded && (
+                      <ul className="space-y-1.5 text-sm">
+                        {displayedValidation.checks.map((check) => (
+                          <li
+                            key={check.id}
+                            className="flex gap-2 rounded-md border bg-muted/30 px-2.5 py-1.5"
+                          >
+                            {check.status === "pass" ? (
+                              <CheckCircle2Icon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-green-600 dark:text-green-400" />
+                            ) : check.status === "warn" ? (
+                              <AlertTriangleIcon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
+                            ) : (
+                              <XCircleIcon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-destructive" />
+                            )}
+                            <div className="min-w-0">
+                              <div className="text-sm font-medium leading-tight">{check.label}</div>
+                              <p className="text-xs text-muted-foreground">{check.message}</p>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                   </div>
+                ) : (
+                  <p className="mt-3 border-t pt-3 text-xs text-muted-foreground">
+                    Not validated yet — run Validate to probe endpoints without transferring data.
+                  </p>
                 )}
               </div>
             </div>

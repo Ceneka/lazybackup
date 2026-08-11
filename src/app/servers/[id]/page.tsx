@@ -5,6 +5,7 @@ import {
   DetailActionLink,
   DetailActions,
   DetailActionsDivider,
+  detailActionDestructiveClassName,
 } from "@/components/ui/detail-actions"
 import { QueryState } from "@/components/ui/query-state"
 import { isResourceInUseError } from "@/lib/api/resource-in-use"
@@ -120,7 +121,7 @@ export default function ServerPage() {
       >
         {query.data && (
           <div className="space-y-6">
-            <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+            <div className="grid grid-cols-1 items-start gap-6 md:grid-cols-2">
               <div className="rounded-lg border bg-card p-6 text-card-foreground shadow">
                 <h2 className="mb-4 text-xl font-semibold">Server Details</h2>
                 <dl className="space-y-4">
@@ -151,22 +152,22 @@ export default function ServerPage() {
                 </dl>
               </div>
 
-              <div className="rounded-lg border bg-card p-6 text-card-foreground shadow">
+              <div className="w-full self-start rounded-lg border bg-card p-6 text-card-foreground shadow">
                 <h2 className="mb-4 text-xl font-semibold">Actions</h2>
                 <DetailActions>
                   <DetailActionLink
                     href={`/servers/${serverId}/edit`}
                     variant="secondary"
                   >
-                    <PencilIcon className="h-4 w-4" />
+                    <PencilIcon />
                     Edit
                   </DetailActionLink>
                   <DetailActionLink href={`/backups/new?serverId=${query.data.id}`}>
-                    <FolderPlusIcon className="h-4 w-4" />
+                    <FolderPlusIcon />
                     Create backup
                   </DetailActionLink>
                   <DetailActionLink href={`/servers/${query.data.id}/test`}>
-                    <CableIcon className="h-4 w-4" />
+                    <CableIcon />
                     Test connection
                   </DetailActionLink>
 
@@ -182,9 +183,10 @@ export default function ServerPage() {
                     onDelete={handleDelete}
                     isDeleting={deleteServer.isPending}
                     buttonText="Delete"
+                    triggerButtonClassName={detailActionDestructiveClassName}
                   />
                   {(deleteBlockers?.length || 0) > 0 && (
-                    <div className="mt-2 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm">
+                    <div className="col-span-2 mt-1 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm">
                       <p className="font-medium text-destructive">
                         Cannot delete — still used by:
                       </p>

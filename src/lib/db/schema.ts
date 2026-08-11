@@ -99,6 +99,11 @@ export const backupConfigs = sqliteTable('backup_configs', {
   retentionMaxAge: integer('retention_max_age').default(30),
   retentionMaxAgeUnit: text('retention_max_age_unit', { enum: ['days', 'months'] }).default('days'),
   retentionMinKeep: integer('retention_min_keep').default(5),
+  /** Last POST /validate result (cleared when config is updated) */
+  lastValidatedAt: integer('last_validated_at', { mode: 'timestamp' }),
+  lastValidationOk: integer('last_validation_ok', { mode: 'boolean' }),
+  /** JSON array of ValidateCheck */
+  lastValidationChecks: text('last_validation_checks'),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
 });

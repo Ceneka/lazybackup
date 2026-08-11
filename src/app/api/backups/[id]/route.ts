@@ -1,6 +1,7 @@
 import { redactBackup } from '@/lib/api/redact';
 import { findExactDestinationConflict } from '@/lib/backup/destination-guard';
 import { backupConfigSchema } from '@/lib/backup/schema';
+import { attachLastValidation } from '@/lib/backup/validate';
 import { formatCronExpression } from '@/lib/cron/format';
 import { buildUpcomingEntry } from '@/lib/cron/next';
 import { db } from '@/lib/db';
@@ -48,8 +49,12 @@ export async function GET(
           nextRunFormatted: null,
         };
 
+    const redacted = attachLastValidation(
+      redactBackup(config as unknown as Record<string, unknown>) as Record<string, unknown>
+    );
+
     return NextResponse.json({
-      ...redactBackup(config as unknown as Record<string, unknown>),
+      ...redacted,
       scheduleLabel: formatCronExpression(config.schedule),
       timezone: timeZone,
       nextRun: upcoming.nextRun,
@@ -114,11 +119,14 @@ export async function PUT(
     // First stop any existing cron job
     stopBackup(id);
 
-    // Update the backup configuration
+    // Update the backup configuration (clear stale validation)
     await db.update(backupConfigs)
       .set({
         ...validatedData,
         dbPassword,
+        lastValidatedAt: null,
+        lastValidationOk: null,
+        lastValidationChecks: null,
         updatedAt: new Date(),
       })
       .where(eq(backupConfigs.id, id));
@@ -141,9 +149,14 @@ export async function PUT(
       await scheduleBackup(updatedConfig);
     }
 
-    return NextResponse.json(
-      redactBackup(updatedConfig as unknown as Record<string, unknown>)
+    const redacted = attachLastValidation(
+      redactBackup(updatedConfig as unknown as Record<string, unknown>) as Record<
+        string,
+        unknown
+      >
     );
+
+    return NextResponse.json(redacted);
   } catch (error) {
     console.error('Failed to update backup configuration:', error);
 

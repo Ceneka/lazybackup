@@ -5,9 +5,12 @@ import { Button } from "@/components/ui/button"
 import Link from "next/link"
 import type { ComponentProps, ReactNode } from "react"
 
-/** Shared left-aligned action row for detail page side panels. */
+/**
+ * Detail-page action tiles: 2-column grid of equal cells so the panel
+ * reads as a filled toolbar, not a skinny label with empty space beside it.
+ */
 export const detailActionClassName =
-  "flex h-auto w-full items-center justify-start gap-2 rounded-md px-3 py-2.5 text-sm font-medium shadow-none transition-colors"
+  "flex h-auto min-h-20 w-full cursor-pointer flex-col items-center justify-center gap-1.5 whitespace-normal rounded-lg border border-transparent px-2 py-3 text-center text-sm font-medium leading-tight shadow-none transition-colors [&_svg]:size-5"
 
 export const detailActionPrimaryClassName = cn(
   detailActionClassName,
@@ -21,12 +24,12 @@ export const detailActionSecondaryClassName = cn(
 
 export const detailActionGhostClassName = cn(
   detailActionClassName,
-  "hover:bg-accent hover:text-accent-foreground"
+  "bg-muted/60 hover:bg-accent hover:text-accent-foreground"
 )
 
 export const detailActionDestructiveClassName = cn(
   detailActionClassName,
-  "bg-destructive/10 text-destructive hover:bg-destructive/20"
+  "col-span-2 bg-destructive/10 text-destructive hover:bg-destructive/20"
 )
 
 export function DetailActions({
@@ -36,7 +39,9 @@ export function DetailActions({
   children: ReactNode
   className?: string
 }) {
-  return <div className={cn("flex flex-col gap-1", className)}>{children}</div>
+  return (
+    <div className={cn("grid grid-cols-2 gap-2", className)}>{children}</div>
+  )
 }
 
 export function DetailActionLink({
@@ -74,7 +79,7 @@ export function DetailActionButton({
       ? detailActionPrimaryClassName
       : variant === "secondary"
         ? detailActionSecondaryClassName
-        : variant === "destructive"
+      : variant === "destructive"
           ? detailActionDestructiveClassName
           : detailActionGhostClassName
 
@@ -87,6 +92,7 @@ export function DetailActionButton({
   )
 }
 
+/** Full-width break between tile groups (e.g. before Delete). */
 export function DetailActionsDivider() {
-  return <div className="my-2 border-t" role="separator" />
+  return <div className="col-span-2 my-0.5 border-t" role="separator" />
 }

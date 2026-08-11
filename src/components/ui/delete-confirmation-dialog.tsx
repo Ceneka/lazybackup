@@ -11,7 +11,6 @@ import {
     AlertDialogTrigger
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
-import { detailActionDestructiveClassName } from "@/components/ui/detail-actions"
 import { LoadingButton } from "@/components/ui/loading-button"
 import { TrashIcon } from "lucide-react"
 import React, { useRef, useState } from "react"
@@ -22,6 +21,7 @@ interface DeleteConfirmationDialogProps {
   onDelete: () => void
   isDeleting: boolean
   buttonText?: string
+  /** Override trigger styles (e.g. detailActionDestructiveClassName in action tile grids). */
   triggerButtonClassName?: string
   children?: React.ReactNode
 }
@@ -32,7 +32,7 @@ export function DeleteConfirmationDialog({
   onDelete,
   isDeleting,
   buttonText = "Delete",
-  triggerButtonClassName = detailActionDestructiveClassName,
+  triggerButtonClassName,
   children,
 }: DeleteConfirmationDialogProps) {
   const [open, setOpen] = useState(false)

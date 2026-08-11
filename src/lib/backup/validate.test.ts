@@ -1,6 +1,10 @@
 import { describe, expect, test } from 'bun:test';
 import type { BackupConfigWithEndpoints } from './index';
-import { validateBackupConfig } from './validate';
+import {
+  attachLastValidation,
+  formatLastValidation,
+  validateBackupConfig,
+} from './validate';
 
 process.env.NEXT_RUNTIME = 'nodejs';
 
@@ -26,6 +30,45 @@ function baseConfig(
     ...overrides,
   };
 }
+
+describe('formatLastValidation', () => {
+  test('returns null when never validated', () => {
+    expect(formatLastValidation({})).toBeNull();
+    expect(formatLastValidation({ lastValidatedAt: null })).toBeNull();
+  });
+
+  test('parses stored checks JSON', () => {
+    const at = new Date('2026-08-11T12:00:00.000Z');
+    const result = formatLastValidation({
+      lastValidatedAt: at,
+      lastValidationOk: true,
+      lastValidationChecks: JSON.stringify([
+        { id: 'schedule', label: 'Cron schedule', status: 'pass', message: 'ok' },
+      ]),
+    });
+    expect(result).toEqual({
+      ok: true,
+      at: at.toISOString(),
+      checks: [
+        { id: 'schedule', label: 'Cron schedule', status: 'pass', message: 'ok' },
+      ],
+    });
+  });
+
+  test('attachLastValidation replaces raw columns', () => {
+    const at = new Date('2026-08-11T12:00:00.000Z');
+    const shaped = attachLastValidation({
+      id: 'cfg',
+      lastValidatedAt: at,
+      lastValidationOk: false,
+      lastValidationChecks: '[]',
+    });
+    expect(shaped.lastValidation).toEqual({ ok: false, at: at.toISOString(), checks: [] });
+    expect('lastValidatedAt' in shaped).toBe(false);
+    expect('lastValidationOk' in shaped).toBe(false);
+    expect('lastValidationChecks' in shaped).toBe(false);
+  });
+});
 
 describe('validateBackupConfig', () => {
   test('passes for local→local with existing source path', async () => {

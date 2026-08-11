@@ -3,6 +3,7 @@ import { backupConfigSchema } from '@/lib/backup/schema'
 import { restoreDatabaseBackup, restoreDockerVolumeBackup, executeBackup } from '@/lib/backup'
 import { writeAuditLog, type AuditActor } from '@/lib/auth/audit'
 import { redactBackup, redactS3, redactServer } from '@/lib/api/redact'
+import { attachLastValidation } from '@/lib/backup/validate'
 import { db } from '@/lib/db'
 import {
   backupConfigs,
@@ -68,7 +69,7 @@ function redactS3ForMcp<T extends Record<string, unknown>>(profile: T) {
 }
 
 function redactBackupForMcp(config: Record<string, unknown>) {
-  const copy = redactBackup(config) as Record<string, unknown>
+  const copy = attachLastValidation(redactBackup(config) as Record<string, unknown>)
   for (const key of ['sourceS3Profile', 'destinationS3Profile'] as const) {
     const profile = copy[key]
     if (profile && typeof profile === 'object') {
@@ -168,7 +169,13 @@ export async function updateBackupOp(ctx: McpOpsContext, id: string, input: unkn
     stopBackup(id)
     await db
       .update(backupConfigs)
-      .set({ ...validatedData, updatedAt: new Date() })
+      .set({
+        ...validatedData,
+        lastValidatedAt: null,
+        lastValidationOk: null,
+        lastValidationChecks: null,
+        updatedAt: new Date(),
+      })
       .where(eq(backupConfigs.id, id))
 
     const updated = await db.query.backupConfigs.findFirst({

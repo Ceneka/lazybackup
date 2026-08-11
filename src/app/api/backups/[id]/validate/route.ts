@@ -6,6 +6,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 /**
  * POST /api/backups/:id/validate — probe endpoints without transferring data.
+ * Persists the result on the backup config for later display.
  */
 export async function POST(
   _request: NextRequest,
@@ -39,7 +40,22 @@ export async function POST(
     }
 
     const result = await validateBackupConfig(config);
-    return NextResponse.json(result);
+    const validatedAt = new Date();
+
+    await db
+      .update(backupConfigs)
+      .set({
+        lastValidatedAt: validatedAt,
+        lastValidationOk: result.ok,
+        lastValidationChecks: JSON.stringify(result.checks),
+        updatedAt: validatedAt,
+      })
+      .where(eq(backupConfigs.id, id));
+
+    return NextResponse.json({
+      ...result,
+      at: validatedAt.toISOString(),
+    });
   } catch (error) {
     console.error('Failed to validate backup:', error);
     return NextResponse.json(

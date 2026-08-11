@@ -60,7 +60,7 @@ Restore (volume/database, local or S3 dest): history artifact → download from 
 | `servers` | host/port/user, `authType` password\|key, password / privateKey / `sshKeyId` / `systemKeyPath` |
 | `ssh_keys` | name + content or path |
 | `s3_profiles` | endpoint, region, bucket, access/secret keys, `forcePathStyle` |
-| `backup_configs` | `sourceKind`/`destinationKind` local\|server\|s3, nullable `serverId` / `destinationServerId` / `sourceS3ProfileId` / `destinationS3ProfileId`, `sourceType` path\|docker_volume\|database, `sourcePath`/`destinationPath` (prefix when S3), `db_*` for dumps, cron, excludes, pre-cmds, versioning + file retention |
+| `backup_configs` | `sourceKind`/`destinationKind` local\|server\|s3, nullable `serverId` / `destinationServerId` / `sourceS3ProfileId` / `destinationS3ProfileId`, `sourceType` path\|docker_volume\|database, `sourcePath`/`destinationPath` (prefix when S3), `db_*` for dumps, cron, excludes, pre-cmds, versioning + file retention, optional last validation (`lastValidatedAt` / `lastValidationOk` / `lastValidationChecks`; cleared on config update) |
 | `backup_history` | status running\|success\|failed, sizes, `logOutput`, `artifactPath` (local path or `s3://bucket/key`) |
 | `settings` | KV: timezone, SSH defaults, `appPasswordHash`, `sessionSecret`, `authSetupCompleted`, failure webhook URL/method/headers/body |
 | `api_tokens` | Named Bearer tokens (SHA-256 hash + prefix); used by MCP / machine clients |

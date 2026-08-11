@@ -288,6 +288,18 @@ export async function runMigration() {
       );
     }
 
+    const backupConfigsValidation = await db.run(sql`PRAGMA table_info(backup_configs)`);
+    const backupColsValidation = backupConfigsValidation.rows.map((row: any) => row.name);
+    if (!backupColsValidation.includes('last_validated_at')) {
+      await db.run(sql`ALTER TABLE backup_configs ADD COLUMN last_validated_at INTEGER`);
+    }
+    if (!backupColsValidation.includes('last_validation_ok')) {
+      await db.run(sql`ALTER TABLE backup_configs ADD COLUMN last_validation_ok INTEGER`);
+    }
+    if (!backupColsValidation.includes('last_validation_checks')) {
+      await db.run(sql`ALTER TABLE backup_configs ADD COLUMN last_validation_checks TEXT`);
+    }
+
     await db.run(sql`
       CREATE TABLE IF NOT EXISTS api_tokens (
         id TEXT PRIMARY KEY NOT NULL,

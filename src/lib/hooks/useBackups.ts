@@ -1,6 +1,19 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 
+export type ValidateCheck = {
+  id: string
+  label: string
+  status: "pass" | "fail" | "warn"
+  message: string
+}
+
+export type LastValidation = {
+  ok: boolean
+  at: string
+  checks: ValidateCheck[]
+}
+
 // Type definitions
 export interface Backup {
   id: string
@@ -60,6 +73,7 @@ export interface Backup {
   } | null
   createdAt: string
   updatedAt: string
+  lastValidation?: LastValidation | null
 }
 
 export interface BackupDestinationEntry {
@@ -147,16 +161,10 @@ export function useBackup(id: string) {
   })
 }
 
-export type ValidateCheck = {
-  id: string
-  label: string
-  status: "pass" | "fail" | "warn"
-  message: string
-}
-
 export type ValidateBackupResult = {
   ok: boolean
   checks: ValidateCheck[]
+  at?: string
 }
 
 export async function validateBackup(id: string): Promise<ValidateBackupResult> {

@@ -1,6 +1,7 @@
 import { redactBackup } from '@/lib/api/redact';
 import { findExactDestinationConflict } from '@/lib/backup/destination-guard';
 import { backupConfigSchema } from '@/lib/backup/schema';
+import { attachLastValidation } from '@/lib/backup/validate';
 import { db } from '@/lib/db';
 import { backupConfigs } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
@@ -23,7 +24,11 @@ export async function GET() {
     });
 
     return NextResponse.json(
-      configs.map((c) => redactBackup(c as unknown as Record<string, unknown>))
+      configs.map((c) =>
+        attachLastValidation(
+          redactBackup(c as unknown as Record<string, unknown>) as Record<string, unknown>
+        )
+      )
     );
   } catch (error) {
     console.error('Failed to fetch backup configurations:', error);
@@ -94,7 +99,12 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(
       completeConfig
-        ? redactBackup(completeConfig as unknown as Record<string, unknown>)
+        ? attachLastValidation(
+            redactBackup(completeConfig as unknown as Record<string, unknown>) as Record<
+              string,
+              unknown
+            >
+          )
         : completeConfig,
       { status: 201 }
     );

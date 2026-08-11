@@ -31,6 +31,7 @@ import {
   DetailActionLink,
   DetailActions,
   DetailActionsDivider,
+  detailActionDestructiveClassName,
 } from "@/components/ui/detail-actions"
 import { LoadingButton } from "@/components/ui/loading-button"
 import { QueryState } from "@/components/ui/query-state"
@@ -138,8 +139,8 @@ export default function HistoryDetailPage() {
         errorIcon={<HistoryIcon className="h-12 w-12 text-red-500" />}
       >
         {query.data && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-2 space-y-6">
+          <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-3">
+            <div className="space-y-6 lg:col-span-2">
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center justify-between">
@@ -312,7 +313,7 @@ export default function HistoryDetailPage() {
               )}
             </div>
             
-            <div>
+            <div className="w-full self-start">
               <Card>
                 <CardHeader>
                   <CardTitle>Actions</CardTitle>
@@ -323,8 +324,9 @@ export default function HistoryDetailPage() {
                       <DetailActionLink
                         href={`/backups/${query.data.backupConfig.id}`}
                         variant="secondary"
+                        className={canRestore ? undefined : "col-span-2"}
                       >
-                        <FolderIcon className="h-4 w-4" />
+                        <FolderIcon />
                         View backup
                       </DetailActionLink>
                     )}
@@ -333,8 +335,8 @@ export default function HistoryDetailPage() {
                       <AlertDialog open={restoreOpen} onOpenChange={setRestoreOpen}>
                         <AlertDialogTrigger asChild>
                           <DetailActionButton type="button" variant="ghost">
-                            <RotateCcwIcon className="h-4 w-4" />
-                            {isDatabaseRestore ? "Restore database" : "Restore volume"}
+                            <RotateCcwIcon />
+                            {isDatabaseRestore ? "Restore DB" : "Restore volume"}
                           </DetailActionButton>
                         </AlertDialogTrigger>
                         <AlertDialogContent>
@@ -383,7 +385,7 @@ export default function HistoryDetailPage() {
                     )}
 
                     {!canRestore && restoreBlockReason && (
-                      <p className="px-3 py-1 text-sm text-muted-foreground">
+                      <p className="col-span-2 text-sm text-muted-foreground">
                         {restoreBlockReason}
                       </p>
                     )}
@@ -396,6 +398,7 @@ export default function HistoryDetailPage() {
                       onDelete={handleDelete}
                       isDeleting={isDeleting}
                       buttonText="Delete"
+                      triggerButtonClassName={detailActionDestructiveClassName}
                     />
                   </DetailActions>
                 </CardContent>

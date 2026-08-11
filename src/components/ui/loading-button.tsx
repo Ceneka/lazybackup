@@ -57,7 +57,7 @@ export function LoadingButton({
     >
       {isLoading && (
         <>
-          {loadingIcon || <Loader2Icon className="mr-2 h-4 w-4 animate-spin" />}
+          {loadingIcon || <Loader2Icon className="h-4 w-4 animate-spin" />}
           {!hideTextWhenLoading && <span>{loadingText || children}</span>}
         </>
       )}
