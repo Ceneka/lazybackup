@@ -1256,7 +1256,7 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
  * Downloads from S3 when destinationKind is s3; otherwise verifies local path.
  * Caller must delete returned tempDir if set.
  */
-async function resolveLocalRestoreArtifact(options: {
+export async function resolveLocalRestoreArtifact(options: {
   artifactPath: string;
   destinationKind?: string | null;
   destinationS3Profile?: S3ProfileRow | null;
