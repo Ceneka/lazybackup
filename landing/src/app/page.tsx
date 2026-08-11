@@ -25,8 +25,8 @@ const steps = [
   },
   {
     step: 3,
-    title: "Monitor & restore",
-    desc: "Watch logs and retention in the dashboard—and restore volume archives when you need them.",
+    title: "Monitor, restore, or ask an agent",
+    desc: "Watch logs in the dashboard, restore when you need to—or connect Cursor/Claude via MCP with an API token.",
   },
 ] as const;
 
@@ -112,7 +112,8 @@ export default function Home() {
               Connect servers over SSH and move paths or Docker volumes From → To—
               this host or another server, including server→server with ephemeral
               keys or relay. Schedule jobs, keep versioned snapshots, and restore
-              when something breaks. No agents on your VPS, no cloud lock-in.
+              when something breaks. Optional MCP lets Cursor or Claude manage the
+              same instance. No agents on your VPS, no cloud lock-in.
             </p>
             <div className="mt-9 flex flex-wrap items-center gap-4">
               <Link
@@ -168,7 +169,8 @@ export default function Home() {
               </h2>
               <p className="mt-4 text-lg text-slate-400">
                 From → To between local and servers. Paths or Docker volumes,
-                direct or relayed transfers, schedules, retention, and restore.
+                direct or relayed transfers, schedules, retention, restore, and
+                optional MCP for coding agents.
               </p>
             </div>
           </ScrollReveal>

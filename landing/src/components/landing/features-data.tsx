@@ -115,6 +115,26 @@ export function IconLock(props: { className?: string }) {
   );
 }
 
+export function IconMcp(props: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={props.className} aria-hidden>
+      <path
+        d="M12 3v3M12 18v3M3 12h3M18 12h3"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+      <circle cx="12" cy="12" r="3.5" stroke="currentColor" strokeWidth="1.5" />
+      <path
+        d="M6.5 6.5l2 2M15.5 15.5l2 2M17.5 6.5l-2 2M8.5 15.5l-2 2"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 export function IconDocker(props: { className?: string }) {
   return (
     <svg viewBox="0 0 24 24" fill="none" className={props.className} aria-hidden>
@@ -244,6 +264,11 @@ export const homeFeatures: readonly FeatureHighlight[] = [
     title: "History & dashboard",
     desc: "Track runs, view logs, next run times, storage usage, and success rates from one self-hosted UI.",
     Icon: IconMonitor,
+  },
+  {
+    title: "MCP for agents",
+    desc: "Connect Cursor, Claude, or any MCP client to /mcp with an API token—list, run, and manage backups from chat.",
+    Icon: IconMcp,
   },
 ] as const;
 
@@ -386,6 +411,20 @@ export const detailedFeatures: readonly DetailedFeature[] = [
       "On plain HTTP (typical LAN), leave AUTH_COOKIE_SECURE unset so the cookie works.",
     ],
     Icon: IconLock,
+  },
+  {
+    id: "mcp",
+    title: "MCP & API tokens",
+    summary:
+      "A Streamable HTTP MCP endpoint on the same LazyBackup instance so coding agents can manage backups on your home server or VPS—no local bridge process.",
+    points: [
+      "Create Bearer API tokens under Settings → API / MCP (shown once; revoke anytime).",
+      "Point Cursor, Claude, VS Code, or other MCP clients at https://your-host/mcp with Authorization: Bearer …",
+      "One-click Add to Cursor / VS Code, plus copy helpers for Claude config and Claude Code CLI.",
+      "Curated tools: list/run/toggle backups, create/update configs and servers, history, restore—destructive actions need confirm=true.",
+      "Token use updates last-used time and writes an audit log (no secrets).",
+    ],
+    Icon: IconMcp,
   },
 ] as const;
 

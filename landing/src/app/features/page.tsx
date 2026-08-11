@@ -12,11 +12,11 @@ import { SiteHeader } from "@/components/landing/site-header";
 export const metadata: Metadata = {
   title: "Features",
   description:
-    "From → To backups between local and servers, Docker volume pack & restore, server→server ephemeral transfer or relay, scheduling, retention, and optional app password.",
+    "From → To backups between local and servers, Docker volume pack & restore, server→server ephemeral transfer or relay, scheduling, retention, optional app password, and MCP for agents.",
   openGraph: {
     title: "Features · LazyBackup",
     description:
-      "All four transfer directions, Docker volumes, server→server, retention, restore, and more.",
+      "All four transfer directions, Docker volumes, server→server, retention, restore, MCP, and more.",
     type: "website",
   },
 };
@@ -43,7 +43,8 @@ export default function FeaturesPage() {
           <p className="mt-6 max-w-2xl text-lg leading-relaxed text-slate-400">
             A self-hosted backup manager built around From → To transfers:
             paths or Docker volumes, any mix of local and server endpoints,
-            schedules, retention, and restore—without agents on your VPS.
+            schedules, retention, restore, and an MCP endpoint so coding agents
+            can manage the same instance—without agents on your VPS.
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
             {detailedFeatures.map((f) => (
