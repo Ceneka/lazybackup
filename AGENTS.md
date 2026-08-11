@@ -28,7 +28,7 @@ Bun · Next.js 15.5 App Router · React 19 · Tailwind 4 / shadcn · TanStack Qu
 src/app/           # pages + api/* routes
 src/components/    # ui/*, page-layout, backup-config-form (From→To), s3-profile-form, app-shell, navbar
 src/lib/auth/      # password hash, session cookie, isAuthorized
-src/lib/backup/    # executeBackup, restore*, file-retention, storage-stats, destination, log-format
+src/lib/backup/    # executeBackup, validateBackupConfig, restore*, file-retention, storage-stats, destination, log-format
 src/lib/api/       # resource-in-use, redact (strip secrets from API responses)
 src/lib/database/  # dump/restore/test command builders for Postgres/MySQL/MariaDB
 src/lib/docker/    # remote volume/container list, pack/restore, DB inspect hints
@@ -80,7 +80,7 @@ Pattern: Zod → Drizzle → `NextResponse.json`; errors `{ error, details? }`.
 | MCP discovery | Tools: `find_server`, `list_docker_volumes`, `list_docker_containers`, `get_container_db_hints`, `test_server`, `test_database` (wrap existing SSH/Docker/DB helpers) |
 | Servers | `/api/servers`, `/api/servers/[id]`, `…/test`, `…/docker/volumes`, `…/docker/containers`, `…/docker/containers/[name]/db-hints`, `POST /api/servers/test` |
 | S3 | `/api/s3-profiles`, `/api/s3-profiles/[id]`, `…/test`, `POST /api/s3-profiles/test` |
-| Backups | `/api/backups`, `/api/backups/[id]`, `…/run`, `…/toggle`, `…/storage`, `POST /api/backups/start`, `POST /api/backups/database/test` |
+| Backups | `/api/backups`, `/api/backups/[id]`, `…/run`, `…/validate`, `…/toggle`, `…/storage`, `POST /api/backups/start`, `POST /api/backups/database/test` |
 | History | `/api/history`, `/api/history/[id]`, `…/restore`, `/api/history/stats?chartData=` |
 | Other | `/api/ssh-keys`, `/api/settings`, `/api/scheduler/restart`, `/api/dashboard`, `/api/seed` (dev only) |
 

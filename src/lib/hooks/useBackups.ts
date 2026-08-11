@@ -147,6 +147,26 @@ export function useBackup(id: string) {
   })
 }
 
+export type ValidateCheck = {
+  id: string
+  label: string
+  status: "pass" | "fail" | "warn"
+  message: string
+}
+
+export type ValidateBackupResult = {
+  ok: boolean
+  checks: ValidateCheck[]
+}
+
+export async function validateBackup(id: string): Promise<ValidateBackupResult> {
+  const response = await fetch(`/api/backups/${id}/validate`, { method: "POST" })
+  const body = await response.json()
+  if (!response.ok) {
+    throw new Error(body.error || "Failed to validate backup")
+  }
+  return body as ValidateBackupResult
+}
 
 // Summarize on-disk files at the backup destination
 export function useBackupStorage(id: string) {

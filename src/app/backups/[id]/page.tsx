@@ -6,6 +6,7 @@ import {
   DetailActions,
   DetailActionsDivider,
   detailActionPrimaryClassName,
+  detailActionSecondaryClassName,
 } from "@/components/ui/detail-actions"
 import { LoadingButton } from "@/components/ui/loading-button"
 import { QueryState } from "@/components/ui/query-state"
@@ -15,12 +16,15 @@ import {
   useBackup,
   useBackupStorage,
   useDeleteBackup,
+  validateBackup,
   type BackupDestinationEntry,
+  type ValidateBackupResult,
 } from "@/lib/hooks/useBackups"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import {
   ArrowLeftIcon,
   CalendarIcon,
+  CheckCircle2Icon,
   ClockIcon,
   CopyIcon,
   FileIcon,
@@ -31,6 +35,9 @@ import {
   PlayIcon,
   RefreshCwIcon,
   ServerIcon,
+  ShieldCheckIcon,
+  XCircleIcon,
+  AlertTriangleIcon,
 } from "lucide-react"
 import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
@@ -105,6 +112,7 @@ export default function BackupDetailPage() {
   const query = useBackup(backupId)
   const storageQuery = useBackupStorage(backupId)
   const deleteBackup = useDeleteBackup()
+  const [validateResult, setValidateResult] = useState<ValidateBackupResult | null>(null)
 
   const runBackupMutation = useMutation({
     mutationFn: async () => {
@@ -112,8 +120,9 @@ export default function BackupDetailPage() {
         method: "POST",
       })
 
+      const body = await response.json().catch(() => ({}))
       if (!response.ok) {
-        throw new Error("Failed to start backup")
+        throw new Error(body.error || "Failed to start backup")
       }
 
       return backupId
@@ -125,7 +134,29 @@ export default function BackupDetailPage() {
     },
     onError: (error) => {
       console.error("Error starting backup:", error)
-      toast.error("Failed to start backup")
+      toast.error(error instanceof Error ? error.message : "Failed to start backup")
+    },
+  })
+
+  const validateMutation = useMutation({
+    mutationFn: () => validateBackup(backupId),
+    onSuccess: (result) => {
+      setValidateResult(result)
+      if (result.ok) {
+        const warns = result.checks.filter((c) => c.status === "warn")
+        if (warns.length > 0) {
+          toast.success(`Validation passed with ${warns.length} warning(s)`)
+        } else {
+          toast.success("Validation passed — ready to run")
+        }
+      } else {
+        const firstFail = result.checks.find((c) => c.status === "fail")
+        toast.error(firstFail?.message || "Validation failed")
+      }
+    },
+    onError: (error) => {
+      setValidateResult(null)
+      toast.error(error instanceof Error ? error.message : "Failed to validate backup")
     },
   })
 
@@ -139,6 +170,10 @@ export default function BackupDetailPage() {
 
   const handleRunBackup = async () => {
     runBackupMutation.mutate()
+  }
+
+  const handleValidate = () => {
+    validateMutation.mutate()
   }
 
   const scheduleLabel = query.data
@@ -321,6 +356,17 @@ export default function BackupDetailPage() {
                     Run now
                   </LoadingButton>
 
+                  <LoadingButton
+                    onClick={handleValidate}
+                    isLoading={validateMutation.isPending}
+                    loadingText="Validating…"
+                    variant="secondary"
+                    className={detailActionSecondaryClassName}
+                  >
+                    <ShieldCheckIcon className="h-4 w-4" />
+                    Validate
+                  </LoadingButton>
+
                   <DetailActionLink href={`/backups/${query.data.id}/edit`}>
                     <PencilIcon className="h-4 w-4" />
                     Edit
@@ -359,6 +405,39 @@ export default function BackupDetailPage() {
                     buttonText="Delete"
                   />
                 </DetailActions>
+
+                {validateResult && (
+                  <div className="mt-4 space-y-2 border-t pt-4">
+                    <p className="text-sm font-medium">
+                      Validation{" "}
+                      {validateResult.ok ? (
+                        <span className="text-green-600 dark:text-green-400">passed</span>
+                      ) : (
+                        <span className="text-destructive">failed</span>
+                      )}
+                    </p>
+                    <ul className="space-y-2 text-sm">
+                      {validateResult.checks.map((check) => (
+                        <li
+                          key={check.id}
+                          className="flex gap-2 rounded-md border bg-muted/30 px-3 py-2"
+                        >
+                          {check.status === "pass" ? (
+                            <CheckCircle2Icon className="mt-0.5 h-4 w-4 shrink-0 text-green-600 dark:text-green-400" />
+                          ) : check.status === "warn" ? (
+                            <AlertTriangleIcon className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+                          ) : (
+                            <XCircleIcon className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+                          )}
+                          <div className="min-w-0">
+                            <div className="font-medium">{check.label}</div>
+                            <p className="text-xs text-muted-foreground">{check.message}</p>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </div>
             </div>
 

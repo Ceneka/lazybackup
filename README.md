@@ -19,6 +19,7 @@ Marketing site (static): [`landing/`](./landing) → [lazy.zic.ar](https://lazy.
 - **File retention** — Optional age-based cleanup for dump-style destinations (keep a minimum number of files)
 - **Automated scheduling** — In-process cron scheduler; set an app timezone so schedules run when you expect
 - **History & dashboard** — Track runs, view logs, next run times, storage usage, and success rates
+- **Validate before run** — Probe SSH/S3/paths/DB without transferring (backup detail → Validate)
 - **Failure webhooks** — Customizable HTTPS webhook on backup failure (method, headers, `{{tag}}` body/URL templates; Discord / Telegram / Kuma / ntfy / Slack presets)
 - **Optional app password** — Single-operator lock (set on first run or later in Settings); session cookie lasts 30 days
 - **MCP / API tokens** — Let Cursor, Claude, or other agents manage backups via Streamable HTTP MCP at `/mcp` (Settings → API / MCP)
