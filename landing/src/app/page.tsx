@@ -10,6 +10,7 @@ import { InstallTabs } from "@/components/landing/install-tabs";
 import { ScreenshotsGallery } from "@/components/landing/screenshots-gallery";
 import { ScrollReveal } from "@/components/landing/scroll-reveal";
 import { SiteHeader } from "@/components/landing/site-header";
+import { Logo } from "@/components/landing/logo";
 import { TerminalDemo } from "@/components/landing/terminal-demo";
 
 const steps = [
@@ -371,7 +372,10 @@ export default function Home() {
 
       <footer className="border-t border-white/[0.06] bg-[#050810] py-12">
         <div className="container mx-auto flex flex-col items-center justify-between gap-6 px-5 text-center text-sm text-slate-500 md:flex-row md:px-8 md:text-left">
-          <p>© {new Date().getFullYear()} LazyBackup. All rights reserved.</p>
+          <div className="flex flex-col items-center gap-3 md:items-start">
+            <Logo withWordmark markClassName="h-7 w-7" wordmarkClassName="text-base text-slate-300" />
+            <p>© {new Date().getFullYear()} LazyBackup. All rights reserved.</p>
+          </div>
           <div className="flex flex-wrap justify-center gap-x-8 gap-y-2">
             <Link href={GITHUB_URL} className="hover:text-slate-300">
               GitHub

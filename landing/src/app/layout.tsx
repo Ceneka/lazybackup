@@ -19,7 +19,13 @@ export const metadata: Metadata = {
   },
   description:
     "Self-hosted backup manager: transfer paths or Docker volumes between local and servers (all four directions), schedule jobs, retain snapshots, and restore volumes over SSH.",
-  icons: { icon: "/favicon.ico" },
+  icons: {
+    icon: [
+      { url: "/favicon.ico" },
+      { url: "/logo.svg", type: "image/svg+xml" },
+    ],
+    apple: "/apple-touch-icon.png",
+  },
   openGraph: {
     title: "LazyBackup — From → To backups for your servers",
     description:

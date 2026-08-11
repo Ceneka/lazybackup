@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/sheet"
 import { useAuth } from "@/lib/hooks/useAuth"
 import { cn } from "@/lib/utils"
+import { Logo } from "@/components/logo"
 import {
   CloudIcon,
   FolderIcon,
@@ -73,9 +74,8 @@ export function Navbar() {
     <header className="sticky top-0 z-[100] w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container mx-auto flex h-14 w-[90%] items-center justify-between">
         <div className="flex items-center">
-          <Link href="/" className="flex items-center space-x-2">
-            <ServerIcon className="h-6 w-6" />
-            <span className="font-bold">LazyBackup</span>
+          <Link href="/" className="flex items-center">
+            <Logo withWordmark className="gap-2" />
           </Link>
         </div>
 
@@ -126,9 +126,8 @@ export function Navbar() {
             className="flex w-[min(100vw-2rem,20rem)] flex-col gap-0 border-l p-0 sm:max-w-sm"
           >
             <SheetHeader className="border-b px-5 py-4 text-left">
-              <SheetTitle className="flex items-center gap-2 text-base">
-                <ServerIcon className="h-5 w-5" />
-                LazyBackup
+              <SheetTitle className="text-base">
+                <Logo withWordmark className="gap-2 [&_svg]:h-6 [&_svg]:w-6" />
               </SheetTitle>
               <SheetDescription className="sr-only">
                 Main navigation

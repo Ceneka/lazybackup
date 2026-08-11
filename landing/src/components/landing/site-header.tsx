@@ -4,6 +4,7 @@ import { motion } from "motion/react";
 import Link from "next/link";
 import { useState } from "react";
 import { GITHUB_URL } from "./features-data";
+import { Logo } from "./logo";
 
 const homeNav = [
   { href: "/features", label: "Features" },
@@ -33,33 +34,12 @@ export function SiteHeader({ variant = "home" }: SiteHeaderProps) {
   return (
     <header className="sticky top-0 z-50 border-b border-white/[0.08] bg-[#070b14]/75 backdrop-blur-xl">
       <nav className="container mx-auto flex items-center justify-between px-5 py-4 md:px-8">
-        <Link href="/" className="group flex items-center gap-2">
-          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-400 to-cyan-500 shadow-lg shadow-emerald-500/25">
-            <svg
-              width="20"
-              height="20"
-              viewBox="0 0 24 24"
-              fill="none"
-              className="text-slate-950"
-              aria-hidden
-            >
-              <path
-                d="M12 3L4 7v10l8 4 8-4V7l-8-4z"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinejoin="round"
-              />
-              <path
-                d="M12 12l8-4M12 12v9M12 12L4 8"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-              />
-            </svg>
-          </span>
-          <span className="text-lg font-semibold tracking-tight text-slate-100">
-            LazyBackup
-          </span>
+        <Link href="/" className="group flex items-center">
+          <Logo
+            withWordmark
+            className="gap-2.5"
+            markClassName="shadow-lg shadow-emerald-500/25 transition group-hover:brightness-110"
+          />
         </Link>
 
         <div className="hidden items-center gap-1 md:flex">
