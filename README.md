@@ -1,6 +1,6 @@
 # LazyBackup — VPS Backup Manager
 
-**[lazy.zic.ar](https://lazy.zic.ar)** · **[GitHub](https://github.com/Ceneka/lazybackup)**
+[![CI](https://github.com/Ceneka/lazybackup/actions/workflows/ci.yml/badge.svg)](https://github.com/Ceneka/lazybackup/actions/workflows/ci.yml) · **[lazy.zic.ar](https://lazy.zic.ar)** · **[GitHub](https://github.com/Ceneka/lazybackup)**
 
 LazyBackup is a self-hosted web app for managing backups between endpoints: **this host (local)** or any configured **Server**. Connect over SSH, schedule jobs with cron, and transfer filesystem paths or Docker volumes with rsync/scp—including **server→server** (ephemeral direct or relay).
 
