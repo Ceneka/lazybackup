@@ -1,5 +1,6 @@
 "use client"
 
+import { PageHeader, PageLayout } from "@/components/page-layout"
 import { QueryState } from "@/components/ui/query-state"
 import { destinationEndpointKey } from "@/lib/backup/destination"
 import { formatCronExpression } from "@/lib/cron/format"
@@ -69,17 +70,19 @@ export default function BackupsPage() {
   }, [query.data])
 
   return (
-    <div>
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">Backup Configurations</h1>
-        <Link
-          href="/backups/new"
-          className="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground hover:bg-primary/90 h-10 px-4 py-2"
-        >
-          <PlusIcon className="mr-2 h-4 w-4" />
-          Add Backup
-        </Link>
-      </div>
+    <PageLayout>
+      <PageHeader
+        title="Backup Configurations"
+        actions={
+          <Link
+            href="/backups/new"
+            className="inline-flex h-10 items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground ring-offset-background transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50"
+          >
+            <PlusIcon className="mr-2 h-4 w-4" />
+            Add Backup
+          </Link>
+        }
+      />
 
       <QueryState
         query={query}
@@ -140,6 +143,6 @@ export default function BackupsPage() {
           </div>
         )}
       </QueryState>
-    </div>
+    </PageLayout>
   )
 }

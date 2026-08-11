@@ -1,5 +1,6 @@
 "use client"
 
+import { PageHeader, PageLayout } from "@/components/page-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
 import { QueryState } from "@/components/ui/query-state"
@@ -86,27 +87,27 @@ export default function Dashboard() {
   }, [])
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-2">
-        <div>
-          <h1 className="text-3xl font-bold">Dashboard</h1>
-          <p className="text-sm text-muted-foreground">Last 30 days overview</p>
-        </div>
-        <div className="flex flex-wrap gap-3 text-sm text-muted-foreground">
-          <Link href="/servers" className="inline-flex items-center gap-1 hover:text-foreground">
-            <ServerIcon className="h-3.5 w-3.5" />
-            {query.data?.servers ?? "—"} servers
-          </Link>
-          <Link href="/s3-profiles" className="inline-flex items-center gap-1 hover:text-foreground">
-            <CloudIcon className="h-3.5 w-3.5" />
-            {query.data?.s3Profiles ?? "—"} S3
-          </Link>
-          <Link href="/backups" className="inline-flex items-center gap-1 hover:text-foreground">
-            <FolderIcon className="h-3.5 w-3.5" />
-            {query.data?.enabledBackups ?? "—"}/{query.data?.backups ?? "—"} backups enabled
-          </Link>
-        </div>
-      </div>
+    <PageLayout>
+      <PageHeader
+        title="Dashboard"
+        description="Last 30 days overview"
+        actions={
+          <div className="flex flex-wrap gap-3 text-sm text-muted-foreground">
+            <Link href="/servers" className="inline-flex items-center gap-1 hover:text-foreground">
+              <ServerIcon className="h-3.5 w-3.5" />
+              {query.data?.servers ?? "—"} servers
+            </Link>
+            <Link href="/s3-profiles" className="inline-flex items-center gap-1 hover:text-foreground">
+              <CloudIcon className="h-3.5 w-3.5" />
+              {query.data?.s3Profiles ?? "—"} S3
+            </Link>
+            <Link href="/backups" className="inline-flex items-center gap-1 hover:text-foreground">
+              <FolderIcon className="h-3.5 w-3.5" />
+              {query.data?.enabledBackups ?? "—"}/{query.data?.backups ?? "—"} backups enabled
+            </Link>
+          </div>
+        }
+      />
 
       <QueryState
         query={{
@@ -375,6 +376,6 @@ export default function Dashboard() {
           </>
         ) : null}
       </QueryState>
-    </div>
+    </PageLayout>
   )
 }

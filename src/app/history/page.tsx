@@ -1,5 +1,6 @@
 "use client"
 
+import { PageHeader, PageLayout } from "@/components/page-layout"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { LoadingButton } from "@/components/ui/loading-button"
@@ -104,12 +105,12 @@ function HistoryPageContent() {
   const filteredConfigName = data?.filters?.configName
 
   return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold">Backup History</h1>
-          {filters.configId && (
-            <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+    <PageLayout>
+      <PageHeader
+        title="Backup History"
+        description={
+          filters.configId ? (
+            <div className="flex flex-wrap items-center gap-2">
               <span>Showing history for</span>
               <Badge variant="secondary" className="gap-1 font-normal">
                 {filteredConfigName || filters.configId}
@@ -131,20 +132,22 @@ function HistoryPageContent() {
                 </Link>
               )}
             </div>
-          )}
-        </div>
-        <LoadingButton
-          isLoading={isLoading}
-          onClick={() => refetch()}
-          variant="outline"
-          size="icon"
-          hideTextWhenLoading={true}
-        >
-          <RefreshCwIcon className="h-4 w-4" />
-        </LoadingButton>
-      </div>
+          ) : undefined
+        }
+        actions={
+          <LoadingButton
+            isLoading={isLoading}
+            onClick={() => refetch()}
+            variant="outline"
+            size="icon"
+            hideTextWhenLoading={true}
+          >
+            <RefreshCwIcon className="h-4 w-4" />
+          </LoadingButton>
+        }
+      />
 
-      <div className="flex gap-4 mb-6">
+      <div className="flex gap-4">
         <div className="flex-1">
           <div className="relative">
             <SearchIcon className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -322,7 +325,7 @@ function HistoryPageContent() {
           )}
         </>
       </QueryState>
-    </div>
+    </PageLayout>
   )
 }
 
@@ -330,10 +333,10 @@ export default function HistoryPage() {
   return (
     <Suspense
       fallback={
-        <div className="space-y-6">
-          <h1 className="text-3xl font-bold">Backup History</h1>
+        <PageLayout>
+          <PageHeader title="Backup History" />
           <div className="h-40 animate-pulse rounded-md bg-muted/30" />
-        </div>
+        </PageLayout>
       }
     >
       <HistoryPageContent />

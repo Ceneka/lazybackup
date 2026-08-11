@@ -1,5 +1,6 @@
 "use client"
 
+import { PageHeader, PageLayout } from "@/components/page-layout"
 import { QueryState } from "@/components/ui/query-state"
 import { useS3Profiles } from "@/lib/hooks/useS3Profiles"
 import { CloudIcon, PlusIcon } from "lucide-react"
@@ -9,17 +10,19 @@ export default function S3ProfilesPage() {
   const query = useS3Profiles()
 
   return (
-    <div>
-      <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-2xl font-bold">S3 Profiles</h1>
-        <Link
-          href="/s3-profiles/new"
-          className="inline-flex h-10 items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground ring-offset-background transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50"
-        >
-          <PlusIcon className="mr-2 h-4 w-4" />
-          Add Profile
-        </Link>
-      </div>
+    <PageLayout>
+      <PageHeader
+        title="S3 Profiles"
+        actions={
+          <Link
+            href="/s3-profiles/new"
+            className="inline-flex h-10 items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground ring-offset-background transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50"
+          >
+            <PlusIcon className="mr-2 h-4 w-4" />
+            Add Profile
+          </Link>
+        }
+      />
 
       <QueryState
         query={query}
@@ -54,6 +57,6 @@ export default function S3ProfilesPage() {
           </div>
         )}
       </QueryState>
-    </div>
+    </PageLayout>
   )
 }
