@@ -11,8 +11,13 @@ export interface Server {
   port: number
   username: string
   authType: "password" | "key"
+  /** Present only on create/test payloads — never returned by GET APIs */
   password?: string
   privateKey?: string
+  sshKeyId?: string | null
+  systemKeyPath?: string | null
+  hasPassword?: boolean
+  hasPrivateKey?: boolean
   createdAt: string
   updatedAt: string
   usedByBackups?: Array<{

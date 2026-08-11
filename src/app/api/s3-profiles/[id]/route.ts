@@ -1,6 +1,7 @@
+import { redactS3 } from '@/lib/api/redact';
 import { db } from '@/lib/db';
 import { backupConfigs, s3Profiles } from '@/lib/db/schema';
-import { s3ProfileSchema } from '@/lib/s3/schema';
+import { s3ProfileUpdateSchema } from '@/lib/s3/schema';
 import { eq, or } from 'drizzle-orm';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
@@ -47,7 +48,7 @@ export async function GET(
     });
 
     return NextResponse.json({
-      ...profile,
+      ...redactS3(profile as unknown as Record<string, unknown>),
       usedByBackups: referencingBackups.map((backup) => ({
         id: backup.id,
         name: backup.name,
@@ -68,7 +69,7 @@ export async function PUT(
   try {
     const { id } = await params;
     const body = await request.json();
-    const validatedData = s3ProfileSchema.parse(body);
+    const validatedData = s3ProfileUpdateSchema.parse(body);
 
     const existing = await db.query.s3Profiles.findFirst({
       where: eq(s3Profiles.id, id),
@@ -77,15 +78,31 @@ export async function PUT(
       return NextResponse.json({ error: 'S3 profile not found' }, { status: 404 });
     }
 
+    const secretAccessKey =
+      validatedData.secretAccessKey && validatedData.secretAccessKey.trim()
+        ? validatedData.secretAccessKey
+        : existing.secretAccessKey;
+
     await db
       .update(s3Profiles)
-      .set({ ...validatedData, updatedAt: new Date() })
+      .set({
+        name: validatedData.name,
+        endpoint: validatedData.endpoint,
+        region: validatedData.region,
+        bucket: validatedData.bucket,
+        accessKeyId: validatedData.accessKeyId,
+        secretAccessKey,
+        forcePathStyle: validatedData.forcePathStyle,
+        updatedAt: new Date(),
+      })
       .where(eq(s3Profiles.id, id));
 
     const updated = await db.query.s3Profiles.findFirst({
       where: eq(s3Profiles.id, id),
     });
-    return NextResponse.json(updated);
+    return NextResponse.json(
+      updated ? redactS3(updated as unknown as Record<string, unknown>) : updated
+    );
   } catch (error) {
     console.error('Failed to update S3 profile:', error);
     if (error instanceof z.ZodError) {

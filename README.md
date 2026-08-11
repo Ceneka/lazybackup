@@ -136,6 +136,10 @@ Empty body (POST/PUT) sends the built-in JSON:
 
 HTTPS is required (`http://` only for localhost/LAN). Empty URL disables notifications. Use **Send test notification** to verify.
 
+### Secrets in the API
+
+`GET` responses for servers, S3 profiles, and backups **never include** passwords, SSH private keys, S3 secret keys, or DB passwords. Flags such as `hasPassword` / `hasPrivateKey` / `hasSecretAccessKey` / `hasDbPassword` tell the UI a secret is stored. On edit, leave those fields blank to keep the existing value.
+
 ### Docker volume notes
 
 - The SSH user needs permission to run `docker` (typically membership in the `docker` group).

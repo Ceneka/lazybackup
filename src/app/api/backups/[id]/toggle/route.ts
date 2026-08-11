@@ -1,3 +1,4 @@
+import { redactBackup } from '@/lib/api/redact';
 import { db } from '@/lib/db';
 import { backupConfigs } from '@/lib/db/schema';
 import { scheduleBackup, stopBackup } from '@/lib/scheduler';
@@ -61,7 +62,11 @@ export async function POST(
       },
     });
     
-    return NextResponse.json(updatedConfig);
+    return NextResponse.json(
+      updatedConfig
+        ? redactBackup(updatedConfig as unknown as Record<string, unknown>)
+        : updatedConfig
+    );
   } catch (error) {
     console.error('Failed to toggle backup status:', error);
     return NextResponse.json(

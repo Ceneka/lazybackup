@@ -1,3 +1,4 @@
+import { redactServer } from '@/lib/api/redact'
 import { databaseConnectionTestSchema } from '@/lib/backup/schema'
 import {
   connectionFromConfig,
@@ -51,12 +52,7 @@ async function audited<T>(
 }
 
 function redactServerRow(server: typeof servers.$inferSelect) {
-  const { password: _p, privateKey: _k, ...rest } = server
-  return {
-    ...rest,
-    hasPassword: Boolean(_p),
-    hasPrivateKey: Boolean(_k),
-  }
+  return redactServer(server as unknown as Record<string, unknown>)
 }
 
 /** Score how well a query matches a server (higher = better). Exported for tests. */

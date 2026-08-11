@@ -80,7 +80,7 @@ export default function EditS3ProfilePage() {
     region: profile.region,
     bucket: profile.bucket,
     accessKeyId: profile.accessKeyId,
-    secretAccessKey: profile.secretAccessKey,
+    secretAccessKey: "",
     forcePathStyle: profile.forcePathStyle !== false,
   }
 
@@ -118,6 +118,14 @@ export default function EditS3ProfilePage() {
         initial={initial}
         submitting={submitting}
         submitLabel="Save Changes"
+        hasSecretAccessKey={Boolean(profile.hasSecretAccessKey)}
+        testStoredProfile={async () => {
+          const response = await fetch(`/api/s3-profiles/${id}/test`)
+          const body = await response.json()
+          if (!response.ok) {
+            throw new Error(body.error || "S3 connection failed")
+          }
+        }}
         onSubmit={handleSubmit}
       />
     </div>

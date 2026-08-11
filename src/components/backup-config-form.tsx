@@ -52,6 +52,8 @@ export type BackupFormData = {
   dbPort: string
   dbUser: string
   dbPassword: string
+  /** Edit only: a password is already stored (API never returns it) */
+  hasDbPassword?: boolean
   enabled: boolean
   enableVersioning: boolean
   versionsToKeep: number
@@ -85,7 +87,8 @@ export function backupToFormData(backup: Backup): BackupFormData {
     dbHost: backup.dbHost || "127.0.0.1",
     dbPort: backup.dbPort != null ? String(backup.dbPort) : "",
     dbUser: backup.dbUser || "",
-    dbPassword: backup.dbPassword || "",
+    dbPassword: "",
+    hasDbPassword: Boolean(backup.hasDbPassword),
     enabled: backup.enabled,
     enableVersioning: Boolean(backup.enableVersioning),
     versionsToKeep: backup.versionsToKeep ?? 5,
@@ -999,8 +1002,16 @@ export function BackupConfigForm({
                   className={inputClass}
                   value={formData.dbPassword}
                   onChange={(e) => updateField("dbPassword", e.target.value)}
+                  placeholder={
+                    formData.hasDbPassword ? "Leave blank to keep existing" : undefined
+                  }
                   autoComplete="new-password"
                 />
+                {formData.hasDbPassword && (
+                  <p className="text-xs text-muted-foreground">
+                    A password is stored. Leave blank to keep it.
+                  </p>
+                )}
               </div>
             </div>
             <p className="text-xs text-muted-foreground">

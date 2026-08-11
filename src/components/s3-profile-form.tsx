@@ -17,6 +17,10 @@ type S3ProfileFormProps = {
   submitting: boolean
   submitLabel: string
   onSubmit: (data: S3ProfileInput) => Promise<void>
+  /** When editing, secret may already be stored — blank keeps it */
+  hasSecretAccessKey?: boolean
+  /** Test using credentials already in the DB (edit form with blank secret) */
+  testStoredProfile?: () => Promise<void>
 }
 
 export function S3ProfileForm({
@@ -24,6 +28,8 @@ export function S3ProfileForm({
   submitting,
   submitLabel,
   onSubmit,
+  hasSecretAccessKey = false,
+  testStoredProfile,
 }: S3ProfileFormProps) {
   const [formData, setFormData] = useState<S3ProfileInput>(initial)
   const [testing, setTesting] = useState(false)
@@ -38,6 +44,16 @@ export function S3ProfileForm({
   async function handleTest() {
     setTesting(true)
     try {
+      if (hasSecretAccessKey && !formData.secretAccessKey.trim()) {
+        // Prefer testing with credentials already stored server-side when blank
+        if (testStoredProfile) {
+          await testStoredProfile()
+          toast.success("S3 connection OK")
+          return
+        }
+        toast.error("Enter the secret access key to test connection.")
+        return
+      }
       await testS3ProfileConnection(formData)
       toast.success("S3 connection OK")
     } catch (err) {
@@ -135,9 +151,15 @@ export function S3ProfileForm({
               className={inputClass}
               value={formData.secretAccessKey}
               onChange={(e) => updateField("secretAccessKey", e.target.value)}
-              required
+              required={!hasSecretAccessKey}
+              placeholder={hasSecretAccessKey ? "Leave blank to keep existing" : undefined}
               autoComplete="new-password"
             />
+            {hasSecretAccessKey && (
+              <p className="mt-1 text-sm text-muted-foreground">
+                A secret key is stored. Leave blank to keep it, or enter a new one to replace.
+              </p>
+            )}
           </div>
           <label className="flex items-center gap-2 text-sm">
             <input

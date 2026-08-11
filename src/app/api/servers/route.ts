@@ -1,3 +1,4 @@
+import { redactServer } from '@/lib/api/redact';
 import { db } from '@/lib/db';
 import { servers, sshKeys } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
@@ -22,7 +23,9 @@ const serverSchema = z.object({
 export async function GET() {
   try {
     const allServers = await db.select().from(servers);
-    return NextResponse.json(allServers);
+    return NextResponse.json(
+      allServers.map((s) => redactServer(s as unknown as Record<string, unknown>))
+    );
   } catch (error) {
     console.error('Failed to fetch servers:', error);
     return NextResponse.json(
@@ -76,7 +79,10 @@ export async function POST(request: NextRequest) {
     // Insert the server into the database
     await db.insert(servers).values(newServer);
 
-    return NextResponse.json(newServer, { status: 201 });
+    return NextResponse.json(
+      redactServer(newServer as unknown as Record<string, unknown>),
+      { status: 201 }
+    );
   } catch (error) {
     console.error('Failed to create server:', error);
 

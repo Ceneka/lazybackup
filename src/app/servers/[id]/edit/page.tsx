@@ -64,8 +64,9 @@ export default function EditServerPage() {
         host: server.host || '',
         port: server.port || 22,
         username: server.username || '',
-        password: server.password || '',
-        privateKey: server.privateKey || '',
+        // Secrets are never returned by the API — leave blank to keep existing
+        password: '',
+        privateKey: '',
         sshKeyId: server.sshKeyId || '',
         systemKeyPath: server.systemKeyPath || '',
       })
@@ -334,14 +335,17 @@ export default function EditServerPage() {
                     id="password"
                     name="password"
                     type="password"
-                    required={authType === 'password'}
+                    required={authType === 'password' && !server?.hasPassword}
                     value={formData.password}
                     onChange={handleChange}
                     className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                    placeholder="Enter password"
+                    placeholder={server?.hasPassword ? "Leave blank to keep existing" : "Enter password"}
+                    autoComplete="new-password"
                   />
                   <p className="text-sm text-muted-foreground mt-1">
-                    Password can test a connection, but backups need an SSH key — use Create key above.
+                    {server?.hasPassword
+                      ? "A password is stored. Leave blank to keep it, or enter a new one to replace."
+                      : "Password can test a connection, but backups need an SSH key — use Create key above."}
                   </p>
                 </div>
               ) : (
@@ -412,8 +416,17 @@ export default function EditServerPage() {
                         onChange={handleChange}
                         rows={8}
                         className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                        placeholder="Paste your private key here"
+                        placeholder={
+                          server?.hasPrivateKey
+                            ? "Leave blank to keep existing key"
+                            : "Paste your private key here"
+                        }
                       />
+                      {server?.hasPrivateKey && (
+                        <p className="text-sm text-muted-foreground mt-1">
+                          A private key is stored. Leave blank to keep it, or paste a new key to replace.
+                        </p>
+                      )}
                     </div>
                   )}
                 </div>

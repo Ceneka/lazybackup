@@ -9,3 +9,8 @@ export const s3ProfileSchema = z.object({
   secretAccessKey: z.string().min(1, 'Secret key is required'),
   forcePathStyle: z.boolean().default(true),
 });
+
+/** Update: empty/missing secretAccessKey means keep the existing secret. */
+export const s3ProfileUpdateSchema = s3ProfileSchema.extend({
+  secretAccessKey: z.string().optional(),
+});

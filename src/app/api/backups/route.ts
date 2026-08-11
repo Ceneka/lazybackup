@@ -1,3 +1,4 @@
+import { redactBackup } from '@/lib/api/redact';
 import { findExactDestinationConflict } from '@/lib/backup/destination-guard';
 import { backupConfigSchema } from '@/lib/backup/schema';
 import { db } from '@/lib/db';
@@ -21,7 +22,9 @@ export async function GET() {
       with: backupWithEndpoints,
     });
 
-    return NextResponse.json(configs);
+    return NextResponse.json(
+      configs.map((c) => redactBackup(c as unknown as Record<string, unknown>))
+    );
   } catch (error) {
     console.error('Failed to fetch backup configurations:', error);
     return NextResponse.json(
@@ -89,7 +92,12 @@ export async function POST(request: NextRequest) {
       await scheduleBackup(completeConfig);
     }
 
-    return NextResponse.json(completeConfig, { status: 201 });
+    return NextResponse.json(
+      completeConfig
+        ? redactBackup(completeConfig as unknown as Record<string, unknown>)
+        : completeConfig,
+      { status: 201 }
+    );
   } catch (error) {
     console.error('Failed to create backup configuration:', error);
 

@@ -1,3 +1,4 @@
+import { redactServer } from '@/lib/api/redact';
 import { db } from '@/lib/db';
 import { backupConfigs, servers, sshKeys } from '@/lib/db/schema';
 import { eq, or } from 'drizzle-orm';
@@ -23,8 +24,8 @@ const serverSchema = z.object({
   authType: z.enum(['password', 'key']),
   password: z.string().optional(),
   privateKey: z.string().optional(),
-  sshKeyId: z.string().optional(),
-  systemKeyPath: z.string().optional(),
+  sshKeyId: z.string().optional().nullable(),
+  systemKeyPath: z.string().optional().nullable(),
 });
 
 // GET /api/servers/:id - Get a single server
@@ -61,7 +62,7 @@ export async function GET(
     });
 
     return NextResponse.json({
-      ...server,
+      ...redactServer(server as unknown as Record<string, unknown>),
       usedByBackups: referencingBackups.map((backup) => ({
         id: backup.id,
         name: backup.name,
@@ -101,20 +102,35 @@ export async function PUT(
       );
     }
 
-    // Validate authentication method
+    const password =
+      validatedData.password && validatedData.password.trim()
+        ? validatedData.password
+        : existingServer.password;
+    const privateKey =
+      validatedData.privateKey && validatedData.privateKey.trim()
+        ? validatedData.privateKey
+        : existingServer.privateKey;
+    const sshKeyId =
+      validatedData.sshKeyId !== undefined
+        ? validatedData.sshKeyId
+        : existingServer.sshKeyId;
+    const systemKeyPath =
+      validatedData.systemKeyPath !== undefined
+        ? validatedData.systemKeyPath
+        : existingServer.systemKeyPath;
+
+    // Validate authentication method (allow keeping existing secrets when fields blank)
     if (validatedData.authType === 'key') {
-      // Ensure at least one key method is provided
-      if (!validatedData.privateKey && !validatedData.sshKeyId && !validatedData.systemKeyPath) {
+      if (!privateKey && !sshKeyId && !systemKeyPath) {
         return NextResponse.json(
           { error: 'When using key authentication, you must provide a private key, select a stored key, or specify a system key path' },
           { status: 400 }
         );
       }
 
-      // If using an SSH key from the database, validate that it exists
-      if (validatedData.sshKeyId) {
+      if (sshKeyId) {
         const keyExists = await db.query.sshKeys.findFirst({
-          where: eq(sshKeys.id, validatedData.sshKeyId),
+          where: eq(sshKeys.id, sshKeyId),
         });
 
         if (!keyExists) {
@@ -126,10 +142,25 @@ export async function PUT(
       }
     }
 
+    if (validatedData.authType === 'password' && !password) {
+      return NextResponse.json(
+        { error: 'Password is required for password authentication' },
+        { status: 400 }
+      );
+    }
+
     // Update the server
     await db.update(servers)
       .set({
-        ...validatedData,
+        name: validatedData.name,
+        host: validatedData.host,
+        port: validatedData.port,
+        username: validatedData.username,
+        authType: validatedData.authType,
+        password: validatedData.authType === 'password' ? password : null,
+        privateKey: validatedData.authType === 'key' ? privateKey : null,
+        sshKeyId: validatedData.authType === 'key' ? sshKeyId : null,
+        systemKeyPath: validatedData.authType === 'key' ? systemKeyPath : null,
         updatedAt: new Date(),
       })
       .where(eq(servers.id, id));
@@ -139,7 +170,11 @@ export async function PUT(
       where: eq(servers.id, id),
     });
 
-    return NextResponse.json(updatedServer);
+    return NextResponse.json(
+      updatedServer
+        ? redactServer(updatedServer as unknown as Record<string, unknown>)
+        : updatedServer
+    );
   } catch (error) {
     console.error('Failed to update server:', error);
 
@@ -216,4 +251,4 @@ export async function DELETE(
       { status: 500 }
     );
   }
-} 
+}

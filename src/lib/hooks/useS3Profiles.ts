@@ -9,7 +9,9 @@ export interface S3Profile {
   region: string
   bucket: string
   accessKeyId: string
-  secretAccessKey: string
+  /** Never returned by GET APIs — only sent on create/update */
+  secretAccessKey?: string
+  hasSecretAccessKey?: boolean
   forcePathStyle: boolean
   createdAt: string
   updatedAt: string

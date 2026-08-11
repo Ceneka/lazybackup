@@ -28,6 +28,7 @@ export interface Backup {
   dbPort?: number | null
   dbUser?: string | null
   dbPassword?: string | null
+  hasDbPassword?: boolean
   enabled: boolean
   enableVersioning?: boolean
   versionsToKeep?: number
@@ -145,6 +146,7 @@ export function useBackup(id: string) {
     enabled: !!id
   })
 }
+
 
 // Summarize on-disk files at the backup destination
 export function useBackupStorage(id: string) {

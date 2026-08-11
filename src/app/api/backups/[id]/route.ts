@@ -1,3 +1,4 @@
+import { redactBackup } from '@/lib/api/redact';
 import { findExactDestinationConflict } from '@/lib/backup/destination-guard';
 import { backupConfigSchema } from '@/lib/backup/schema';
 import { formatCronExpression } from '@/lib/cron/format';
@@ -48,7 +49,7 @@ export async function GET(
         };
 
     return NextResponse.json({
-      ...config,
+      ...redactBackup(config as unknown as Record<string, unknown>),
       scheduleLabel: formatCronExpression(config.schedule),
       timezone: timeZone,
       nextRun: upcoming.nextRun,
@@ -95,6 +96,21 @@ export async function PUT(
       );
     }
 
+    const existing = await db.query.backupConfigs.findFirst({
+      where: eq(backupConfigs.id, id),
+    });
+    if (!existing) {
+      return NextResponse.json(
+        { error: 'Backup configuration not found' },
+        { status: 404 }
+      );
+    }
+
+    const dbPassword =
+      validatedData.dbPassword && String(validatedData.dbPassword).trim()
+        ? validatedData.dbPassword
+        : existing.dbPassword;
+
     // First stop any existing cron job
     stopBackup(id);
 
@@ -102,6 +118,7 @@ export async function PUT(
     await db.update(backupConfigs)
       .set({
         ...validatedData,
+        dbPassword,
         updatedAt: new Date(),
       })
       .where(eq(backupConfigs.id, id));
@@ -124,7 +141,9 @@ export async function PUT(
       await scheduleBackup(updatedConfig);
     }
 
-    return NextResponse.json(updatedConfig);
+    return NextResponse.json(
+      redactBackup(updatedConfig as unknown as Record<string, unknown>)
+    );
   } catch (error) {
     console.error('Failed to update backup configuration:', error);
 

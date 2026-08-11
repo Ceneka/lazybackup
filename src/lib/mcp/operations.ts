@@ -2,6 +2,7 @@ import { findExactDestinationConflict } from '@/lib/backup/destination-guard'
 import { backupConfigSchema } from '@/lib/backup/schema'
 import { restoreDatabaseBackup, restoreDockerVolumeBackup, executeBackup } from '@/lib/backup'
 import { writeAuditLog, type AuditActor } from '@/lib/auth/audit'
+import { redactBackup, redactS3, redactServer } from '@/lib/api/redact'
 import { db } from '@/lib/db'
 import {
   backupConfigs,
@@ -62,46 +63,20 @@ async function audited<T>(
   }
 }
 
-function redactServer<T extends Record<string, unknown>>(server: T) {
-  const { password: _p, privateKey: _k, ...rest } = server as T & {
-    password?: string | null
-    privateKey?: string | null
-  }
-  return {
-    ...rest,
-    hasPassword: Boolean(_p),
-    hasPrivateKey: Boolean(_k),
-  }
+function redactS3ForMcp<T extends Record<string, unknown>>(profile: T) {
+  return redactS3(profile, { maskAccessKeyId: true })
 }
 
-function redactS3<T extends Record<string, unknown>>(profile: T) {
-  const { secretAccessKey: _s, accessKeyId, ...rest } = profile as T & {
-    secretAccessKey?: string
-    accessKeyId?: string
-  }
-  return {
-    ...rest,
-    accessKeyId: accessKeyId ? `${String(accessKeyId).slice(0, 4)}…` : undefined,
-    hasSecretAccessKey: Boolean(_s),
-  }
-}
-
-function redactBackup(config: Record<string, unknown>) {
-  const copy = { ...config }
-  if ('dbPassword' in copy && copy.dbPassword) {
-    copy.dbPassword = '***'
-  }
-  if (copy.server && typeof copy.server === 'object') {
-    copy.server = redactServer(copy.server as Record<string, unknown>)
-  }
-  if (copy.destinationServer && typeof copy.destinationServer === 'object') {
-    copy.destinationServer = redactServer(copy.destinationServer as Record<string, unknown>)
-  }
-  if (copy.sourceS3Profile && typeof copy.sourceS3Profile === 'object') {
-    copy.sourceS3Profile = redactS3(copy.sourceS3Profile as Record<string, unknown>)
-  }
-  if (copy.destinationS3Profile && typeof copy.destinationS3Profile === 'object') {
-    copy.destinationS3Profile = redactS3(copy.destinationS3Profile as Record<string, unknown>)
+function redactBackupForMcp(config: Record<string, unknown>) {
+  const copy = redactBackup(config) as Record<string, unknown>
+  for (const key of ['sourceS3Profile', 'destinationS3Profile'] as const) {
+    const profile = copy[key]
+    if (profile && typeof profile === 'object') {
+      const p = profile as Record<string, unknown>
+      if (typeof p.accessKeyId === 'string' && p.accessKeyId.length > 0 && !String(p.accessKeyId).endsWith('…')) {
+        p.accessKeyId = `${String(p.accessKeyId).slice(0, 4)}…`
+      }
+    }
   }
   return copy
 }
@@ -114,7 +89,7 @@ export async function listBackupsOp(_ctx: McpOpsContext) {
   const configs = await db.query.backupConfigs.findMany({
     with: backupWithEndpoints,
   })
-  return jsonResult(configs.map((c) => redactBackup(c as unknown as Record<string, unknown>)))
+  return jsonResult(configs.map((c) => redactBackupForMcp(c as unknown as Record<string, unknown>)))
 }
 
 export async function getBackupOp(_ctx: McpOpsContext, id: string) {
@@ -123,7 +98,7 @@ export async function getBackupOp(_ctx: McpOpsContext, id: string) {
     with: backupWithEndpoints,
   })
   if (!config) return errorResult(`Backup not found: ${id}`)
-  return jsonResult(redactBackup(config as unknown as Record<string, unknown>))
+  return jsonResult(redactBackupForMcp(config as unknown as Record<string, unknown>))
 }
 
 export async function createBackupOp(ctx: McpOpsContext, input: unknown) {
@@ -160,7 +135,7 @@ export async function createBackupOp(ctx: McpOpsContext, input: unknown) {
       await scheduleBackup(completeConfig)
     }
     return jsonResult({
-      created: redactBackup(completeConfig as unknown as Record<string, unknown>),
+      created: redactBackupForMcp(completeConfig as unknown as Record<string, unknown>),
     })
   }).catch((error) =>
     errorResult(error instanceof Error ? error.message : 'Failed to create backup')
@@ -204,7 +179,7 @@ export async function updateBackupOp(ctx: McpOpsContext, id: string, input: unkn
       await scheduleBackup(updated)
     }
     return jsonResult({
-      updated: redactBackup(updated as unknown as Record<string, unknown>),
+      updated: redactBackupForMcp(updated as unknown as Record<string, unknown>),
     })
   }).catch((error) =>
     errorResult(error instanceof Error ? error.message : 'Failed to update backup')
@@ -288,7 +263,7 @@ export async function toggleBackupOp(ctx: McpOpsContext, id: string, enabled?: b
       where: eq(backupConfigs.id, id),
       with: backupWithEndpoints,
     })
-    return jsonResult(redactBackup(updated as unknown as Record<string, unknown>))
+    return jsonResult(redactBackupForMcp(updated as unknown as Record<string, unknown>))
   }).catch((error) =>
     errorResult(error instanceof Error ? error.message : 'Failed to toggle backup')
   )
@@ -336,7 +311,7 @@ export async function getHistoryOp(_ctx: McpOpsContext, id: string) {
     ...row,
     logOutput: truncateLog(row.logOutput),
     backupConfig: row.backupConfig
-      ? redactBackup(row.backupConfig as unknown as Record<string, unknown>)
+      ? redactBackupForMcp(row.backupConfig as unknown as Record<string, unknown>)
       : null,
   })
 }
@@ -474,7 +449,7 @@ export async function deleteServerOp(
 
 export async function listS3ProfilesOp(_ctx: McpOpsContext) {
   const profiles = await db.select().from(s3Profiles)
-  return jsonResult(profiles.map((p) => redactS3(p as unknown as Record<string, unknown>)))
+  return jsonResult(profiles.map((p) => redactS3ForMcp(p as unknown as Record<string, unknown>)))
 }
 
 export async function getDashboardOp(_ctx: McpOpsContext) {

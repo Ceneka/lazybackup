@@ -29,6 +29,7 @@ src/app/           # pages + api/* routes
 src/components/    # ui/*, page-layout, backup-config-form (From→To), s3-profile-form, app-shell, navbar
 src/lib/auth/      # password hash, session cookie, isAuthorized
 src/lib/backup/    # executeBackup, restore*, file-retention, storage-stats, destination, log-format
+src/lib/api/       # resource-in-use, redact (strip secrets from API responses)
 src/lib/database/  # dump/restore/test command builders for Postgres/MySQL/MariaDB
 src/lib/docker/    # remote volume/container list, pack/restore, DB inspect hints
 src/lib/notify/    # failure webhook (templates, presets)
