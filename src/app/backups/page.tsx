@@ -12,7 +12,11 @@ function endpointShort(backup: Backup, side: "from" | "to"): string {
   if (side === "from") {
     const kind = backup.sourceKind || "server"
     const label =
-      kind === "local" ? "this host" : backup.server?.name || "server"
+      kind === "local"
+        ? "this host"
+        : kind === "s3"
+          ? backup.sourceS3Profile?.name || "s3"
+          : backup.server?.name || "server"
     const path =
       backup.sourceType === "docker_volume"
         ? `volume:${backup.sourcePath}`
@@ -23,7 +27,11 @@ function endpointShort(backup: Backup, side: "from" | "to"): string {
   }
   const kind = backup.destinationKind || "local"
   const label =
-    kind === "local" ? "this host" : backup.destinationServer?.name || "server"
+    kind === "local"
+      ? "this host"
+      : kind === "s3"
+        ? backup.destinationS3Profile?.name || "s3"
+        : backup.destinationServer?.name || "server"
   return `${label}:${backup.destinationPath}`
 }
 
@@ -42,6 +50,7 @@ export default function BackupsPage() {
       const key = destinationEndpointKey({
         destinationKind: backup.destinationKind,
         destinationServerId: backup.destinationServerId,
+        destinationS3ProfileId: backup.destinationS3ProfileId,
         destinationPath: backup.destinationPath,
       })
       const list = byKey.get(key) || []

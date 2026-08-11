@@ -191,8 +191,9 @@ export async function getBackupStorageStats(
  */
 export async function getBackupDestinationSummary(options: {
   destinationPath: string
-  destinationKind?: 'local' | 'server' | null
+  destinationKind?: 'local' | 'server' | 's3' | null
   destinationServerName?: string | null
+  destinationS3ProfileName?: string | null
   enableVersioning?: boolean | null
   versionsToKeep?: number | null
   entryLimit?: number
@@ -208,6 +209,31 @@ export async function getBackupDestinationSummary(options: {
       exists: true,
       remote: true,
       remoteServerName: options.destinationServerName ?? null,
+      totalBytes: 0,
+      totalSize: formatBytes(0),
+      fileCount: 0,
+      directoryCount: 0,
+      lastModified: null,
+      truncated: false,
+      versioning: {
+        enabled: enableVersioning,
+        versionsToKeep,
+        versionCount: 0,
+        versions: [],
+      },
+      topLevel: [],
+    }
+  }
+
+  if ((options.destinationKind || 'local') === 's3') {
+    return {
+      configuredPath,
+      path: configuredPath,
+      exists: true,
+      remote: true,
+      remoteServerName: options.destinationS3ProfileName
+        ? `S3: ${options.destinationS3ProfileName}`
+        : 'S3',
       totalBytes: 0,
       totalSize: formatBytes(0),
       fileCount: 0,

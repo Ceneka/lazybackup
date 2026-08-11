@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import {
   destinationCompareKey,
+  destinationEndpointKey,
   destinationsAreSame,
   destinationsNest,
   findExactConflictInList,
@@ -150,6 +151,54 @@ describe('remote destination conflicts', () => {
       findExactConflictInList(configs, '/data/out', undefined, {
         destinationKind: 'server',
         destinationServerId: 'srv-a',
+      })
+    ).toBeNull();
+  });
+});
+
+describe('S3 destination keys and conflicts', () => {
+  test('destinationEndpointKey for s3', () => {
+    expect(
+      destinationEndpointKey({
+        destinationKind: 's3',
+        destinationS3ProfileId: 'p1',
+        destinationPath: '/backups/app/',
+      })
+    ).toBe('s3:p1:backups/app');
+  });
+
+  test('same prefix on same profile conflicts', () => {
+    const configs = [
+      {
+        id: '1',
+        name: 'S3 A',
+        destinationPath: 'backups/app',
+        destinationKind: 's3' as const,
+        destinationS3ProfileId: 'p1',
+      },
+    ];
+    expect(
+      findExactConflictInList(configs, 'backups/app/', undefined, {
+        destinationKind: 's3',
+        destinationS3ProfileId: 'p1',
+      })
+    ).toEqual({ id: '1', name: 'S3 A' });
+  });
+
+  test('same prefix on different profiles does not conflict', () => {
+    const configs = [
+      {
+        id: '1',
+        name: 'S3 A',
+        destinationPath: 'backups/app',
+        destinationKind: 's3' as const,
+        destinationS3ProfileId: 'p1',
+      },
+    ];
+    expect(
+      findExactConflictInList(configs, 'backups/app', undefined, {
+        destinationKind: 's3',
+        destinationS3ProfileId: 'p2',
       })
     ).toBeNull();
   });

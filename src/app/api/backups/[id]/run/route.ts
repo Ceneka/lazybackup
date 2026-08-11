@@ -19,6 +19,8 @@ export async function POST(
       with: {
         server: true,
         destinationServer: true,
+        sourceS3Profile: true,
+        destinationS3Profile: true,
       },
     });
 

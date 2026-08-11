@@ -28,6 +28,7 @@ export async function GET(
       where: eq(backupConfigs.id, id),
       with: {
         destinationServer: true,
+        destinationS3Profile: true,
       },
     })
 
@@ -42,6 +43,7 @@ export async function GET(
       destinationPath: config.destinationPath,
       destinationKind: config.destinationKind,
       destinationServerName: config.destinationServer?.name ?? null,
+      destinationS3ProfileName: config.destinationS3Profile?.name ?? null,
       enableVersioning: config.enableVersioning,
       versionsToKeep: config.versionsToKeep,
     })

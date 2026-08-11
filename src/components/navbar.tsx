@@ -5,6 +5,7 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 import { useAuth } from "@/lib/hooks/useAuth"
 import { cn } from "@/lib/utils"
 import {
+  CloudIcon,
   FolderIcon,
   HistoryIcon,
   HomeIcon,
@@ -27,6 +28,11 @@ const navItems = [
     name: "Servers",
     href: "/servers",
     icon: ServerIcon,
+  },
+  {
+    name: "S3",
+    href: "/s3-profiles",
+    icon: CloudIcon,
   },
   {
     name: "Backups",

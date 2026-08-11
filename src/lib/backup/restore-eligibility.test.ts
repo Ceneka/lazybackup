@@ -26,7 +26,7 @@ describe('canRestoreDockerVolumeBackup', () => {
     ).toBe(true);
   });
 
-  test('blocks remote destination even with artifact path', () => {
+  test('blocks remote server destination even with artifact path', () => {
     expect(
       canRestoreDockerVolumeBackup({
         status: 'success',
@@ -35,6 +35,17 @@ describe('canRestoreDockerVolumeBackup', () => {
         artifactPath: '/remote/path/vol.tar.gz',
       })
     ).toBe(false);
+  });
+
+  test('allows S3 destination with artifact path', () => {
+    expect(
+      canRestoreDockerVolumeBackup({
+        status: 'success',
+        sourceType: 'database',
+        destinationKind: 's3',
+        artifactPath: 's3://bucket/prefix/app.sql.gz',
+      })
+    ).toBe(true);
   });
 
   test('blocks path sources and non-success', () => {
@@ -67,7 +78,7 @@ describe('canRestoreDockerVolumeBackup', () => {
 });
 
 describe('restoreBlockedReason', () => {
-  test('explains remote destination', () => {
+  test('explains remote server destination', () => {
     expect(
       restoreBlockedReason({
         status: 'success',
@@ -75,7 +86,7 @@ describe('restoreBlockedReason', () => {
         destinationKind: 'server',
         artifactPath: '/x',
       })
-    ).toMatch(/this host/i);
+    ).toMatch(/S3|this host/i);
   });
 
   test('returns null for non-volume backups', () => {

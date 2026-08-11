@@ -70,6 +70,8 @@ export async function GET(request: NextRequest) {
           with: {
             server: true,
             destinationServer: true,
+            sourceS3Profile: true,
+            destinationS3Profile: true,
           },
         },
       },

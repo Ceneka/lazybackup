@@ -21,6 +21,8 @@ export async function GET(
           with: {
             server: true,
             destinationServer: true,
+            sourceS3Profile: true,
+            destinationS3Profile: true,
           },
         },
       },

@@ -37,17 +37,43 @@ export const servers = sqliteTable('servers', {
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
 });
 
+/** S3-compatible storage profiles (MinIO, R2, B2, AWS, …) */
+export const s3Profiles = sqliteTable('s3_profiles', {
+  id: text('id').primaryKey().notNull(),
+  name: text('name').notNull(),
+  endpoint: text('endpoint').notNull(),
+  region: text('region').notNull().default('us-east-1'),
+  bucket: text('bucket').notNull(),
+  accessKeyId: text('access_key_id').notNull(),
+  secretAccessKey: text('secret_access_key').notNull(),
+  forcePathStyle: integer('force_path_style', { mode: 'boolean' }).notNull().default(true),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+});
+
 // Backup configurations
 export const backupConfigs = sqliteTable('backup_configs', {
   id: text('id').primaryKey().notNull(),
-  /** Where data is copied from: LazyBackup host or an SSH server */
-  sourceKind: text('source_kind', { enum: ['local', 'server'] }).notNull().default('server'),
+  /** Where data is copied from: LazyBackup host, SSH server, or S3 */
+  sourceKind: text('source_kind', { enum: ['local', 'server', 's3'] }).notNull().default('server'),
   /** Source server when sourceKind === 'server' */
   serverId: text('server_id').references(() => servers.id, { onDelete: 'cascade' }),
+  /** Source S3 profile when sourceKind === 's3' */
+  sourceS3ProfileId: text('source_s3_profile_id').references(() => s3Profiles.id, {
+    onDelete: 'cascade',
+  }),
   /** Where data is copied to */
-  destinationKind: text('destination_kind', { enum: ['local', 'server'] }).notNull().default('local'),
+  destinationKind: text('destination_kind', { enum: ['local', 'server', 's3'] })
+    .notNull()
+    .default('local'),
   /** Destination server when destinationKind === 'server' */
-  destinationServerId: text('destination_server_id').references(() => servers.id, { onDelete: 'cascade' }),
+  destinationServerId: text('destination_server_id').references(() => servers.id, {
+    onDelete: 'cascade',
+  }),
+  /** Destination S3 profile when destinationKind === 's3' */
+  destinationS3ProfileId: text('destination_s3_profile_id').references(() => s3Profiles.id, {
+    onDelete: 'cascade',
+  }),
   name: text('name').notNull(),
   /** 'path' | 'docker_volume' (server only) | 'database' (local or server; sourcePath = DB name) */
   sourceType: text('source_type', { enum: ['path', 'docker_volume', 'database'] })
@@ -89,7 +115,7 @@ export const backupHistory = sqliteTable('backup_history', {
   transferredSize: integer('transferred_size'), // In bytes
   errorMessage: text('error_message'),
   logOutput: text('log_output'),
-  /** Local/remote path to artifact (.tar.gz / .sql.gz for volume|database, directory for path) */
+  /** Local/remote/S3 path to artifact (.tar.gz / .sql.gz for volume|database, directory for path) */
   artifactPath: text('artifact_path'),
 });
 
@@ -107,6 +133,11 @@ export const sshKeysRelations = relations(sshKeys, ({ many }) => ({
   servers: many(servers),
 }));
 
+export const s3ProfilesRelations = relations(s3Profiles, ({ many }) => ({
+  sourceBackupConfigs: many(backupConfigs, { relationName: 'backupSourceS3' }),
+  destinationBackupConfigs: many(backupConfigs, { relationName: 'backupDestinationS3' }),
+}));
+
 export const backupConfigsRelations = relations(backupConfigs, ({ one, many }) => ({
   /** Source server when sourceKind === 'server' */
   server: one(servers, {
@@ -119,6 +150,16 @@ export const backupConfigsRelations = relations(backupConfigs, ({ one, many }) =
     references: [servers.id],
     relationName: 'backupDestinationServer',
   }),
+  sourceS3Profile: one(s3Profiles, {
+    fields: [backupConfigs.sourceS3ProfileId],
+    references: [s3Profiles.id],
+    relationName: 'backupSourceS3',
+  }),
+  destinationS3Profile: one(s3Profiles, {
+    fields: [backupConfigs.destinationS3ProfileId],
+    references: [s3Profiles.id],
+    relationName: 'backupDestinationS3',
+  }),
   backupHistory: many(backupHistory),
 }));
 
@@ -127,4 +168,4 @@ export const backupHistoryRelations = relations(backupHistory, ({ one }) => ({
     fields: [backupHistory.configId],
     references: [backupConfigs.id],
   }),
-})); 
+}));

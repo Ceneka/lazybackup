@@ -8,7 +8,7 @@ Marketing site (static): [`landing/`](./landing) → [lazy.zic.ar](https://lazy.
 
 ## Features
 
-- **From → To** — All four directions (local↔local, local↔server, server↔server); destinations can be local or remote
+- **From → To** — Endpoints: this host, SSH servers, or S3-compatible storage (MinIO, R2, B2, AWS, …)
 - **Server → Server** — Ephemeral SSH key for direct rsync, or relay via the LazyBackup host when peers can’t reach each other
 - **Server management** — Add, edit, and test VPS connections (password or SSH key auth)
 - **Backup jobs** — Paths or Docker volumes, cron schedules, exclude patterns, and pre-backup shell commands

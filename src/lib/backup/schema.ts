@@ -6,15 +6,18 @@ export const DB_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9_$-]*$/;
 
 export const dbEngineSchema = z.enum(['postgres', 'mysql', 'mariadb']);
 export const dbClientSchema = z.enum(['native', 'docker']);
+export const endpointKindSchema = z.enum(['local', 'server', 's3']);
 
 export const backupConfigSchema = z
   .object({
     name: z.string().min(1, 'Name is required'),
-    sourceKind: z.enum(['local', 'server']).default('server'),
+    sourceKind: endpointKindSchema.default('server'),
     /** Source server when sourceKind === 'server' (legacy field name) */
     serverId: z.string().nullable().optional(),
-    destinationKind: z.enum(['local', 'server']).default('local'),
+    sourceS3ProfileId: z.string().nullable().optional(),
+    destinationKind: endpointKindSchema.default('local'),
     destinationServerId: z.string().nullable().optional(),
+    destinationS3ProfileId: z.string().nullable().optional(),
     sourceType: z.enum(['path', 'docker_volume', 'database']).default('path'),
     sourcePath: z.string().min(1, 'Source path is required'),
     destinationPath: z.string().min(1, 'Destination path is required'),
@@ -52,12 +55,39 @@ export const backupConfigSchema = z
       }
     }
 
+    if (data.sourceKind === 's3') {
+      if (!data.sourceS3ProfileId || !data.sourceS3ProfileId.trim()) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Source S3 profile is required',
+          path: ['sourceS3ProfileId'],
+        });
+      }
+      if (data.sourceType !== 'path') {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'S3 sources only support filesystem path (object prefix) backups',
+          path: ['sourceType'],
+        });
+      }
+    }
+
     if (data.destinationKind === 'server') {
       if (!data.destinationServerId || !data.destinationServerId.trim()) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           message: 'Destination server is required',
           path: ['destinationServerId'],
+        });
+      }
+    }
+
+    if (data.destinationKind === 's3') {
+      if (!data.destinationS3ProfileId || !data.destinationS3ProfileId.trim()) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Destination S3 profile is required',
+          path: ['destinationS3ProfileId'],
         });
       }
     }
@@ -80,6 +110,13 @@ export const backupConfigSchema = z
     }
 
     if (data.sourceType === 'database') {
+      if (data.sourceKind === 's3') {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Database dumps cannot use an S3 source',
+          path: ['sourceType'],
+        });
+      }
       if (!data.dbEngine) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
@@ -143,7 +180,16 @@ export const backupConfigSchema = z
         data.destinationServerId &&
         data.serverId === data.destinationServerId;
       const bothLocal = data.sourceKind === 'local' && data.destinationKind === 'local';
-      if ((sameServer || bothLocal) && data.sourcePath.trim() === data.destinationPath.trim()) {
+      const sameS3 =
+        data.sourceKind === 's3' &&
+        data.destinationKind === 's3' &&
+        data.sourceS3ProfileId &&
+        data.destinationS3ProfileId &&
+        data.sourceS3ProfileId === data.destinationS3ProfileId;
+      if (
+        (sameServer || bothLocal || sameS3) &&
+        data.sourcePath.trim() === data.destinationPath.trim()
+      ) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           message: 'Source and destination cannot be the same path on the same endpoint',
@@ -157,7 +203,10 @@ export const backupConfigSchema = z
     return {
       ...data,
       serverId: data.sourceKind === 'server' ? data.serverId || null : null,
+      sourceS3ProfileId: data.sourceKind === 's3' ? data.sourceS3ProfileId || null : null,
       destinationServerId: data.destinationKind === 'server' ? data.destinationServerId || null : null,
+      destinationS3ProfileId:
+        data.destinationKind === 's3' ? data.destinationS3ProfileId || null : null,
       dbEngine: isDatabase ? data.dbEngine ?? null : null,
       dbClient: isDatabase ? data.dbClient ?? null : null,
       dbContainer: isDatabase && data.dbClient === 'docker' ? data.dbContainer?.trim() || null : null,

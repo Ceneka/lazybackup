@@ -112,7 +112,7 @@ export async function GET(request: NextRequest) {
       limit: 5,
       with: {
         backupConfig: {
-          with: { server: true, destinationServer: true },
+          with: { server: true, destinationServer: true, sourceS3Profile: true, destinationS3Profile: true },
         },
       },
     })
@@ -122,7 +122,7 @@ export async function GET(request: NextRequest) {
     const timeZone = await getAppTimezone()
     const enabledConfigs = await db.query.backupConfigs.findMany({
       where: eq(backupConfigs.enabled, true),
-      with: { server: true, destinationServer: true },
+      with: { server: true, destinationServer: true, sourceS3Profile: true, destinationS3Profile: true },
     })
     const upcomingBackups = enabledConfigs
       .map((config) => buildUpcomingEntry(config, timeZone))

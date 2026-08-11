@@ -186,4 +186,49 @@ describe('backupConfigSchema', () => {
     });
     expect(result.success).toBe(false);
   });
+
+  test('accepts S3 destination with profile id', () => {
+    const parsed = backupConfigSchema.parse({
+      ...base,
+      sourcePath: '/data',
+      destinationKind: 's3',
+      destinationS3ProfileId: 's3p1',
+      destinationPath: 'backups/app',
+    });
+    expect(parsed.destinationKind).toBe('s3');
+    expect(parsed.destinationS3ProfileId).toBe('s3p1');
+    expect(parsed.destinationServerId).toBeNull();
+  });
+
+  test('rejects S3 source with database type', () => {
+    const result = backupConfigSchema.safeParse({
+      sourceKind: 's3',
+      sourceS3ProfileId: 's3p1',
+      destinationKind: 'local',
+      name: 'Bad',
+      sourceType: 'database',
+      sourcePath: 'app',
+      destinationPath: '/backups/x',
+      schedule: '0 0 * * *',
+      dbEngine: 'postgres',
+      dbClient: 'native',
+      dbUser: 'u',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test('accepts S3 path source', () => {
+    const parsed = backupConfigSchema.parse({
+      sourceKind: 's3',
+      sourceS3ProfileId: 's3p1',
+      destinationKind: 'local',
+      name: 'From S3',
+      sourceType: 'path',
+      sourcePath: 'incoming/data',
+      destinationPath: '/backups/from-s3',
+      schedule: '0 0 * * *',
+    });
+    expect(parsed.sourceKind).toBe('s3');
+    expect(parsed.serverId).toBeNull();
+  });
 });

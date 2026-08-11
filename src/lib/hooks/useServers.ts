@@ -30,6 +30,20 @@ export const serverKeys = {
   details: () => [...serverKeys.all, 'detail'] as const,
   detail: (id: string) => [...serverKeys.details(), id] as const,
   dockerVolumes: (id: string) => [...serverKeys.detail(id), 'docker-volumes'] as const,
+  dockerContainers: (id: string) => [...serverKeys.detail(id), 'docker-containers'] as const,
+  containerDbHints: (id: string, name: string) =>
+    [...serverKeys.detail(id), 'docker-containers', name, 'db-hints'] as const,
+}
+
+export type ContainerDatabaseHints = {
+  container: string
+  engine?: 'postgres' | 'mysql' | 'mariadb'
+  user?: string
+  password?: string
+  database?: string
+  port?: number
+  image?: string
+  found: boolean
 }
 
 /** List named Docker volumes on a remote server */
@@ -49,6 +63,42 @@ export function useServerDockerVolumes(serverId: string) {
     enabled: !!serverId,
     retry: false,
   })
+}
+
+/** List running Docker container names on a remote server */
+export function useServerDockerContainers(serverId: string, enabled = true) {
+  return useQuery({
+    queryKey: serverKeys.dockerContainers(serverId),
+    queryFn: async () => {
+      const response = await fetch(`/api/servers/${serverId}/docker/containers`)
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to list Docker containers')
+      }
+
+      return data.containers as string[]
+    },
+    enabled: !!serverId && enabled,
+    retry: false,
+  })
+}
+
+/** Fetch DB connection hints from docker inspect for a container */
+export async function fetchContainerDbHints(
+  serverId: string,
+  containerName: string
+): Promise<ContainerDatabaseHints> {
+  const response = await fetch(
+    `/api/servers/${serverId}/docker/containers/${encodeURIComponent(containerName)}/db-hints`
+  )
+  const data = await response.json()
+
+  if (!response.ok) {
+    throw new Error(data.error || 'Failed to inspect container')
+  }
+
+  return data.hints as ContainerDatabaseHints
 }
 
 

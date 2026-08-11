@@ -4,10 +4,12 @@ import { toast } from "sonner"
 // Type definitions
 export interface Backup {
   id: string
-  sourceKind?: 'local' | 'server'
+  sourceKind?: 'local' | 'server' | 's3'
   serverId?: string | null
-  destinationKind?: 'local' | 'server'
+  sourceS3ProfileId?: string | null
+  destinationKind?: 'local' | 'server' | 's3'
   destinationServerId?: string | null
+  destinationS3ProfileId?: string | null
   name: string
   sourceType?: 'path' | 'docker_volume' | 'database'
   sourcePath: string
@@ -42,6 +44,18 @@ export interface Backup {
     id?: string
     name: string
     host?: string
+  } | null
+  sourceS3Profile?: {
+    id?: string
+    name: string
+    bucket?: string
+    endpoint?: string
+  } | null
+  destinationS3Profile?: {
+    id?: string
+    name: string
+    bucket?: string
+    endpoint?: string
   } | null
   createdAt: string
   updatedAt: string

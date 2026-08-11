@@ -13,6 +13,8 @@ import { z } from 'zod';
 const backupWithEndpoints = {
   server: true,
   destinationServer: true,
+  sourceS3Profile: true,
+  destinationS3Profile: true,
 } as const;
 
 // GET /api/backups/:id - Get a backup configuration
@@ -80,6 +82,7 @@ export async function PUT(
       {
         destinationKind: validatedData.destinationKind,
         destinationServerId: validatedData.destinationServerId,
+        destinationS3ProfileId: validatedData.destinationS3ProfileId,
       }
     );
     if (conflictingBackup) {

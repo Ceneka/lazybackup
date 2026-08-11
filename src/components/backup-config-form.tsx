@@ -10,11 +10,18 @@ import {
   type EndpointKind,
 } from "@/lib/backup/destination"
 import { useBackups, type Backup } from "@/lib/hooks/useBackups"
-import { Server, useServerDockerVolumes } from "@/lib/hooks/useServers"
+import {
+  fetchContainerDbHints,
+  Server,
+  useServerDockerContainers,
+  useServerDockerVolumes,
+} from "@/lib/hooks/useServers"
+import { useS3Profiles, type S3Profile } from "@/lib/hooks/useS3Profiles"
 import {
   AlertTriangleIcon,
   ArrowLeftRightIcon,
   ArrowRightIcon,
+  CloudIcon,
   HardDriveIcon,
   Loader2Icon,
   RefreshCwIcon,
@@ -28,8 +35,10 @@ export type BackupFormData = {
   name: string
   sourceKind: EndpointKind
   serverId: string
+  sourceS3ProfileId: string
   destinationKind: EndpointKind
   destinationServerId: string
+  destinationS3ProfileId: string
   sourceType: "path" | "docker_volume" | "database"
   sourcePath: string
   destinationPath: string
@@ -60,8 +69,10 @@ export function backupToFormData(backup: Backup): BackupFormData {
     name: backup.name,
     sourceKind: backup.sourceKind || "server",
     serverId: backup.serverId || "",
+    sourceS3ProfileId: backup.sourceS3ProfileId || "",
     destinationKind: backup.destinationKind || "local",
     destinationServerId: backup.destinationServerId || "",
+    destinationS3ProfileId: backup.destinationS3ProfileId || "",
     sourceType: backup.sourceType || "path",
     sourcePath: backup.sourcePath,
     destinationPath: backup.destinationPath,
@@ -113,10 +124,17 @@ function endpointLabel(
   kind: EndpointKind,
   serverId: string,
   servers: Server[],
+  s3ProfileId: string,
+  s3Profiles: S3Profile[],
   path: string
 ): string {
   if (kind === "local") {
     return path ? `this host:${path}` : "this host"
+  }
+  if (kind === "s3") {
+    const profile = s3Profiles.find((p) => p.id === s3ProfileId)
+    const name = profile?.name || "s3"
+    return path ? `${name}:${path}` : name
   }
   const server = servers.find((s) => s.id === serverId)
   const name = server?.name || "server"
@@ -146,12 +164,25 @@ export function BackupConfigForm({
   const [formData, setFormData] = useState<BackupFormData>(initialData)
   const [destinationTouched, setDestinationTouched] = useState(!autoSuggestDestination)
   const [testingDb, setTestingDb] = useState(false)
+  const [fillingContainerHints, setFillingContainerHints] = useState(false)
   const backupsQuery = useBackups()
+  const s3ProfilesQuery = useS3Profiles()
+  const s3Profiles = s3ProfilesQuery.data || []
 
   const volumesQuery = useServerDockerVolumes(
     formData.sourceKind === "server" && formData.sourceType === "docker_volume"
       ? formData.serverId
       : ""
+  )
+
+  const showDbContainerPicker =
+    formData.sourceKind === "server" &&
+    formData.sourceType === "database" &&
+    formData.dbClient === "docker"
+
+  const containersQuery = useServerDockerContainers(
+    formData.serverId,
+    showDbContainerPicker
   )
 
   const sourceServer = servers.find((s) => s.id === formData.serverId)
@@ -191,6 +222,7 @@ export function BackupConfigForm({
       {
         destinationKind: formData.destinationKind,
         destinationServerId: formData.destinationServerId || null,
+        destinationS3ProfileId: formData.destinationS3ProfileId || null,
       }
     )
   }, [
@@ -198,6 +230,7 @@ export function BackupConfigForm({
     formData.destinationPath,
     formData.destinationKind,
     formData.destinationServerId,
+    formData.destinationS3ProfileId,
     excludeBackupId,
   ])
 
@@ -212,6 +245,7 @@ export function BackupConfigForm({
       {
         destinationKind: formData.destinationKind,
         destinationServerId: formData.destinationServerId || null,
+        destinationS3ProfileId: formData.destinationS3ProfileId || null,
       }
     )
   }, [
@@ -219,6 +253,7 @@ export function BackupConfigForm({
     formData.destinationPath,
     formData.destinationKind,
     formData.destinationServerId,
+    formData.destinationS3ProfileId,
     excludeBackupId,
   ])
 
@@ -226,6 +261,8 @@ export function BackupConfigForm({
     formData.sourceKind,
     formData.serverId,
     servers,
+    formData.sourceS3ProfileId,
+    s3Profiles,
     formData.sourceType === "docker_volume"
       ? `volume:${formData.sourcePath || "…"}`
       : formData.sourceType === "database"
@@ -235,25 +272,51 @@ export function BackupConfigForm({
     formData.destinationKind,
     formData.destinationServerId,
     servers,
+    formData.destinationS3ProfileId,
+    s3Profiles,
     formData.destinationPath || "…"
   )}`
 
   const canSwap =
     formData.sourceType === "path" &&
-    !(formData.sourceKind === formData.destinationKind &&
-      formData.serverId === formData.destinationServerId)
+    !(
+      formData.sourceKind === formData.destinationKind &&
+      formData.serverId === formData.destinationServerId &&
+      formData.sourceS3ProfileId === formData.destinationS3ProfileId
+    )
 
   function updateField<K extends keyof BackupFormData>(key: K, value: BackupFormData[K]) {
     setFormData((prev) => {
       const next = { ...prev, [key]: value }
-      if (key === "sourceKind" && value === "local") {
-        if (next.sourceType === "docker_volume") {
-          next.sourceType = "path"
+      if (key === "sourceKind") {
+        if (value === "local" || value === "s3") {
+          if (next.sourceType === "docker_volume") {
+            next.sourceType = "path"
+          }
+          next.serverId = ""
         }
-        next.serverId = ""
+        if (value === "s3") {
+          next.sourceType = "path"
+          next.serverId = ""
+        }
+        if (value !== "s3") {
+          next.sourceS3ProfileId = ""
+        }
+        if (value !== "server") {
+          next.serverId = ""
+        }
       }
-      if (key === "destinationKind" && value === "local") {
-        next.destinationServerId = ""
+      if (key === "destinationKind") {
+        if (value === "local") {
+          next.destinationServerId = ""
+          next.destinationS3ProfileId = ""
+        }
+        if (value === "server") {
+          next.destinationS3ProfileId = ""
+        }
+        if (value === "s3") {
+          next.destinationServerId = ""
+        }
       }
       if (key === "sourceType" && value === "docker_volume") {
         next.sourcePath = ""
@@ -282,8 +345,11 @@ export function BackupConfigForm({
       ...prev,
       sourceKind: prev.destinationKind,
       serverId: prev.destinationKind === "server" ? prev.destinationServerId : "",
+      sourceS3ProfileId:
+        prev.destinationKind === "s3" ? prev.destinationS3ProfileId : "",
       destinationKind: prev.sourceKind,
       destinationServerId: prev.sourceKind === "server" ? prev.serverId : "",
+      destinationS3ProfileId: prev.sourceKind === "s3" ? prev.sourceS3ProfileId : "",
       sourcePath: prev.destinationPath,
       destinationPath: prev.sourcePath,
     }))
@@ -299,8 +365,16 @@ export function BackupConfigForm({
       toast.error("Select a source server")
       return
     }
+    if (formData.sourceKind === "s3" && !formData.sourceS3ProfileId) {
+      toast.error("Select a source S3 profile")
+      return
+    }
     if (formData.destinationKind === "server" && !formData.destinationServerId) {
       toast.error("Select a destination server")
+      return
+    }
+    if (formData.destinationKind === "s3" && !formData.destinationS3ProfileId) {
+      toast.error("Select a destination S3 profile")
       return
     }
     await onSubmit(formData)
@@ -315,34 +389,29 @@ export function BackupConfigForm({
     onChange: (kind: EndpointKind) => void
     idPrefix: string
   }) {
+    const options: Array<{ kind: EndpointKind; label: string; icon: typeof HardDriveIcon }> = [
+      { kind: "local", label: "This host", icon: HardDriveIcon },
+      { kind: "server", label: "Server", icon: ServerIcon },
+      { kind: "s3", label: "S3", icon: CloudIcon },
+    ]
     return (
       <div className="flex gap-2">
-        <button
-          type="button"
-          id={`${idPrefix}-local`}
-          onClick={() => onChange("local")}
-          className={`flex-1 flex items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors ${
-            value === "local"
-              ? "border-primary bg-primary/10 text-foreground"
-              : "border-border text-muted-foreground hover:bg-muted/50"
-          }`}
-        >
-          <HardDriveIcon className="h-4 w-4" />
-          This host
-        </button>
-        <button
-          type="button"
-          id={`${idPrefix}-server`}
-          onClick={() => onChange("server")}
-          className={`flex-1 flex items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors ${
-            value === "server"
-              ? "border-primary bg-primary/10 text-foreground"
-              : "border-border text-muted-foreground hover:bg-muted/50"
-          }`}
-        >
-          <ServerIcon className="h-4 w-4" />
-          Server
-        </button>
+        {options.map(({ kind, label, icon: Icon }) => (
+          <button
+            key={kind}
+            type="button"
+            id={`${idPrefix}-${kind}`}
+            onClick={() => onChange(kind)}
+            className={`flex-1 flex items-center justify-center gap-2 rounded-md border px-2 py-2 text-sm transition-colors ${
+              value === kind
+                ? "border-primary bg-primary/10 text-foreground"
+                : "border-border text-muted-foreground hover:bg-muted/50"
+            }`}
+          >
+            <Icon className="h-4 w-4" />
+            {label}
+          </button>
+        ))}
       </div>
     )
   }
@@ -353,6 +422,8 @@ export function BackupConfigForm({
     onKindChange,
     serverId,
     onServerChange,
+    s3ProfileId,
+    onS3ProfileChange,
     path,
     onPathChange,
     idPrefix,
@@ -363,6 +434,8 @@ export function BackupConfigForm({
     onKindChange: (k: EndpointKind) => void
     serverId: string
     onServerChange: (id: string) => void
+    s3ProfileId: string
+    onS3ProfileChange: (id: string) => void
     path: string
     onPathChange: (path: string) => void
     idPrefix: string
@@ -373,6 +446,8 @@ export function BackupConfigForm({
         <div className="flex items-center gap-2 text-sm font-medium">
           {kind === "local" ? (
             <HardDriveIcon className="h-4 w-4 text-muted-foreground" />
+          ) : kind === "s3" ? (
+            <CloudIcon className="h-4 w-4 text-muted-foreground" />
           ) : (
             <ServerIcon className="h-4 w-4 text-muted-foreground" />
           )}
@@ -403,6 +478,38 @@ export function BackupConfigForm({
           </div>
         )}
 
+        {kind === "s3" && (
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground" htmlFor={`${idPrefix}-s3-select`}>
+              S3 profile
+            </label>
+            <select
+              id={`${idPrefix}-s3-select`}
+              className={inputClass}
+              value={s3ProfileId}
+              onChange={(e) => onS3ProfileChange(e.target.value)}
+              required
+            >
+              <option value="">
+                {s3ProfilesQuery.isLoading ? "Loading…" : "Select a profile"}
+              </option>
+              {s3Profiles.map((profile) => (
+                <option key={profile.id} value={profile.id}>
+                  {profile.name} ({profile.bucket})
+                </option>
+              ))}
+            </select>
+            {s3Profiles.length === 0 && !s3ProfilesQuery.isLoading && (
+              <p className="text-xs text-muted-foreground">
+                <Link href="/s3-profiles/new" className="underline">
+                  Add an S3 profile
+                </Link>{" "}
+                first.
+              </p>
+            )}
+          </div>
+        )}
+
         {isSource && (
           <div className="space-y-1">
             <label className="text-xs text-muted-foreground" htmlFor={`${idPrefix}-source-type`}>
@@ -418,10 +525,13 @@ export function BackupConfigForm({
                   e.target.value as "path" | "docker_volume" | "database"
                 )
               }
+              disabled={kind === "s3"}
             >
-              <option value="path">Filesystem path</option>
+              <option value="path">
+                {kind === "s3" ? "Object prefix" : "Filesystem path"}
+              </option>
               {kind === "server" && <option value="docker_volume">Docker volume</option>}
-              <option value="database">Database dump</option>
+              {kind !== "s3" && <option value="database">Database dump</option>}
             </select>
           </div>
         )}
@@ -504,7 +614,11 @@ export function BackupConfigForm({
         ) : (
           <div className="space-y-1">
             <label className="text-xs text-muted-foreground" htmlFor={`${idPrefix}-path`}>
-              {kind === "local" ? "Path on this host" : "Path on server"}
+              {kind === "local"
+                ? "Path on this host"
+                : kind === "s3"
+                  ? "Object key prefix"
+                  : "Path on server"}
             </label>
             <input
               id={`${idPrefix}-path`}
@@ -517,7 +631,13 @@ export function BackupConfigForm({
                 }
                 onPathChange(e.target.value)
               }}
-              placeholder={kind === "local" ? "/backups/my-backup" : "/var/www"}
+              placeholder={
+                kind === "local"
+                  ? "/backups/my-backup"
+                  : kind === "s3"
+                    ? "backups/my-app"
+                    : "/var/www"
+              }
               required
             />
           </div>
@@ -569,6 +689,35 @@ export function BackupConfigForm({
     }
   }
 
+  async function applyContainerDbHints(containerName: string) {
+    if (!formData.serverId || !containerName) return
+    setFillingContainerHints(true)
+    try {
+      const hints = await fetchContainerDbHints(formData.serverId, containerName)
+      setFormData((prev) => ({
+        ...prev,
+        dbContainer: containerName,
+        dbEngine: hints.engine || prev.dbEngine,
+        dbUser: hints.user ?? prev.dbUser,
+        dbPassword: hints.password ?? prev.dbPassword,
+        sourcePath: hints.database ?? prev.sourcePath,
+        dbPort: hints.port != null ? String(hints.port) : prev.dbPort,
+      }))
+      if (hints.found) {
+        toast.success("Filled connection fields from container env")
+      } else {
+        toast.message("No DB env vars found — fill fields manually")
+      }
+    } catch (err) {
+      setFormData((prev) => ({ ...prev, dbContainer: containerName }))
+      toast.error(
+        err instanceof Error ? err.message : "Could not inspect container"
+      )
+    } finally {
+      setFillingContainerHints(false)
+    }
+  }
+
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
       <div className="space-y-2">
@@ -608,6 +757,8 @@ export function BackupConfigForm({
             onKindChange={(k) => updateField("sourceKind", k)}
             serverId={formData.serverId}
             onServerChange={(id) => updateField("serverId", id)}
+            s3ProfileId={formData.sourceS3ProfileId}
+            onS3ProfileChange={(id) => updateField("sourceS3ProfileId", id)}
             path={formData.sourcePath}
             onPathChange={(p) => updateField("sourcePath", p)}
             idPrefix="from"
@@ -624,6 +775,8 @@ export function BackupConfigForm({
             onKindChange={(k) => updateField("destinationKind", k)}
             serverId={formData.destinationServerId}
             onServerChange={(id) => updateField("destinationServerId", id)}
+            s3ProfileId={formData.destinationS3ProfileId}
+            onS3ProfileChange={(id) => updateField("destinationS3ProfileId", id)}
             path={formData.destinationPath}
             onPathChange={(p) => updateField("destinationPath", p)}
             idPrefix="to"
@@ -686,19 +839,112 @@ export function BackupConfigForm({
                 </select>
               </div>
               {formData.dbClient === "docker" && (
-                <div className="space-y-1 sm:col-span-2">
-                  <label className="text-xs text-muted-foreground" htmlFor="db-container">
-                    Container name
-                  </label>
-                  <input
-                    id="db-container"
-                    type="text"
-                    className={inputClass}
-                    value={formData.dbContainer}
-                    onChange={(e) => updateField("dbContainer", e.target.value)}
-                    placeholder="postgres"
-                    required
-                  />
+                <div className="space-y-2 sm:col-span-2">
+                  {showDbContainerPicker ? (
+                    <>
+                      <div className="flex items-center justify-between gap-2">
+                        <label
+                          className="text-xs text-muted-foreground"
+                          htmlFor="db-container"
+                        >
+                          Container
+                        </label>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2"
+                          disabled={
+                            !formData.serverId ||
+                            containersQuery.isFetching ||
+                            fillingContainerHints
+                          }
+                          onClick={() => containersQuery.refetch()}
+                        >
+                          {containersQuery.isFetching ? (
+                            <Loader2Icon className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <RefreshCwIcon className="h-3.5 w-3.5" />
+                          )}
+                          <span className="ml-1">Refresh</span>
+                        </Button>
+                      </div>
+                      <select
+                        id="db-container"
+                        className={inputClass}
+                        value={formData.dbContainer}
+                        onChange={(e) => {
+                          const name = e.target.value
+                          if (!name) {
+                            updateField("dbContainer", "")
+                            return
+                          }
+                          void applyContainerDbHints(name)
+                        }}
+                        required
+                        disabled={
+                          !formData.serverId ||
+                          containersQuery.isLoading ||
+                          fillingContainerHints
+                        }
+                      >
+                        <option value="">
+                          {!formData.serverId
+                            ? "Select a server first"
+                            : containersQuery.isLoading
+                              ? "Loading containers…"
+                              : fillingContainerHints
+                                ? "Reading container…"
+                                : "Select a container"}
+                        </option>
+                        {formData.dbContainer &&
+                          containersQuery.data &&
+                          !containersQuery.data.includes(formData.dbContainer) && (
+                            <option value={formData.dbContainer}>
+                              {formData.dbContainer} (current)
+                            </option>
+                          )}
+                        {(containersQuery.data || []).map((name) => (
+                          <option key={name} value={name}>
+                            {name}
+                          </option>
+                        ))}
+                      </select>
+                      {containersQuery.isError && (
+                        <Alert variant="destructive">
+                          <AlertTriangleIcon className="h-4 w-4" />
+                          <AlertTitle>Could not list containers</AlertTitle>
+                          <AlertDescription>
+                            {containersQuery.error instanceof Error
+                              ? containersQuery.error.message
+                              : "Failed to load Docker containers"}
+                          </AlertDescription>
+                        </Alert>
+                      )}
+                      <p className="text-xs text-muted-foreground">
+                        Selecting a container fills engine, user, password, and database
+                        name from its env when possible.
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <label
+                        className="text-xs text-muted-foreground"
+                        htmlFor="db-container"
+                      >
+                        Container name
+                      </label>
+                      <input
+                        id="db-container"
+                        type="text"
+                        className={inputClass}
+                        value={formData.dbContainer}
+                        onChange={(e) => updateField("dbContainer", e.target.value)}
+                        placeholder="postgres"
+                        required
+                      />
+                    </>
+                  )}
                 </div>
               )}
               {formData.dbClient === "native" && (
@@ -778,6 +1024,11 @@ export function BackupConfigForm({
             Files will be written on {destServer.name} ({destServer.host}).
           </p>
         )}
+        {formData.destinationKind === "s3" && (
+          <p className="text-xs text-muted-foreground">
+            Objects are uploaded under the selected profile&apos;s bucket and prefix.
+          </p>
+        )}
 
         {destinationConflict && (
           <Alert variant="destructive">
@@ -835,23 +1086,25 @@ export function BackupConfigForm({
           </div>
         )}
 
-        <div className="space-y-2">
-          <label htmlFor="preBackupCommands" className="block text-sm font-medium">
-            Pre-backup commands
-          </label>
-          <textarea
-            id="preBackupCommands"
-            className={inputClass}
-            value={formData.preBackupCommands}
-            onChange={(e) => updateField("preBackupCommands", e.target.value)}
-            rows={3}
-            placeholder={
-              formData.sourceKind === "local"
-                ? "Commands run on this host before transfer"
-                : "Commands run on the source server before transfer"
-            }
-          />
-        </div>
+        {formData.sourceKind !== "s3" && (
+          <div className="space-y-2">
+            <label htmlFor="preBackupCommands" className="block text-sm font-medium">
+              Pre-backup commands
+            </label>
+            <textarea
+              id="preBackupCommands"
+              className={inputClass}
+              value={formData.preBackupCommands}
+              onChange={(e) => updateField("preBackupCommands", e.target.value)}
+              rows={3}
+              placeholder={
+                formData.sourceKind === "local"
+                  ? "Commands run on this host before transfer"
+                  : "Commands run on the source server before transfer"
+              }
+            />
+          </div>
+        )}
 
         <div className="flex items-center">
           <input
@@ -993,8 +1246,10 @@ export function defaultCreateFormData(prefillServerId?: string): BackupFormData 
     name: "",
     sourceKind: "server",
     serverId: prefillServerId || "",
+    sourceS3ProfileId: "",
     destinationKind: "local",
     destinationServerId: "",
+    destinationS3ProfileId: "",
     sourceType: "path",
     sourcePath: "",
     destinationPath: "",
@@ -1023,15 +1278,19 @@ export function formDataToPayload(data: BackupFormData) {
     name: data.name,
     sourceKind: data.sourceKind,
     serverId: data.sourceKind === "server" ? data.serverId : null,
+    sourceS3ProfileId: data.sourceKind === "s3" ? data.sourceS3ProfileId : null,
     destinationKind: data.destinationKind,
     destinationServerId: data.destinationKind === "server" ? data.destinationServerId : null,
+    destinationS3ProfileId:
+      data.destinationKind === "s3" ? data.destinationS3ProfileId : null,
     sourceType: data.sourceType,
     sourcePath: data.sourcePath,
     destinationPath: data.destinationPath,
     schedule: data.schedule,
     excludePatterns:
       data.sourceType === "database" ? undefined : data.excludePatterns || undefined,
-    preBackupCommands: data.preBackupCommands || undefined,
+    preBackupCommands:
+      data.sourceKind === "s3" ? undefined : data.preBackupCommands || undefined,
     dbEngine: data.sourceType === "database" ? data.dbEngine : null,
     dbClient: data.sourceType === "database" ? data.dbClient : null,
     dbContainer:

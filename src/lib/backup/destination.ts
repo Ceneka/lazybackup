@@ -1,4 +1,4 @@
-export type EndpointKind = 'local' | 'server';
+export type EndpointKind = 'local' | 'server' | 's3';
 
 export type DestinationConfigRef = {
   id: string;
@@ -6,6 +6,7 @@ export type DestinationConfigRef = {
   destinationPath: string;
   destinationKind?: EndpointKind | null;
   destinationServerId?: string | null;
+  destinationS3ProfileId?: string | null;
 };
 
 export type DestinationConflict = {
@@ -48,6 +49,15 @@ export function normalizeRemotePath(remotePath: string): string {
     return '/';
   }
   return trimmed.replace(/\/+$/, '');
+}
+
+/** Normalize an S3 object key prefix (no leading slash; trailing slash stripped). */
+export function normalizeS3Prefix(prefix: string): string {
+  return prefix
+    .trim()
+    .replace(/\\/g, '/')
+    .replace(/^\/+/, '')
+    .replace(/\/+$/, '');
 }
 
 /**
@@ -98,17 +108,22 @@ export function destinationCompareKey(destinationPath: string): string {
 }
 
 /**
- * Unique key for a destination endpoint (local path or remote server+path).
+ * Unique key for a destination endpoint (local path, remote server+path, or S3 profile+prefix).
  */
 export function destinationEndpointKey(options: {
   destinationKind?: EndpointKind | null;
   destinationServerId?: string | null;
+  destinationS3ProfileId?: string | null;
   destinationPath: string;
 }): string {
   const kind = options.destinationKind || 'local';
   if (kind === 'server') {
     const serverId = options.destinationServerId || '';
     return `server:${serverId}:${normalizeRemotePath(options.destinationPath)}`;
+  }
+  if (kind === 's3') {
+    const profileId = options.destinationS3ProfileId || '';
+    return `s3:${profileId}:${normalizeS3Prefix(options.destinationPath)}`;
   }
   return `local:${destinationCompareKey(options.destinationPath)}`;
 }
@@ -142,17 +157,24 @@ export function destinationsNest(a: string, b: string): boolean {
 
 function sameDestinationEndpoint(
   a: DestinationConfigRef,
-  b: { destinationKind?: EndpointKind | null; destinationServerId?: string | null; destinationPath: string }
+  b: {
+    destinationKind?: EndpointKind | null;
+    destinationServerId?: string | null;
+    destinationS3ProfileId?: string | null;
+    destinationPath: string;
+  }
 ): boolean {
   return (
     destinationEndpointKey({
       destinationKind: a.destinationKind,
       destinationServerId: a.destinationServerId,
+      destinationS3ProfileId: a.destinationS3ProfileId,
       destinationPath: a.destinationPath,
     }) ===
     destinationEndpointKey({
       destinationKind: b.destinationKind,
       destinationServerId: b.destinationServerId,
+      destinationS3ProfileId: b.destinationS3ProfileId,
       destinationPath: b.destinationPath,
     })
   );
@@ -165,6 +187,7 @@ export function findExactConflictInList(
   options?: {
     destinationKind?: EndpointKind | null;
     destinationServerId?: string | null;
+    destinationS3ProfileId?: string | null;
   }
 ): DestinationConflict | null {
   if (!destinationPath.trim()) {
@@ -173,6 +196,7 @@ export function findExactConflictInList(
   const target = {
     destinationKind: options?.destinationKind || 'local',
     destinationServerId: options?.destinationServerId ?? null,
+    destinationS3ProfileId: options?.destinationS3ProfileId ?? null,
     destinationPath,
   };
   for (const config of configs) {
@@ -193,6 +217,7 @@ export function findNestedOverlapsInList(
   options?: {
     destinationKind?: EndpointKind | null;
     destinationServerId?: string | null;
+    destinationS3ProfileId?: string | null;
   }
 ): DestinationConflict[] {
   if (!destinationPath.trim()) {
@@ -200,8 +225,9 @@ export function findNestedOverlapsInList(
   }
   const targetKind = options?.destinationKind || 'local';
   const targetServerId = options?.destinationServerId ?? null;
+  const targetS3Id = options?.destinationS3ProfileId ?? null;
 
-  // Nesting only applies to local destinations (or the same remote server).
+  // Nesting only applies to local destinations (or the same remote server / S3 profile).
   const overlaps: DestinationConflict[] = [];
   for (const config of configs) {
     if (excludeConfigId && config.id === excludeConfigId) {
@@ -216,6 +242,15 @@ export function findNestedOverlapsInList(
         continue;
       }
       if (pathsNest(normalizeRemotePath(destinationPath), normalizeRemotePath(config.destinationPath))) {
+        overlaps.push({ id: config.id, name: config.name });
+      }
+      continue;
+    }
+    if (targetKind === 's3') {
+      if ((config.destinationS3ProfileId || null) !== targetS3Id) {
+        continue;
+      }
+      if (pathsNest(normalizeS3Prefix(destinationPath), normalizeS3Prefix(config.destinationPath))) {
         overlaps.push({ id: config.id, name: config.name });
       }
       continue;

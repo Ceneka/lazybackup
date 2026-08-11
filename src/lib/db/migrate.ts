@@ -258,6 +258,36 @@ export async function runMigration() {
       await db.run(sql`ALTER TABLE backup_history ADD COLUMN artifact_path TEXT`);
     }
 
+    // S3-compatible profiles + backup_configs FKs
+    await db.run(sql`
+      CREATE TABLE IF NOT EXISTS s3_profiles (
+        id TEXT PRIMARY KEY NOT NULL,
+        name TEXT NOT NULL,
+        endpoint TEXT NOT NULL,
+        region TEXT NOT NULL DEFAULT 'us-east-1',
+        bucket TEXT NOT NULL,
+        access_key_id TEXT NOT NULL,
+        secret_access_key TEXT NOT NULL,
+        force_path_style INTEGER NOT NULL DEFAULT 1,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+      );
+    `);
+
+    const backupConfigsS3 = await db.run(sql`PRAGMA table_info(backup_configs)`);
+    const backupColsS3 = backupConfigsS3.rows.map((row: any) => row.name);
+
+    if (!backupColsS3.includes('source_s3_profile_id')) {
+      await db.run(
+        sql`ALTER TABLE backup_configs ADD COLUMN source_s3_profile_id TEXT REFERENCES s3_profiles(id) ON DELETE CASCADE`
+      );
+    }
+    if (!backupColsS3.includes('destination_s3_profile_id')) {
+      await db.run(
+        sql`ALTER TABLE backup_configs ADD COLUMN destination_s3_profile_id TEXT REFERENCES s3_profiles(id) ON DELETE CASCADE`
+      );
+    }
+
     console.log('Migration completed successfully');
   } catch (error) {
     console.error('Migration failed:', error);

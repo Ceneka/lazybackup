@@ -1,5 +1,6 @@
 import { db } from '@/lib/db';
-import { backupConfigs, backupHistory, servers } from '@/lib/db/schema';
+import { backupConfigs, backupHistory, s3Profiles, servers } from '@/lib/db/schema';
+import { normalizeS3Prefix } from '@/lib/backup/destination';
 import {
   archiveFileNameForDatabase,
   cleanupLocalDbTmpDir,
@@ -15,6 +16,18 @@ import {
   packDockerVolume,
   restoreDockerVolume,
 } from '@/lib/docker/volumes';
+import {
+  cleanupS3FileRetention,
+  cleanupS3OldVersions,
+  downloadFile,
+  downloadPrefix,
+  formatS3ArtifactPath,
+  joinS3Key,
+  parseS3ArtifactPath,
+  uploadDirectory,
+  uploadFile,
+  type S3ProfileConfig,
+} from '@/lib/s3';
 import {
   connectToServer,
   getBackupTransportCapabilities,
@@ -52,13 +65,16 @@ import {
 } from './log-format';
 
 type ServerRow = typeof servers.$inferSelect;
+type S3ProfileRow = typeof s3Profiles.$inferSelect;
 
 export type BackupConfigWithEndpoints = {
   id: string;
-  sourceKind?: 'local' | 'server' | null;
+  sourceKind?: 'local' | 'server' | 's3' | null;
   serverId?: string | null;
-  destinationKind?: 'local' | 'server' | null;
+  sourceS3ProfileId?: string | null;
+  destinationKind?: 'local' | 'server' | 's3' | null;
   destinationServerId?: string | null;
+  destinationS3ProfileId?: string | null;
   name: string;
   sourceType?: 'path' | 'docker_volume' | 'database' | null;
   sourcePath: string;
@@ -82,7 +98,20 @@ export type BackupConfigWithEndpoints = {
   retentionMinKeep?: number | null;
   server?: ServerRow | null;
   destinationServer?: ServerRow | null;
+  sourceS3Profile?: S3ProfileRow | null;
+  destinationS3Profile?: S3ProfileRow | null;
 };
+
+function toS3ProfileConfig(row: S3ProfileRow): S3ProfileConfig {
+  return {
+    endpoint: row.endpoint,
+    region: row.region,
+    bucket: row.bucket,
+    accessKeyId: row.accessKeyId,
+    secretAccessKey: row.secretAccessKey,
+    forcePathStyle: row.forcePathStyle,
+  };
+}
 
 function expandLocalPath(dest: string): string {
   let backupDestination = dest;
@@ -424,12 +453,25 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
     if (destinationKind === 'server' && !config.destinationServer) {
       throw new Error('Destination server is missing from backup configuration');
     }
+    if (sourceKind === 's3' && !config.sourceS3Profile) {
+      throw new Error('Source S3 profile is missing from backup configuration');
+    }
+    if (destinationKind === 's3' && !config.destinationS3Profile) {
+      throw new Error('Destination S3 profile is missing from backup configuration');
+    }
     if (sourceType === 'docker_volume' && sourceKind !== 'server') {
       throw new Error('Docker volume backups require a source server');
     }
+    if (sourceKind === 's3' && sourceType !== 'path') {
+      throw new Error('S3 sources only support path (object prefix) backups');
+    }
 
-    // Pre-backup commands
-    if (config.preBackupCommands && config.preBackupCommands.trim()) {
+    // Pre-backup commands (not applicable for S3 sources)
+    if (
+      config.preBackupCommands &&
+      config.preBackupCommands.trim() &&
+      sourceKind !== 's3'
+    ) {
       if (sourceKind === 'server' && config.server) {
         sourceSsh = await connectToServer(normalizeServer(config.server));
         console.log(`Running pre-backup commands for ${config.name}`);
@@ -452,6 +494,16 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
     // Resolve destination path (with optional versioning subdir)
     let localDestination: string | null = null;
     let remoteDestination: string | null = null;
+    let s3DestinationPrefix: string | null = null;
+    let s3DestProfile: S3ProfileConfig | null = null;
+    let s3SourceProfile: S3ProfileConfig | null = null;
+
+    if (config.sourceS3Profile) {
+      s3SourceProfile = toS3ProfileConfig(config.sourceS3Profile);
+    }
+    if (config.destinationS3Profile) {
+      s3DestProfile = toS3ProfileConfig(config.destinationS3Profile);
+    }
 
     if (destinationKind === 'local') {
       localDestination = expandLocalPath(config.destinationPath);
@@ -459,19 +511,28 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
         localDestination = path.join(localDestination, timestamp);
       }
       await fs.mkdir(localDestination, { recursive: true });
-    } else if (config.destinationServer) {
+    } else if (destinationKind === 'server' && config.destinationServer) {
       remoteDestination = config.destinationPath.replace(/\/+$/, '') || config.destinationPath;
       if (config.enableVersioning) {
         remoteDestination = `${remoteDestination}/${timestamp}`;
       }
       destSsh = await connectToServer(normalizeServer(config.destinationServer));
       await ensureRemoteDirectory(destSsh, remoteDestination);
+    } else if (destinationKind === 's3' && s3DestProfile) {
+      s3DestinationPrefix = normalizeS3Prefix(config.destinationPath);
+      if (config.enableVersioning) {
+        s3DestinationPrefix = joinS3Key(s3DestinationPrefix, timestamp);
+      }
     }
 
     let backupResult: { stdout: string; stderr: string };
     let usedMethod: string = 'rsync';
     let artifactPath =
-      destinationKind === 'local' ? localDestination! : remoteDestination!;
+      destinationKind === 'local'
+        ? localDestination!
+        : destinationKind === 'server'
+          ? remoteDestination!
+          : formatS3ArtifactPath(s3DestProfile!.bucket, s3DestinationPrefix || '');
 
     // --- Database dump source ---
     if (sourceType === 'database') {
@@ -651,6 +712,50 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
         } finally {
           await fs.unlink(relayFile).catch(() => {});
         }
+      } else if (destinationKind === 's3' && s3DestProfile && s3DestinationPrefix != null) {
+        let localArchiveForUpload = packedArchivePath;
+        let relayFile: string | null = null;
+        try {
+          if (sourceKind === 'server' && config.server) {
+            const privateKey = await resolvePrivateKeyForServer(normalizeServer(config.server));
+            const { path: keyPath, cleanup: cleanupKeyFile } =
+              await writeTemporarySshIdentityFile(privateKey);
+            cleanupIdentity = cleanupKeyFile;
+            const { rsyncAvailable, scpAvailable } =
+              await getBackupTransportCapabilities(sourceSsh!);
+            relayFile = path.join(os.tmpdir(), `lazybackup-db-s3-${Date.now()}-${archiveName}`);
+            await pullFileFromRemote({
+              remotePath: packedArchivePath,
+              localPath: relayFile,
+              username: config.server.username,
+              host: config.server.host,
+              port: config.server.port,
+              identityKeyPath: keyPath,
+              rsyncAvailable,
+              scpAvailable,
+            });
+            localArchiveForUpload = relayFile;
+          }
+          const key = joinS3Key(s3DestinationPrefix, archiveName);
+          const uploaded = await uploadFile(s3DestProfile, localArchiveForUpload, key);
+          usedMethod = sourceKind === 'server' ? 'database-s3-relay' : 'database-s3';
+          artifactPath = formatS3ArtifactPath(s3DestProfile.bucket, key);
+          backupResult = {
+            stdout: [
+              `Engine: ${dbConn.engine}`,
+              `Database: ${dbConn.database}`,
+              `Archive: ${archiveName}`,
+              `S3: ${artifactPath}`,
+              `Size: ${uploaded.size} bytes`,
+              packStdout?.trim() ? `--- dump stdout ---\n${packStdout.trim()}` : '',
+            ]
+              .filter(Boolean)
+              .join('\n'),
+            stderr: '',
+          };
+        } finally {
+          if (relayFile) await fs.unlink(relayFile).catch(() => {});
+        }
       } else {
         throw new Error('Invalid destination for database backup');
       }
@@ -758,6 +863,41 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
         } finally {
           await fs.unlink(relayFile).catch(() => {});
         }
+      } else if (destinationKind === 's3' && s3DestProfile && s3DestinationPrefix != null) {
+        const relayFile = path.join(
+          os.tmpdir(),
+          `lazybackup-docker-s3-${Date.now()}-${archiveName}`
+        );
+        try {
+          await pullFileFromRemote({
+            remotePath: packed.remoteArchivePath,
+            localPath: relayFile,
+            username: config.server.username,
+            host: config.server.host,
+            port: config.server.port,
+            identityKeyPath: keyPath,
+            rsyncAvailable,
+            scpAvailable,
+          });
+          const key = joinS3Key(s3DestinationPrefix, archiveName);
+          const uploaded = await uploadFile(s3DestProfile, relayFile, key);
+          usedMethod = 'docker-s3';
+          artifactPath = formatS3ArtifactPath(s3DestProfile.bucket, key);
+          backupResult = {
+            stdout: [
+              `Volume: ${config.sourcePath}`,
+              `Archive: ${archiveName}`,
+              `S3: ${artifactPath}`,
+              `Size: ${uploaded.size} bytes`,
+              packed.stdout?.trim() ? `--- pack stdout ---\n${packed.stdout.trim()}` : '',
+            ]
+              .filter(Boolean)
+              .join('\n'),
+            stderr: '',
+          };
+        } finally {
+          await fs.unlink(relayFile).catch(() => {});
+        }
       } else {
         throw new Error('Invalid destination for docker volume backup');
       }
@@ -833,6 +973,143 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
       backupResult = transfer;
       usedMethod = `s2s-${transfer.mode}`;
       artifactPath = remoteDestination;
+    } else if (sourceKind === 'local' && destinationKind === 's3' && s3DestProfile && s3DestinationPrefix != null) {
+      const localSource = expandLocalPath(config.sourcePath);
+      const uploaded = await uploadDirectory(s3DestProfile, localSource, s3DestinationPrefix);
+      usedMethod = 'local-s3';
+      artifactPath = formatS3ArtifactPath(s3DestProfile.bucket, s3DestinationPrefix);
+      backupResult = {
+        stdout: [
+          `Local source: ${localSource}`,
+          `S3: ${artifactPath}`,
+          `Files: ${uploaded.fileCount}`,
+          `Total size: ${uploaded.totalSize} bytes`,
+        ].join('\n'),
+        stderr: '',
+      };
+    } else if (
+      sourceKind === 'server' &&
+      destinationKind === 's3' &&
+      config.server &&
+      s3DestProfile &&
+      s3DestinationPrefix != null
+    ) {
+      if (!sourceSsh) {
+        sourceSsh = await connectToServer(normalizeServer(config.server));
+      }
+      const privateKey = await resolvePrivateKeyForServer(normalizeServer(config.server));
+      const { path: keyPath, cleanup: cleanupKeyFile } = await writeTemporarySshIdentityFile(privateKey);
+      cleanupIdentity = cleanupKeyFile;
+      const relayDir = await fs.mkdtemp(path.join(os.tmpdir(), 'lazybackup-s3-'));
+      try {
+        const pull = await pullPathFromServer({
+          ssh: sourceSsh,
+          server: config.server,
+          remotePath: config.sourcePath,
+          localDestination: relayDir,
+          keyPath,
+          excludePatterns,
+        });
+        const uploaded = await uploadDirectory(s3DestProfile, relayDir, s3DestinationPrefix);
+        usedMethod = 'server-s3';
+        artifactPath = formatS3ArtifactPath(s3DestProfile.bucket, s3DestinationPrefix);
+        backupResult = {
+          stdout: [
+            `Remote source: ${config.sourcePath}`,
+            `S3: ${artifactPath}`,
+            `Files: ${uploaded.fileCount}`,
+            `Total size: ${uploaded.totalSize} bytes`,
+            pull.stdout?.trim() ? `--- pull stdout ---\n${pull.stdout.trim()}` : '',
+          ]
+            .filter(Boolean)
+            .join('\n'),
+          stderr: '',
+        };
+      } finally {
+        await fs.rm(relayDir, { recursive: true, force: true }).catch(() => {});
+      }
+    } else if (sourceKind === 's3' && destinationKind === 'local' && s3SourceProfile && localDestination) {
+      const sourcePrefix = normalizeS3Prefix(config.sourcePath);
+      const downloaded = await downloadPrefix(s3SourceProfile, sourcePrefix, localDestination);
+      usedMethod = 's3-local';
+      artifactPath = localDestination;
+      backupResult = {
+        stdout: [
+          `S3 source: ${formatS3ArtifactPath(s3SourceProfile.bucket, sourcePrefix)}`,
+          `Local path: ${localDestination}`,
+          `Files: ${downloaded.fileCount}`,
+          `Total size: ${downloaded.totalSize} bytes`,
+        ].join('\n'),
+        stderr: '',
+      };
+    } else if (
+      sourceKind === 's3' &&
+      destinationKind === 'server' &&
+      s3SourceProfile &&
+      config.destinationServer &&
+      remoteDestination
+    ) {
+      const sourcePrefix = normalizeS3Prefix(config.sourcePath);
+      const relayDir = await fs.mkdtemp(path.join(os.tmpdir(), 'lazybackup-s3-'));
+      try {
+        const downloaded = await downloadPrefix(s3SourceProfile, sourcePrefix, relayDir);
+        if (!destSsh) {
+          destSsh = await connectToServer(normalizeServer(config.destinationServer));
+        }
+        const destKey = await resolvePrivateKeyForServer(normalizeServer(config.destinationServer));
+        const { path: destKeyPath, cleanup: cleanupDestKey } =
+          await writeTemporarySshIdentityFile(destKey);
+        cleanupDestIdentity = cleanupDestKey;
+        const push = await pushPathToServer({
+          ssh: destSsh,
+          server: config.destinationServer,
+          localSource: relayDir,
+          remoteDestination,
+          keyPath: destKeyPath,
+          excludePatterns,
+        });
+        usedMethod = 's3-server';
+        artifactPath = remoteDestination;
+        backupResult = {
+          stdout: [
+            `S3 source: ${formatS3ArtifactPath(s3SourceProfile.bucket, sourcePrefix)}`,
+            `Remote path: ${remoteDestination}`,
+            `Files: ${downloaded.fileCount}`,
+            push.stdout?.trim() ? `--- push stdout ---\n${push.stdout.trim()}` : '',
+          ]
+            .filter(Boolean)
+            .join('\n'),
+          stderr: '',
+        };
+      } finally {
+        await fs.rm(relayDir, { recursive: true, force: true }).catch(() => {});
+      }
+    } else if (
+      sourceKind === 's3' &&
+      destinationKind === 's3' &&
+      s3SourceProfile &&
+      s3DestProfile &&
+      s3DestinationPrefix != null
+    ) {
+      const sourcePrefix = normalizeS3Prefix(config.sourcePath);
+      const relayDir = await fs.mkdtemp(path.join(os.tmpdir(), 'lazybackup-s3-'));
+      try {
+        const downloaded = await downloadPrefix(s3SourceProfile, sourcePrefix, relayDir);
+        const uploaded = await uploadDirectory(s3DestProfile, relayDir, s3DestinationPrefix);
+        usedMethod = 's3-s3';
+        artifactPath = formatS3ArtifactPath(s3DestProfile.bucket, s3DestinationPrefix);
+        backupResult = {
+          stdout: [
+            `S3 source: ${formatS3ArtifactPath(s3SourceProfile.bucket, sourcePrefix)}`,
+            `S3 dest: ${artifactPath}`,
+            `Downloaded: ${downloaded.fileCount} files`,
+            `Uploaded: ${uploaded.fileCount} files (${uploaded.totalSize} bytes)`,
+          ].join('\n'),
+          stderr: '',
+        };
+      } finally {
+        await fs.rm(relayDir, { recursive: true, force: true }).catch(() => {});
+      }
     } else {
       throw new Error(`Unsupported transfer direction: ${sourceKind} → ${destinationKind}`);
     }
@@ -898,17 +1175,49 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
         );
         fileRetentionLog = buildFileRetentionLog(deleted);
       }
+    } else if (destinationKind === 's3' && s3DestProfile) {
+      const basePrefix = normalizeS3Prefix(config.destinationPath);
+      if (config.enableVersioning && config.versionsToKeep) {
+        const cleaned = await cleanupS3OldVersions(
+          s3DestProfile,
+          basePrefix,
+          config.versionsToKeep
+        );
+        if (cleaned.names.length > 0) {
+          fileRetentionLog = buildFileRetentionLog(cleaned.names);
+        }
+      }
+      if (
+        !config.enableVersioning &&
+        config.enableFileRetention &&
+        config.retentionMaxAge &&
+        config.retentionMinKeep
+      ) {
+        const cleaned = await cleanupS3FileRetention(s3DestProfile, basePrefix, {
+          maxAge: config.retentionMaxAge,
+          unit: config.retentionMaxAgeUnit || 'days',
+          minKeep: config.retentionMinKeep,
+        });
+        fileRetentionLog = buildFileRetentionLog(cleaned.names);
+      }
     }
 
+    const isArchiveTransfer =
+      usedMethod.startsWith('docker') || usedMethod.startsWith('database');
     const parsedOutput =
-      (usedMethod.startsWith('docker') || usedMethod.startsWith('database')) &&
-      destinationKind === 'local'
+      isArchiveTransfer && destinationKind === 'local'
         ? {
             fileCount: 1,
             totalSize: (await fs.stat(artifactPath)).size,
             transferredSize: (await fs.stat(artifactPath)).size,
           }
-        : parseRsyncOutput(backupResult.stdout);
+        : isArchiveTransfer && destinationKind === 's3'
+          ? {
+              fileCount: 1,
+              totalSize: Number(/Size: (\d+) bytes/.exec(backupResult.stdout)?.[1] || 0),
+              transferredSize: Number(/Size: (\d+) bytes/.exec(backupResult.stdout)?.[1] || 0),
+            }
+          : parseRsyncOutput(backupResult.stdout);
 
     await updateBackupHistorySuccess(historyId, {
       ...parsedOutput,
@@ -942,8 +1251,49 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
 }
 
 /**
+ * Ensure a restore artifact is available as a local file.
+ * Downloads from S3 when destinationKind is s3; otherwise verifies local path.
+ * Caller must delete returned tempDir if set.
+ */
+async function resolveLocalRestoreArtifact(options: {
+  artifactPath: string;
+  destinationKind?: string | null;
+  destinationS3Profile?: S3ProfileRow | null;
+}): Promise<{ localPath: string; tempDir: string | null }> {
+  const kind = options.destinationKind || 'local';
+  if (kind === 'local') {
+    await fs.access(options.artifactPath).catch(() => {
+      throw new Error(`Backup artifact not found on disk: ${options.artifactPath}`);
+    });
+    return { localPath: options.artifactPath, tempDir: null };
+  }
+  if (kind === 's3') {
+    if (!options.destinationS3Profile) {
+      throw new Error('Destination S3 profile is missing; cannot download artifact');
+    }
+    const parsed = parseS3ArtifactPath(options.artifactPath);
+    if (!parsed) {
+      throw new Error(`Invalid S3 artifact path: ${options.artifactPath}`);
+    }
+    const profile = toS3ProfileConfig(options.destinationS3Profile);
+    if (parsed.bucket !== profile.bucket) {
+      throw new Error(
+        `Artifact bucket ${parsed.bucket} does not match profile bucket ${profile.bucket}`
+      );
+    }
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'lazybackup-restore-'));
+    const localPath = path.join(tempDir, path.posix.basename(parsed.key));
+    await downloadFile(profile, parsed.key, localPath);
+    return { localPath, tempDir };
+  }
+  throw new Error(
+    'Restore is only supported when the backup destination is on the LazyBackup host or S3'
+  );
+}
+
+/**
  * Restore a successful Docker volume backup onto the remote server.
- * Requires the artifact to exist on the LazyBackup host (local destination backups).
+ * Artifact must be local or downloadable from S3.
  */
 export async function restoreDockerVolumeBackup(
   historyId: string,
@@ -960,6 +1310,7 @@ export async function restoreDockerVolumeBackup(
         with: {
           server: true,
           destinationServer: true,
+          destinationS3Profile: true,
         },
       },
     },
@@ -986,22 +1337,17 @@ export async function restoreDockerVolumeBackup(
     throw new Error('This backup has no stored artifact path and cannot be restored');
   }
 
-  if ((config.destinationKind || 'local') !== 'local') {
-    throw new Error(
-      'Restore is only supported when the backup destination is on the LazyBackup host'
-    );
-  }
-
   if (!config.server) {
     throw new Error('Source server is missing; cannot restore Docker volume');
   }
 
   const targetVolume = volumeName?.trim() || config.sourcePath;
-  const artifactPath = historyEntry.artifactPath;
-
-  await fs.access(artifactPath).catch(() => {
-    throw new Error(`Backup artifact not found on disk: ${artifactPath}`);
-  });
+  const { localPath: artifactPath, tempDir: downloadTempDir } =
+    await resolveLocalRestoreArtifact({
+      artifactPath: historyEntry.artifactPath,
+      destinationKind: config.destinationKind,
+      destinationS3Profile: config.destinationS3Profile,
+    });
 
   const serverConfig = normalizeServer(config.server);
 
@@ -1046,7 +1392,8 @@ export async function restoreDockerVolumeBackup(
       LOG_SECTION.restore,
       '',
       `Volume: ${targetVolume}`,
-      `Artifact: ${artifactPath}`,
+      `Artifact: ${historyEntry.artifactPath}`,
+      downloadTempDir ? 'Downloaded artifact from S3 for restore' : '',
       `Transfer: ${push.method}`,
       push.stdout?.trim() ? `--- push stdout ---\n${push.stdout.trim()}` : '',
       push.stderr?.trim() ? `--- push stderr ---\n${push.stderr.trim()}` : '',
@@ -1062,6 +1409,9 @@ export async function restoreDockerVolumeBackup(
     if (remoteTmpDir && ssh) {
       await cleanupRemoteDir(ssh, remoteTmpDir).catch(() => {});
     }
+    if (downloadTempDir) {
+      await fs.rm(downloadTempDir, { recursive: true, force: true }).catch(() => {});
+    }
     await cleanupIdentity?.();
     ssh?.dispose();
   }
@@ -1069,7 +1419,7 @@ export async function restoreDockerVolumeBackup(
 
 /**
  * Restore a successful database dump onto the source (local or SSH) using config connection settings.
- * Requires the artifact on the LazyBackup host (local destination backups).
+ * Artifact must be local or downloadable from S3.
  */
 export async function restoreDatabaseBackup(
   historyId: string,
@@ -1086,6 +1436,7 @@ export async function restoreDatabaseBackup(
         with: {
           server: true,
           destinationServer: true,
+          destinationS3Profile: true,
         },
       },
     },
@@ -1112,16 +1463,12 @@ export async function restoreDatabaseBackup(
     throw new Error('This backup has no stored artifact path and cannot be restored');
   }
 
-  if ((config.destinationKind || 'local') !== 'local') {
-    throw new Error(
-      'Restore is only supported when the backup destination is on the LazyBackup host'
-    );
-  }
-
-  const artifactPath = historyEntry.artifactPath;
-  await fs.access(artifactPath).catch(() => {
-    throw new Error(`Backup artifact not found on disk: ${artifactPath}`);
-  });
+  const { localPath: artifactPath, tempDir: downloadTempDir } =
+    await resolveLocalRestoreArtifact({
+      artifactPath: historyEntry.artifactPath,
+      destinationKind: config.destinationKind,
+      destinationS3Profile: config.destinationS3Profile,
+    });
 
   const dbConn = connectionFromConfig({
     ...config,
@@ -1129,90 +1476,99 @@ export async function restoreDatabaseBackup(
   });
   const sourceKind = config.sourceKind || 'server';
 
-  if (sourceKind === 'local') {
-    const restored = await restoreDatabaseLocal(dbConn, artifactPath);
-    const log = [
-      LOG_SECTION.restore,
-      '',
-      `Engine: ${dbConn.engine}`,
-      `Database: ${dbConn.database}`,
-      `Client: ${dbConn.client}`,
-      `Artifact: ${artifactPath}`,
-      restored.stdout?.trim() ? `--- restore stdout ---\n${restored.stdout.trim()}` : '',
-      restored.stderr?.trim() ? `--- restore stderr ---\n${restored.stderr.trim()}` : '',
-      'Restore completed successfully.',
-    ]
-      .filter(Boolean)
-      .join('\n');
-    return { log, database: dbConn.database };
-  }
-
-  if (!config.server) {
-    throw new Error('Source server is missing; cannot restore database');
-  }
-
-  const serverConfig = normalizeServer(config.server);
-  let ssh: Awaited<ReturnType<typeof connectToServer>> | null = null;
-  let cleanupIdentity: (() => Promise<void>) | undefined;
-  let remoteTmpDir: string | null = null;
-
   try {
-    ssh = await connectToServer(serverConfig);
-    const privateKey = await resolvePrivateKeyForServer(serverConfig);
-    const { path: keyPath, cleanup: cleanupKeyFile } = await writeTemporarySshIdentityFile(privateKey);
-    cleanupIdentity = cleanupKeyFile;
-    const { rsyncAvailable, scpAvailable } = await getBackupTransportCapabilities(ssh);
-
-    const mktemp = await ssh.execCommand(
-      'PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" mktemp -d /tmp/lazybackup-db-XXXXXX'
-    );
-    if (
-      (mktemp.code !== 0 && mktemp.code !== null && mktemp.code !== undefined) ||
-      !mktemp.stdout.trim()
-    ) {
-      throw new Error(`Failed to create remote temp directory: ${mktemp.stderr || mktemp.stdout}`);
+    if (sourceKind === 'local') {
+      const restored = await restoreDatabaseLocal(dbConn, artifactPath);
+      const log = [
+        LOG_SECTION.restore,
+        '',
+        `Engine: ${dbConn.engine}`,
+        `Database: ${dbConn.database}`,
+        `Client: ${dbConn.client}`,
+        `Artifact: ${historyEntry.artifactPath}`,
+        downloadTempDir ? 'Downloaded artifact from S3 for restore' : '',
+        restored.stdout?.trim() ? `--- restore stdout ---\n${restored.stdout.trim()}` : '',
+        restored.stderr?.trim() ? `--- restore stderr ---\n${restored.stderr.trim()}` : '',
+        'Restore completed successfully.',
+      ]
+        .filter(Boolean)
+        .join('\n');
+      return { log, database: dbConn.database };
     }
-    remoteTmpDir = mktemp.stdout.trim();
-    const archiveName = path.basename(artifactPath);
-    const remoteArchivePath = `${remoteTmpDir}/${archiveName}`;
 
-    const push = await pushFileToRemote({
-      localPath: artifactPath,
-      remotePath: remoteArchivePath,
-      username: config.server.username,
-      host: config.server.host,
-      port: config.server.port,
-      identityKeyPath: keyPath,
-      rsyncAvailable,
-      scpAvailable,
-    });
+    if (!config.server) {
+      throw new Error('Source server is missing; cannot restore database');
+    }
 
-    const restored = await restoreDatabaseRemote(ssh, dbConn, remoteArchivePath);
+    const serverConfig = normalizeServer(config.server);
+    let ssh: Awaited<ReturnType<typeof connectToServer>> | null = null;
+    let cleanupIdentity: (() => Promise<void>) | undefined;
+    let remoteTmpDir: string | null = null;
 
-    const log = [
-      LOG_SECTION.restore,
-      '',
-      `Engine: ${dbConn.engine}`,
-      `Database: ${dbConn.database}`,
-      `Client: ${dbConn.client}`,
-      `Artifact: ${artifactPath}`,
-      `Transfer: ${push.method}`,
-      push.stdout?.trim() ? `--- push stdout ---\n${push.stdout.trim()}` : '',
-      push.stderr?.trim() ? `--- push stderr ---\n${push.stderr.trim()}` : '',
-      restored.stdout?.trim() ? `--- restore stdout ---\n${restored.stdout.trim()}` : '',
-      restored.stderr?.trim() ? `--- restore stderr ---\n${restored.stderr.trim()}` : '',
-      'Restore completed successfully.',
-    ]
-      .filter(Boolean)
-      .join('\n');
+    try {
+      ssh = await connectToServer(serverConfig);
+      const privateKey = await resolvePrivateKeyForServer(serverConfig);
+      const { path: keyPath, cleanup: cleanupKeyFile } =
+        await writeTemporarySshIdentityFile(privateKey);
+      cleanupIdentity = cleanupKeyFile;
+      const { rsyncAvailable, scpAvailable } = await getBackupTransportCapabilities(ssh);
 
-    return { log, database: dbConn.database };
+      const mktemp = await ssh.execCommand(
+        'PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" mktemp -d /tmp/lazybackup-db-XXXXXX'
+      );
+      if (
+        (mktemp.code !== 0 && mktemp.code !== null && mktemp.code !== undefined) ||
+        !mktemp.stdout.trim()
+      ) {
+        throw new Error(`Failed to create remote temp directory: ${mktemp.stderr || mktemp.stdout}`);
+      }
+      remoteTmpDir = mktemp.stdout.trim();
+      const archiveName = path.basename(artifactPath);
+      const remoteArchivePath = `${remoteTmpDir}/${archiveName}`;
+
+      const push = await pushFileToRemote({
+        localPath: artifactPath,
+        remotePath: remoteArchivePath,
+        username: config.server.username,
+        host: config.server.host,
+        port: config.server.port,
+        identityKeyPath: keyPath,
+        rsyncAvailable,
+        scpAvailable,
+      });
+
+      const restored = await restoreDatabaseRemote(ssh, dbConn, remoteArchivePath);
+
+      const log = [
+        LOG_SECTION.restore,
+        '',
+        `Engine: ${dbConn.engine}`,
+        `Database: ${dbConn.database}`,
+        `Client: ${dbConn.client}`,
+        `Artifact: ${historyEntry.artifactPath}`,
+        downloadTempDir ? 'Downloaded artifact from S3 for restore' : '',
+        `Transfer: ${push.method}`,
+        push.stdout?.trim() ? `--- push stdout ---\n${push.stdout.trim()}` : '',
+        push.stderr?.trim() ? `--- push stderr ---\n${push.stderr.trim()}` : '',
+        restored.stdout?.trim() ? `--- restore stdout ---\n${restored.stdout.trim()}` : '',
+        restored.stderr?.trim() ? `--- restore stderr ---\n${restored.stderr.trim()}` : '',
+        'Restore completed successfully.',
+      ]
+        .filter(Boolean)
+        .join('\n');
+
+      return { log, database: dbConn.database };
+    } finally {
+      if (remoteTmpDir && ssh) {
+        await cleanupRemoteDbTmpDir(ssh, remoteTmpDir).catch(() => {});
+      }
+      await cleanupIdentity?.();
+      ssh?.dispose();
+    }
   } finally {
-    if (remoteTmpDir && ssh) {
-      await cleanupRemoteDbTmpDir(ssh, remoteTmpDir).catch(() => {});
+    if (downloadTempDir) {
+      await fs.rm(downloadTempDir, { recursive: true, force: true }).catch(() => {});
     }
-    await cleanupIdentity?.();
-    ssh?.dispose();
   }
 }
 
@@ -1326,6 +1682,7 @@ export async function startBackup(configId: string): Promise<string> {
       with: {
         server: true,
         destinationServer: true,
+        destinationS3Profile: true,
       },
     });
 
