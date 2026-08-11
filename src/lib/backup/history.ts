@@ -59,7 +59,7 @@ export async function updateBackupHistorySuccess(
 export async function updateBackupHistoryFailure(
   historyId: string,
   error: Error | string,
-  options?: { logOutput?: string }
+  options?: { logOutput?: string; configId?: string; backupName?: string }
 ) {
   const errorMessage = error instanceof Error ? error.message : String(error);
   
@@ -73,6 +73,20 @@ export async function updateBackupHistoryFailure(
     })
     .where(eq(backupHistory.id, historyId))
     .returning();
+
+  // Fire-and-forget: never block or fail the backup outcome on webhook errors
+  void import('@/lib/notify/failure-webhook')
+    .then(({ notifyBackupFailure }) =>
+      notifyBackupFailure({
+        historyId,
+        errorMessage,
+        configId: options?.configId ?? updatedEntry[0]?.configId,
+        backupName: options?.backupName,
+      })
+    )
+    .catch((notifyError) => {
+      console.error('Failure webhook notify error:', notifyError);
+    });
   
   return updatedEntry[0];
 }

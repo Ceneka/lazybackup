@@ -46,6 +46,8 @@ function SettingsPageInner() {
   const [localDefaultSshKeyPath, setLocalDefaultSshKeyPath] = useState("")
   const [localSshKeepAliveInterval, setLocalSshKeepAliveInterval] = useState("")
   const [localTimezone, setLocalTimezone] = useState(DEFAULT_TIMEZONE)
+  const [localFailureWebhookUrl, setLocalFailureWebhookUrl] = useState("")
+  const [webhookTestLoading, setWebhookTestLoading] = useState(false)
 
   const [newPassword, setNewPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
@@ -65,6 +67,7 @@ function SettingsPageInner() {
       setLocalDefaultSshKeyPath(settingsQuery.settings.defaultSshKeyPath || "")
       setLocalSshKeepAliveInterval(settingsQuery.settings.sshKeepAliveInterval || "60")
       setLocalTimezone(settingsQuery.settings.timezone || DEFAULT_TIMEZONE)
+      setLocalFailureWebhookUrl(settingsQuery.settings.failureWebhookUrl || "")
     }
   }, [settingsQuery.settings])
 
@@ -89,6 +92,33 @@ function SettingsPageInner() {
         },
       }
     )
+  }
+
+  const handleSaveFailureWebhookUrl = (value: string) => {
+    settingsQuery.updateSetting.mutate({
+      key: "failureWebhookUrl",
+      value: value.trim(),
+    })
+  }
+
+  const handleTestWebhook = async () => {
+    setWebhookTestLoading(true)
+    try {
+      const response = await fetch("/api/settings/webhook-test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: localFailureWebhookUrl.trim() || undefined }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to send test notification")
+      }
+      toast.success("Test notification sent")
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to send test notification")
+    } finally {
+      setWebhookTestLoading(false)
+    }
   }
 
   const clearPasswordFields = () => {
@@ -298,6 +328,34 @@ function SettingsPageInner() {
                       <p className="text-sm text-muted-foreground mt-1">
                         Send a keep-alive packet at this interval to prevent connection timeout
                       </p>
+                    </div>
+
+                    <div>
+                      <Label htmlFor="failureWebhookUrl">Failure webhook URL</Label>
+                      <Input
+                        id="failureWebhookUrl"
+                        type="url"
+                        value={localFailureWebhookUrl}
+                        onChange={(e) => setLocalFailureWebhookUrl(e.target.value)}
+                        onBlur={(e) => handleSaveFailureWebhookUrl(e.target.value)}
+                        placeholder="https://hooks.example.com/…"
+                        className="mt-1"
+                      />
+                      <p className="text-sm text-muted-foreground mt-1">
+                        Optional. LazyBackup POSTs JSON when a backup fails (HTTPS; http allowed for localhost/LAN).
+                        Leave empty to disable.
+                      </p>
+                      <LoadingButton
+                        className="mt-2"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void handleTestWebhook()}
+                        isLoading={webhookTestLoading}
+                        loadingText="Sending…"
+                        disabled={!localFailureWebhookUrl.trim()}
+                      >
+                        Send test notification
+                      </LoadingButton>
                     </div>
                   </div>
                 )}

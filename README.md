@@ -17,6 +17,7 @@ Marketing site (static): [`landing/`](./landing) → [lazy.zic.ar](https://lazy.
 - **File retention** — Optional age-based cleanup for dump-style destinations (keep a minimum number of files)
 - **Automated scheduling** — In-process cron scheduler; set an app timezone so schedules run when you expect
 - **History & dashboard** — Track runs, view logs, next run times, storage usage, and success rates
+- **Failure webhooks** — Optional HTTPS webhook on backup failure (Settings → General)
 - **Optional app password** — Single-operator lock (set on first run or later in Settings); session cookie lasts 30 days
 - **MCP / API tokens** — Let Cursor, Claude, or other agents manage backups via Streamable HTTP MCP at `/mcp` (Settings → API / MCP)
 
@@ -108,6 +109,23 @@ Example `mcp.json` (replace host and token):
 ```
 
 The token has full operator access (same gate as the UI). Prefer HTTPS or a trusted LAN. Revoke tokens anytime from the same Settings tab. Destructive MCP tools require `confirm: true`.
+
+### Failure notifications
+
+Set a **Failure webhook URL** under Settings → General. When a backup fails, LazyBackup POSTs JSON:
+
+```json
+{
+  "event": "backup.failed",
+  "backupName": "Daily DB",
+  "configId": "…",
+  "historyId": "…",
+  "errorMessage": "…",
+  "endedAt": "2026-08-10T12:00:00.000Z"
+}
+```
+
+Use any HTTPS receiver (Slack incoming webhook, Discord, ntfy, custom). `http://` is allowed only for localhost/LAN. Empty URL disables notifications. Use **Send test notification** to verify the endpoint.
 
 ### Docker volume notes
 
