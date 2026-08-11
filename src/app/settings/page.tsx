@@ -2,6 +2,8 @@
 
 import { SSHKeyBootstrap } from "@/components/ssh-key-bootstrap"
 import { McpSettingsPanel } from "@/components/mcp-settings-panel"
+import { FailureWebhookSettings } from "@/components/failure-webhook-settings"
+import { PageHeader, PageLayout } from "@/components/page-layout"
 import { DeleteConfirmationDialog } from "@/components/ui/delete-confirmation-dialog"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
@@ -46,8 +48,6 @@ function SettingsPageInner() {
   const [localDefaultSshKeyPath, setLocalDefaultSshKeyPath] = useState("")
   const [localSshKeepAliveInterval, setLocalSshKeepAliveInterval] = useState("")
   const [localTimezone, setLocalTimezone] = useState(DEFAULT_TIMEZONE)
-  const [localFailureWebhookUrl, setLocalFailureWebhookUrl] = useState("")
-  const [webhookTestLoading, setWebhookTestLoading] = useState(false)
 
   const [newPassword, setNewPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
@@ -67,7 +67,6 @@ function SettingsPageInner() {
       setLocalDefaultSshKeyPath(settingsQuery.settings.defaultSshKeyPath || "")
       setLocalSshKeepAliveInterval(settingsQuery.settings.sshKeepAliveInterval || "60")
       setLocalTimezone(settingsQuery.settings.timezone || DEFAULT_TIMEZONE)
-      setLocalFailureWebhookUrl(settingsQuery.settings.failureWebhookUrl || "")
     }
   }, [settingsQuery.settings])
 
@@ -92,33 +91,6 @@ function SettingsPageInner() {
         },
       }
     )
-  }
-
-  const handleSaveFailureWebhookUrl = (value: string) => {
-    settingsQuery.updateSetting.mutate({
-      key: "failureWebhookUrl",
-      value: value.trim(),
-    })
-  }
-
-  const handleTestWebhook = async () => {
-    setWebhookTestLoading(true)
-    try {
-      const response = await fetch("/api/settings/webhook-test", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: localFailureWebhookUrl.trim() || undefined }),
-      })
-      const data = await response.json().catch(() => ({}))
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to send test notification")
-      }
-      toast.success("Test notification sent")
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to send test notification")
-    } finally {
-      setWebhookTestLoading(false)
-    }
   }
 
   const clearPasswordFields = () => {
@@ -232,26 +204,27 @@ function SettingsPageInner() {
   const authEnabled = Boolean(auth.data?.authEnabled)
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center space-x-2">
-        <h1 className="text-3xl font-bold">Settings</h1>
-      </div>
+    <PageLayout>
+      <PageHeader title="Settings" />
 
       <Tabs value={tab} onValueChange={setTab} className="w-full">
-        <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="general" className="flex items-center">
-            <SettingsIcon className="mr-2 h-4 w-4" />
-            General Settings
-          </TabsTrigger>
-          <TabsTrigger value="mcp" className="flex items-center">
-            <BotIcon className="mr-2 h-4 w-4" />
-            API / MCP
-          </TabsTrigger>
-          <TabsTrigger value="ssh-keys" className="flex items-center">
-            <KeyIcon className="mr-2 h-4 w-4" />
-            SSH Keys
-          </TabsTrigger>
-        </TabsList>
+        <div className="-mx-1 overflow-x-auto px-1">
+          <TabsList className="inline-flex h-auto min-w-full w-max gap-1 p-1 sm:grid sm:w-full sm:min-w-0 sm:grid-cols-3">
+            <TabsTrigger value="general" className="shrink-0 gap-1.5 px-3 sm:flex-1">
+              <SettingsIcon className="h-4 w-4" />
+              <span className="sm:hidden">General</span>
+              <span className="hidden sm:inline">General Settings</span>
+            </TabsTrigger>
+            <TabsTrigger value="mcp" className="shrink-0 gap-1.5 px-3 sm:flex-1">
+              <BotIcon className="h-4 w-4" />
+              API / MCP
+            </TabsTrigger>
+            <TabsTrigger value="ssh-keys" className="shrink-0 gap-1.5 px-3 sm:flex-1">
+              <KeyIcon className="h-4 w-4" />
+              SSH Keys
+            </TabsTrigger>
+          </TabsList>
+        </div>
 
         <TabsContent value="general" className="mt-6 space-y-6">
           <Card className="w-full">
@@ -329,35 +302,27 @@ function SettingsPageInner() {
                         Send a keep-alive packet at this interval to prevent connection timeout
                       </p>
                     </div>
-
-                    <div>
-                      <Label htmlFor="failureWebhookUrl">Failure webhook URL</Label>
-                      <Input
-                        id="failureWebhookUrl"
-                        type="url"
-                        value={localFailureWebhookUrl}
-                        onChange={(e) => setLocalFailureWebhookUrl(e.target.value)}
-                        onBlur={(e) => handleSaveFailureWebhookUrl(e.target.value)}
-                        placeholder="https://hooks.example.com/…"
-                        className="mt-1"
-                      />
-                      <p className="text-sm text-muted-foreground mt-1">
-                        Optional. LazyBackup POSTs JSON when a backup fails (HTTPS; http allowed for localhost/LAN).
-                        Leave empty to disable.
-                      </p>
-                      <LoadingButton
-                        className="mt-2"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => void handleTestWebhook()}
-                        isLoading={webhookTestLoading}
-                        loadingText="Sending…"
-                        disabled={!localFailureWebhookUrl.trim()}
-                      >
-                        Send test notification
-                      </LoadingButton>
-                    </div>
                   </div>
+                )}
+              </QueryState>
+            </CardContent>
+          </Card>
+
+          <Card className="w-full">
+            <CardHeader>
+              <CardTitle>Failure webhook</CardTitle>
+              <CardDescription>
+                Notify Discord, Telegram, Uptime Kuma, ntfy, Slack, or any HTTP endpoint when a backup fails.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <QueryState
+                query={settingsQuery}
+                dataLabel="webhook settings"
+                errorIcon={<SettingsIcon className="h-12 w-12 text-red-500" />}
+              >
+                {settingsQuery.settings && (
+                  <FailureWebhookSettings settings={settingsQuery} />
                 )}
               </QueryState>
             </CardContent>
@@ -656,7 +621,7 @@ function SettingsPageInner() {
           </div>
         </TabsContent>
       </Tabs>
-    </div>
+    </PageLayout>
   )
 }
 
@@ -664,10 +629,10 @@ export default function SettingsPage() {
   return (
     <Suspense
       fallback={
-        <div className="space-y-6">
-          <h1 className="text-3xl font-bold">Settings</h1>
+        <PageLayout>
+          <PageHeader title="Settings" />
           <div className="flex justify-center py-12 text-muted-foreground">Loading…</div>
-        </div>
+        </PageLayout>
       }
     >
       <SettingsPageInner />
