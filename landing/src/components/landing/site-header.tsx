@@ -8,6 +8,7 @@ import { Logo } from "./logo";
 
 const homeNav = [
   { href: "/features", label: "Features" },
+  { href: "/blog", label: "Blog" },
   { href: "/#screenshots", label: "Screenshots" },
   { href: "/#how-it-works", label: "How it works" },
   { href: "/#tech-stack", label: "Stack" },
@@ -15,21 +16,22 @@ const homeNav = [
   { href: GITHUB_URL, label: "GitHub", external: true },
 ] as const;
 
-const featuresNav = [
+const innerNav = [
   { href: "/", label: "Home" },
   { href: "/features", label: "Features" },
+  { href: "/blog", label: "Blog" },
   { href: "/#cta", label: "Deploy" },
   { href: GITHUB_URL, label: "GitHub", external: true },
 ] as const;
 
 type SiteHeaderProps = {
-  variant?: "home" | "features";
+  variant?: "home" | "features" | "blog";
 };
 
 export function SiteHeader({ variant = "home" }: SiteHeaderProps) {
   const [open, setOpen] = useState(false);
-  const nav = variant === "features" ? featuresNav : homeNav;
-  const ctaHref = variant === "features" ? "/#cta" : "/#get-started";
+  const nav = variant === "home" ? homeNav : innerNav;
+  const ctaHref = variant === "home" ? "/#get-started" : "/#cta";
 
   return (
     <header className="sticky top-0 z-50 border-b border-white/[0.08] bg-[#070b14]/75 backdrop-blur-xl">

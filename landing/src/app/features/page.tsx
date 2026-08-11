@@ -2,13 +2,12 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import {
   GITHUB_URL,
-  SITE_URL,
   detailedFeatures,
 } from "@/components/landing/features-data";
 import { HeroOrbs } from "@/components/landing/hero-orbs";
 import { ScrollReveal } from "@/components/landing/scroll-reveal";
+import { SiteFooter } from "@/components/landing/site-footer";
 import { SiteHeader } from "@/components/landing/site-header";
-import { Logo } from "@/components/landing/logo";
 
 export const metadata: Metadata = {
   title: "Features",
@@ -110,7 +109,7 @@ export default function FeaturesPage() {
               </h2>
               <p className="mt-3 text-slate-400">
                 Deploy with Docker in minutes, or clone the repo and run with
-                Bun.
+                Bun. Or read how Database dumps work on the blog.
               </p>
               <div className="mt-10 flex flex-wrap justify-center gap-4">
                 <Link
@@ -118,6 +117,12 @@ export default function FeaturesPage() {
                   className="inline-flex items-center justify-center rounded-xl bg-gradient-to-r from-emerald-500 to-cyan-500 px-6 py-3.5 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-500/25 transition hover:brightness-110"
                 >
                   Deploy instructions
+                </Link>
+                <Link
+                  href="/blog"
+                  className="inline-flex items-center justify-center rounded-xl border border-white/15 px-6 py-3.5 text-sm font-medium text-slate-200 transition hover:border-white/25 hover:bg-white/[0.05]"
+                >
+                  Blog
                 </Link>
                 <Link
                   href={GITHUB_URL}
@@ -131,31 +136,7 @@ export default function FeaturesPage() {
         </div>
       </section>
 
-      <footer className="border-t border-white/[0.06] bg-[#050810] py-12">
-        <div className="container mx-auto flex flex-col items-center justify-between gap-6 px-5 text-center text-sm text-slate-500 md:flex-row md:px-8 md:text-left">
-          <div className="flex flex-col items-center gap-3 md:items-start">
-            <Logo withWordmark markClassName="h-7 w-7" wordmarkClassName="text-base text-slate-300" />
-            <p>© {new Date().getFullYear()} LazyBackup. All rights reserved.</p>
-          </div>
-          <div className="flex flex-wrap justify-center gap-x-8 gap-y-2">
-            <Link href={GITHUB_URL} className="hover:text-slate-300">
-              GitHub
-            </Link>
-            <Link href={SITE_URL} className="hover:text-slate-300">
-              lazy.zic.ar
-            </Link>
-            <Link href="/" className="hover:text-slate-300">
-              Home
-            </Link>
-            <Link
-              href={`${GITHUB_URL}#readme`}
-              className="hover:text-slate-300"
-            >
-              Docs
-            </Link>
-          </div>
-        </div>
-      </footer>
+      <SiteFooter />
     </div>
   );
 }

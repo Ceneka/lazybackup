@@ -2,7 +2,6 @@ import Link from "next/link";
 import {
   DOCKER_IMAGE,
   GITHUB_URL,
-  SITE_URL,
   homeFeatures,
 } from "@/components/landing/features-data";
 import { HeroOrbs } from "@/components/landing/hero-orbs";
@@ -10,7 +9,7 @@ import { InstallTabs } from "@/components/landing/install-tabs";
 import { ScreenshotsGallery } from "@/components/landing/screenshots-gallery";
 import { ScrollReveal } from "@/components/landing/scroll-reveal";
 import { SiteHeader } from "@/components/landing/site-header";
-import { Logo } from "@/components/landing/logo";
+import { SiteFooter } from "@/components/landing/site-footer";
 import { TerminalDemo } from "@/components/landing/terminal-demo";
 
 const steps = [
@@ -365,36 +364,18 @@ export default function Home() {
               >
                 Explore features
               </Link>
+              <Link
+                href="/blog"
+                className="inline-flex items-center justify-center rounded-xl border border-white/15 px-8 py-4 text-sm font-medium text-slate-200 transition hover:border-white/25 hover:bg-white/[0.05]"
+              >
+                Read the blog
+              </Link>
             </div>
           </ScrollReveal>
         </div>
       </section>
 
-      <footer className="border-t border-white/[0.06] bg-[#050810] py-12">
-        <div className="container mx-auto flex flex-col items-center justify-between gap-6 px-5 text-center text-sm text-slate-500 md:flex-row md:px-8 md:text-left">
-          <div className="flex flex-col items-center gap-3 md:items-start">
-            <Logo withWordmark markClassName="h-7 w-7" wordmarkClassName="text-base text-slate-300" />
-            <p>© {new Date().getFullYear()} LazyBackup. All rights reserved.</p>
-          </div>
-          <div className="flex flex-wrap justify-center gap-x-8 gap-y-2">
-            <Link href={GITHUB_URL} className="hover:text-slate-300">
-              GitHub
-            </Link>
-            <Link href={SITE_URL} className="hover:text-slate-300">
-              lazy.zic.ar
-            </Link>
-            <Link href="/features" className="hover:text-slate-300">
-              Features
-            </Link>
-            <Link
-              href={`${GITHUB_URL}#readme`}
-              className="hover:text-slate-300"
-            >
-              Docs
-            </Link>
-          </div>
-        </div>
-      </footer>
+      <SiteFooter />
     </div>
   );
 }

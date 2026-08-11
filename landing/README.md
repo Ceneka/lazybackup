@@ -28,3 +28,8 @@ The app uses `output: "export"` so the build produces a static `out/` directory.
 
 - `/` — product landing
 - `/features` — detailed feature walkthrough
+- `/blog` — guides and product notes
+- `/blog/introducing-lazybackup` — product presentation
+- `/blog/easily-backup-docker-database` — Docker DB dump howto
+
+Posts live in `src/lib/blog/posts.ts` (typed blocks; easy to extend).
