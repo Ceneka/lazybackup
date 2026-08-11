@@ -75,6 +75,7 @@ Pattern: Zod → Drizzle → `NextResponse.json`; errors `{ error, details? }`.
 | Public | `GET /api/health`, `/api/auth/{status,setup,login,logout}` |
 | Auth | `POST /api/auth/password` (set/change/remove) |
 | API tokens | `/api/api-tokens`, `/api/api-tokens/[id]` (session-only manage); MCP `GET|POST|DELETE /mcp` |
+| MCP discovery | Tools: `find_server`, `list_docker_volumes`, `list_docker_containers`, `get_container_db_hints`, `test_server`, `test_database` (wrap existing SSH/Docker/DB helpers) |
 | Servers | `/api/servers`, `/api/servers/[id]`, `…/test`, `…/docker/volumes`, `…/docker/containers`, `…/docker/containers/[name]/db-hints`, `POST /api/servers/test` |
 | S3 | `/api/s3-profiles`, `/api/s3-profiles/[id]`, `…/test`, `POST /api/s3-profiles/test` |
 | Backups | `/api/backups`, `/api/backups/[id]`, `…/run`, `…/toggle`, `…/storage`, `POST /api/backups/start`, `POST /api/backups/database/test` |

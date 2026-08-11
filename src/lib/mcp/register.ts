@@ -1,6 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/server'
 import { z } from 'zod'
 import type { AuditActor } from '@/lib/auth/audit'
+import * as discovery from './discovery'
 import * as ops from './operations'
 
 const BACKUP_GUIDE = `LazyBackup From→To: sourceKind/destinationKind are local|server|s3.
@@ -8,12 +9,109 @@ sourceType: path | docker_volume (server source only) | database (local or serve
 S3 sources only support sourceType=path. Destinations are paths or S3 prefixes.
 SSH key required on every server endpoint used in a transfer.`
 
+const DISCOVER_FIRST = `Never invent server names, volume names, container names, or IDs.
+Always resolve with find_server / list_servers / list_docker_volumes / list_docker_containers first.
+For database dumps prefer get_container_db_hints then test_database before create_backup.`
+
 function ctx(actor?: AuditActor): ops.McpOpsContext {
   return { actor }
 }
 
 export function registerLazyBackupTools(server: McpServer, actor?: AuditActor) {
   const c = ctx(actor)
+
+  // --- Discovery & verify (call these before create_*) ---
+
+  server.registerTool(
+    'find_server',
+    {
+      title: 'Find server',
+      description: `Fuzzy-match configured SSH servers by name, host, or id. ${DISCOVER_FIRST}`,
+      inputSchema: z.object({
+        query: z.string().describe('User phrase, e.g. "wordpress prod" or a hostname'),
+        limit: z.number().int().min(1).max(20).optional(),
+      }),
+    },
+    async ({ query, limit }) => discovery.findServerOp(c, query, limit)
+  )
+
+  server.registerTool(
+    'list_docker_volumes',
+    {
+      title: 'List Docker volumes',
+      description:
+        'List named Docker volumes on a server over SSH. Use exact names for sourceType=docker_volume. Never invent volume names.',
+      inputSchema: z.object({
+        serverId: z.string().describe('Server id from find_server or list_servers'),
+      }),
+    },
+    async ({ serverId }) => discovery.listDockerVolumesOp(c, serverId)
+  )
+
+  server.registerTool(
+    'list_docker_containers',
+    {
+      title: 'List Docker containers',
+      description:
+        'List running Docker containers on a server. Use exact names for dbClient=docker. Never invent container names.',
+      inputSchema: z.object({
+        serverId: z.string(),
+      }),
+    },
+    async ({ serverId }) => discovery.listDockerContainersOp(c, serverId)
+  )
+
+  server.registerTool(
+    'get_container_db_hints',
+    {
+      title: 'Container DB hints',
+      description:
+        'Inspect a container and infer Postgres/MySQL/MariaDB engine, user, password, database from env. Call after list_docker_containers.',
+      inputSchema: z.object({
+        serverId: z.string(),
+        container: z.string().describe('Exact container name'),
+      }),
+    },
+    async ({ serverId, container }) =>
+      discovery.getContainerDbHintsOp(c, serverId, container)
+  )
+
+  server.registerTool(
+    'test_server',
+    {
+      title: 'Test server',
+      description:
+        'SSH connectivity + rsync/scp (and related) capability check for a server. Call before relying on transfers.',
+      inputSchema: z.object({
+        serverId: z.string(),
+      }),
+    },
+    async ({ serverId }) => discovery.testServerOp(c, serverId)
+  )
+
+  server.registerTool(
+    'test_database',
+    {
+      title: 'Test database connection',
+      description:
+        'Run SELECT 1 via native client or docker exec without saving a backup. Call after get_container_db_hints and before create_backup for database sources.',
+      inputSchema: z.object({
+        sourceKind: z.enum(['local', 'server']).default('server'),
+        serverId: z.string().optional(),
+        dbEngine: z.enum(['postgres', 'mysql', 'mariadb']),
+        dbClient: z.enum(['native', 'docker']),
+        dbContainer: z.string().optional(),
+        dbHost: z.string().optional(),
+        dbPort: z.number().int().optional(),
+        dbUser: z.string(),
+        dbPassword: z.string().optional(),
+        sourcePath: z.string().describe('Database name'),
+      }),
+    },
+    async (args) => discovery.testDatabaseOp(c, args)
+  )
+
+  // --- Backups ---
 
   server.registerTool(
     'list_backups',
@@ -42,8 +140,9 @@ export function registerLazyBackupTools(server: McpServer, actor?: AuditActor) {
     {
       title: 'Create backup',
       description: `Create a backup configuration. ${BACKUP_GUIDE}
-Required fields typically: name, sourceKind, destinationKind, sourceType, sourcePath, destinationPath, schedule (5-field cron).
-When sourceKind=server set serverId; when destinationKind=server set destinationServerId; for S3 set the matching *S3ProfileId.`,
+${DISCOVER_FIRST}
+Required: name, sourceKind, destinationKind, sourceType, sourcePath, destinationPath, schedule (5-field cron).
+When sourceKind=server set serverId from find_server; for docker_volume use list_docker_volumes; for database use get_container_db_hints + test_database.`,
       inputSchema: z.object({
         config: z
           .record(z.string(), z.unknown())
@@ -57,7 +156,7 @@ When sourceKind=server set serverId; when destinationKind=server set destination
     'update_backup',
     {
       title: 'Update backup',
-      description: `Replace a backup configuration by id with a full config object. ${BACKUP_GUIDE}`,
+      description: `Replace a backup configuration by id with a full config object. ${BACKUP_GUIDE} ${DISCOVER_FIRST}`,
       inputSchema: z.object({
         id: z.string(),
         config: z.record(z.string(), z.unknown()),
@@ -151,7 +250,7 @@ When sourceKind=server set serverId; when destinationKind=server set destination
     'list_servers',
     {
       title: 'List servers',
-      description: 'List SSH servers (secrets redacted).',
+      description: `List SSH servers (secrets redacted). Prefer find_server for a user phrase. ${DISCOVER_FIRST}`,
       inputSchema: z.object({}),
     },
     async () => ops.listServersOp(c)
@@ -162,7 +261,7 @@ When sourceKind=server set serverId; when destinationKind=server set destination
     {
       title: 'Create server',
       description:
-        'Create an SSH server. Transfers require key auth (privateKey, sshKeyId, or systemKeyPath).',
+        'Create an SSH server. Transfers require key auth (privateKey, sshKeyId, or systemKeyPath). Call test_server after create.',
       inputSchema: z.object({
         name: z.string(),
         host: z.string(),
@@ -216,7 +315,7 @@ When sourceKind=server set serverId; when destinationKind=server set destination
     'list_s3_profiles',
     {
       title: 'List S3 profiles',
-      description: 'List S3-compatible storage profiles (secrets redacted).',
+      description: 'List S3-compatible storage profiles (secrets redacted). Never invent profile ids.',
       inputSchema: z.object({}),
     },
     async () => ops.listS3ProfilesOp(c)

@@ -35,9 +35,10 @@ async function handle(req: Request) {
         version: '0.1.0',
       },
       instructions: `You are connected to LazyBackup, a self-hosted From→To backup manager.
-Use list_backups / get_dashboard to inspect state; run_backup to start jobs; create_backup/update_backup for configs.
-Destructive tools (delete_*, restore_history) require confirm=true.
-Never invent server IDs — call list_servers / list_s3_profiles first.`,
+Never invent server, volume, container, or S3 profile names/ids — call find_server, list_docker_volumes, list_docker_containers, get_container_db_hints, list_s3_profiles first.
+Verify with test_server / test_database before create_backup when possible.
+Use list_backups / get_dashboard to inspect state; run_backup to start jobs.
+Destructive tools (delete_*, restore_history) require confirm=true.`,
     }
   )
 
