@@ -55,6 +55,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { parseRsyncOutput } from '../utils/rsync-parser';
 import { selectFilesToDelete, type RetentionAgeUnit } from './file-retention';
+import { assertCanStartBackup } from './concurrent-run';
 import { createBackupHistoryEntry, updateBackupHistoryFailure, updateBackupHistorySuccess } from './history';
 import {
   buildFileRetentionLog,
@@ -1689,6 +1690,8 @@ export async function startBackup(configId: string): Promise<string> {
     if (!config) {
       throw new Error(`Backup configuration with ID ${configId} not found`);
     }
+
+    await assertCanStartBackup(configId);
 
     const historyEntry = await createBackupHistoryEntry(configId);
 

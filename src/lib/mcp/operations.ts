@@ -240,6 +240,9 @@ export async function runBackupOp(ctx: McpOpsContext, id: string) {
     })
     if (!config) throw new Error(`Backup not found: ${id}`)
 
+    const { assertCanStartBackup } = await import('@/lib/backup/concurrent-run')
+    await assertCanStartBackup(config.id)
+
     const historyEntry = {
       id: nanoid(),
       configId: config.id,

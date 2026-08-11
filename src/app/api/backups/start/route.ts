@@ -1,4 +1,5 @@
 import { startBackup } from '@/lib/backup';
+import { isBackupAlreadyRunningError } from '@/lib/backup/concurrent-run';
 import { NextRequest, NextResponse } from 'next/server';
 
 /**
@@ -24,6 +25,12 @@ export async function POST(request: NextRequest) {
       historyId,
     }, { status: 201 });
   } catch (error) {
+    if (isBackupAlreadyRunningError(error)) {
+      return NextResponse.json(
+        { error: error.message, historyId: error.historyId },
+        { status: 409 }
+      );
+    }
     console.error('Error starting backup:', error);
     return NextResponse.json(
       { error: 'Failed to start backup', message: error instanceof Error ? error.message : String(error) },

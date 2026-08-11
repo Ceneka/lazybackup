@@ -106,7 +106,23 @@ export async function scheduleBackup(config: any, timeZone?: string) {
 // Run a backup
 export async function runBackup(config: any) {
   console.log(`Running backup for ${config.name}...`);
-  
+
+  const { assertCanStartBackup, isBackupAlreadyRunningError } = await import(
+    '../backup/concurrent-run'
+  );
+
+  try {
+    await assertCanStartBackup(config.id);
+  } catch (error) {
+    if (isBackupAlreadyRunningError(error)) {
+      console.log(
+        `Skipping scheduled run for ${config.name}: already running (${error.historyId})`
+      );
+      return;
+    }
+    throw error;
+  }
+
   // Create a backup history record
   const historyId = nanoid();
   await db.insert(backupHistory).values({

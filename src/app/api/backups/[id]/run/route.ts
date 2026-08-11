@@ -1,4 +1,8 @@
 import { executeBackup } from '@/lib/backup';
+import {
+  assertCanStartBackup,
+  isBackupAlreadyRunningError,
+} from '@/lib/backup/concurrent-run';
 import { db } from '@/lib/db';
 import { backupConfigs, backupHistory } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
@@ -29,6 +33,21 @@ export async function POST(
         { error: 'Backup configuration not found' },
         { status: 404 }
       );
+    }
+
+    try {
+      await assertCanStartBackup(config.id);
+    } catch (error) {
+      if (isBackupAlreadyRunningError(error)) {
+        return NextResponse.json(
+          {
+            error: error.message,
+            historyId: error.historyId,
+          },
+          { status: 409 }
+        );
+      }
+      throw error;
     }
 
     // Create a history entry for this backup execution
