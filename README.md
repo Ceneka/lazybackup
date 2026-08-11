@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/Ceneka/lazybackup/actions/workflows/ci.yml/badge.svg)](https://github.com/Ceneka/lazybackup/actions/workflows/ci.yml) · **[lazy.zic.ar](https://lazy.zic.ar)** · **[GitHub](https://github.com/Ceneka/lazybackup)**
 
-LazyBackup is a self-hosted web app for managing backups between endpoints: **this host (local)** or any configured **Server**. Connect over SSH, schedule jobs with cron, and transfer filesystem paths or Docker volumes with rsync/scp—including **server→server** (ephemeral direct or relay).
+LazyBackup is a self-hosted web app for managing backups between endpoints: **this host (local)**, any configured **Server**, or **S3-compatible** storage. Connect over SSH, schedule jobs with cron, and transfer filesystem paths, Docker volumes, or logical database dumps—including **server→server** (ephemeral direct or relay) and landings on S3.
 
 Marketing site (static): [`landing/`](./landing) → [lazy.zic.ar](https://lazy.zic.ar) · [Features](https://lazy.zic.ar/features)
 
@@ -11,13 +11,15 @@ Marketing site (static): [`landing/`](./landing) → [lazy.zic.ar](https://lazy.
 - **From → To** — Endpoints: this host, SSH servers, or S3-compatible storage (MinIO, R2, B2, AWS, …)
 - **Server → Server** — Ephemeral SSH key for direct rsync, or relay via the LazyBackup host when peers can’t reach each other
 - **Server management** — Add, edit, and test VPS connections (password or SSH key auth)
-- **Backup jobs** — Paths or Docker volumes, cron schedules, exclude patterns, and pre-backup shell commands
-- **Docker volumes** — Discover named volumes on a source server, pack as `.tar.gz` to a destination path, restore from History (local artifact)
+- **Backup jobs** — Paths, Docker volumes, or database dumps; cron schedules; exclude patterns; pre-backup shell commands
+- **Docker volumes** — Discover named volumes on a source server, pack as `.tar.gz` to a destination path/prefix, restore from History
+- **Database dumps** — Postgres / MySQL / MariaDB → `.sql.gz` (native client or `docker exec`); restore from History
+- **S3 profiles** — Source prefixes and destination prefixes for path trees and archives
 - **Versioned backups** — Optional timestamped snapshots with automatic count-based retention
 - **File retention** — Optional age-based cleanup for dump-style destinations (keep a minimum number of files)
 - **Automated scheduling** — In-process cron scheduler; set an app timezone so schedules run when you expect
 - **History & dashboard** — Track runs, view logs, next run times, storage usage, and success rates
-- **Failure webhooks** — Optional HTTPS webhook on backup failure (Settings → General)
+- **Failure webhooks** — Customizable HTTPS webhook on backup failure (method, headers, `{{tag}}` body/URL templates; Discord / Telegram / Kuma / ntfy / Slack presets)
 - **Optional app password** — Single-operator lock (set on first run or later in Settings); session cookie lasts 30 days
 - **MCP / API tokens** — Let Cursor, Claude, or other agents manage backups via Streamable HTTP MCP at `/mcp` (Settings → API / MCP)
 
@@ -26,7 +28,7 @@ Marketing site (static): [`landing/`](./landing) → [lazy.zic.ar](https://lazy.
 - **Frontend:** Next.js 15, React 19, Tailwind CSS, shadcn/ui
 - **Backend:** Next.js API routes
 - **Database:** SQLite (libSQL) with Drizzle ORM
-- **Transfer:** rsync (preferred) with scp fallback
+- **Transfer:** rsync (preferred) with scp fallback; S3 via AWS SDK
 - **Runtime:** Bun
 
 ## Getting started
@@ -35,7 +37,7 @@ Marketing site (static): [`landing/`](./landing) → [lazy.zic.ar](https://lazy.
 
 - [Bun](https://bun.sh) 1.0+ (or Node.js 18+)
 - SSH access to your VPS
-- **SSH key authentication** for running backups (password auth works for connection tests only)
+- **SSH key authentication** on each server endpoint used in a backup transfer (rsync/scp run from the LazyBackup host and need a key). Password auth still works for **Test connection** and other `node-ssh` operations (list volumes/containers, etc.)
 - `rsync` and `openssh-client` on the host running LazyBackup
 
 ### Docker (recommended)
@@ -79,11 +81,12 @@ Set `DATABASE_URL` if you want a custom SQLite path (default: `file:./data.db`).
 ## Usage
 
 1. **Optional password** — On first visit, set an app password or skip. Change or remove it later under Settings.
-2. **Add a server** — Servers → add host, user, and SSH credentials. Use **Test connection** to verify rsync/scp (and Docker) availability.
-3. **Create a backup** — Backups → pick **From** and **To** (local or server), then **filesystem path** or **Docker volume** (volume sources need a source server). Default dest is still `/backups/<server>/<name>` on this host when To is local. For volumes, LazyBackup lists remote named volumes and lands a `.tar.gz` at the destination path. Optionally enable versioning and/or age-based file retention.
-4. **Timezone** — Settings → choose the timezone used for cron schedules and “next run” times.
-5. **Run or schedule** — Trigger a manual run or rely on the cron schedule. View results, logs, and on-disk storage under History and each backup’s detail page.
-6. **Restore (Docker volumes)** — On a successful volume backup in History, use **Restore Docker Volume** to push the archive back and extract into a named volume (creates the volume if missing). Restores data only — not images, networks, or compose files.
+2. **Add a server** — Servers → add host, user, and SSH credentials. Use **Test connection** to verify rsync/scp (and Docker) availability. Prefer an SSH key for any server you will back up from or to.
+3. **(Optional) S3 profile** — S3 Profiles → endpoint, bucket, and keys (path-style for MinIO/R2/B2 as needed).
+4. **Create a backup** — Backups → pick **From** and **To** (local, server, or S3), then **filesystem path**, **Docker volume** (volume sources need a source server), or **database**. Default dest is still `/backups/<server>/<name>` on this host when To is local. Optionally enable versioning and/or age-based file retention.
+5. **Timezone** — Settings → choose the timezone used for cron schedules and “next run” times.
+6. **Run or schedule** — Trigger a manual run or rely on the cron schedule. View results, logs, and storage under History and each backup’s detail page.
+7. **Restore** — On a successful volume or database backup in History, restore into a named volume or pipe into `psql`/`mysql`. Artifacts on S3 are downloaded first; path-tree restores are not a one-click UI action.
 
 ### MCP (agent access)
 
@@ -112,7 +115,13 @@ The token has full operator access (same gate as the UI). Prefer HTTPS or a trus
 
 ### Failure notifications
 
-Set a **Failure webhook URL** under Settings → General. When a backup fails, LazyBackup POSTs JSON:
+Under **Settings → General**, configure a failure webhook:
+
+- **Method** — `GET`, `POST`, or `PUT`
+- **URL / headers / body** — support `{{tags}}` (`{{event}}`, `{{backupName}}`, `{{configId}}`, `{{historyId}}`, `{{errorMessage}}`, `{{endedAt}}`)
+- **Presets** — Default JSON, Discord, Telegram, Uptime Kuma (push), ntfy, Slack
+
+Empty body (POST/PUT) sends the built-in JSON:
 
 ```json
 {
@@ -125,13 +134,13 @@ Set a **Failure webhook URL** under Settings → General. When a backup fails, L
 }
 ```
 
-Use any HTTPS receiver (Slack incoming webhook, Discord, ntfy, custom). `http://` is allowed only for localhost/LAN. Empty URL disables notifications. Use **Send test notification** to verify the endpoint.
+HTTPS is required (`http://` only for localhost/LAN). Empty URL disables notifications. Use **Send test notification** to verify.
 
 ### Docker volume notes
 
 - The SSH user needs permission to run `docker` (typically membership in the `docker` group).
 - Packing uses a temporary `alpine` helper container; the remote host must be able to pull/run that image.
-- Live database volumes can be inconsistent if written during backup — stop the service first via pre-backup commands (e.g. `docker compose stop db`) when you need a consistent snapshot.
+- Live database volumes can be inconsistent if written during backup — prefer the **database** source type for logical dumps, or stop the service first via pre-backup commands when you need a consistent filesystem snapshot.
 
 ### Environment variables
 
