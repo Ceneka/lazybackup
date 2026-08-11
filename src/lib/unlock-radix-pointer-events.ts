@@ -1,7 +1,12 @@
 /**
- * Radix modal layers can leave pointer-events: none on body/html or orphaned
- * full-screen overlays after close — especially during route transitions.
- * Also clears react-remove-scroll leftovers (data-scroll-locked / padding).
+ * Radix modal layers can leave pointer-events: none on body/html after close —
+ * especially during route transitions. Also clears react-remove-scroll leftovers
+ * (data-scroll-locked / padding).
+ *
+ * Do NOT imperatively remove portal/overlay nodes here: React still owns them and
+ * will throw NotFoundError (removeChild) when it later unmounts the same nodes.
+ * Stuck overlays are handled via CSS (data-[state=closed]:pointer-events-none)
+ * and body/html pointer-events: auto !important in globals.css.
  */
 export function unlockRadixPointerEvents() {
   if (typeof document === "undefined") return
@@ -20,19 +25,6 @@ export function unlockRadixPointerEvents() {
   document.body.style.removeProperty("padding-right")
   document.body.style.removeProperty("margin-right")
   document.body.style.removeProperty("overflow")
-
-  // Closed dialog/sheet overlays that still sit in the DOM after animation
-  document
-    .querySelectorAll(
-      '[data-slot="alert-dialog-overlay"][data-state="closed"], [data-slot="sheet-overlay"][data-state="closed"]'
-    )
-    .forEach((el) => el.remove())
-
-  // Lingering select/popper wrappers with no open content
-  document.querySelectorAll("[data-radix-popper-content-wrapper]").forEach((el) => {
-    const open = el.querySelector('[data-state="open"]')
-    if (!open) el.remove()
-  })
 }
 
 export function scheduleUnlockRadixPointerEvents(delayMs = 150) {

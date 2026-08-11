@@ -1,9 +1,9 @@
 import { AppShell } from "@/components/app-shell";
 import { BodyPointerEventsGuard } from "@/components/body-pointer-events-guard";
 import { Providers } from "@/components/providers";
+import { Toaster } from "@/components/ui/sonner";
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
-import { Toaster } from "sonner";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"] });
@@ -26,8 +26,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
-      <body className={inter.className}>
+    <html lang="en" suppressHydrationWarning>
+      <body className={inter.className} suppressHydrationWarning>
         <Providers>
           <BodyPointerEventsGuard />
           <div className="min-h-screen bg-background flex flex-col">

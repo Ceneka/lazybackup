@@ -108,14 +108,14 @@ export default function BackupsPage() {
                     <div
                       className={`text-xs px-2 py-1 rounded-full ${
                         backup.enabled
-                          ? "bg-green-100 text-green-800"
-                          : "bg-gray-100 text-gray-800"
+                          ? "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300"
+                          : "bg-muted text-muted-foreground"
                       }`}
                     >
                       {backup.enabled ? "Active" : "Disabled"}
                     </div>
                     {duplicateDestinationIds.has(backup.id) && (
-                      <div className="text-xs px-2 py-1 rounded-full bg-amber-100 text-amber-900">
+                      <div className="text-xs px-2 py-1 rounded-full bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-200">
                         Shared destination
                       </div>
                     )}

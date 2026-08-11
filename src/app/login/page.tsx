@@ -1,12 +1,13 @@
 "use client"
 
+import { Logo } from "@/components/logo"
+import { ModeToggle } from "@/components/mode-toggle"
 import { LoadingButton } from "@/components/ui/loading-button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useAuth } from "@/lib/hooks/useAuth"
 import { useRouter, useSearchParams } from "next/navigation"
 import { FormEvent, Suspense, useEffect, useState } from "react"
-import { Logo } from "@/components/logo"
 
 function LoginForm() {
   const auth = useAuth()
@@ -38,7 +39,10 @@ function LoginForm() {
   }
 
   return (
-    <div className="min-h-[70vh] flex items-center justify-center">
+    <div className="relative min-h-[70vh] flex items-center justify-center">
+      <div className="absolute right-0 top-0">
+        <ModeToggle />
+      </div>
       <div className="w-full max-w-sm space-y-6">
         <div className="flex flex-col items-center space-y-3 text-center">
           <Logo className="[&_svg]:h-12 [&_svg]:w-12" />

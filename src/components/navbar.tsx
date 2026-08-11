@@ -12,6 +12,7 @@ import {
 import { useAuth } from "@/lib/hooks/useAuth"
 import { cn } from "@/lib/utils"
 import { Logo } from "@/components/logo"
+import { ModeToggle } from "@/components/mode-toggle"
 import {
   CloudIcon,
   FolderIcon,
@@ -97,6 +98,7 @@ export function Navbar() {
               </Link>
             )
           })}
+          <ModeToggle />
           {showLogout && (
             <Button
               variant="ghost"
@@ -112,69 +114,72 @@ export function Navbar() {
         </nav>
 
         {/* Mobile Navigation */}
-        {/* modal={false}: avoid Radix body pointer-events lock (cleanup can stick and freeze the whole app) */}
-        <Sheet modal={false} open={open} onOpenChange={setOpen}>
-          <SheetTrigger asChild className="md:hidden">
-            <Button variant="outline" size="icon" className="h-9 w-9">
-              <MenuIcon className="h-4 w-4" />
-              <span className="sr-only">Toggle menu</span>
-            </Button>
-          </SheetTrigger>
-          <SheetContent
-            side="right"
-            showOverlay={false}
-            className="flex w-[min(100vw-2rem,20rem)] flex-col gap-0 border-l p-0 sm:max-w-sm"
-          >
-            <SheetHeader className="border-b px-5 py-4 text-left">
-              <SheetTitle className="text-base">
-                <Logo withWordmark className="gap-2 [&_svg]:h-6 [&_svg]:w-6" />
-              </SheetTitle>
-              <SheetDescription className="sr-only">
-                Main navigation
-              </SheetDescription>
-            </SheetHeader>
+        <div className="flex items-center gap-2 md:hidden">
+          <ModeToggle />
+          {/* modal={false}: avoid Radix body pointer-events lock (cleanup can stick and freeze the whole app) */}
+          <Sheet modal={false} open={open} onOpenChange={setOpen}>
+            <SheetTrigger asChild>
+              <Button variant="outline" size="icon" className="h-9 w-9">
+                <MenuIcon className="h-4 w-4" />
+                <span className="sr-only">Toggle menu</span>
+              </Button>
+            </SheetTrigger>
+            <SheetContent
+              side="right"
+              showOverlay={false}
+              className="flex w-[min(100vw-2rem,20rem)] flex-col gap-0 border-l p-0 sm:max-w-sm"
+            >
+              <SheetHeader className="border-b px-5 py-4 text-left">
+                <SheetTitle className="text-base">
+                  <Logo withWordmark className="gap-2 [&_svg]:h-6 [&_svg]:w-6" />
+                </SheetTitle>
+                <SheetDescription className="sr-only">
+                  Main navigation
+                </SheetDescription>
+              </SheetHeader>
 
-            <nav className="flex flex-1 flex-col gap-1 overflow-y-auto px-3 py-4">
-              {navItems.map((item) => {
-                const active = isActivePath(pathname, item.href)
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    onClick={() => setOpen(false)}
-                    className={cn(
-                      "flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-colors",
-                      active
-                        ? "bg-accent text-accent-foreground"
-                        : "text-muted-foreground hover:bg-accent/60 hover:text-foreground"
-                    )}
-                    aria-current={active ? "page" : undefined}
+              <nav className="flex flex-1 flex-col gap-1 overflow-y-auto px-3 py-4">
+                {navItems.map((item) => {
+                  const active = isActivePath(pathname, item.href)
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      onClick={() => setOpen(false)}
+                      className={cn(
+                        "flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-colors",
+                        active
+                          ? "bg-accent text-accent-foreground"
+                          : "text-muted-foreground hover:bg-accent/60 hover:text-foreground"
+                      )}
+                      aria-current={active ? "page" : undefined}
+                    >
+                      <item.icon className="h-4 w-4 shrink-0" />
+                      {item.name}
+                    </Link>
+                  )
+                })}
+              </nav>
+
+              {showLogout && (
+                <div className="border-t px-3 py-3">
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm font-medium text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground"
+                    onClick={() => {
+                      setOpen(false)
+                      auth.logout.mutate()
+                    }}
+                    disabled={auth.logout.isPending}
                   >
-                    <item.icon className="h-4 w-4 shrink-0" />
-                    {item.name}
-                  </Link>
-                )
-              })}
-            </nav>
-
-            {showLogout && (
-              <div className="border-t px-3 py-3">
-                <button
-                  type="button"
-                  className="flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm font-medium text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground"
-                  onClick={() => {
-                    setOpen(false)
-                    auth.logout.mutate()
-                  }}
-                  disabled={auth.logout.isPending}
-                >
-                  <LogOutIcon className="h-4 w-4 shrink-0" />
-                  Logout
-                </button>
-              </div>
-            )}
-          </SheetContent>
-        </Sheet>
+                    <LogOutIcon className="h-4 w-4 shrink-0" />
+                    Logout
+                  </button>
+                </div>
+              )}
+            </SheetContent>
+          </Sheet>
+        </div>
       </div>
     </header>
   )

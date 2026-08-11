@@ -331,8 +331,8 @@ export default function BackupDetailPage() {
                       <span
                         className={`rounded-full px-2 py-1 text-xs ${
                           query.data.enabled
-                            ? "bg-green-100 text-green-800"
-                            : "bg-gray-100 text-gray-800"
+                            ? "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300"
+                            : "bg-muted text-muted-foreground"
                         }`}
                       >
                         {query.data.enabled ? "Active" : "Disabled"}
@@ -350,7 +350,7 @@ export default function BackupDetailPage() {
                   {query.data.excludePatterns && (
                     <div>
                       <dt className="text-sm font-medium text-muted-foreground">Exclude Patterns</dt>
-                      <dd className="mt-1 whitespace-pre-wrap rounded bg-gray-100 p-2 font-mono text-sm">
+                      <dd className="mt-1 whitespace-pre-wrap rounded bg-muted p-2 font-mono text-sm">
                         {query.data.excludePatterns}
                       </dd>
                     </div>
@@ -360,7 +360,7 @@ export default function BackupDetailPage() {
                       <dt className="text-sm font-medium text-muted-foreground">
                         Pre-Backup Commands
                       </dt>
-                      <dd className="mt-1 whitespace-pre-wrap rounded bg-gray-100 p-2 font-mono text-sm">
+                      <dd className="mt-1 whitespace-pre-wrap rounded bg-muted p-2 font-mono text-sm">
                         {query.data.preBackupCommands}
                       </dd>
                     </div>

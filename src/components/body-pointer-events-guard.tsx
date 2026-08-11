@@ -23,15 +23,13 @@ export function BodyPointerEventsGuard() {
   useEffect(() => {
     const unlock = () => unlockRadixPointerEvents()
 
-    // Only watch body/html style — do not observe the whole tree (that fights React).
+    // Only watch body style / scroll lock — not html style.
+    // next-themes writes color-scheme on <html>; observing that re-enters unlock
+    // on every theme change and used to fight React portals.
     const observer = new MutationObserver(unlock)
     observer.observe(document.body, {
       attributes: true,
       attributeFilter: ["style", "data-scroll-locked"],
-    })
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ["style"],
     })
 
     const onVis = () => {

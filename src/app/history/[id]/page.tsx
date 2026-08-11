@@ -249,7 +249,7 @@ export default function HistoryDetailPage() {
                         <AccordionItem value="error">
                           <AccordionTrigger className="text-red-500">Error Message</AccordionTrigger>
                           <AccordionContent>
-                            <div className="bg-red-50 text-red-900 p-4 rounded border border-red-200 whitespace-pre-wrap font-mono text-sm">
+                            <div className="bg-red-50 text-red-900 dark:bg-red-950/50 dark:text-red-200 p-4 rounded border border-red-200 dark:border-red-900 whitespace-pre-wrap font-mono text-sm">
                               {query.data.errorMessage}
                             </div>
                           </AccordionContent>
@@ -265,7 +265,7 @@ export default function HistoryDetailPage() {
                               <AccordionItem value="pre-backup">
                                 <AccordionTrigger>Pre-Backup Commands</AccordionTrigger>
                                 <AccordionContent>
-                                  <div className="bg-blue-50 p-4 rounded border border-blue-200 whitespace-pre-wrap font-mono text-sm max-h-96 overflow-y-auto">
+                                  <div className="bg-blue-50 dark:bg-blue-950/40 p-4 rounded border border-blue-200 dark:border-blue-900 whitespace-pre-wrap font-mono text-sm max-h-96 overflow-y-auto">
                                     {preBackup}
                                   </div>
                                 </AccordionContent>
@@ -277,7 +277,7 @@ export default function HistoryDetailPage() {
                                 {preBackup ? "Backup Transfer" : "Command Output"}
                               </AccordionTrigger>
                               <AccordionContent>
-                                <div className="bg-gray-50 p-4 rounded border border-gray-200 whitespace-pre-wrap font-mono text-sm max-h-96 overflow-y-auto">
+                                <div className="bg-muted p-4 rounded border whitespace-pre-wrap font-mono text-sm max-h-96 overflow-y-auto">
                                   {transfer}
                                 </div>
                               </AccordionContent>
@@ -287,7 +287,7 @@ export default function HistoryDetailPage() {
                               <AccordionItem value="file-retention">
                                 <AccordionTrigger>File Retention</AccordionTrigger>
                                 <AccordionContent>
-                                  <div className="bg-amber-50 p-4 rounded border border-amber-200 whitespace-pre-wrap font-mono text-sm max-h-96 overflow-y-auto">
+                                  <div className="bg-amber-50 dark:bg-amber-950/40 p-4 rounded border border-amber-200 dark:border-amber-900 whitespace-pre-wrap font-mono text-sm max-h-96 overflow-y-auto">
                                     {fileRetention}
                                   </div>
                                 </AccordionContent>
@@ -301,7 +301,7 @@ export default function HistoryDetailPage() {
                         <AccordionItem value="restore">
                           <AccordionTrigger>Restore Output</AccordionTrigger>
                           <AccordionContent>
-                            <div className="bg-green-50 p-4 rounded border border-green-200 whitespace-pre-wrap font-mono text-sm max-h-96 overflow-y-auto">
+                            <div className="bg-green-50 dark:bg-green-950/40 p-4 rounded border border-green-200 dark:border-green-900 whitespace-pre-wrap font-mono text-sm max-h-96 overflow-y-auto">
                               {restoreLog}
                             </div>
                           </AccordionContent>
