@@ -149,10 +149,13 @@ See [`.env.example`](./.env.example) for a copy-paste template.
 ## Development
 
 ```bash
-bun run dev      # Start dev server
-bun run lint     # ESLint
-bun test         # Unit tests (Bun)
+bun run dev         # Start dev server
+bun run lint        # ESLint
+bun test            # Unit tests on the host
+bun run test:docker # Alpine unit tests + production image smoke (musl / GHCR parity)
 ```
+
+`test:docker` builds the Alpine image, runs `bun test` inside it, then starts the production image and hits `/api/health` (migrations + `@libsql` natives). Use this when changing Docker/native deps so host `bun run dev` success doesn’t hide Alpine failures.
 
 See [AGENTS.md](./AGENTS.md) for architecture details aimed at contributors and AI agents.
 

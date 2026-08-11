@@ -35,3 +35,16 @@ jobs:
         run: bun run build
         env:
           DATABASE_URL: file:/tmp/lazybackup-ci.db
+
+  # Production image is Alpine/musl — catch native addon / NFT gaps host glibc misses.
+  docker-alpine:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Alpine unit tests + production smoke
+        run: bash scripts/docker-test.sh
