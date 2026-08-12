@@ -179,7 +179,47 @@ export async function validateBackupConfig(
       }
     }
 
-    if (sourceType === 'docker_volume' && sourceKind !== 'server') {
+    if (sourceType === 'lazybackup_instance') {
+      if (sourceKind !== 'local') {
+        push(
+          checks,
+          'config-source-type',
+          'Source type',
+          'fail',
+          'Instance backups require a local source'
+        );
+      } else if (destinationKind === 'peer') {
+        push(
+          checks,
+          'config-source-type',
+          'Source type',
+          'fail',
+          'Instance backups cannot use Bro destinations'
+        );
+      } else {
+        try {
+          const { assertInstanceExportReadable } = await import(
+            '@/lib/backup/instance-export'
+          );
+          const { dbPath } = await assertInstanceExportReadable();
+          push(
+            checks,
+            'config-source-type',
+            'Source type',
+            'pass',
+            `Instance export ready (${dbPath})`
+          );
+        } catch (error) {
+          push(
+            checks,
+            'config-source-type',
+            'Source type',
+            'fail',
+            error instanceof Error ? error.message : 'SQLite database not readable'
+          );
+        }
+      }
+    } else if (sourceType === 'docker_volume' && sourceKind !== 'server') {
       push(
         checks,
         'config-source-type',

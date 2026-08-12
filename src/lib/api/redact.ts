@@ -42,6 +42,11 @@ export function redactBackup<T extends Record<string, unknown>>(config: T) {
     delete copy.dbPassword;
     copy.hasDbPassword = had;
   }
+  if ('instanceBackupPassphrase' in copy) {
+    const had = Boolean(copy.instanceBackupPassphrase);
+    delete copy.instanceBackupPassphrase;
+    copy.hasInstanceBackupPassphrase = had;
+  }
   if (copy.server && typeof copy.server === 'object') {
     copy.server = redactServer(copy.server as Record<string, unknown>);
   }

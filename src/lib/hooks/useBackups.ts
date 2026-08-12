@@ -25,7 +25,7 @@ export interface Backup {
   destinationS3ProfileId?: string | null
   destinationPeerId?: string | null
   name: string
-  sourceType?: 'path' | 'docker_volume' | 'database'
+  sourceType?: 'path' | 'docker_volume' | 'database' | 'lazybackup_instance'
   sourcePath: string
   destinationPath: string
   schedule: string
@@ -43,6 +43,8 @@ export interface Backup {
   dbUser?: string | null
   dbPassword?: string | null
   hasDbPassword?: boolean
+  instanceBackupPassphrase?: string | null
+  hasInstanceBackupPassphrase?: boolean
   enabled: boolean
   enableEncryption?: boolean
   enableVersioning?: boolean

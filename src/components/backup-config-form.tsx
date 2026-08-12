@@ -42,7 +42,7 @@ export type BackupFormData = {
   destinationServerId: string
   destinationS3ProfileId: string
   destinationPeerId: string
-  sourceType: "path" | "docker_volume" | "database"
+  sourceType: "path" | "docker_volume" | "database" | "lazybackup_instance"
   sourcePath: string
   destinationPath: string
   schedule: string
@@ -57,6 +57,8 @@ export type BackupFormData = {
   dbPassword: string
   /** Edit only: a password is already stored (API never returns it) */
   hasDbPassword?: boolean
+  instanceBackupPassphrase: string
+  hasInstanceBackupPassphrase?: boolean
   enabled: boolean
   enableEncryption: boolean
   enableVersioning: boolean
@@ -94,6 +96,8 @@ export function backupToFormData(backup: Backup): BackupFormData {
     dbUser: backup.dbUser || "",
     dbPassword: "",
     hasDbPassword: Boolean(backup.hasDbPassword),
+    instanceBackupPassphrase: "",
+    hasInstanceBackupPassphrase: Boolean(backup.hasInstanceBackupPassphrase),
     enabled: backup.enabled,
     enableEncryption: Boolean(backup.enableEncryption) || backup.destinationKind === "peer",
     enableVersioning: Boolean(backup.enableVersioning),
@@ -291,7 +295,9 @@ export function BackupConfigForm({
       ? `volume:${formData.sourcePath || "…"}`
       : formData.sourceType === "database"
         ? `db:${formData.sourcePath || "…"}`
-        : formData.sourcePath || "…"
+        : formData.sourceType === "lazybackup_instance"
+          ? "LazyBackup data"
+          : formData.sourcePath || "…"
   )} → ${endpointLabel(
     formData.destinationKind,
     formData.destinationServerId,
@@ -326,6 +332,10 @@ export function BackupConfigForm({
           next.sourceType = "path"
           next.serverId = ""
         }
+        if (value !== "local" && next.sourceType === "lazybackup_instance") {
+          next.sourceType = "path"
+          next.sourcePath = ""
+        }
         if (value !== "s3") {
           next.sourceS3ProfileId = ""
         }
@@ -352,6 +362,10 @@ export function BackupConfigForm({
           next.destinationS3ProfileId = ""
           next.enableEncryption = true
           if (!next.destinationPath) next.destinationPath = "backups"
+          if (next.sourceType === "lazybackup_instance") {
+            next.sourceType = "path"
+            next.sourcePath = ""
+          }
         }
       }
       if (key === "sourceType" && value === "docker_volume") {
@@ -361,6 +375,19 @@ export function BackupConfigForm({
         if (!next.dbHost) next.dbHost = "127.0.0.1"
         if (!next.dbEngine) next.dbEngine = "postgres"
         if (!next.dbClient) next.dbClient = "native"
+      }
+      if (key === "sourceType" && value === "lazybackup_instance") {
+        next.sourceKind = "local"
+        next.serverId = ""
+        next.sourceS3ProfileId = ""
+        next.sourcePath = "lazybackup-instance"
+        next.enableEncryption = false
+        if (next.destinationKind === "peer") {
+          next.destinationKind = "local"
+          next.destinationPeerId = ""
+        }
+        if (!next.name) next.name = "LazyBackup instance"
+        if (!next.destinationPath) next.destinationPath = "/backups/_lazybackup"
       }
       if ((key === "serverId" || key === "sourceType") && next.sourceType === "docker_volume") {
         if (key === "serverId") {
@@ -373,7 +400,7 @@ export function BackupConfigForm({
 
   function handleSwap() {
     if (!canSwap) {
-      toast.error("Cannot swap when source is a Docker volume or database")
+      toast.error("Cannot swap when source is a Docker volume, database, or instance backup")
       return
     }
     setDestinationTouched(true)
@@ -511,7 +538,7 @@ export function BackupConfigForm({
           value={kind}
           onChange={onKindChange}
           idPrefix={idPrefix}
-          allowPeer={!isSource}
+          allowPeer={!isSource && formData.sourceType !== "lazybackup_instance"}
         />
 
         {kind === "server" && (
@@ -612,7 +639,11 @@ export function BackupConfigForm({
               onChange={(e) =>
                 updateField(
                   "sourceType",
-                  e.target.value as "path" | "docker_volume" | "database"
+                  e.target.value as
+                    | "path"
+                    | "docker_volume"
+                    | "database"
+                    | "lazybackup_instance"
                 )
               }
               disabled={kind === "s3"}
@@ -622,6 +653,9 @@ export function BackupConfigForm({
               </option>
               {kind === "server" && <option value="docker_volume">Docker volume</option>}
               {kind !== "s3" && <option value="database">Database dump</option>}
+              {kind === "local" && (
+                <option value="lazybackup_instance">LazyBackup instance data</option>
+              )}
             </select>
           </div>
         )}
@@ -686,6 +720,12 @@ export function BackupConfigForm({
               </Alert>
             )}
           </div>
+        ) : isSource && formData.sourceType === "lazybackup_instance" ? (
+          <p className="text-sm text-muted-foreground">
+            Packs this instance&apos;s SQLite database, age encryption vault, and SSH
+            keys. Restore is manual (replace DB / import keys). Prefer a passphrase
+            wrap below for untrusted destinations.
+          </p>
         ) : !(isSource && formData.sourceType === "database") ? (
           <div className="space-y-1">
             <label className="text-xs text-muted-foreground" htmlFor={`${idPrefix}-path`}>
@@ -1171,7 +1211,8 @@ export function BackupConfigForm({
           </p>
         </div>
 
-        {formData.sourceType !== "database" && (
+        {formData.sourceType !== "database" &&
+          formData.sourceType !== "lazybackup_instance" && (
           <div className="space-y-2">
             <label htmlFor="excludePatterns" className="block text-sm font-medium">
               Exclude patterns
@@ -1187,7 +1228,8 @@ export function BackupConfigForm({
           </div>
         )}
 
-        {formData.sourceKind !== "s3" && (
+        {formData.sourceKind !== "s3" &&
+          formData.sourceType !== "lazybackup_instance" && (
           <div className="space-y-2">
             <label htmlFor="preBackupCommands" className="block text-sm font-medium">
               Pre-backup commands
@@ -1207,6 +1249,31 @@ export function BackupConfigForm({
           </div>
         )}
 
+        {formData.sourceType === "lazybackup_instance" && (
+          <div className="space-y-2">
+            <label htmlFor="instanceBackupPassphrase" className="block text-sm font-medium">
+              Archive passphrase (optional)
+            </label>
+            <input
+              id="instanceBackupPassphrase"
+              type="password"
+              className={inputClass}
+              value={formData.instanceBackupPassphrase}
+              onChange={(e) => updateField("instanceBackupPassphrase", e.target.value)}
+              placeholder={
+                formData.hasInstanceBackupPassphrase
+                  ? "Leave blank to keep existing passphrase"
+                  : "age passphrase wrap for the archive"
+              }
+              autoComplete="new-password"
+            />
+            <p className="text-xs text-muted-foreground">
+              Wraps the tarball with age passphrase encryption (not your instance age
+              keys). Store the passphrase in a password manager.
+            </p>
+          </div>
+        )}
+
         <div className="flex items-center">
           <input
             id="enabled"
@@ -1220,6 +1287,7 @@ export function BackupConfigForm({
           </label>
         </div>
 
+        {formData.sourceType !== "lazybackup_instance" && (
         <div className="flex items-start">
           <input
             id="enableEncryption"
@@ -1238,6 +1306,7 @@ export function BackupConfigForm({
             </span>
           </label>
         </div>
+        )}
 
         <div className="flex items-center">
           <input
@@ -1384,6 +1453,7 @@ export function defaultCreateFormData(prefillServerId?: string): BackupFormData 
     dbPort: "",
     dbUser: "",
     dbPassword: "",
+    instanceBackupPassphrase: "",
     enabled: true,
     enableEncryption: false,
     enableVersioning: false,
@@ -1392,6 +1462,19 @@ export function defaultCreateFormData(prefillServerId?: string): BackupFormData 
     retentionMaxAge: 30,
     retentionMaxAgeUnit: "days",
     retentionMinKeep: 5,
+  }
+}
+
+export function defaultInstanceBackupFormData(): BackupFormData {
+  return {
+    ...defaultCreateFormData(),
+    name: "LazyBackup instance",
+    sourceKind: "local",
+    serverId: "",
+    sourceType: "lazybackup_instance",
+    sourcePath: "lazybackup-instance",
+    destinationPath: "/backups/_lazybackup",
+    enableEncryption: false,
   }
 }
 
@@ -1407,13 +1490,20 @@ export function formDataToPayload(data: BackupFormData) {
       data.destinationKind === "s3" ? data.destinationS3ProfileId : null,
     destinationPeerId: data.destinationKind === "peer" ? data.destinationPeerId : null,
     sourceType: data.sourceType,
-    sourcePath: data.sourcePath,
+    sourcePath:
+      data.sourceType === "lazybackup_instance"
+        ? "lazybackup-instance"
+        : data.sourcePath,
     destinationPath: data.destinationPath,
     schedule: data.schedule,
     excludePatterns:
-      data.sourceType === "database" ? undefined : data.excludePatterns || undefined,
+      data.sourceType === "database" || data.sourceType === "lazybackup_instance"
+        ? undefined
+        : data.excludePatterns || undefined,
     preBackupCommands:
-      data.sourceKind === "s3" ? undefined : data.preBackupCommands || undefined,
+      data.sourceKind === "s3" || data.sourceType === "lazybackup_instance"
+        ? undefined
+        : data.preBackupCommands || undefined,
     dbEngine: data.sourceType === "database" ? data.dbEngine : null,
     dbClient: data.sourceType === "database" ? data.dbClient : null,
     dbContainer:
@@ -1427,8 +1517,17 @@ export function formDataToPayload(data: BackupFormData) {
         : null,
     dbUser: data.sourceType === "database" ? data.dbUser : null,
     dbPassword: data.sourceType === "database" ? data.dbPassword : null,
+    instanceBackupPassphrase:
+      data.sourceType === "lazybackup_instance"
+        ? data.instanceBackupPassphrase || null
+        : null,
     enabled: data.enabled,
-    enableEncryption: data.destinationKind === "peer" ? true : data.enableEncryption,
+    enableEncryption:
+      data.sourceType === "lazybackup_instance"
+        ? false
+        : data.destinationKind === "peer"
+          ? true
+          : data.enableEncryption,
     enableVersioning: data.enableVersioning,
     versionsToKeep: data.versionsToKeep,
     enableFileRetention: data.enableFileRetention,

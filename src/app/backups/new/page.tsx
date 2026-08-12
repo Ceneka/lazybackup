@@ -4,6 +4,7 @@ import {
   BackupConfigForm,
   cloneToFormData,
   defaultCreateFormData,
+  defaultInstanceBackupFormData,
   formDataToPayload,
   type BackupFormData,
 } from "@/components/backup-config-form"
@@ -24,6 +25,7 @@ function NewBackupForm() {
   const [saving, setSaving] = useState(false)
   const prefillServerId = searchParams.get("serverId") || undefined
   const cloneFromId = searchParams.get("cloneFrom") || ""
+  const prefillInstance = searchParams.get("source") === "lazybackup_instance"
 
   const cloneQuery = useBackup(cloneFromId)
   const serversQuery = useQuery<Server[]>({
@@ -65,7 +67,9 @@ function NewBackupForm() {
   const initialData =
     cloning && cloneQuery.data
       ? cloneToFormData(cloneQuery.data)
-      : defaultCreateFormData(prefillServerId)
+      : prefillInstance
+        ? defaultInstanceBackupFormData()
+        : defaultCreateFormData(prefillServerId)
 
   const formReady =
     !serversQuery.isLoading &&

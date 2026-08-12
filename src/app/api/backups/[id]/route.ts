@@ -137,6 +137,12 @@ export async function PUT(
         ? validatedData.dbPassword
         : existing.dbPassword;
 
+    const instanceBackupPassphrase =
+      validatedData.instanceBackupPassphrase &&
+      String(validatedData.instanceBackupPassphrase).trim()
+        ? validatedData.instanceBackupPassphrase
+        : existing.instanceBackupPassphrase;
+
     // First stop any existing cron job
     stopBackup(id);
 
@@ -145,6 +151,7 @@ export async function PUT(
       .set({
         ...validatedData,
         dbPassword,
+        instanceBackupPassphrase,
         lastValidatedAt: null,
         lastValidationOk: null,
         lastValidationChecks: null,

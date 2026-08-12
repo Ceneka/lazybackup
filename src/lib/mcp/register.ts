@@ -5,8 +5,9 @@ import * as discovery from './discovery'
 import * as ops from './operations'
 
 const BACKUP_GUIDE = `LazyBackup From→To: sourceKind/destinationKind are local|server|s3.
-sourceType: path | docker_volume (server source only) | database (local or server).
+sourceType: path | docker_volume (server source only) | database (local or server) | lazybackup_instance (local only; packs SQLite + keys).
 S3 sources only support sourceType=path. Destinations are paths or S3 prefixes.
+lazybackup_instance cannot use Bro destinations; optional instanceBackupPassphrase wraps the archive.
 SSH key required on every server endpoint used in a transfer.`
 
 const DISCOVER_FIRST = `Never invent server names, volume names, container names, or IDs.

@@ -231,4 +231,37 @@ describe('backupConfigSchema', () => {
     expect(parsed.sourceKind).toBe('s3');
     expect(parsed.serverId).toBeNull();
   });
+
+  test('accepts lazybackup_instance and forces local + no age encrypt', () => {
+    const parsed = backupConfigSchema.parse({
+      sourceKind: 'local',
+      destinationKind: 'local',
+      name: 'LB data',
+      sourceType: 'lazybackup_instance',
+      sourcePath: '',
+      destinationPath: '/backups/_lazybackup',
+      schedule: '0 0 * * *',
+      enableEncryption: true,
+      instanceBackupPassphrase: 'secret-pass',
+    });
+    expect(parsed.sourceKind).toBe('local');
+    expect(parsed.sourcePath).toBe('lazybackup-instance');
+    expect(parsed.enableEncryption).toBe(false);
+    expect(parsed.instanceBackupPassphrase).toBe('secret-pass');
+    expect(parsed.serverId).toBeNull();
+  });
+
+  test('rejects lazybackup_instance to peer', () => {
+    const result = backupConfigSchema.safeParse({
+      sourceKind: 'local',
+      destinationKind: 'peer',
+      destinationPeerId: 'peer1',
+      name: 'LB peer',
+      sourceType: 'lazybackup_instance',
+      sourcePath: 'lazybackup-instance',
+      destinationPath: 'backups',
+      schedule: '0 0 * * *',
+    });
+    expect(result.success).toBe(false);
+  });
 });

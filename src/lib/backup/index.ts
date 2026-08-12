@@ -3,6 +3,7 @@ import { backupConfigs, backupHistory, peers, s3Profiles, servers } from '@/lib/
 import { normalizeS3Prefix } from '@/lib/backup/destination';
 import { landLocalFileArtifact } from '@/lib/backup/land-file';
 import { materializeLocalArtifact, packLocalPathArchive } from '@/lib/backup/materialize';
+import { packLazybackupInstance } from '@/lib/backup/instance-export';
 import {
   archiveFileNameForDatabase,
   cleanupLocalDbTmpDir,
@@ -19,7 +20,7 @@ import {
   restoreDockerVolume,
 } from '@/lib/docker/volumes';
 import { decryptLocalFile, isAgeEncryptedPath, stripAgeExtension } from '@/lib/crypto/files';
-import { requireAgeIdentity } from '@/lib/crypto/keys';
+import { requireDecryptIdentities } from '@/lib/crypto/keys';
 import { downloadPeerObject } from '@/lib/peer/client';
 import {
   cleanupS3FileRetention,
@@ -84,7 +85,7 @@ export type BackupConfigWithEndpoints = {
   destinationS3ProfileId?: string | null;
   destinationPeerId?: string | null;
   name: string;
-  sourceType?: 'path' | 'docker_volume' | 'database' | null;
+  sourceType?: 'path' | 'docker_volume' | 'database' | 'lazybackup_instance' | null;
   sourcePath: string;
   destinationPath: string;
   schedule: string;
@@ -97,6 +98,7 @@ export type BackupConfigWithEndpoints = {
   dbPort?: number | null;
   dbUser?: string | null;
   dbPassword?: string | null;
+  instanceBackupPassphrase?: string | null;
   enabled: boolean;
   enableEncryption?: boolean | null;
   enableVersioning: boolean;
@@ -491,8 +493,18 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
       throw new Error('S3 sources only support path (object prefix) backups');
     }
 
+    if (sourceType === 'lazybackup_instance' && sourceKind !== 'local') {
+      throw new Error('LazyBackup instance backups require a local source');
+    }
+    if (sourceType === 'lazybackup_instance' && destinationKind === 'peer') {
+      throw new Error('LazyBackup instance backups cannot use Bro destinations');
+    }
+
     const isPeerDestination = destinationKind === 'peer';
-    const enableEncryption = Boolean(config.enableEncryption) || isPeerDestination;
+    const enableEncryption =
+      sourceType === 'lazybackup_instance'
+        ? false
+        : Boolean(config.enableEncryption) || isPeerDestination;
     const useEncryptedLand = enableEncryption;
 
     // Pre-backup commands (not applicable for S3 sources)
@@ -571,8 +583,46 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
             ? `peer://${config.destinationPeer!.id}/${peerPrefix || ''}`
             : formatS3ArtifactPath(s3DestProfile!.bucket, s3DestinationPrefix || '');
 
-    // --- Database dump source ---
-    if (sourceType === 'database') {
+    // --- LazyBackup instance meta-backup ---
+    if (sourceType === 'lazybackup_instance') {
+      const packed = await packLazybackupInstance({
+        passphrase: config.instanceBackupPassphrase,
+        archiveBaseName: `lazybackup-instance-${timestamp}`,
+      });
+      encryptTmpPaths.push(packed.tmpDir);
+
+      const landed = await landLocalFileArtifact({
+        localFilePath: packed.localPath,
+        archiveName: packed.archiveName,
+        destinationKind: destinationKind as 'local' | 'server' | 's3' | 'peer',
+        localDestination,
+        remoteDestination,
+        destinationServer: config.destinationServer,
+        destSsh,
+        s3DestProfile,
+        s3DestinationPrefix,
+        destinationPeer: config.destinationPeer,
+        peerPrefix: peerPrefix || '',
+      });
+      if (landed.cleanupDestIdentity) {
+        cleanupDestIdentity = landed.cleanupDestIdentity;
+      }
+      destSsh = landed.destSsh;
+      usedMethod = packed.passphraseWrapped
+        ? `lazybackup-instance-passphrase-${landed.usedMethod}`
+        : `lazybackup-instance-${landed.usedMethod}`;
+      artifactPath = landed.artifactPath;
+      backupResult = {
+        stdout: [
+          'Source: LazyBackup instance (SQLite + age vault + SSH keys)',
+          packed.passphraseWrapped ? 'Wrap: age passphrase' : 'Wrap: none (trusted destination)',
+          landed.stdout,
+        ]
+          .filter(Boolean)
+          .join('\n'),
+        stderr: '',
+      };
+    } else if (sourceType === 'database') {
       const dbConn = connectionFromConfig(config);
       const archiveName = archiveFileNameForDatabase(dbConn.database);
       console.log(`Dumping database: ${dbConn.engine}/${dbConn.database}`);
@@ -1394,7 +1444,9 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
     }
 
     const isArchiveTransfer =
-      usedMethod.startsWith('docker') || usedMethod.startsWith('database');
+      usedMethod.startsWith('docker') ||
+      usedMethod.startsWith('database') ||
+      usedMethod.startsWith('lazybackup-instance');
     const parsedOutput =
       isArchiveTransfer && destinationKind === 'local'
         ? {
@@ -1501,12 +1553,12 @@ export async function resolveLocalRestoreArtifact(options: {
   }
 
   if (options.decrypt !== false && isAgeEncryptedPath(localPath)) {
-    const identity = await requireAgeIdentity();
+    const identities = await requireDecryptIdentities();
     const decryptDir =
       tempDir || (await fs.mkdtemp(path.join(os.tmpdir(), 'lazybackup-decrypt-')));
     if (!tempDir) tempDir = decryptDir;
     const outPath = path.join(decryptDir, stripAgeExtension(path.basename(localPath)));
-    await decryptLocalFile(localPath, identity, outPath);
+    await decryptLocalFile(localPath, identities, outPath);
     localPath = outPath;
   }
 

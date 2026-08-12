@@ -59,7 +59,7 @@ describe('resolveLocalRestoreArtifact', () => {
         artifactPath: '/tmp/x.tar.gz',
         destinationKind: 'server',
       })
-    ).rejects.toThrow(/LazyBackup host or S3/i);
+    ).rejects.toThrow(/LazyBackup host/i);
   });
 });
 

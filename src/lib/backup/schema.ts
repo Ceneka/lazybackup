@@ -19,8 +19,10 @@ export const backupConfigSchema = z
     destinationServerId: z.string().nullable().optional(),
     destinationS3ProfileId: z.string().nullable().optional(),
     destinationPeerId: z.string().nullable().optional(),
-    sourceType: z.enum(['path', 'docker_volume', 'database']).default('path'),
-    sourcePath: z.string().min(1, 'Source path is required'),
+    sourceType: z
+      .enum(['path', 'docker_volume', 'database', 'lazybackup_instance'])
+      .default('path'),
+    sourcePath: z.string().default(''),
     destinationPath: z.string().min(1, 'Destination path is required'),
     schedule: z.string().min(1, 'Schedule is required'),
     excludePatterns: z.string().optional(),
@@ -37,6 +39,8 @@ export const backupConfigSchema = z
       .optional(),
     dbUser: z.string().nullable().optional(),
     dbPassword: z.string().nullable().optional(),
+    /** Optional age passphrase wrap for lazybackup_instance (not instance age keys) */
+    instanceBackupPassphrase: z.string().nullable().optional(),
     enabled: z.boolean().default(true),
     enableEncryption: z.boolean().default(false),
     enableVersioning: z.boolean().default(false),
@@ -47,6 +51,14 @@ export const backupConfigSchema = z
     retentionMinKeep: z.coerce.number().min(1).max(10000).optional().default(5),
   })
   .superRefine((data, ctx) => {
+    if (data.sourceType !== 'lazybackup_instance' && !data.sourcePath.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Source path is required',
+        path: ['sourcePath'],
+      });
+    }
+
     if (data.sourceKind === 'server') {
       if (!data.serverId || !data.serverId.trim()) {
         ctx.addIssue({
@@ -119,6 +131,24 @@ export const backupConfigSchema = z
           'Invalid Docker volume name. Names must start with a letter or digit and contain only letters, digits, underscore, period, or hyphen.',
         path: ['sourcePath'],
       });
+    }
+
+    if (data.sourceType === 'lazybackup_instance') {
+      if (data.sourceKind !== 'local') {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'LazyBackup instance backup requires a local source',
+          path: ['sourceKind'],
+        });
+      }
+      if (data.destinationKind === 'peer') {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            'Instance backups cannot use Bro destinations (use passphrase wrap or a trusted path/S3/server)',
+          path: ['destinationKind'],
+        });
+      }
     }
 
     if (data.sourceType === 'database') {
@@ -212,16 +242,35 @@ export const backupConfigSchema = z
   })
   .transform((data) => {
     const isDatabase = data.sourceType === 'database';
+    const isInstance = data.sourceType === 'lazybackup_instance';
     const isPeer = data.destinationKind === 'peer';
     return {
       ...data,
-      serverId: data.sourceKind === 'server' ? data.serverId || null : null,
-      sourceS3ProfileId: data.sourceKind === 's3' ? data.sourceS3ProfileId || null : null,
+      sourceKind: isInstance ? ('local' as const) : data.sourceKind,
+      sourcePath: isInstance ? 'lazybackup-instance' : data.sourcePath,
+      serverId: isInstance
+        ? null
+        : data.sourceKind === 'server'
+          ? data.serverId || null
+          : null,
+      sourceS3ProfileId: isInstance
+        ? null
+        : data.sourceKind === 's3'
+          ? data.sourceS3ProfileId || null
+          : null,
       destinationServerId: data.destinationKind === 'server' ? data.destinationServerId || null : null,
       destinationS3ProfileId:
         data.destinationKind === 's3' ? data.destinationS3ProfileId || null : null,
       destinationPeerId: isPeer ? data.destinationPeerId || null : null,
-      enableEncryption: isPeer ? true : Boolean(data.enableEncryption),
+      // Instance archives use optional passphrase, never instance age keys / Bro encrypt
+      enableEncryption: isInstance
+        ? false
+        : isPeer
+          ? true
+          : Boolean(data.enableEncryption),
+      instanceBackupPassphrase: isInstance
+        ? data.instanceBackupPassphrase ?? null
+        : null,
       dbEngine: isDatabase ? data.dbEngine ?? null : null,
       dbClient: isDatabase ? data.dbClient ?? null : null,
       dbContainer: isDatabase && data.dbClient === 'docker' ? data.dbContainer?.trim() || null : null,
@@ -229,6 +278,8 @@ export const backupConfigSchema = z
       dbPort: isDatabase ? data.dbPort ?? null : null,
       dbUser: isDatabase ? data.dbUser?.trim() || null : null,
       dbPassword: isDatabase ? data.dbPassword ?? '' : null,
+      preBackupCommands: isInstance ? undefined : data.preBackupCommands,
+      excludePatterns: isInstance || isDatabase ? undefined : data.excludePatterns,
     };
   });
 
