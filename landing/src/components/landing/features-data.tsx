@@ -210,6 +210,107 @@ export function IconRelay(props: { className?: string }) {
   );
 }
 
+export function IconCloud(props: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={props.className} aria-hidden>
+      <path
+        d="M7 18a4 4 0 01-.88-7.903A5 5 0 1115.9 6H16a5 5 0 011 9.9H7z"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+export function IconDatabase(props: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={props.className} aria-hidden>
+      <ellipse cx="12" cy="6" rx="7" ry="3" stroke="currentColor" strokeWidth="1.5" />
+      <path
+        d="M5 6v6c0 1.66 3.13 3 7 3s7-1.34 7-3V6M5 12v6c0 1.66 3.13 3 7 3s7-1.34 7-3v-6"
+        stroke="currentColor"
+        strokeWidth="1.5"
+      />
+    </svg>
+  );
+}
+
+export function IconAge(props: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={props.className} aria-hidden>
+      <path
+        d="M12 3l7 4v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V7l7-4z"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M9.5 12l1.5 1.5L14.5 10"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+export function IconUsers(props: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={props.className} aria-hidden>
+      <circle cx="9" cy="8" r="3" stroke="currentColor" strokeWidth="1.5" />
+      <path
+        d="M3 19c0-2.8 2.7-5 6-5s6 2.2 6 5"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+      <circle cx="17" cy="9" r="2.5" stroke="currentColor" strokeWidth="1.5" />
+      <path
+        d="M21 19c0-2.2-1.8-4-4-4-.7 0-1.4.1-2 .4"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+export function IconShield(props: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={props.className} aria-hidden>
+      <path
+        d="M12 3l8 3v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6l8-3z"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M9 12h6M12 9v6"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+export function IconPasskey(props: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={props.className} aria-hidden>
+      <circle cx="9" cy="10" r="3.5" stroke="currentColor" strokeWidth="1.5" />
+      <path
+        d="M12.5 10H20v3h-2v2h-2v-2h-1.5"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 export type FeatureIcon = ComponentType<{ className?: string }>;
 
 export type FeatureHighlight = {
@@ -221,53 +322,48 @@ export type FeatureHighlight = {
 /** Compact cards shown on the home page. */
 export const homeFeatures: readonly FeatureHighlight[] = [
   {
-    title: "From → To anywhere",
-    desc: "Backups are transfers between endpoints: this host or any Server. All four directions work—local↔local, local↔server, server↔server.",
+    title: "From → To endpoints",
+    desc: "Local, SSH servers, and S3-compatible storage (MinIO, R2, B2, AWS). Path, Docker volume, database dump, or instance meta-backup sources.",
     Icon: IconArrows,
   },
   {
     title: "Server → Server",
-    desc: "Ephemeral SSH keys let the source rsync straight to the destination. If they can’t reach each other, LazyBackup relays through the host.",
+    desc: "Ephemeral SSH keys for direct rsync when source can reach dest; otherwise pull then push via the LazyBackup host. S3 always relays.",
     Icon: IconRelay,
   },
   {
+    title: "age encryption vault",
+    desc: "Optional ciphertext before land. Multi-key vault (active / retired / compromised), recovery recipients, passphrase-wrapped key export.",
+    Icon: IconAge,
+  },
+  {
+    title: "Bro Space",
+    desc: "1:1 reciprocal peer storage with invite codes. Blobs are age-encrypted before they leave your machine; hard quotas on each side.",
+    Icon: IconUsers,
+  },
+  {
+    title: "Status posture",
+    desc: "A Status page scores what you already configured—auth, key export, instance backup, password-only SSH, webhooks—and links to fix each gap.",
+    Icon: IconShield,
+  },
+  {
+    title: "Passkeys + app password",
+    desc: "Lock the UI with WebAuthn passkeys and/or a single app password. No users table; 30-day sliding session cookie.",
+    Icon: IconPasskey,
+  },
+  {
+    title: "Database dumps",
+    desc: "Postgres / MySQL / MariaDB logical dumps to .sql.gz—native client or docker exec, with container env hints from docker inspect.",
+    Icon: IconDatabase,
+  },
+  {
     title: "Paths & Docker volumes",
-    desc: "Back up filesystem paths or named Docker volumes on a source server. Volumes pack to .tar.gz and land at a destination path.",
+    desc: "rsync/scp paths, or alpine-pack named volumes to .tar.gz. Restore volume and database jobs from History (local or S3 artifact).",
     Icon: IconDocker,
   },
   {
-    title: "Restore when it matters",
-    desc: "Push a local volume archive back and extract into a named volume on the source server—from History, in the same UI.",
-    Icon: IconRestore,
-  },
-  {
-    title: "Server management",
-    desc: "Add, edit, and test SSH connections. Password auth works for connection tests; SSH keys are required to run transfers.",
-    Icon: IconServer,
-  },
-  {
-    title: "Jobs that fit your stack",
-    desc: "Cron schedules, exclude patterns, pre-backup shell commands, and destinations on this host or another server.",
-    Icon: IconBackup,
-  },
-  {
-    title: "Versioned backups",
-    desc: "Optional timestamped snapshots with automatic count-based retention—keep what you need without manual cleanup.",
-    Icon: IconLayers,
-  },
-  {
-    title: "File retention",
-    desc: "Optional age-based cleanup for dump-style destinations, while keeping a minimum number of files on disk.",
-    Icon: IconRetention,
-  },
-  {
-    title: "History & dashboard",
-    desc: "Track runs, view logs, next run times, storage usage, and success rates from one self-hosted UI.",
-    Icon: IconMonitor,
-  },
-  {
     title: "MCP for agents",
-    desc: "Connect Cursor, Claude, or any MCP client to /mcp with an API token—list, run, and manage backups from chat.",
+    desc: "Streamable HTTP MCP at /mcp with Bearer API tokens. Opt-in remote_exec for shell. Destructive tools need confirm=true.",
     Icon: IconMcp,
   },
 ] as const;
@@ -277,6 +373,8 @@ export type DetailedFeature = {
   title: string;
   summary: string;
   points: readonly string[];
+  /** Optional technical tags shown as monospace chips */
+  tags?: readonly string[];
   Icon: FeatureIcon;
 };
 
@@ -285,144 +383,174 @@ export const detailedFeatures: readonly DetailedFeature[] = [
   {
     id: "from-to",
     title: "From → To transfers",
+    tags: ["sourceKind", "destinationKind", "local|server|s3|peer"],
     summary:
-      "Every backup is a transfer between two endpoints: this LazyBackup host (local) or any configured Server. Pick From and To independently.",
+      "Every backup is a transfer between endpoints. Sources: local host, SSH server, or S3 object prefix. Destinations: local, server, S3, or Bro peer.",
     points: [
-      "All four directions: local→local, local→server, server→local, and server→server.",
-      "Default for new jobs remains Server → Local under /backups/<server>/<name>.",
-      "Destination uniqueness is per endpoint—local path, or the same remote server + path.",
+      "Directions include local↔local, local↔server, server↔server, and any side with S3 (S3 sources are path/prefix only).",
+      "Default for new jobs remains Server → Local under /backups/<server-slug>/<backup-slug>.",
+      "Destination uniqueness is per endpoint: local path, (destinationServerId, path), or (destinationS3ProfileId, prefix).",
     ],
     Icon: IconArrows,
   },
   {
+    id: "source-types",
+    title: "Source types",
+    tags: ["path", "docker_volume", "database", "lazybackup_instance"],
+    summary:
+      "Four source types. Destinations are always paths or object prefixes—never “to a volume.”",
+    points: [
+      "path — filesystem tree or S3 prefix; rsync preferred, scp fallback.",
+      "docker_volume — named volume on a source server only; alpine packs .tar.gz (not a consistent live-DB backup).",
+      "database — Postgres / MySQL / MariaDB logical dump → .sql.gz via native client or docker exec (local or server).",
+      "lazybackup_instance — packs SQLite + age vault + SSH keys; optional age passphrase wrap (not the instance age key).",
+    ],
+    Icon: IconBackup,
+  },
+  {
     id: "server-to-server",
     title: "Server → Server (direct or relay)",
+    tags: ["ephemeral SSH", "relay"],
     summary:
-      "When both ends are servers, LazyBackup prefers a direct path so data never has to bounce through your backup host.",
+      "When both ends are servers, prefer a direct path so data does not bounce through the backup host.",
     points: [
       "Installs an ephemeral SSH key on the destination so the source can rsync directly.",
       "If the source cannot reach the destination, LazyBackup relays: pull to the host, then push.",
-      "Keys are cleaned up after the run—no permanent trust between your VMs.",
+      "S3 transfers always relay via the LazyBackup host. Ephemeral keys are cleaned up after the run.",
     ],
     Icon: IconRelay,
   },
   {
-    id: "paths-and-volumes",
-    title: "Filesystem paths & Docker volumes",
+    id: "s3",
+    title: "S3-compatible profiles",
+    tags: ["@aws-sdk/client-s3", "forcePathStyle"],
     summary:
-      "Source type is either a path or a Docker volume. Destinations are always paths—never “to a volume.”",
+      "MinIO, Cloudflare R2, Backblaze B2, AWS, and other S3-compatible endpoints as source prefixes or destinations.",
     points: [
-      "Path sources use rsync (preferred) with scp fallback across local and remote endpoints.",
-      "Docker volume sources run on a source server only: alpine packs a named volume to .tar.gz.",
-      "The archive lands at the destination path (local disk or another server).",
-      "Remote hosts need docker + alpine available; use pre-backup commands to stop writers for consistency.",
+      "Custom endpoint + region + path-style for MinIO/R2/B2.",
+      "S3 sources only support sourceType=path (object prefix).",
+      "Encrypted artifacts and instance archives land as ordinary objects under a prefix.",
     ],
-    Icon: IconDocker,
+    Icon: IconCloud,
+  },
+  {
+    id: "encryption",
+    title: "age encryption vault",
+    tags: ["age_keys", "recovery recipients", "enableEncryption"],
+    summary:
+      "Optional client-side age encryption before land. Bro destinations force encryption. Private identities stay on this instance.",
+    points: [
+      "Vault statuses: active (used for new encrypts), retired, compromised—decrypt tries all stored identities.",
+      "Create new key demotes the previous active to retired (never silent overwrite).",
+      "Every encrypt includes the active recipient plus all recovery recipients (offline age1… keys).",
+      "Passphrase-wrapped identity export for password managers; export acknowledgment checklist + Status nag when missing.",
+    ],
+    Icon: IconAge,
+  },
+  {
+    id: "bro",
+    title: "Bro Space",
+    tags: ["destinationKind=peer", "lbpeer_", "/api/peers"],
+    summary:
+      "1:1 reciprocal peer storage between LazyBackup instances. Opaque quota’d blobs; invite-code pairing.",
+    points: [
+      "Artifacts are age-encrypted before upload; the peer never sees plaintext.",
+      "Instances need a reachable base URL (Tailscale / VPN / HTTPS). Tailscale is not bundled in the image.",
+      "Pairing uses /api/peers/pair (invite secret) and /api/peers/store (Bearer lbpeer_).",
+    ],
+    Icon: IconUsers,
+  },
+  {
+    id: "instance-backup",
+    title: "Instance meta-backup",
+    tags: ["lazybackup_instance", "instanceBackupPassphrase"],
+    summary:
+      "Back up LazyBackup itself: SQLite database, age vault secrets, and SSH key rows—schedulable like any other job.",
+    points: [
+      "Settings → Encryption links to New Backup prefilled with source=lazybackup_instance.",
+      "Optional passphrase wraps the tarball with age setPassphrase (avoids encrypting the vault with a key stored inside it).",
+      "Cannot use Bro destinations. Restore is manual (replace DB / import keys)—no in-place auto-restore.",
+    ],
+    Icon: IconLayers,
+  },
+  {
+    id: "status",
+    title: "Status posture",
+    tags: ["GET /api/status", "/status"],
+    summary:
+      "Operator checklist derived from stored config—not a separate monitoring agent.",
+    points: [
+      "Critical / warn / info / ok checks for unlocked UI, missing age key, unexported keys, no recovery recipients, missing or stale instance backup, password-only SSH servers, recent failures, webhooks, remote_exec tokens.",
+      "Each row deep-links to Settings, Backups, or History.",
+      "Refreshes about every minute from a single session-authenticated API.",
+    ],
+    Icon: IconShield,
   },
   {
     id: "restore",
-    title: "Docker volume restore",
+    title: "Restore",
+    tags: ["POST /api/history/:id/restore"],
     summary:
-      "A backup only counts if you can bring it back. Restore is built into History for volume jobs with a local artifact.",
+      "Volume and database restore from History when the artifact is local or downloadable from S3 (or Bro).",
     points: [
-      "Push the local .tar.gz back to the source server and extract into a named volume.",
-      "Creates the volume if missing. Restores data only—not images, networks, or compose files.",
-      "Requires the history artifact on the LazyBackup host (local destination).",
+      "Docker volume: push/extract into a named volume on the source server.",
+      "Database: pipe into psql/mysql (native or docker exec).",
+      ".age artifacts decrypt automatically using all vault identities.",
     ],
     Icon: IconRestore,
   },
   {
     id: "servers",
     title: "Servers & SSH keys",
+    tags: ["node-ssh", "authType password|key"],
     summary:
-      "Manage VPS connections in one place—host, port, user, and credentials—then reuse them as From or To endpoints.",
+      "Manage VPS connections—host, port, user, credentials—then reuse them as From or To.",
     points: [
-      "Password auth can test and connect; transfers need an SSH key on every server endpoint involved.",
-      "Store keys in the app, reference a system path, or attach a saved SSH key record.",
-      "Test connection checks SSH reachability and helpers like rsync/scp (and Docker when relevant).",
+      "Password auth works for Test connection and helpers (list volumes/containers, remote shell).",
+      "Path transfers require an SSH key on every server endpoint involved.",
+      "Store keys in the app, reference a system path, or attach a saved ssh_keys row.",
     ],
     Icon: IconServer,
   },
   {
     id: "jobs",
-    title: "Backup jobs",
+    title: "Jobs, schedule, retention",
+    tags: ["cron", "enableVersioning", "enableFileRetention"],
     summary:
-      "Configure each job once: endpoints, source type, schedule, excludes, and optional pre-backup shell commands on the source.",
+      "Cron in the app timezone, excludes, pre-backup commands, versioned subfolders, and age-based file retention.",
     points: [
-      "Cron expressions run in the app timezone from Settings.",
-      "Pre-backup commands run over SSH or a local shell before the transfer.",
-      "Exclude patterns keep noise out of path backups.",
-    ],
-    Icon: IconBackup,
-  },
-  {
-    id: "versioning",
-    title: "Versioned snapshots",
-    summary:
-      "Optional timestamped subfolders (YYYY-MM-DD_HH-mm-ss) so each run is a discrete snapshot.",
-    points: [
-      "Count-based retention keeps the newest N versions and removes older ones.",
-      "Works for local destinations and remote destinations over SSH.",
-    ],
-    Icon: IconLayers,
-  },
-  {
-    id: "retention",
-    title: "Age-based file retention",
-    summary:
-      "For dump-style destinations (single files landing in a folder), clean up by age while keeping a minimum count.",
-    points: [
-      "Useful for database dumps and similar “new file each run” layouts.",
-      "Runs on local FS or remotely over SSH after a successful backup.",
-    ],
-    Icon: IconRetention,
-  },
-  {
-    id: "schedule",
-    title: "Scheduling & timezone",
-    summary:
-      "An in-process cron scheduler keeps jobs running without an external worker process.",
-    points: [
-      "Set the app timezone so schedules and “next run” match when you expect.",
-      "Enable or disable jobs; restart the scheduler from Settings when needed.",
+      "5-field cron; invalid expressions fail at schedule time.",
+      "Versioning: YYYY-MM-DD_HH-mm-ss subfolders with count-based keep.",
+      "File retention: age + min-keep for dump-style destinations (not with versioning).",
+      "Pre-backup commands: SSH or local shell; Bearer tokens need remote_exec to set/change them.",
     ],
     Icon: IconClock,
   },
   {
-    id: "history",
-    title: "History & dashboard",
-    summary:
-      "See what ran, what failed, how much landed on disk, and what’s coming up next.",
-    points: [
-      "Per-run logs, sizes, status, and artifact paths.",
-      "Dashboard success rates, recent activity, and upcoming schedules.",
-      "Local destinations expose storage stats; remote destinations report a remote marker.",
-    ],
-    Icon: IconMonitor,
-  },
-  {
     id: "auth",
-    title: "Optional app password",
+    title: "App password & passkeys",
+    tags: ["lb_session", "WebAuthn", "webauthn_credentials"],
     summary:
-      "Single-operator lock for the UI and API—no users table, no cloud account.",
+      "Single-operator lock—no users table. Auth enables when a password hash or ≥1 passkey exists.",
     points: [
-      "Set or skip on first run; change or remove later in Settings.",
-      "Session cookie lasts 30 days with sliding expiry.",
-      "On plain HTTP (typical LAN), leave AUTH_COOKIE_SECURE unset so the cookie works.",
+      "App password: argon2 hash in settings; set/skip on first run.",
+      "Passkeys: register in Settings; Sign in with passkey on /login.",
+      "Session cookie lb_session, 30-day sliding expiry. AUTH_COOKIE_SECURE=true only behind HTTPS.",
+      "Middleware checks the session in-process on the Node.js runtime (no HTTP self-fetch).",
     ],
-    Icon: IconLock,
+    Icon: IconPasskey,
   },
   {
     id: "mcp",
     title: "MCP & API tokens",
+    tags: ["/mcp", "Authorization: Bearer", "remote_exec"],
     summary:
-      "A Streamable HTTP MCP endpoint on the same LazyBackup instance so coding agents can manage backups on your home server or VPS—no local bridge process.",
+      "Streamable HTTP MCP on the same instance so coding agents manage backups without a local bridge.",
     points: [
-      "Create Bearer API tokens under Settings → API / MCP (shown once; revoke anytime).",
-      "Point Cursor, Claude, VS Code, or other MCP clients at https://your-host/mcp with Authorization: Bearer …",
-      "One-click Add to Cursor / VS Code, plus copy helpers for Claude config and Claude Code CLI.",
-      "Curated tools: list/run/toggle backups, create/update configs and servers, history, restore—destructive actions need confirm=true.",
-      "Token use updates last-used time and writes an audit log (no secrets).",
+      "Create tokens under Settings → API / MCP (shown once; hashed at rest; revoke anytime).",
+      "Tokens cannot mint tokens—CRUD requires a browser session.",
+      "remote_exec gates exec_command and changing preBackupCommands; sessions always allowed.",
+      "Destructive tools (delete_*, restore_history, exec_command) require confirm=true. Audit log without secrets.",
     ],
     Icon: IconMcp,
   },

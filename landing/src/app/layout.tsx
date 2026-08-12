@@ -18,7 +18,7 @@ export const metadata: Metadata = {
     template: "%s · LazyBackup",
   },
   description:
-    "Self-hosted backup manager: transfer paths or Docker volumes between local and servers (all four directions), schedule jobs, retain snapshots, and restore volumes over SSH.",
+    "Self-hosted From→To backups: local, SSH, S3; path, Docker volume, database, instance meta-backup; age vault, Bro Space, passkeys, Status posture, MCP.",
   icons: {
     icon: [
       { url: "/favicon.ico" },
@@ -29,7 +29,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: "LazyBackup — From → To backups for your servers",
     description:
-      "Paths or Docker volumes, local↔server and server→server (ephemeral or relay). Schedule, retain, restore—self-hosted.",
+      "Endpoints, age encryption vault, Bro Space, instance backup, Status checks, passkeys, MCP—self-hosted.",
     type: "website",
   },
   keywords: [
@@ -37,6 +37,9 @@ export const metadata: Metadata = {
     "server to server backup",
     "ssh docker volume backup",
     "docker volume restore",
+    "age encryption backup",
+    "s3 backup self hosted",
+    "mcp backup",
     "vps backup",
     "self-hosted backup",
     "rsync ssh backup",

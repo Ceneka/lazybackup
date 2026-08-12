@@ -16,17 +16,17 @@ const steps = [
   {
     step: 1,
     title: "Deploy",
-    desc: "Run LazyBackup on any host—Docker image or Bun—with SSH access to the machines you care about.",
+    desc: "Run LazyBackup on any host—Docker image or Bun—with SSH keys mounted and volumes for SQLite + backup storage.",
   },
   {
     step: 2,
     title: "Pick From → To",
-    desc: "Choose local or server endpoints, then a path or Docker volume source. Schedule or run once.",
+    desc: "Local, server, or S3 endpoints; path, volume, database, or instance source. Enable age encryption or Bro when you need ciphertext.",
   },
   {
     step: 3,
-    title: "Monitor, restore, or ask an agent",
-    desc: "Watch logs in the dashboard, restore when you need to—or connect Cursor/Claude via MCP with an API token.",
+    title: "Monitor & harden",
+    desc: "History, restore, Status posture checklist, passkeys, and optional MCP so agents manage the same instance.",
   },
 ] as const;
 
@@ -99,7 +99,7 @@ export default function Home() {
           <div>
             <p className="mb-5 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs font-medium text-slate-400 backdrop-blur-sm">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.8)]" />
-              Self-hosted · From → To · open source
+              Self-hosted · From → To · age · MCP
             </p>
             <h1 className="text-4xl font-semibold leading-[1.08] tracking-tight sm:text-5xl md:text-6xl">
               <span className="text-gradient">LazyBackup</span>
@@ -109,11 +109,11 @@ export default function Home() {
               </span>
             </h1>
             <p className="mt-6 max-w-xl text-lg leading-relaxed text-slate-400">
-              Connect servers over SSH and move paths or Docker volumes From → To—
-              this host or another server, including server→server with ephemeral
-              keys or relay. Schedule jobs, keep versioned snapshots, and restore
-              when something breaks. Optional MCP lets Cursor or Claude manage the
-              same instance. No agents on your VPS, no cloud lock-in.
+              Move paths, Docker volumes, and database dumps between this host,
+              SSH servers, and S3—plus Bro peer storage and an instance
+              meta-backup. Optional age encryption vault, passkeys, a Status
+              posture page, and MCP for Cursor/Claude. No agents on your VPS,
+              no cloud lock-in.
             </p>
             <div className="mt-9 flex flex-wrap items-center gap-4">
               <Link
@@ -126,16 +126,16 @@ export default function Home() {
                 href="/features"
                 className="inline-flex items-center justify-center rounded-xl border border-white/15 bg-white/[0.04] px-6 py-3.5 text-sm font-medium text-slate-200 backdrop-blur-sm transition hover:border-white/25 hover:bg-white/[0.07]"
               >
-                Explore features
+                Feature reference
               </Link>
             </div>
             <dl className="mt-12 grid grid-cols-3 gap-6 border-t border-white/10 pt-10 sm:max-w-md">
               <div>
                 <dt className="text-xs uppercase tracking-wider text-slate-500">
-                  Directions
+                  Endpoints
                 </dt>
                 <dd className="mt-1 text-2xl font-semibold text-slate-100">
-                  All 4
+                  Local / SSH / S3
                 </dd>
               </div>
               <div>
@@ -143,15 +143,15 @@ export default function Home() {
                   Sources
                 </dt>
                 <dd className="mt-1 text-2xl font-semibold text-slate-100">
-                  Path / vol
+                  Path · vol · DB
                 </dd>
               </div>
               <div>
                 <dt className="text-xs uppercase tracking-wider text-slate-500">
-                  Auth
+                  Crypto
                 </dt>
                 <dd className="mt-1 text-2xl font-semibold text-slate-100">
-                  SSH keys
+                  age vault
                 </dd>
               </div>
             </dl>
@@ -165,12 +165,11 @@ export default function Home() {
           <ScrollReveal>
             <div className="mx-auto max-w-2xl text-center">
               <h2 className="text-3xl font-semibold tracking-tight text-slate-100 md:text-4xl">
-                Everything you need, nothing you don’t
+                Built for operators who read logs
               </h2>
               <p className="mt-4 text-lg text-slate-400">
-                From → To between local and servers. Paths or Docker volumes,
-                direct or relayed transfers, schedules, retention, restore, and
-                optional MCP for coding agents.
+                Endpoints, source types, age vault, Bro Space, instance backup,
+                Status checks, and MCP—see the full reference on Features.
               </p>
             </div>
           </ScrollReveal>
@@ -195,7 +194,7 @@ export default function Home() {
                 href="/features"
                 className="inline-flex items-center gap-2 text-sm font-medium text-emerald-300 transition hover:text-emerald-200"
               >
-                Full feature walkthrough
+                Technical feature reference
                 <span aria-hidden>→</span>
               </Link>
             </div>
@@ -364,7 +363,7 @@ export default function Home() {
                 href="/features"
                 className="inline-flex items-center justify-center rounded-xl border border-white/15 px-8 py-4 text-sm font-medium text-slate-200 transition hover:border-white/25 hover:bg-white/[0.05]"
               >
-                Explore features
+                Feature reference
               </Link>
               <Link
                 href="/blog"
