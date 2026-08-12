@@ -1,6 +1,7 @@
 "use client"
 
 import { PageHeader, PageLayout } from "@/components/page-layout"
+import { BackupRecipesEmpty } from "@/components/backup-recipes-empty"
 import { QueryState } from "@/components/ui/query-state"
 import { destinationEndpointKey } from "@/lib/backup/destination"
 import { formatCronExpression } from "@/lib/cron/format"
@@ -88,9 +89,9 @@ export default function BackupsPage() {
         query={query}
         dataLabel="backup configurations"
         errorIcon={<FolderIcon className="h-12 w-12 text-red-500" />}
-        emptyIcon={<FolderIcon className="h-12 w-12 text-muted-foreground" />}
-        emptyMessage="No backup configurations found"
+        isDataEmpty={() => false}
       >
+        {query.data && query.data.length === 0 && <BackupRecipesEmpty />}
         {query.data && query.data.length > 0 && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {query.data.map((backup) => (

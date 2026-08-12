@@ -1478,6 +1478,53 @@ export function defaultInstanceBackupFormData(): BackupFormData {
   }
 }
 
+/** Starter recipes for empty-state deep links (`?recipe=`). */
+export const BACKUP_RECIPE_IDS = [
+  "database-local",
+  "path-s3",
+  "instance",
+] as const
+
+export type BackupRecipeId = (typeof BACKUP_RECIPE_IDS)[number]
+
+export function isBackupRecipeId(value: string | null | undefined): value is BackupRecipeId {
+  return BACKUP_RECIPE_IDS.includes(value as BackupRecipeId)
+}
+
+export function recipeFormData(recipe: BackupRecipeId): BackupFormData {
+  switch (recipe) {
+    case "database-local":
+      return {
+        ...defaultCreateFormData(),
+        name: "Database dump",
+        sourceKind: "local",
+        serverId: "",
+        sourceType: "database",
+        sourcePath: "postgres",
+        destinationKind: "local",
+        destinationPath: "/backups/databases",
+        dbEngine: "postgres",
+        dbClient: "native",
+        dbHost: "127.0.0.1",
+        schedule: "0 2 * * *",
+      }
+    case "path-s3":
+      return {
+        ...defaultCreateFormData(),
+        name: "Path to S3",
+        sourceKind: "local",
+        serverId: "",
+        sourceType: "path",
+        sourcePath: "/data",
+        destinationKind: "s3",
+        destinationPath: "backups/",
+        schedule: "0 3 * * *",
+      }
+    case "instance":
+      return defaultInstanceBackupFormData()
+  }
+}
+
 export function formDataToPayload(data: BackupFormData) {
   return {
     name: data.name,

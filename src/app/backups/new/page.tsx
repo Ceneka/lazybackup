@@ -6,6 +6,8 @@ import {
   defaultCreateFormData,
   defaultInstanceBackupFormData,
   formDataToPayload,
+  isBackupRecipeId,
+  recipeFormData,
   type BackupFormData,
 } from "@/components/backup-config-form"
 import { QueryState } from "@/components/ui/query-state"
@@ -25,7 +27,10 @@ function NewBackupForm() {
   const [saving, setSaving] = useState(false)
   const prefillServerId = searchParams.get("serverId") || undefined
   const cloneFromId = searchParams.get("cloneFrom") || ""
-  const prefillInstance = searchParams.get("source") === "lazybackup_instance"
+  const recipeParam = searchParams.get("recipe")
+  const recipe = isBackupRecipeId(recipeParam) ? recipeParam : null
+  const prefillInstance =
+    searchParams.get("source") === "lazybackup_instance" || recipe === "instance"
 
   const cloneQuery = useBackup(cloneFromId)
   const serversQuery = useQuery<Server[]>({
@@ -67,9 +72,11 @@ function NewBackupForm() {
   const initialData =
     cloning && cloneQuery.data
       ? cloneToFormData(cloneQuery.data)
-      : prefillInstance
-        ? defaultInstanceBackupFormData()
-        : defaultCreateFormData(prefillServerId)
+      : recipe
+        ? recipeFormData(recipe)
+        : prefillInstance
+          ? defaultInstanceBackupFormData()
+          : defaultCreateFormData(prefillServerId)
 
   const formReady =
     !serversQuery.isLoading &&
@@ -95,7 +102,9 @@ function NewBackupForm() {
         <p className="text-muted-foreground">
           {cloning
             ? "Review the copy, adjust the destination if needed, then save."
-            : "Choose where files come from and where they go — this host or any server."}
+            : recipe
+              ? "Starter recipe applied — adjust paths, credentials, and schedule, then save."
+              : "Choose where files come from and where they go — this host or any server."}
         </p>
       </div>
 
@@ -135,7 +144,14 @@ function NewBackupForm() {
                   servers={servers}
                   initialData={
                     servers.length === 0 && !cloning
-                      ? { ...initialData, sourceKind: "local", serverId: "" }
+                      ? {
+                          ...initialData,
+                          sourceKind:
+                            initialData.sourceKind === "server"
+                              ? "local"
+                              : initialData.sourceKind,
+                          serverId: "",
+                        }
                       : initialData
                   }
                   submitting={saving}
@@ -159,7 +175,7 @@ export default function NewBackupPage() {
   return (
     <Suspense
       fallback={
-        <div className="flex items-center justify-center py-20 text-muted-foreground">
+        <div className="flex justify-center items-center py-20 text-muted-foreground">
           Loading…
         </div>
       }
