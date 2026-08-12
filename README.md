@@ -19,6 +19,7 @@ Marketing site (static): [`landing/`](./landing) → [lazy.zic.ar](https://lazy.
 - **File retention** — Optional age-based cleanup for dump-style destinations (keep a minimum number of files)
 - **Automated scheduling** — In-process cron scheduler; set an app timezone so schedules run when you expect
 - **History & dashboard** — Track runs, view logs, next run times, storage usage, and success rates
+- **Path restore** — One-click restore of path trees from History (local / S3 / Bro artifacts) back to the source path, SSH host, or S3 prefix
 - **Validate before run** — Probe SSH/S3/paths/DB without transferring (backup detail → Validate); last result is stored with a timestamp so you can see status without re-running
 - **Failure webhooks** — Customizable HTTPS webhook on backup failure (method, headers, `{{tag}}` body/URL templates; Discord / Telegram / Kuma / ntfy / Slack presets)
 - **Success pings** — Optional Healthchecks.io / Uptime Kuma-style GET (or POST) when a backup succeeds
@@ -113,7 +114,7 @@ docker compose -f docker-compose.yml -f docker-compose.tailscale.yml up -d
 
    The app shares the Tailscale network namespace (`http://100.x.x.x:3000`). Host port publish is disabled in that mode.
 6. **Run or schedule** — Trigger a manual run or rely on the cron schedule. View results, logs, and storage under History and each backup’s detail page.
-7. **Restore** — On a successful volume or database backup in History, restore into a named volume or pipe into `psql`/`mysql`. Artifacts on S3 are downloaded first; path-tree restores are not a one-click UI action.
+7. **Restore** — On a successful **path**, volume, or database backup in History, restore back to the source (local path, SSH path, S3 prefix, named volume, or DB). Artifacts on S3 or Bro are downloaded first. Backups that landed only on a **remote SSH destination** are not one-click restorable from History (the files are on that host already).
 
 ### MCP (agent access)
 

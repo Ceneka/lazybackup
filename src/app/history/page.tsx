@@ -1,7 +1,10 @@
 "use client"
 
+import { HistoryRestoreButton } from "@/components/history-restore-button"
 import { PageHeader, PageLayout } from "@/components/page-layout"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { DeleteConfirmationDialog } from "@/components/ui/delete-confirmation-dialog"
 import { Input } from "@/components/ui/input"
 import { LoadingButton } from "@/components/ui/loading-button"
 import {
@@ -28,15 +31,29 @@ import {
   TableHeader,
   TableRow
 } from "@/components/ui/table"
-import { usePaginatedHistory } from "@/lib/hooks/useHistory"
+import { canRestoreBackup } from "@/lib/backup/restore-eligibility"
+import { useDeleteHistory, usePaginatedHistory } from "@/lib/hooks/useHistory"
 import { formatBytes } from "@/lib/utils"
 import { format, formatDistance } from "date-fns"
-import { HistoryIcon, RefreshCwIcon, SearchIcon, XIcon } from "lucide-react"
+import { ExternalLinkIcon, HistoryIcon, RefreshCwIcon, SearchIcon, XIcon } from "lucide-react"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Suspense, useEffect, useState } from "react"
 
 const HISTORY_STATUSES = new Set(["running", "success", "failed"])
+
+function historyEndpointLabel(item: {
+  backupConfig?: {
+    sourceKind?: string | null
+    server?: { name?: string | null } | null
+    sourceS3Profile?: { name?: string | null } | null
+  } | null
+}): string {
+  const kind = item.backupConfig?.sourceKind || "server"
+  if (kind === "local") return "this host"
+  if (kind === "s3") return item.backupConfig?.sourceS3Profile?.name || "S3"
+  return item.backupConfig?.server?.name || "—"
+}
 
 function HistoryPageContent() {
   const router = useRouter()
@@ -47,6 +64,8 @@ function HistoryPageContent() {
   const statusFromUrl = HISTORY_STATUSES.has(statusParam) ? statusParam : ""
 
   const [searchTerm, setSearchTerm] = useState("")
+  const { mutate: deleteHistory, isPending: isDeleting } = useDeleteHistory()
+  const [deletingId, setDeletingId] = useState<string | null>(null)
 
   const {
     data,
@@ -216,23 +235,31 @@ function HistoryPageContent() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Backup Config</TableHead>
-                  <TableHead>Server</TableHead>
+                  <TableHead>Source</TableHead>
                   <TableHead>Started</TableHead>
                   <TableHead>Duration</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Size</TableHead>
                   <TableHead className="text-right">Files</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {data?.history?.map((item: any) => (
+                {data?.history?.map((item: any) => {
+                  const showRestore = canRestoreBackup({
+                    status: item.status,
+                    sourceType: item.backupConfig?.sourceType,
+                    destinationKind: item.backupConfig?.destinationKind,
+                    artifactPath: item.artifactPath,
+                  })
+                  return (
                   <TableRow key={item.id}>
                     <TableCell>
                       <Link href={`/history/${item.id}`} className="font-medium hover:underline text-primary">
-                        {item.backupConfig.name}
+                        {item.backupConfig?.name || "Unknown"}
                       </Link>
                     </TableCell>
-                    <TableCell>{item.backupConfig.server.name}</TableCell>
+                    <TableCell>{historyEndpointLabel(item)}</TableCell>
                     <TableCell>
                       <div className="font-medium">
                         {format(new Date(item.startTime), "MMM d, yyyy")}
@@ -261,8 +288,41 @@ function HistoryPageContent() {
                     <TableCell className="text-right">
                       {item.fileCount || "-"}
                     </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex flex-wrap items-center justify-end gap-1">
+                        {showRestore && <HistoryRestoreButton entry={item} />}
+                        <Button variant="ghost" size="sm" asChild>
+                          <Link href={`/history/${item.id}`}>
+                            <ExternalLinkIcon className="h-3.5 w-3.5" />
+                            Open
+                          </Link>
+                        </Button>
+                        <DeleteConfirmationDialog
+                          title="Delete this history entry?"
+                          description="This deletes the history row only. Backup files on disk (if any) are left in place."
+                          isDeleting={isDeleting && deletingId === item.id}
+                          buttonText="Delete"
+                          onDelete={() => {
+                            setDeletingId(item.id)
+                            deleteHistory(item.id, {
+                              onSettled: () => setDeletingId(null),
+                            })
+                          }}
+                        >
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="text-destructive hover:text-destructive"
+                          >
+                            Delete
+                          </Button>
+                        </DeleteConfirmationDialog>
+                      </div>
+                    </TableCell>
                   </TableRow>
-                ))}
+                  )
+                })}
               </TableBody>
             </Table>
           </div>

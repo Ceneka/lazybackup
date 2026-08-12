@@ -6,16 +6,6 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion"
-import {
-  AlertDialog,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -33,14 +23,14 @@ import {
   DetailActionsDivider,
   detailActionDestructiveClassName,
 } from "@/components/ui/detail-actions"
-import { LoadingButton } from "@/components/ui/loading-button"
+import { HistoryRestoreButton } from "@/components/history-restore-button"
 import { QueryState } from "@/components/ui/query-state"
 import { splitBackupLog } from "@/lib/backup/log-format"
 import {
-  canRestoreDockerVolumeBackup,
+  canRestoreBackup,
   restoreBlockedReason,
 } from "@/lib/backup/restore-eligibility"
-import { useDeleteHistory, useHistoryDetail, useRestoreBackupHistory } from "@/lib/hooks/useHistory"
+import { useDeleteHistory, useHistoryDetail } from "@/lib/hooks/useHistory"
 import { formatBytes } from "@/lib/utils"
 import { format, formatDistance } from "date-fns"
 import {
@@ -54,7 +44,7 @@ import {
   ServerIcon,
 } from "lucide-react"
 import { useParams, useRouter } from "next/navigation"
-import { useEffect, useState } from "react"
+import { useState } from "react"
 
 export default function HistoryDetailPage() {
   const router = useRouter()
@@ -63,21 +53,9 @@ export default function HistoryDetailPage() {
   
   const query = useHistoryDetail(id)
   const { mutate: deleteHistory, isPending: isDeleting } = useDeleteHistory()
-  const restoreMutation = useRestoreBackupHistory()
 
-  const [restoreOpen, setRestoreOpen] = useState(false)
-  const [restoreTargetName, setRestoreTargetName] = useState('')
   const [restoreLog, setRestoreLog] = useState<string | null>(null)
 
-  const restoreSourceType = query.data?.backupConfig?.sourceType || 'path'
-  const isDatabaseRestore = restoreSourceType === 'database'
-
-  useEffect(() => {
-    if (query.data?.backupConfig?.sourcePath) {
-      setRestoreTargetName(query.data.backupConfig.sourcePath)
-    }
-  }, [query.data?.backupConfig?.sourcePath])
-  
   const statusColors = {
     running: "bg-blue-500 hover:bg-blue-500",
     success: "bg-green-500 hover:bg-green-500",
@@ -92,7 +70,7 @@ export default function HistoryDetailPage() {
     })
   }
 
-  const canRestore = canRestoreDockerVolumeBackup({
+  const canRestore = canRestoreBackup({
     status: query.data?.status,
     sourceType: query.data?.backupConfig?.sourceType,
     destinationKind: query.data?.backupConfig?.destinationKind,
@@ -106,22 +84,13 @@ export default function HistoryDetailPage() {
     artifactPath: query.data?.artifactPath,
   })
 
-  const handleRestore = () => {
-    const configured = query.data?.backupConfig?.sourcePath || ''
-    const requested = restoreTargetName.trim()
-    const allowRetarget = Boolean(requested && configured && requested !== configured)
-    restoreMutation.mutate(
-      isDatabaseRestore
-        ? { id, databaseName: requested || undefined, allowRetarget }
-        : { id, volumeName: requested || undefined, allowRetarget },
-      {
-        onSuccess: (data) => {
-          setRestoreLog(data.log)
-          setRestoreOpen(false)
-        },
-      }
-    )
-  }
+  const restoreSourceType = query.data?.backupConfig?.sourceType || "path"
+  const restoreLabel =
+    restoreSourceType === "database"
+      ? "Restore DB"
+      : restoreSourceType === "path"
+        ? "Restore path"
+        : "Restore volume"
   
   return (
     <div className="space-y-6">
@@ -338,57 +307,16 @@ export default function HistoryDetailPage() {
                       </DetailActionLink>
                     )}
 
-                    {canRestore && (
-                      <AlertDialog open={restoreOpen} onOpenChange={setRestoreOpen}>
-                        <AlertDialogTrigger asChild>
-                          <DetailActionButton type="button" variant="ghost">
-                            <RotateCcwIcon />
-                            {isDatabaseRestore ? "Restore DB" : "Restore volume"}
-                          </DetailActionButton>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>
-                              {isDatabaseRestore
-                                ? "Restore database dump?"
-                                : "Restore Docker volume?"}
-                            </AlertDialogTitle>
-                            <AlertDialogDescription>
-                              {isDatabaseRestore
-                                ? "This loads the .sql.gz dump into the target database using the backup’s connection settings. Existing objects may be overwritten or conflict depending on the dump contents."
-                                : "This uploads the backup archive to the remote host and extracts it into the target volume. Existing files in that volume will be overwritten. Images, networks, and compose config are not restored."}
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <div className="space-y-2 py-2">
-                            <label htmlFor="restoreTargetName" className="text-sm font-medium">
-                              {isDatabaseRestore ? "Target database name" : "Target volume name"}
-                            </label>
-                            <input
-                              id="restoreTargetName"
-                              value={restoreTargetName}
-                              onChange={(e) => setRestoreTargetName(e.target.value)}
-                              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                              placeholder={
-                                query.data.backupConfig?.sourcePath ||
-                                (isDatabaseRestore ? "database" : "volume-name")
-                              }
-                            />
-                          </div>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel disabled={restoreMutation.isPending}>
-                              Cancel
-                            </AlertDialogCancel>
-                            <LoadingButton
-                              onClick={handleRestore}
-                              isLoading={restoreMutation.isPending}
-                              loadingText="Restoring..."
-                              disabled={!restoreTargetName.trim() || restoreMutation.isPending}
-                            >
-                              Restore
-                            </LoadingButton>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
+                    {canRestore && query.data && (
+                      <HistoryRestoreButton
+                        entry={query.data}
+                        onRestored={(log) => setRestoreLog(log)}
+                      >
+                        <DetailActionButton type="button" variant="ghost">
+                          <RotateCcwIcon />
+                          {restoreLabel}
+                        </DetailActionButton>
+                      </HistoryRestoreButton>
                     )}
 
                     {!canRestore && restoreBlockReason && (

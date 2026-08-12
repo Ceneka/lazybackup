@@ -7,7 +7,7 @@ Guide for AI coding agents. User-facing setup lives in [README.md](./README.md) 
 - Backups are **From → To** transfers between endpoints: **this host (local)**, any configured **Server**, or an **S3-compatible** profile. Directions include local↔local, local↔server, server↔server, and any side with S3 (S3 path sources; archives and path trees can land on S3).
 - Default for new configs remains **Server → Local** (`/backups/<server-slug>/<backup-slug>`). Destination uniqueness is per endpoint (local path, `(destinationServerId, path)`, or `(destinationS3ProfileId, prefix)`).
 - **Server → Server** prefers an **ephemeral SSH key** installed on the destination so the source can rsync directly; if the source cannot reach the dest, LazyBackup **relays** (pull then push via the host). S3 transfers always relay via the LazyBackup host.
-- **Source types:** `path` (filesystem or S3 object prefix), `docker_volume` (named volume on a **source server** only → alpine tar → `.tar.gz`), `database` (Postgres/MySQL/MariaDB logical dump → `.sql.gz` via native client or `docker exec`; local or server source), or **`lazybackup_instance`** (local only; packs SQLite + age vault + SSH keys; optional passphrase wrap). Destinations are paths or S3 prefixes. Volume tar is **not** a consistent live-DB backup — use `database` for that. Restore (volume + database) needs a **local** artifact or downloads from **S3** first.
+- Source types: `path` (filesystem or S3 object prefix), `docker_volume` (named volume on a **source server** only → alpine tar → `.tar.gz`), `database` (Postgres/MySQL/MariaDB logical dump → `.sql.gz` via native client or `docker exec`; local or server source), or **`lazybackup_instance`** (local only; packs SQLite + age vault + SSH keys; optional passphrase wrap). Destinations are paths or S3 prefixes. Volume tar is **not** a consistent live-DB backup — use `database` for that. Restore (path + volume + database) needs a **local** artifact or downloads from **S3**/Bro first; remote SSH destinations are not one-click restorable.
 - For **database + docker client** on a server source, the form can list running containers and auto-fill credentials from `docker inspect` env (`POSTGRES_*` / `MYSQL_*` / `MARIADB_*`).
 - **SSH key required** for any server endpoint involved in a **transfer** (host-side rsync/scp). Password auth works for Test connection and other `node-ssh` operations (list volumes/containers, remote shell cmds); it is not enough alone to pull/push path backups.
 - **Optional app password** (single operator, no users table): first-run set/skip; manage in Settings. Hash in settings → middleware gates pages + `/api/*` (public: `/login`, `/api/auth/*`, `/api/health`). Session cookie `lb_session`, 30-day sliding expiry. **Passkeys** (WebAuthn) can lock the instance alone or alongside the password (`webauthn_credentials`).
@@ -56,7 +56,7 @@ Alias `@/*` → `src/*`. Config: `next.config.ts` (standalone), `docker-compose.
 Browser (useQuery) → /api/* (Zod → Drizzle → JSON) → SQLite
 instrumentation (nodejs, not during build) → migrate → schedule enabled configs
 Backup: resolve From/To → pre-backup cmds → path transfer **or** docker pack **or** database dump → land artifact (FS or S3) → version/file retention → history + artifactPath
-Restore (volume/database, local or S3 dest): history artifact → download from S3 if needed → push/load → extract into volume or pipe into psql/mysql
+Restore (path/volume/database; local, S3, or bro dest): history artifact → download if needed → rsync/push tree, extract volume, or pipe into psql/mysql
 ```
 
 ## Data (`schema.ts`)
@@ -108,7 +108,7 @@ Pattern: Zod → Drizzle → `NextResponse.json`; errors `{ error, details? }`.
 6. Temp SSH identity + `-F /dev/null` (ignore host ssh config); ephemeral keys cleaned in `finally`.
 7. Cleanup: version count and/or age-based file retention (local FS, remote SSH, or S3 delete).
 8. History + `combineBackupLog`; storage stats for local dest (`storage-stats.ts`); remote/S3 dest returns a marker.
-9. **Restore:** `POST /api/history/[id]/restore` → local artifact or download from S3 → volume extract **or** database load.
+9. **Restore:** `POST /api/history/[id]/restore` → local artifact or download from S3/Bro → path tree rsync/push **or** volume extract **or** database load.
 
 ## Frontend
 
@@ -150,7 +150,7 @@ CI publishes GHCR on `main` / `v*` tags (skips docs/`LICENSE`/`landing` via `pat
 6. App password ≠ SSH password; keep `/api/health` public.
 7. `/api/seed` is dev-only. Licensed under MIT (`LICENSE`).
 8. Auth middleware must run on the Node.js runtime and check the session in-process — no self-fetch.
-9. Docker volume sources need remote `docker` + `alpine`; destinations are always paths/prefixes (never “to volume”). Restore requires a **local** artifact or an **S3** download.
+9. Docker volume sources need remote `docker` + `alpine`; destinations are always paths/prefixes (never “to volume”). Restore for path/volume/database requires a **local** artifact or an **S3**/Bro download (not SSH-only destinations).
 10. Server→server ephemeral transfer needs source→dest network reachability; otherwise relay is used.
 11. Database dumps need client tools on the source (`pg_dump`/`mysqldump` or inside the DB container). Do not stream dump SQL through `execCommand` stdout — always write a temp `.sql.gz` then transfer.
 12. S3 sources only support `sourceType=path` (object prefix). Use `@aws-sdk/client-s3` with custom endpoint + path-style for MinIO/R2/B2.

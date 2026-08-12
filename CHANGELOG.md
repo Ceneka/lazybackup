@@ -13,6 +13,10 @@ Versions before a formal `v*` tag are dated unreleased / pre-release notes.
 
 ### Added
 
+- **Path-tree one-click restore** — History → Restore for `sourceType=path` when the
+  artifact is on this host, S3, or Bro; rsync/push back to the local/SSH/S3 source
+  (optional retarget). Encrypted `.tar.gz.age` path archives are decrypted and
+  extracted first. Remote SSH destinations remain out of scope for one-click restore.
 - **Landing changelog sync** — `/changelog` is generated from this file at
   landing build time (`landing/scripts/sync-changelog.ts`); no hand mirror.
 - **Landing compare page** (`/compare`) — LazyBackup vs rsync/cron, with short

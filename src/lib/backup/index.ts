@@ -64,12 +64,6 @@ import {
   sshUserHost,
 } from '@/lib/ssh/rsync';
 import { ensureKnownHostsFile } from '@/lib/ssh/known-hosts';
-import dayjs from 'dayjs';
-import { eq } from 'drizzle-orm';
-import * as fs from 'fs/promises';
-import * as os from 'os';
-import * as path from 'path';
-import { parseRsyncOutput } from '../utils/rsync-parser';
 import { VERSION_DIR_PATTERN } from '@/lib/backup/storage-stats';
 import {
   assertLocalDestinationPath,
@@ -87,7 +81,16 @@ import {
   formatPreBackupCommandLog,
   LOG_SECTION,
 } from './log-format';
+import { execFile } from 'child_process';
+import dayjs from 'dayjs';
+import { eq } from 'drizzle-orm';
+import * as fs from 'fs/promises';
+import * as os from 'os';
+import * as path from 'path';
+import { promisify } from 'util';
+import { parseRsyncOutput } from '../utils/rsync-parser';
 
+const execFileAsync = promisify(execFile);
 type ServerRow = typeof servers.$inferSelect;
 type S3ProfileRow = typeof s3Profiles.$inferSelect;
 type PeerRow = typeof peers.$inferSelect;
@@ -1654,18 +1657,145 @@ export async function resolveLocalRestoreArtifact(options: {
   return { localPath, tempDir };
 }
 
+/** True when an S3 object key (or local basename) looks like a packed path archive. */
+export function looksLikePathArchiveName(name: string): boolean {
+  const lower = name.toLowerCase();
+  return (
+    lower.endsWith('.tar.gz.age') ||
+    lower.endsWith('.tgz.age') ||
+    lower.endsWith('.tar.gz') ||
+    lower.endsWith('.tgz') ||
+    lower.endsWith('.age')
+  );
+}
+
+async function extractTarGzArchive(
+  archivePath: string
+): Promise<{ treePath: string; tempDir: string }> {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'lazybackup-path-extract-'));
+  await execFileAsync('tar', ['-xzf', archivePath, '-C', tempDir], {
+    maxBuffer: 10 * 1024 * 1024,
+  });
+  const entries = await fs.readdir(tempDir);
+  if (entries.length === 1) {
+    return { treePath: path.join(tempDir, entries[0]!), tempDir };
+  }
+  return { treePath: tempDir, tempDir };
+}
+
+/**
+ * Materialize a path-backup tree on this host for restore.
+ * Supports local directories, packed/encrypted archives, S3 prefixes or archive objects, and peer blobs.
+ */
+export async function resolveLocalPathRestoreTree(options: {
+  artifactPath: string;
+  destinationKind?: string | null;
+  destinationS3Profile?: S3ProfileRow | null;
+  destinationPeer?: PeerRow | null;
+  expectedSha256?: string | null;
+  historyId?: string | null;
+}): Promise<{ treePath: string; tempDir: string | null }> {
+  const kind = options.destinationKind || 'local';
+  let tempDir: string | null = null;
+  let localPath: string;
+
+  if (kind === 'local') {
+    await fs.access(options.artifactPath).catch(() => {
+      throw new Error(`Backup artifact not found on disk: ${options.artifactPath}`);
+    });
+    const st = await fs.stat(options.artifactPath);
+    if (st.isDirectory()) {
+      return { treePath: options.artifactPath, tempDir: null };
+    }
+    localPath = options.artifactPath;
+  } else if (kind === 's3') {
+    if (!options.destinationS3Profile) {
+      throw new Error('Destination S3 profile is missing; cannot download path artifact');
+    }
+    const parsed = parseS3ArtifactPath(options.artifactPath);
+    if (!parsed) {
+      throw new Error(`Invalid S3 artifact path: ${options.artifactPath}`);
+    }
+    const profile = toS3ProfileConfig(options.destinationS3Profile);
+    if (parsed.bucket !== profile.bucket) {
+      throw new Error(
+        `Artifact bucket ${parsed.bucket} does not match profile bucket ${profile.bucket}`
+      );
+    }
+    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'lazybackup-path-restore-'));
+    if (looksLikePathArchiveName(parsed.key)) {
+      localPath = path.join(tempDir, path.posix.basename(parsed.key));
+      await downloadFile(profile, parsed.key, localPath);
+    } else {
+      const downloaded = await downloadPrefix(profile, parsed.key, tempDir);
+      if (downloaded.fileCount === 0) {
+        throw new Error(`No objects found under S3 prefix ${options.artifactPath}`);
+      }
+      return { treePath: tempDir, tempDir };
+    }
+  } else if (kind === 'peer') {
+    const resolved = await resolveLocalRestoreArtifact({
+      ...options,
+      decrypt: false,
+    });
+    localPath = resolved.localPath;
+    tempDir = resolved.tempDir;
+  } else {
+    throw new Error(
+      'Path restore is only supported when the backup destination is on the LazyBackup host, S3, or a bro peer'
+    );
+  }
+
+  if (options.expectedSha256) {
+    const st = await fs.stat(localPath);
+    if (st.isFile()) {
+      await assertFileSha256(localPath, options.expectedSha256, 'restore artifact');
+    }
+  }
+
+  if (isAgeEncryptedPath(localPath)) {
+    const identities = await requireDecryptIdentities();
+    const decryptDir =
+      tempDir || (await fs.mkdtemp(path.join(os.tmpdir(), 'lazybackup-path-decrypt-')));
+    if (!tempDir) tempDir = decryptDir;
+    const outPath = path.join(decryptDir, stripAgeExtension(path.basename(localPath)));
+    await decryptLocalFile(localPath, identities, outPath);
+    localPath = outPath;
+  }
+
+  const lower = localPath.toLowerCase();
+  if (lower.endsWith('.tar.gz') || lower.endsWith('.tgz')) {
+    const extracted = await extractTarGzArchive(localPath);
+    if (tempDir && tempDir !== extracted.tempDir) {
+      await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    }
+    return { treePath: extracted.treePath, tempDir: extracted.tempDir };
+  }
+
+  const st = await fs.stat(localPath);
+  if (st.isDirectory()) {
+    return { treePath: localPath, tempDir };
+  }
+
+  throw new Error(
+    `Path restore expects a directory tree or .tar.gz archive, got: ${localPath}`
+  );
+}
+
 export type RestoreTargetOptions = {
   confirm?: boolean;
   allowRetarget?: boolean;
   volumeName?: string;
   databaseName?: string;
+  /** Absolute or ~ path on local / remote source for path restores */
+  targetPath?: string;
 };
 
 function resolveRestoreTarget(
   configured: string,
   requested: string | undefined,
   options: RestoreTargetOptions | undefined,
-  kind: 'volume' | 'database'
+  kind: 'volume' | 'database' | 'path'
 ): string {
   if (!options?.confirm) {
     throw new Error('Refusing to restore: pass confirm=true to proceed');
@@ -1984,6 +2114,150 @@ export async function restoreDatabaseBackup(
   } finally {
     if (downloadTempDir) {
       await fs.rm(downloadTempDir, { recursive: true, force: true }).catch(() => {});
+    }
+  }
+}
+
+/**
+ * Restore a successful path backup onto the original source (local path, SSH path, or S3 prefix).
+ * Artifact must be on this host, in S3, or on a bro peer (not a remote SSH destination).
+ */
+export async function restorePathBackup(
+  historyId: string,
+  options?: RestoreTargetOptions
+): Promise<{ log: string; targetPath: string }> {
+  if (process.env.NEXT_RUNTIME !== 'nodejs') {
+    throw new Error('Not in Node.js environment');
+  }
+
+  const historyEntry = await db.query.backupHistory.findFirst({
+    where: eq(backupHistory.id, historyId),
+    with: {
+      backupConfig: {
+        with: {
+          server: true,
+          destinationServer: true,
+          destinationS3Profile: true,
+          sourceS3Profile: true,
+          destinationPeer: true,
+        },
+      },
+    },
+  });
+
+  if (!historyEntry) {
+    throw new Error('Backup history entry not found');
+  }
+
+  if (historyEntry.status !== 'success') {
+    throw new Error('Only successful backups can be restored');
+  }
+
+  const config = historyEntry.backupConfig;
+  if (!config) {
+    throw new Error('Backup configuration not found for this history entry');
+  }
+
+  if ((config.sourceType || 'path') !== 'path') {
+    throw new Error('This restore path is only for path backups');
+  }
+
+  if (!historyEntry.artifactPath) {
+    throw new Error('This backup has no stored artifact path and cannot be restored');
+  }
+
+  const targetPath = resolveRestoreTarget(
+    config.sourcePath,
+    options?.targetPath,
+    options,
+    'path'
+  );
+
+  const { treePath, tempDir } = await resolveLocalPathRestoreTree({
+    artifactPath: historyEntry.artifactPath,
+    destinationKind: config.destinationKind,
+    destinationS3Profile: config.destinationS3Profile,
+    destinationPeer: config.destinationPeer,
+    expectedSha256: historyEntry.artifactSha256,
+    historyId: historyEntry.id,
+  });
+
+  const sourceKind = config.sourceKind || 'server';
+  const transferLines: string[] = [];
+
+  try {
+    if (sourceKind === 'local') {
+      const dest = expandLocalPath(targetPath);
+      const copied = await localPathCopy(treePath, dest, []);
+      transferLines.push(
+        `Local restore: ${treePath} → ${dest}`,
+        copied.stdout?.trim() ? `--- rsync stdout ---\n${copied.stdout.trim()}` : '',
+        copied.stderr?.trim() ? `--- rsync stderr ---\n${copied.stderr.trim()}` : ''
+      );
+    } else if (sourceKind === 'server') {
+      if (!config.server) {
+        throw new Error('Source server is missing; cannot restore path backup');
+      }
+      const serverConfig = normalizeServer(config.server);
+      let ssh: Awaited<ReturnType<typeof connectToServer>> | null = null;
+      let cleanupIdentity: (() => Promise<void>) | undefined;
+      try {
+        ssh = await connectToServer(serverConfig);
+        const privateKey = await resolvePrivateKeyForServer(serverConfig);
+        const { path: keyPath, cleanup: cleanupKeyFile } =
+          await writeTemporarySshIdentityFile(privateKey);
+        cleanupIdentity = cleanupKeyFile;
+        const push = await pushPathToServer({
+          ssh,
+          server: config.server,
+          localSource: treePath,
+          remoteDestination: targetPath,
+          keyPath,
+          excludePatterns: [],
+        });
+        transferLines.push(
+          `Remote restore: ${treePath} → ${config.server.host}:${targetPath}`,
+          `Transfer: ${push.method}`,
+          push.stdout?.trim() ? `--- push stdout ---\n${push.stdout.trim()}` : '',
+          push.stderr?.trim() ? `--- push stderr ---\n${push.stderr.trim()}` : ''
+        );
+      } finally {
+        await cleanupIdentity?.();
+        ssh?.dispose();
+      }
+    } else if (sourceKind === 's3') {
+      if (!config.sourceS3Profile) {
+        throw new Error('Source S3 profile is missing; cannot restore path backup');
+      }
+      const profile = toS3ProfileConfig(config.sourceS3Profile);
+      const prefix = normalizeS3Prefix(targetPath);
+      const uploaded = await uploadDirectory(profile, treePath, prefix);
+      transferLines.push(
+        `S3 restore: ${treePath} → ${formatS3ArtifactPath(profile.bucket, prefix)}`,
+        `Files: ${uploaded.fileCount}`,
+        `Total size: ${uploaded.totalSize} bytes`
+      );
+    } else {
+      throw new Error(`Unsupported source kind for path restore: ${sourceKind}`);
+    }
+
+    const log = [
+      LOG_SECTION.restore,
+      '',
+      `Source kind: ${sourceKind}`,
+      `Target path: ${targetPath}`,
+      `Artifact: ${historyEntry.artifactPath}`,
+      tempDir ? 'Materialized artifact on this host for restore' : '',
+      ...transferLines,
+      'Restore completed successfully.',
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    return { log, targetPath };
+  } finally {
+    if (tempDir) {
+      await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
     }
   }
 }

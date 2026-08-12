@@ -1,4 +1,4 @@
-import { restoreDatabaseBackup, restoreDockerVolumeBackup } from '@/lib/backup';
+import { restoreDatabaseBackup, restoreDockerVolumeBackup, restorePathBackup } from '@/lib/backup';
 import {
   RESTORE_CONFIRM_REQUIRED,
   hasRestoreConfirm,
@@ -12,7 +12,7 @@ import { eq } from 'drizzle-orm';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 
-// POST /api/history/[id]/restore — restore Docker volume or database dump
+// POST /api/history/[id]/restore — restore path tree, Docker volume, or database dump
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -34,7 +34,8 @@ export async function POST(
         { status: 400 }
       );
     }
-    const { volumeName, databaseName, allowRetarget } = restoreHistorySchema.parse(body);
+    const { volumeName, databaseName, targetPath, allowRetarget } =
+      restoreHistorySchema.parse(body);
 
     const historyEntry = await db.query.backupHistory.findFirst({
       where: eq(backupHistory.id, id),
@@ -82,8 +83,24 @@ export async function POST(
       });
     }
 
+    if (sourceType === 'path') {
+      const result = await restorePathBackup(id, {
+        targetPath,
+        confirm: true,
+        allowRetarget,
+      });
+      return NextResponse.json({
+        success: true,
+        targetPath: result.targetPath,
+        log: result.log,
+      });
+    }
+
     return NextResponse.json(
-      { error: 'Restore is only supported for Docker volume and database backups' },
+      {
+        error:
+          'Restore is only supported for path, Docker volume, and database backups',
+      },
       { status: 400 }
     );
   } catch (error) {
@@ -100,7 +117,8 @@ export async function POST(
     const status =
       message.includes('not found') ||
       message.includes('Only successful') ||
-      message.includes('only supported')
+      message.includes('only supported') ||
+      message.includes('only for path')
         ? 400
         : 500;
 

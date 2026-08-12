@@ -1,6 +1,6 @@
 import { findExactDestinationConflict } from '@/lib/backup/destination-guard'
 import { backupConfigSchema } from '@/lib/backup/schema'
-import { restoreDatabaseBackup, restoreDockerVolumeBackup, executeBackup } from '@/lib/backup'
+import { restoreDatabaseBackup, restoreDockerVolumeBackup, restorePathBackup, executeBackup } from '@/lib/backup'
 import {
   REMOTE_EXEC_DENIED,
   assertCanSetPreBackupCommands,
@@ -358,7 +358,7 @@ export async function restoreHistoryOp(
   ctx: McpOpsContext,
   id: string,
   confirm: boolean,
-  opts: { volumeName?: string; databaseName?: string }
+  opts: { volumeName?: string; databaseName?: string; targetPath?: string }
 ) {
   if (!confirm) {
     return errorResult('Refusing to restore: pass confirm=true to proceed')
@@ -391,7 +391,19 @@ export async function restoreHistoryOp(
         log: truncateLog(result.log),
       })
     }
-    throw new Error('Only database and docker_volume backups can be restored via MCP')
+    if (sourceType === 'path') {
+      const result = await restorePathBackup(id, {
+        targetPath: opts.targetPath,
+        confirm: true,
+        allowRetarget: Boolean(opts.targetPath),
+      })
+      return jsonResult({
+        success: true,
+        targetPath: result.targetPath,
+        log: truncateLog(result.log),
+      })
+    }
+    throw new Error('Only path, database, and docker_volume backups can be restored via MCP')
   }).catch((error) =>
     errorResult(error instanceof Error ? error.message : 'Failed to restore')
   )

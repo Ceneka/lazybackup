@@ -350,7 +350,7 @@ export const homeFeatures: readonly FeatureHighlight[] = [
   },
   {
     title: "Paths & Docker volumes",
-    desc: "rsync/scp paths, or alpine-pack named volumes to .tar.gz. Restore volume and database jobs from History (local or S3 artifact).",
+    desc: "rsync/scp paths, or alpine-pack named volumes to .tar.gz. Restore path trees, volumes, and database jobs from History (local, S3, or Bro artifact).",
     Icon: IconDocker,
   },
   {
@@ -484,11 +484,12 @@ export const detailedFeatures: readonly DetailedFeature[] = [
     title: "Restore",
     tags: ["POST /api/history/:id/restore"],
     summary:
-      "Volume and database restore from History when the artifact is local or downloadable from S3 (or Bro).",
+      "Path, volume, and database restore from History when the artifact is local or downloadable from S3 (or Bro).",
     points: [
+      "Path: rsync/push the backed-up tree back to the local path, SSH host, or S3 source prefix (optional retarget).",
       "Docker volume: push/extract into a named volume on the source server.",
       "Database: pipe into psql/mysql (native or docker exec).",
-      ".age artifacts decrypt automatically using all vault identities.",
+      ".age path archives decrypt and unpack automatically; remote SSH destinations are not one-click restorable.",
     ],
     Icon: IconRestore,
   },

@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  canRestoreBackup,
   canRestoreDockerVolumeBackup,
   restoreBlockedReason,
 } from './restore-eligibility';
@@ -48,14 +49,48 @@ describe('canRestoreDockerVolumeBackup', () => {
     ).toBe(true);
   });
 
-  test('blocks path sources and non-success', () => {
+  test('allows successful path tree with local artifact', () => {
     expect(
-      canRestoreDockerVolumeBackup({
+      canRestoreBackup({
         status: 'success',
         sourceType: 'path',
-        artifactPath: '/backups/dir',
+        destinationKind: 'local',
+        artifactPath: '/backups/tree',
+      })
+    ).toBe(true);
+  });
+
+  test('allows path restore from S3 or peer destinations', () => {
+    expect(
+      canRestoreBackup({
+        status: 'success',
+        sourceType: 'path',
+        destinationKind: 's3',
+        artifactPath: 's3://bucket/prefix/',
+      })
+    ).toBe(true);
+    expect(
+      canRestoreBackup({
+        status: 'success',
+        sourceType: 'path',
+        destinationKind: 'peer',
+        artifactPath: 'peer://p1/obj.tar.gz.age',
+      })
+    ).toBe(true);
+  });
+
+  test('blocks path restore when destination is remote SSH', () => {
+    expect(
+      canRestoreBackup({
+        status: 'success',
+        sourceType: 'path',
+        destinationKind: 'server',
+        artifactPath: '/remote/tree',
       })
     ).toBe(false);
+  });
+
+  test('blocks non-success', () => {
     expect(
       canRestoreDockerVolumeBackup({
         status: 'failed',
@@ -89,11 +124,22 @@ describe('restoreBlockedReason', () => {
     ).toMatch(/S3|this host|bro/i);
   });
 
-  test('returns null for non-volume backups', () => {
+  test('explains remote server destination for path', () => {
     expect(
       restoreBlockedReason({
         status: 'success',
         sourceType: 'path',
+        destinationKind: 'server',
+        artifactPath: '/x',
+      })
+    ).toMatch(/SSH destinations|this host|S3|bro/i);
+  });
+
+  test('returns null for instance meta-backups', () => {
+    expect(
+      restoreBlockedReason({
+        status: 'success',
+        sourceType: 'lazybackup_instance',
         artifactPath: '/x',
       })
     ).toBeNull();
@@ -108,5 +154,16 @@ describe('restoreBlockedReason', () => {
         artifactPath: '/x',
       })
     ).toMatch(/database/);
+  });
+
+  test('uses path wording for failed path restore', () => {
+    expect(
+      restoreBlockedReason({
+        status: 'failed',
+        sourceType: 'path',
+        destinationKind: 'local',
+        artifactPath: '/x',
+      })
+    ).toMatch(/path/);
   });
 });
