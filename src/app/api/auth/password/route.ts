@@ -102,8 +102,15 @@ export async function POST(request: NextRequest) {
 
     // remove
     await clearPasswordHash()
-    const response = NextResponse.json({ ok: true, authEnabled: false })
-    response.cookies.set(SESSION_COOKIE_NAME, '', clearSessionCookieOptions())
+    const { countPasskeys } = await import('@/lib/auth/webauthn')
+    const stillLocked = (await countPasskeys()) > 0
+    const response = NextResponse.json({ ok: true, authEnabled: stillLocked })
+    if (stillLocked) {
+      const token = await createSessionCookieValue()
+      response.cookies.set(SESSION_COOKIE_NAME, token, sessionCookieOptions())
+    } else {
+      response.cookies.set(SESSION_COOKIE_NAME, '', clearSessionCookieOptions())
+    }
     return response
   } catch (error) {
     console.error('Failed to update password:', error)

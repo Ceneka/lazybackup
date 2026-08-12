@@ -77,7 +77,9 @@ export { writeAuditLog, type AuditActor } from './audit'
 
 export async function isAuthEnabled(): Promise<boolean> {
   const hash = await getPasswordHash()
-  return Boolean(hash)
+  if (hash) return true
+  const { countPasskeys } = await import('./webauthn')
+  return (await countPasskeys()) > 0
 }
 
 export async function getSessionFromCookies(
@@ -169,7 +171,19 @@ export async function getAuthStatus(
     ? await isAuthorized(cookieHeader, authorizationHeader)
     : true
 
-  return { authEnabled, authSetupCompleted, authenticated }
+  const { getPasswordHash } = await import('./settings')
+  const { countPasskeys } = await import('./webauthn')
+  const hasPassword = Boolean(await getPasswordHash())
+  const passkeyCount = await countPasskeys()
+
+  return {
+    authEnabled,
+    authSetupCompleted,
+    authenticated,
+    hasPassword,
+    hasPasskeys: passkeyCount > 0,
+    passkeyCount,
+  }
 }
 
 export async function createSessionCookieValue(): Promise<string> {

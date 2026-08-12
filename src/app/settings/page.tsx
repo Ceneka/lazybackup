@@ -5,6 +5,7 @@ import { McpSettingsPanel } from "@/components/mcp-settings-panel"
 import { EncryptionSettingsPanel } from "@/components/encryption-settings-panel"
 import { BroSpaceSettingsPanel } from "@/components/bro-space-settings-panel"
 import { FailureWebhookSettings } from "@/components/failure-webhook-settings"
+import { PasskeySettingsPanel } from "@/components/passkey-settings-panel"
 import { PageHeader, PageLayout } from "@/components/page-layout"
 import { DeleteConfirmationDialog } from "@/components/ui/delete-confirmation-dialog"
 import { Button } from "@/components/ui/button"
@@ -204,6 +205,7 @@ function SettingsPageInner() {
   }
 
   const authEnabled = Boolean(auth.data?.authEnabled)
+  const hasPassword = Boolean(auth.data?.hasPassword)
 
   return (
     <PageLayout>
@@ -366,13 +368,15 @@ function SettingsPageInner() {
                 <span className="font-medium text-foreground">
                   {auth.isLoading
                     ? "Loading…"
-                    : authEnabled
-                      ? "Protected"
-                      : "Open (no password)"}
+                    : hasPassword
+                      ? "Password set"
+                      : authEnabled
+                        ? "No password (passkey or other lock)"
+                        : "Open (no password / passkey)"}
                 </span>
               </p>
 
-              {!authEnabled ? (
+              {!hasPassword ? (
                 <div className="space-y-3 max-w-md">
                   <div className="space-y-2">
                     <Label htmlFor="set-password">New password</Label>
@@ -466,6 +470,8 @@ function SettingsPageInner() {
               )}
             </CardContent>
           </Card>
+
+          <PasskeySettingsPanel />
         </TabsContent>
 
         <TabsContent value="encryption" className="mt-6 space-y-6">

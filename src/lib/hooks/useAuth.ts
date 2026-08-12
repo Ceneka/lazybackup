@@ -5,6 +5,9 @@ export type AuthStatus = {
   authEnabled: boolean
   authSetupCompleted: boolean
   authenticated: boolean
+  hasPassword?: boolean
+  hasPasskeys?: boolean
+  passkeyCount?: number
 }
 
 export const authStatusKey = ['auth', 'status'] as const
@@ -74,6 +77,36 @@ export function useAuth() {
     },
   })
 
+  const loginPasskey = useMutation({
+    mutationFn: async () => {
+      const { startAuthentication } = await import('@simplewebauthn/browser')
+      const optRes = await fetch('/api/auth/webauthn/login')
+      if (!optRes.ok) {
+        const error = await optRes.json().catch(() => ({}))
+        throw new Error(error.error || 'Failed to start passkey login')
+      }
+      const options = await optRes.json()
+      const response = await startAuthentication({ optionsJSON: options })
+      const verifyRes = await fetch('/api/auth/webauthn/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ response }),
+      })
+      if (!verifyRes.ok) {
+        const error = await verifyRes.json().catch(() => ({}))
+        throw new Error(error.error || 'Passkey login failed')
+      }
+      return verifyRes.json()
+    },
+    onSuccess: () => {
+      invalidate()
+      toast.success('Logged in')
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : 'Passkey login failed')
+    },
+  })
+
   const logout = useMutation({
     mutationFn: async () => {
       const response = await fetch('/api/auth/logout', { method: 'POST' })
@@ -111,12 +144,16 @@ export function useAuth() {
       }
       return response.json() as Promise<{ ok: boolean; authEnabled: boolean }>
     },
-    onSuccess: (data) => {
+    onSuccess: (data, variables) => {
       invalidate()
-      if (data.authEnabled) {
-        toast.success('Password updated')
+      if (variables.action === 'remove') {
+        toast.success(
+          data.authEnabled
+            ? 'Password removed — passkeys still protect this instance'
+            : 'Password removed — dashboard is unlocked'
+        )
       } else {
-        toast.success('Password removed — login is disabled')
+        toast.success('Password updated')
       }
     },
     onError: (error) => {
@@ -130,6 +167,7 @@ export function useAuth() {
     ...statusQuery,
     setup,
     login,
+    loginPasskey,
     logout,
     updatePassword,
   }
