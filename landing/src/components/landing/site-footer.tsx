@@ -1,9 +1,10 @@
 import Link from "next/link";
-import { GITHUB_URL, SITE_URL } from "./features-data";
+import { GITHUB_URL, LAZYBRO_RELEASE_URL, SITE_URL } from "./features-data";
 import { Logo } from "./logo";
 
 const footerLinks = [
   { href: GITHUB_URL, label: "GitHub", external: true },
+  { href: LAZYBRO_RELEASE_URL, label: "Download LazyBro", external: true },
   { href: SITE_URL, label: "lazy.zic.ar" },
   { href: "/", label: "Home" },
   { href: "/features", label: "Features" },

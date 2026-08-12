@@ -92,7 +92,17 @@ Friend (full LB):   Settings → Bro Space → Accept invite`,
       },
       {
         type: "p",
-        text: "LazyBro is a small Bun agent (binaries from Releases, or build from the bro/ folder). It opens a local page (http://127.0.0.1:3789). They choose a folder for your encrypted backups, paste the invite, optionally enable start-at-login, and leave it running. They can also push one of their own folders back to your LazyBackup.",
+        text: "LazyBro is a small Bun agent. Download a binary, or build from the bro/ folder. It opens a local page (http://127.0.0.1:3789). They choose a folder for your encrypted backups, paste the invite, optionally enable start-at-login, and leave it running. They can also push one of their own folders back to your LazyBackup.",
+      },
+      {
+        type: "code",
+        lang: "bash",
+        code: `# Linux
+curl -L -o lazybro https://github.com/Ceneka/lazybackup/releases/download/lazybro/lazybro-linux-x64
+chmod +x lazybro && ./lazybro
+
+# Windows
+# https://github.com/Ceneka/lazybackup/releases/download/lazybro/lazybro-windows-x64.exe`,
       },
       {
         type: "ul",

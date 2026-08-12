@@ -3,6 +3,8 @@ import Link from "next/link";
 import {
   DOCKER_IMAGE,
   GITHUB_URL,
+  LAZYBRO_LINUX_URL,
+  LAZYBRO_WINDOWS_URL,
   OG_IMAGE,
   SITE_URL,
   homeFeatures,
@@ -213,6 +215,26 @@ export default function Home() {
                     {f.title}
                   </h3>
                   <p className="mt-3 leading-relaxed text-slate-400">{f.desc}</p>
+                  {f.title === "Bro Space" ? (
+                    <p className="mt-4 flex flex-wrap gap-x-4 gap-y-1 text-sm">
+                      <a
+                        href={LAZYBRO_LINUX_URL}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-medium text-emerald-300/90 hover:text-emerald-200"
+                      >
+                        Download Linux
+                      </a>
+                      <a
+                        href={LAZYBRO_WINDOWS_URL}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-medium text-emerald-300/90 hover:text-emerald-200"
+                      >
+                        Download Windows
+                      </a>
+                    </p>
+                  ) : null}
                 </div>
               </ScrollReveal>
             ))}

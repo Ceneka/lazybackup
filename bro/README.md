@@ -12,7 +12,10 @@ bun install
 bun run dev
 ```
 
-Or run a binary from Releases (`lazybro-linux-x64` / `lazybro-windows-x64.exe`).
+Or download a binary from the [LazyBro release](https://github.com/Ceneka/lazybackup/releases/tag/lazybro):
+
+- Linux: https://github.com/Ceneka/lazybackup/releases/download/lazybro/lazybro-linux-x64
+- Windows: https://github.com/Ceneka/lazybackup/releases/download/lazybro/lazybro-windows-x64.exe
 
 A small page opens on your computer (`http://127.0.0.1:3789`).
 
