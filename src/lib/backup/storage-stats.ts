@@ -191,7 +191,7 @@ export async function getBackupStorageStats(
  */
 export async function getBackupDestinationSummary(options: {
   destinationPath: string
-  destinationKind?: 'local' | 'server' | 's3' | null
+  destinationKind?: 'local' | 'server' | 's3' | 'peer' | null
   destinationServerName?: string | null
   destinationS3ProfileName?: string | null
   enableVersioning?: boolean | null
@@ -234,6 +234,29 @@ export async function getBackupDestinationSummary(options: {
       remoteServerName: options.destinationS3ProfileName
         ? `S3: ${options.destinationS3ProfileName}`
         : 'S3',
+      totalBytes: 0,
+      totalSize: formatBytes(0),
+      fileCount: 0,
+      directoryCount: 0,
+      lastModified: null,
+      truncated: false,
+      versioning: {
+        enabled: enableVersioning,
+        versionsToKeep,
+        versionCount: 0,
+        versions: [],
+      },
+      topLevel: [],
+    }
+  }
+
+  if ((options.destinationKind || 'local') === 'peer') {
+    return {
+      configuredPath,
+      path: configuredPath,
+      exists: true,
+      remote: true,
+      remoteServerName: 'Bro peer',
       totalBytes: 0,
       totalSize: formatBytes(0),
       fileCount: 0,

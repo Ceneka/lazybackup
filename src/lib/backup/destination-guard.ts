@@ -15,6 +15,7 @@ async function listDestinationConfigs() {
       destinationKind: true,
       destinationServerId: true,
       destinationS3ProfileId: true,
+      destinationPeerId: true,
     },
   });
 }
@@ -26,6 +27,7 @@ export async function findExactDestinationConflict(
     destinationKind?: EndpointKind | null;
     destinationServerId?: string | null;
     destinationS3ProfileId?: string | null;
+    destinationPeerId?: string | null;
   }
 ): Promise<DestinationConflict | null> {
   const configs = await listDestinationConfigs();
@@ -39,6 +41,7 @@ export async function findNestedDestinationOverlaps(
     destinationKind?: EndpointKind | null;
     destinationServerId?: string | null;
     destinationS3ProfileId?: string | null;
+    destinationPeerId?: string | null;
   }
 ): Promise<DestinationConflict[]> {
   const configs = await listDestinationConfigs();

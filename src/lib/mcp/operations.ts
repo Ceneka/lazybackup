@@ -28,6 +28,7 @@ const backupWithEndpoints = {
   destinationServer: true,
   sourceS3Profile: true,
   destinationS3Profile: true,
+  destinationPeer: true,
 } as const
 
 const LOG_TRUNCATE = 4000
@@ -137,6 +138,7 @@ export async function createBackupOp(ctx: McpOpsContext, input: unknown) {
         destinationKind: validatedData.destinationKind,
         destinationServerId: validatedData.destinationServerId,
         destinationS3ProfileId: validatedData.destinationS3ProfileId,
+        destinationPeerId: validatedData.destinationPeerId,
       }
     )
     if (conflictingBackup) {
@@ -184,6 +186,7 @@ export async function updateBackupOp(ctx: McpOpsContext, id: string, input: unkn
         destinationKind: validatedData.destinationKind,
         destinationServerId: validatedData.destinationServerId,
         destinationS3ProfileId: validatedData.destinationS3ProfileId,
+        destinationPeerId: validatedData.destinationPeerId,
       }
     )
     if (conflictingBackup) {

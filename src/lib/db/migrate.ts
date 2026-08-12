@@ -300,6 +300,50 @@ export async function runMigration() {
       await db.run(sql`ALTER TABLE backup_configs ADD COLUMN last_validation_checks TEXT`);
     }
 
+    const backupConfigsEnc = await db.run(sql`PRAGMA table_info(backup_configs)`);
+    const backupColsEnc = backupConfigsEnc.rows.map((row: any) => row.name);
+    if (!backupColsEnc.includes('enable_encryption')) {
+      await db.run(
+        sql`ALTER TABLE backup_configs ADD COLUMN enable_encryption INTEGER NOT NULL DEFAULT 0`
+      );
+    }
+    if (!backupColsEnc.includes('destination_peer_id')) {
+      await db.run(sql`ALTER TABLE backup_configs ADD COLUMN destination_peer_id TEXT`);
+    }
+
+    await db.run(sql`
+      CREATE TABLE IF NOT EXISTS peers (
+        id TEXT PRIMARY KEY NOT NULL,
+        name TEXT NOT NULL,
+        remote_base_url TEXT NOT NULL,
+        remote_peer_id TEXT,
+        outbound_token TEXT,
+        inbound_token_hash TEXT NOT NULL,
+        inbound_token_prefix TEXT NOT NULL,
+        quota_bytes INTEGER NOT NULL,
+        used_bytes INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'pending',
+        last_activity_at INTEGER,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+      );
+    `);
+
+    await db.run(sql`
+      CREATE TABLE IF NOT EXISTS peer_invites (
+        id TEXT PRIMARY KEY NOT NULL,
+        code TEXT NOT NULL UNIQUE,
+        secret_hash TEXT NOT NULL,
+        quota_bytes INTEGER NOT NULL,
+        local_base_url TEXT NOT NULL,
+        label TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        expires_at INTEGER NOT NULL,
+        peer_id TEXT REFERENCES peers(id) ON DELETE SET NULL,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch())
+      );
+    `);
+
     await db.run(sql`
       CREATE TABLE IF NOT EXISTS api_tokens (
         id TEXT PRIMARY KEY NOT NULL,

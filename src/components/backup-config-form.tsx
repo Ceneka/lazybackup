@@ -26,10 +26,12 @@ import {
   Loader2Icon,
   RefreshCwIcon,
   ServerIcon,
+  UsersIcon,
 } from "lucide-react"
 import Link from "next/link"
 import { useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
+import { usePeers } from "@/lib/hooks/usePeers"
 
 export type BackupFormData = {
   name: string
@@ -39,6 +41,7 @@ export type BackupFormData = {
   destinationKind: EndpointKind
   destinationServerId: string
   destinationS3ProfileId: string
+  destinationPeerId: string
   sourceType: "path" | "docker_volume" | "database"
   sourcePath: string
   destinationPath: string
@@ -55,6 +58,7 @@ export type BackupFormData = {
   /** Edit only: a password is already stored (API never returns it) */
   hasDbPassword?: boolean
   enabled: boolean
+  enableEncryption: boolean
   enableVersioning: boolean
   versionsToKeep: number
   enableFileRetention: boolean
@@ -75,6 +79,7 @@ export function backupToFormData(backup: Backup): BackupFormData {
     destinationKind: backup.destinationKind || "local",
     destinationServerId: backup.destinationServerId || "",
     destinationS3ProfileId: backup.destinationS3ProfileId || "",
+    destinationPeerId: backup.destinationPeerId || "",
     sourceType: backup.sourceType || "path",
     sourcePath: backup.sourcePath,
     destinationPath: backup.destinationPath,
@@ -90,6 +95,7 @@ export function backupToFormData(backup: Backup): BackupFormData {
     dbPassword: "",
     hasDbPassword: Boolean(backup.hasDbPassword),
     enabled: backup.enabled,
+    enableEncryption: Boolean(backup.enableEncryption) || backup.destinationKind === "peer",
     enableVersioning: Boolean(backup.enableVersioning),
     versionsToKeep: backup.versionsToKeep ?? 5,
     enableFileRetention: Boolean(backup.enableFileRetention),
@@ -129,6 +135,8 @@ function endpointLabel(
   servers: Server[],
   s3ProfileId: string,
   s3Profiles: S3Profile[],
+  peerId: string,
+  peers: Array<{ id: string; name: string }>,
   path: string
 ): string {
   if (kind === "local") {
@@ -137,6 +145,11 @@ function endpointLabel(
   if (kind === "s3") {
     const profile = s3Profiles.find((p) => p.id === s3ProfileId)
     const name = profile?.name || "s3"
+    return path ? `${name}:${path}` : name
+  }
+  if (kind === "peer") {
+    const peer = peers.find((p) => p.id === peerId)
+    const name = peer?.name || "bro"
     return path ? `${name}:${path}` : name
   }
   const server = servers.find((s) => s.id === serverId)
@@ -171,6 +184,8 @@ export function BackupConfigForm({
   const backupsQuery = useBackups()
   const s3ProfilesQuery = useS3Profiles()
   const s3Profiles = s3ProfilesQuery.data || []
+  const peersQuery = usePeers()
+  const activePeers = (peersQuery.data?.peers || []).filter((p) => p.status === "active")
 
   const volumesQuery = useServerDockerVolumes(
     formData.sourceKind === "server" && formData.sourceType === "docker_volume"
@@ -226,6 +241,7 @@ export function BackupConfigForm({
         destinationKind: formData.destinationKind,
         destinationServerId: formData.destinationServerId || null,
         destinationS3ProfileId: formData.destinationS3ProfileId || null,
+        destinationPeerId: formData.destinationPeerId || null,
       }
     )
   }, [
@@ -234,6 +250,7 @@ export function BackupConfigForm({
     formData.destinationKind,
     formData.destinationServerId,
     formData.destinationS3ProfileId,
+    formData.destinationPeerId,
     excludeBackupId,
   ])
 
@@ -249,6 +266,7 @@ export function BackupConfigForm({
         destinationKind: formData.destinationKind,
         destinationServerId: formData.destinationServerId || null,
         destinationS3ProfileId: formData.destinationS3ProfileId || null,
+        destinationPeerId: formData.destinationPeerId || null,
       }
     )
   }, [
@@ -257,6 +275,7 @@ export function BackupConfigForm({
     formData.destinationKind,
     formData.destinationServerId,
     formData.destinationS3ProfileId,
+    formData.destinationPeerId,
     excludeBackupId,
   ])
 
@@ -266,6 +285,8 @@ export function BackupConfigForm({
     servers,
     formData.sourceS3ProfileId,
     s3Profiles,
+    "",
+    activePeers,
     formData.sourceType === "docker_volume"
       ? `volume:${formData.sourcePath || "…"}`
       : formData.sourceType === "database"
@@ -277,11 +298,14 @@ export function BackupConfigForm({
     servers,
     formData.destinationS3ProfileId,
     s3Profiles,
+    formData.destinationPeerId,
+    activePeers,
     formData.destinationPath || "…"
   )}`
 
   const canSwap =
     formData.sourceType === "path" &&
+    formData.destinationKind !== "peer" &&
     !(
       formData.sourceKind === formData.destinationKind &&
       formData.serverId === formData.destinationServerId &&
@@ -313,12 +337,21 @@ export function BackupConfigForm({
         if (value === "local") {
           next.destinationServerId = ""
           next.destinationS3ProfileId = ""
+          next.destinationPeerId = ""
         }
         if (value === "server") {
           next.destinationS3ProfileId = ""
+          next.destinationPeerId = ""
         }
         if (value === "s3") {
           next.destinationServerId = ""
+          next.destinationPeerId = ""
+        }
+        if (value === "peer") {
+          next.destinationServerId = ""
+          next.destinationS3ProfileId = ""
+          next.enableEncryption = true
+          if (!next.destinationPath) next.destinationPath = "backups"
         }
       }
       if (key === "sourceType" && value === "docker_volume") {
@@ -350,9 +383,11 @@ export function BackupConfigForm({
       serverId: prev.destinationKind === "server" ? prev.destinationServerId : "",
       sourceS3ProfileId:
         prev.destinationKind === "s3" ? prev.destinationS3ProfileId : "",
-      destinationKind: prev.sourceKind,
+      destinationKind:
+        prev.destinationKind === "peer" ? "local" : prev.sourceKind,
       destinationServerId: prev.sourceKind === "server" ? prev.serverId : "",
       destinationS3ProfileId: prev.sourceKind === "s3" ? prev.sourceS3ProfileId : "",
+      destinationPeerId: "",
       sourcePath: prev.destinationPath,
       destinationPath: prev.sourcePath,
     }))
@@ -380,6 +415,10 @@ export function BackupConfigForm({
       toast.error("Select a destination S3 profile")
       return
     }
+    if (formData.destinationKind === "peer" && !formData.destinationPeerId) {
+      toast.error("Select a bro peer (Settings → Bro Space)")
+      return
+    }
     await onSubmit(formData)
   }
 
@@ -387,16 +426,21 @@ export function BackupConfigForm({
     value,
     onChange,
     idPrefix,
+    allowPeer = false,
   }: {
     value: EndpointKind
     onChange: (kind: EndpointKind) => void
     idPrefix: string
+    allowPeer?: boolean
   }) {
     const options: Array<{ kind: EndpointKind; label: string; icon: typeof HardDriveIcon }> = [
       { kind: "local", label: "This host", icon: HardDriveIcon },
       { kind: "server", label: "Server", icon: ServerIcon },
       { kind: "s3", label: "S3", icon: CloudIcon },
     ]
+    if (allowPeer) {
+      options.push({ kind: "peer", label: "Bro", icon: UsersIcon })
+    }
     return (
       <div className="flex gap-2">
         {options.map(({ kind, label, icon: Icon }) => (
@@ -427,6 +471,8 @@ export function BackupConfigForm({
     onServerChange,
     s3ProfileId,
     onS3ProfileChange,
+    peerId,
+    onPeerChange,
     path,
     onPathChange,
     idPrefix,
@@ -439,6 +485,8 @@ export function BackupConfigForm({
     onServerChange: (id: string) => void
     s3ProfileId: string
     onS3ProfileChange: (id: string) => void
+    peerId?: string
+    onPeerChange?: (id: string) => void
     path: string
     onPathChange: (path: string) => void
     idPrefix: string
@@ -451,13 +499,20 @@ export function BackupConfigForm({
             <HardDriveIcon className="h-4 w-4 text-muted-foreground" />
           ) : kind === "s3" ? (
             <CloudIcon className="h-4 w-4 text-muted-foreground" />
+          ) : kind === "peer" ? (
+            <UsersIcon className="h-4 w-4 text-muted-foreground" />
           ) : (
             <ServerIcon className="h-4 w-4 text-muted-foreground" />
           )}
           {title}
         </div>
 
-        <KindToggle value={kind} onChange={onKindChange} idPrefix={idPrefix} />
+        <KindToggle
+          value={kind}
+          onChange={onKindChange}
+          idPrefix={idPrefix}
+          allowPeer={!isSource}
+        />
 
         {kind === "server" && (
           <div className="space-y-1">
@@ -508,6 +563,38 @@ export function BackupConfigForm({
                   Add an S3 profile
                 </Link>{" "}
                 first.
+              </p>
+            )}
+          </div>
+        )}
+
+        {kind === "peer" && (
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground" htmlFor={`${idPrefix}-peer-select`}>
+              Bro peer
+            </label>
+            <select
+              id={`${idPrefix}-peer-select`}
+              className={inputClass}
+              value={peerId || ""}
+              onChange={(e) => onPeerChange?.(e.target.value)}
+              required
+            >
+              <option value="">
+                {peersQuery.isLoading ? "Loading…" : "Select a bro"}
+              </option>
+              {activePeers.map((peer) => (
+                <option key={peer.id} value={peer.id}>
+                  {peer.name} ({peer.quotaGb} GB)
+                </option>
+              ))}
+            </select>
+            {activePeers.length === 0 && !peersQuery.isLoading && (
+              <p className="text-xs text-muted-foreground">
+                <Link href="/settings?tab=bro" className="underline">
+                  Pair a bro in Settings → Bro Space
+                </Link>{" "}
+                first. Encryption is always on for bro destinations.
               </p>
             )}
           </div>
@@ -606,7 +693,9 @@ export function BackupConfigForm({
                 ? "Path on this host"
                 : kind === "s3"
                   ? "Object key prefix"
-                  : "Path on server"}
+                  : kind === "peer"
+                    ? "Object prefix on bro"
+                    : "Path on server"}
             </label>
             <input
               id={`${idPrefix}-path`}
@@ -622,7 +711,7 @@ export function BackupConfigForm({
               placeholder={
                 kind === "local"
                   ? "/backups/my-backup"
-                  : kind === "s3"
+                  : kind === "s3" || kind === "peer"
                     ? "backups/my-app"
                     : "/var/www"
               }
@@ -765,6 +854,8 @@ export function BackupConfigForm({
             onServerChange={(id) => updateField("destinationServerId", id)}
             s3ProfileId={formData.destinationS3ProfileId}
             onS3ProfileChange={(id) => updateField("destinationS3ProfileId", id)}
+            peerId={formData.destinationPeerId}
+            onPeerChange={(id) => updateField("destinationPeerId", id)}
             path={formData.destinationPath}
             onPathChange={(p) => updateField("destinationPath", p)}
             idPrefix="to"
@@ -1129,6 +1220,25 @@ export function BackupConfigForm({
           </label>
         </div>
 
+        <div className="flex items-start">
+          <input
+            id="enableEncryption"
+            type="checkbox"
+            className="mt-1 h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+            checked={formData.enableEncryption || formData.destinationKind === "peer"}
+            disabled={formData.destinationKind === "peer"}
+            onChange={(e) => updateField("enableEncryption", e.target.checked)}
+          />
+          <label htmlFor="enableEncryption" className="ml-2 block text-sm">
+            Encrypt before storing (age)
+            <span className="block text-xs text-muted-foreground">
+              Destination only sees ciphertext. Requires a key in Settings → Encryption.
+              Always on for Bro destinations. Path backups become a single{" "}
+              <code>.tar.gz.age</code> archive.
+            </span>
+          </label>
+        </div>
+
         <div className="flex items-center">
           <input
             id="enableVersioning"
@@ -1260,6 +1370,7 @@ export function defaultCreateFormData(prefillServerId?: string): BackupFormData 
     destinationKind: "local",
     destinationServerId: "",
     destinationS3ProfileId: "",
+    destinationPeerId: "",
     sourceType: "path",
     sourcePath: "",
     destinationPath: "",
@@ -1274,6 +1385,7 @@ export function defaultCreateFormData(prefillServerId?: string): BackupFormData 
     dbUser: "",
     dbPassword: "",
     enabled: true,
+    enableEncryption: false,
     enableVersioning: false,
     versionsToKeep: 5,
     enableFileRetention: false,
@@ -1293,6 +1405,7 @@ export function formDataToPayload(data: BackupFormData) {
     destinationServerId: data.destinationKind === "server" ? data.destinationServerId : null,
     destinationS3ProfileId:
       data.destinationKind === "s3" ? data.destinationS3ProfileId : null,
+    destinationPeerId: data.destinationKind === "peer" ? data.destinationPeerId : null,
     sourceType: data.sourceType,
     sourcePath: data.sourcePath,
     destinationPath: data.destinationPath,
@@ -1315,6 +1428,7 @@ export function formDataToPayload(data: BackupFormData) {
     dbUser: data.sourceType === "database" ? data.dbUser : null,
     dbPassword: data.sourceType === "database" ? data.dbPassword : null,
     enabled: data.enabled,
+    enableEncryption: data.destinationKind === "peer" ? true : data.enableEncryption,
     enableVersioning: data.enableVersioning,
     versionsToKeep: data.versionsToKeep,
     enableFileRetention: data.enableFileRetention,

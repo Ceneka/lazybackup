@@ -12,12 +12,12 @@ function isRestorableSourceType(sourceType: string | null | undefined): boolean 
 
 function isRestorableDestination(destinationKind: string | null | undefined): boolean {
   const kind = destinationKind || 'local';
-  return kind === 'local' || kind === 's3';
+  return kind === 'local' || kind === 's3' || kind === 'peer';
 }
 
 /**
  * Whether History UI should offer restore (Docker volume or database dump).
- * Local dest (artifact on disk) or S3 dest (download then restore).
+ * Local dest (artifact on disk), S3, or bro peer (download then restore).
  */
 export function canRestoreDockerVolumeBackup(
   input: RestoreEligibilityInput
@@ -46,7 +46,7 @@ export function restoreBlockedReason(
     return `Only successful ${kindLabel} backups can be restored.`;
   }
   if (!isRestorableDestination(input.destinationKind)) {
-    return 'Restore needs the archive on this host or in S3 — remote server destinations are not supported.';
+    return 'Restore needs the archive on this host, in S3, or on a paired bro — remote SSH destinations are not supported.';
   }
   if (!input.artifactPath) {
     return 'This run has no stored artifact path.';

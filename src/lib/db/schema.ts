@@ -63,7 +63,7 @@ export const backupConfigs = sqliteTable('backup_configs', {
     onDelete: 'cascade',
   }),
   /** Where data is copied to */
-  destinationKind: text('destination_kind', { enum: ['local', 'server', 's3'] })
+  destinationKind: text('destination_kind', { enum: ['local', 'server', 's3', 'peer'] })
     .notNull()
     .default('local'),
   /** Destination server when destinationKind === 'server' */
@@ -74,6 +74,8 @@ export const backupConfigs = sqliteTable('backup_configs', {
   destinationS3ProfileId: text('destination_s3_profile_id').references(() => s3Profiles.id, {
     onDelete: 'cascade',
   }),
+  /** Destination bro peer when destinationKind === 'peer' */
+  destinationPeerId: text('destination_peer_id'),
   name: text('name').notNull(),
   /** 'path' | 'docker_volume' (server only) | 'database' (local or server; sourcePath = DB name) */
   sourceType: text('source_type', { enum: ['path', 'docker_volume', 'database'] })
@@ -93,6 +95,8 @@ export const backupConfigs = sqliteTable('backup_configs', {
   dbUser: text('db_user'),
   dbPassword: text('db_password'),
   enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+  /** Client-side age encryption before land (forced on for peer destinations) */
+  enableEncryption: integer('enable_encryption', { mode: 'boolean' }).notNull().default(false),
   enableVersioning: integer('enable_versioning', { mode: 'boolean' }).notNull().default(false),
   versionsToKeep: integer('versions_to_keep').default(5),
   enableFileRetention: integer('enable_file_retention', { mode: 'boolean' }).notNull().default(false),
@@ -151,6 +155,56 @@ export const auditLog = sqliteTable('audit_log', {
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
 });
 
+/**
+ * Paired LazyBackup instances for bro↔bro storage (1:1 reciprocal quota).
+ * Each side stores a row for the other peer.
+ */
+export const peers = sqliteTable('peers', {
+  id: text('id').primaryKey().notNull(),
+  /** Display name (bro's chosen label or hostname) */
+  name: text('name').notNull(),
+  /** Base URL of the remote LazyBackup instance (https://… or http://…) */
+  remoteBaseUrl: text('remote_base_url').notNull(),
+  /** Peer id on the remote instance */
+  remotePeerId: text('remote_peer_id'),
+  /** Bearer token we present when calling the remote (plaintext; treat as secret) */
+  outboundToken: text('outbound_token'),
+  /** SHA-256 hash of the token the remote presents when calling us */
+  inboundTokenHash: text('inbound_token_hash').notNull(),
+  /** First chars of inbound token for UI */
+  inboundTokenPrefix: text('inbound_token_prefix').notNull(),
+  /** Agreed 1:1 quota in bytes (same on both sides) */
+  quotaBytes: integer('quota_bytes').notNull(),
+  /** Bytes currently stored by the remote peer on this host */
+  usedBytes: integer('used_bytes').notNull().default(0),
+  status: text('status', { enum: ['pending', 'active', 'revoked'] })
+    .notNull()
+    .default('pending'),
+  lastActivityAt: integer('last_activity_at', { mode: 'timestamp' }),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+});
+
+/** Outbound pairing invites (one-time) */
+export const peerInvites = sqliteTable('peer_invites', {
+  id: text('id').primaryKey().notNull(),
+  /** Short human-shareable code */
+  code: text('code').notNull().unique(),
+  /** SHA-256 of invite secret */
+  secretHash: text('secret_hash').notNull(),
+  quotaBytes: integer('quota_bytes').notNull(),
+  /** Our public base URL embedded in the invite for the bro */
+  localBaseUrl: text('local_base_url').notNull(),
+  /** Display name we want the bro to see */
+  label: text('label').notNull(),
+  status: text('status', { enum: ['pending', 'accepted', 'cancelled', 'expired'] })
+    .notNull()
+    .default('pending'),
+  expiresAt: integer('expires_at', { mode: 'timestamp' }).notNull(),
+  peerId: text('peer_id').references(() => peers.id, { onDelete: 'set null' }),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+});
+
 // Relations
 export const serversRelations = relations(servers, ({ one, many }) => ({
   backupConfigs: many(backupConfigs, { relationName: 'backupSourceServer' }),
@@ -192,7 +246,16 @@ export const backupConfigsRelations = relations(backupConfigs, ({ one, many }) =
     references: [s3Profiles.id],
     relationName: 'backupDestinationS3',
   }),
+  destinationPeer: one(peers, {
+    fields: [backupConfigs.destinationPeerId],
+    references: [peers.id],
+    relationName: 'backupDestinationPeer',
+  }),
   backupHistory: many(backupHistory),
+}));
+
+export const peersRelations = relations(peers, ({ many }) => ({
+  destinationBackupConfigs: many(backupConfigs, { relationName: 'backupDestinationPeer' }),
 }));
 
 export const backupHistoryRelations = relations(backupHistory, ({ one }) => ({

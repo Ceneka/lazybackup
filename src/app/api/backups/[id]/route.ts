@@ -22,6 +22,7 @@ const backupWithEndpoints = {
   destinationServer: true,
   sourceS3Profile: true,
   destinationS3Profile: true,
+  destinationPeer: true,
 } as const;
 
 // GET /api/backups/:id - Get a backup configuration
@@ -118,6 +119,7 @@ export async function PUT(
         destinationKind: validatedData.destinationKind,
         destinationServerId: validatedData.destinationServerId,
         destinationS3ProfileId: validatedData.destinationS3ProfileId,
+        destinationPeerId: validatedData.destinationPeerId,
       }
     );
     if (conflictingBackup) {

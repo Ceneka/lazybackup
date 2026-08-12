@@ -1,6 +1,8 @@
 import { db } from '@/lib/db';
-import { backupConfigs, backupHistory, s3Profiles, servers } from '@/lib/db/schema';
+import { backupConfigs, backupHistory, peers, s3Profiles, servers } from '@/lib/db/schema';
 import { normalizeS3Prefix } from '@/lib/backup/destination';
+import { landLocalFileArtifact } from '@/lib/backup/land-file';
+import { materializeLocalArtifact, packLocalPathArchive } from '@/lib/backup/materialize';
 import {
   archiveFileNameForDatabase,
   cleanupLocalDbTmpDir,
@@ -16,6 +18,9 @@ import {
   packDockerVolume,
   restoreDockerVolume,
 } from '@/lib/docker/volumes';
+import { decryptLocalFile, isAgeEncryptedPath, stripAgeExtension } from '@/lib/crypto/files';
+import { requireAgeIdentity } from '@/lib/crypto/keys';
+import { downloadPeerObject } from '@/lib/peer/client';
 import {
   cleanupS3FileRetention,
   cleanupS3OldVersions,
@@ -67,15 +72,17 @@ import {
 
 type ServerRow = typeof servers.$inferSelect;
 type S3ProfileRow = typeof s3Profiles.$inferSelect;
+type PeerRow = typeof peers.$inferSelect;
 
 export type BackupConfigWithEndpoints = {
   id: string;
   sourceKind?: 'local' | 'server' | 's3' | null;
   serverId?: string | null;
   sourceS3ProfileId?: string | null;
-  destinationKind?: 'local' | 'server' | 's3' | null;
+  destinationKind?: 'local' | 'server' | 's3' | 'peer' | null;
   destinationServerId?: string | null;
   destinationS3ProfileId?: string | null;
+  destinationPeerId?: string | null;
   name: string;
   sourceType?: 'path' | 'docker_volume' | 'database' | null;
   sourcePath: string;
@@ -91,6 +98,7 @@ export type BackupConfigWithEndpoints = {
   dbUser?: string | null;
   dbPassword?: string | null;
   enabled: boolean;
+  enableEncryption?: boolean | null;
   enableVersioning: boolean;
   versionsToKeep?: number | null;
   enableFileRetention?: boolean | null;
@@ -101,6 +109,7 @@ export type BackupConfigWithEndpoints = {
   destinationServer?: ServerRow | null;
   sourceS3Profile?: S3ProfileRow | null;
   destinationS3Profile?: S3ProfileRow | null;
+  destinationPeer?: PeerRow | null;
 };
 
 function toS3ProfileConfig(row: S3ProfileRow): S3ProfileConfig {
@@ -123,6 +132,16 @@ function expandLocalPath(dest: string): string {
     backupDestination = path.resolve(backupDestination);
   }
   return backupDestination;
+}
+
+function slugifyArchiveBase(name: string): string {
+  const slug = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+  return slug || 'backup';
 }
 
 function normalizeServer(server: ServerRow) {
@@ -432,6 +451,7 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
   let localDbTmpDir: string | null = null;
   /** 'docker' | 'database' — how to clean remoteTmpDir */
   let remoteTmpKind: 'docker' | 'database' | null = null;
+  const encryptTmpPaths: string[] = [];
 
   try {
     console.log(`Starting backup: ${config.name} (${historyId})`);
@@ -441,7 +461,8 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
     }
 
     const sourceKind = config.sourceKind || 'server';
-    const destinationKind = config.destinationKind || 'local';
+    const destinationKind: 'local' | 'server' | 's3' | 'peer' =
+      config.destinationKind || 'local';
     const sourceType = config.sourceType || 'path';
     const excludePatterns = config.excludePatterns
       ? config.excludePatterns.split('\n').filter(Boolean)
@@ -460,12 +481,19 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
     if (destinationKind === 's3' && !config.destinationS3Profile) {
       throw new Error('Destination S3 profile is missing from backup configuration');
     }
+    if (destinationKind === 'peer' && !config.destinationPeer) {
+      throw new Error('Destination bro peer is missing from backup configuration');
+    }
     if (sourceType === 'docker_volume' && sourceKind !== 'server') {
       throw new Error('Docker volume backups require a source server');
     }
     if (sourceKind === 's3' && sourceType !== 'path') {
       throw new Error('S3 sources only support path (object prefix) backups');
     }
+
+    const isPeerDestination = destinationKind === 'peer';
+    const enableEncryption = Boolean(config.enableEncryption) || isPeerDestination;
+    const useEncryptedLand = enableEncryption;
 
     // Pre-backup commands (not applicable for S3 sources)
     if (
@@ -498,6 +526,7 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
     let s3DestinationPrefix: string | null = null;
     let s3DestProfile: S3ProfileConfig | null = null;
     let s3SourceProfile: S3ProfileConfig | null = null;
+    let peerPrefix: string | null = null;
 
     if (config.sourceS3Profile) {
       s3SourceProfile = toS3ProfileConfig(config.sourceS3Profile);
@@ -513,7 +542,7 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
       }
       await fs.mkdir(localDestination, { recursive: true });
     } else if (destinationKind === 'server' && config.destinationServer) {
-      remoteDestination = config.destinationPath.replace(/\/+$/, '') || config.destinationPath;
+      remoteDestination = config.destinationPath.replace(/\/+$/, '') || '/';
       if (config.enableVersioning) {
         remoteDestination = `${remoteDestination}/${timestamp}`;
       }
@@ -524,6 +553,11 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
       if (config.enableVersioning) {
         s3DestinationPrefix = joinS3Key(s3DestinationPrefix, timestamp);
       }
+    } else if (destinationKind === 'peer') {
+      peerPrefix = normalizeS3Prefix(config.destinationPath);
+      if (config.enableVersioning) {
+        peerPrefix = peerPrefix ? `${peerPrefix}/${timestamp}` : timestamp;
+      }
     }
 
     let backupResult: { stdout: string; stderr: string };
@@ -533,7 +567,9 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
         ? localDestination!
         : destinationKind === 'server'
           ? remoteDestination!
-          : formatS3ArtifactPath(s3DestProfile!.bucket, s3DestinationPrefix || '');
+          : destinationKind === 'peer'
+            ? `peer://${config.destinationPeer!.id}/${peerPrefix || ''}`
+            : formatS3ArtifactPath(s3DestProfile!.bucket, s3DestinationPrefix || '');
 
     // --- Database dump source ---
     if (sourceType === 'database') {
@@ -563,7 +599,52 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
         packStdout = packed.stdout;
       }
 
-      if (sourceKind === 'local' && destinationKind === 'local' && localDestination) {
+      if (useEncryptedLand) {
+        const materialized = await materializeLocalArtifact({
+          enableEncryption: true,
+          archiveName,
+          localPath: sourceKind === 'local' ? packedArchivePath : null,
+          remotePath: sourceKind === 'server' ? packedArchivePath : null,
+          sourceServer: config.server ? normalizeServer(config.server) : null,
+          sourceSsh,
+        });
+        encryptTmpPaths.push(...materialized.tmpPaths);
+        if (materialized.cleanupIdentity) {
+          cleanupIdentity = materialized.cleanupIdentity;
+        }
+        const landed = await landLocalFileArtifact({
+          localFilePath: materialized.localPath,
+          archiveName: materialized.archiveName,
+          destinationKind: destinationKind as 'local' | 'server' | 's3' | 'peer',
+          localDestination,
+          remoteDestination,
+          destinationServer: config.destinationServer,
+          destSsh,
+          s3DestProfile,
+          s3DestinationPrefix,
+          destinationPeer: config.destinationPeer,
+          peerPrefix: peerPrefix || '',
+        });
+        if (landed.cleanupDestIdentity) {
+          cleanupDestIdentity = landed.cleanupDestIdentity;
+        }
+        destSsh = landed.destSsh;
+        usedMethod = `database-${landed.usedMethod}${materialized.encrypted ? '-age' : ''}`;
+        artifactPath = landed.artifactPath;
+        backupResult = {
+          stdout: [
+            `Engine: ${dbConn.engine}`,
+            `Database: ${dbConn.database}`,
+            `Client: ${dbConn.client}`,
+            materialized.encrypted ? 'Encryption: age' : '',
+            landed.stdout,
+            packStdout?.trim() ? `--- dump stdout ---\n${packStdout.trim()}` : '',
+          ]
+            .filter(Boolean)
+            .join('\n'),
+          stderr: '',
+        };
+      } else if (sourceKind === 'local' && destinationKind === 'local' && localDestination) {
         const localArchivePath = path.join(localDestination, archiveName);
         await fs.copyFile(packedArchivePath, localArchivePath);
         usedMethod = 'database';
@@ -781,7 +862,49 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
 
       const { rsyncAvailable, scpAvailable } = await getBackupTransportCapabilities(sourceSsh);
 
-      if (destinationKind === 'local' && localDestination) {
+      if (useEncryptedLand) {
+        const materialized = await materializeLocalArtifact({
+          enableEncryption: true,
+          archiveName,
+          remotePath: packed.remoteArchivePath,
+          sourceServer: normalizeServer(config.server),
+          sourceSsh,
+        });
+        encryptTmpPaths.push(...materialized.tmpPaths);
+        if (materialized.cleanupIdentity) {
+          cleanupIdentity = materialized.cleanupIdentity;
+        }
+        const landed = await landLocalFileArtifact({
+          localFilePath: materialized.localPath,
+          archiveName: materialized.archiveName,
+          destinationKind: destinationKind as 'local' | 'server' | 's3' | 'peer',
+          localDestination,
+          remoteDestination,
+          destinationServer: config.destinationServer,
+          destSsh,
+          s3DestProfile,
+          s3DestinationPrefix,
+          destinationPeer: config.destinationPeer,
+          peerPrefix: peerPrefix || '',
+        });
+        if (landed.cleanupDestIdentity) {
+          cleanupDestIdentity = landed.cleanupDestIdentity;
+        }
+        destSsh = landed.destSsh;
+        usedMethod = `docker-${landed.usedMethod}${materialized.encrypted ? '-age' : ''}`;
+        artifactPath = landed.artifactPath;
+        backupResult = {
+          stdout: [
+            `Volume: ${config.sourcePath}`,
+            materialized.encrypted ? 'Encryption: age' : '',
+            landed.stdout,
+            packed.stdout?.trim() ? `--- pack stdout ---\n${packed.stdout.trim()}` : '',
+          ]
+            .filter(Boolean)
+            .join('\n'),
+          stderr: '',
+        };
+      } else if (destinationKind === 'local' && localDestination) {
         const localArchivePath = path.join(localDestination, archiveName);
         const pull = await pullFileFromRemote({
           remotePath: packed.remoteArchivePath,
@@ -902,6 +1025,73 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
       } else {
         throw new Error('Invalid destination for docker volume backup');
       }
+    } else if (useEncryptedLand) {
+      // Path (or any remaining) source → single encrypted archive → land
+      let localSourceDir: string | null = null;
+      let pathTmpDir: string | null = null;
+
+      if (sourceKind === 'local') {
+        localSourceDir = expandLocalPath(config.sourcePath);
+      } else if (sourceKind === 'server' && config.server) {
+        if (!sourceSsh) {
+          sourceSsh = await connectToServer(normalizeServer(config.server));
+        }
+        const privateKey = await resolvePrivateKeyForServer(normalizeServer(config.server));
+        const { path: keyPath, cleanup: cleanupKeyFile } =
+          await writeTemporarySshIdentityFile(privateKey);
+        cleanupIdentity = cleanupKeyFile;
+        pathTmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'lazybackup-path-'));
+        encryptTmpPaths.push(pathTmpDir);
+        localSourceDir = pathTmpDir;
+        await pullPathFromServer({
+          ssh: sourceSsh,
+          server: config.server,
+          remotePath: config.sourcePath,
+          localDestination: pathTmpDir,
+          keyPath,
+          excludePatterns,
+        });
+      } else if (sourceKind === 's3' && s3SourceProfile) {
+        pathTmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'lazybackup-s3src-'));
+        encryptTmpPaths.push(pathTmpDir);
+        localSourceDir = pathTmpDir;
+        await downloadPrefix(s3SourceProfile, normalizeS3Prefix(config.sourcePath), pathTmpDir);
+      } else {
+        throw new Error('Unsupported source for encrypted path backup');
+      }
+
+      const archiveBase = slugifyArchiveBase(config.name || 'backup');
+      const packed = await packLocalPathArchive({
+        sourcePath: localSourceDir!,
+        archiveBaseName: archiveBase,
+        enableEncryption: true,
+        excludePatterns,
+      });
+      encryptTmpPaths.push(packed.tmpDir);
+
+      const landed = await landLocalFileArtifact({
+        localFilePath: packed.localPath,
+        archiveName: packed.archiveName,
+        destinationKind: destinationKind as 'local' | 'server' | 's3' | 'peer',
+        localDestination,
+        remoteDestination,
+        destinationServer: config.destinationServer,
+        destSsh,
+        s3DestProfile,
+        s3DestinationPrefix,
+        destinationPeer: config.destinationPeer,
+        peerPrefix: peerPrefix || '',
+      });
+      if (landed.cleanupDestIdentity) {
+        cleanupDestIdentity = landed.cleanupDestIdentity;
+      }
+      destSsh = landed.destSsh;
+      usedMethod = `path-${landed.usedMethod}-age`;
+      artifactPath = landed.artifactPath;
+      backupResult = {
+        stdout: [`Encryption: age`, landed.stdout].join('\n'),
+        stderr: '',
+      };
     } else if (sourceKind === 'local' && destinationKind === 'local' && localDestination) {
       const localSource = expandLocalPath(config.sourcePath);
       backupResult = await localPathCopy(localSource, localDestination, excludePatterns);
@@ -1244,6 +1434,9 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
     );
     throw error;
   } finally {
+    for (const p of encryptTmpPaths) {
+      await fs.rm(p, { recursive: true, force: true }).catch(() => {});
+    }
     await cleanupIdentity?.();
     await cleanupDestIdentity?.();
     sourceSsh?.dispose();
@@ -1252,23 +1445,28 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
 }
 
 /**
- * Ensure a restore artifact is available as a local file.
- * Downloads from S3 when destinationKind is s3; otherwise verifies local path.
+ * Ensure a restore artifact is available as a local file (decrypted if `.age`).
+ * Downloads from S3 or peer when needed; otherwise verifies local path.
  * Caller must delete returned tempDir if set.
  */
 export async function resolveLocalRestoreArtifact(options: {
   artifactPath: string;
   destinationKind?: string | null;
   destinationS3Profile?: S3ProfileRow | null;
+  destinationPeer?: PeerRow | null;
+  /** When true (default), decrypt `.age` artifacts with the instance identity */
+  decrypt?: boolean;
 }): Promise<{ localPath: string; tempDir: string | null }> {
   const kind = options.destinationKind || 'local';
+  let localPath: string;
+  let tempDir: string | null = null;
+
   if (kind === 'local') {
     await fs.access(options.artifactPath).catch(() => {
       throw new Error(`Backup artifact not found on disk: ${options.artifactPath}`);
     });
-    return { localPath: options.artifactPath, tempDir: null };
-  }
-  if (kind === 's3') {
+    localPath = options.artifactPath;
+  } else if (kind === 's3') {
     if (!options.destinationS3Profile) {
       throw new Error('Destination S3 profile is missing; cannot download artifact');
     }
@@ -1282,14 +1480,37 @@ export async function resolveLocalRestoreArtifact(options: {
         `Artifact bucket ${parsed.bucket} does not match profile bucket ${profile.bucket}`
       );
     }
-    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'lazybackup-restore-'));
-    const localPath = path.join(tempDir, path.posix.basename(parsed.key));
+    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'lazybackup-restore-'));
+    localPath = path.join(tempDir, path.posix.basename(parsed.key));
     await downloadFile(profile, parsed.key, localPath);
-    return { localPath, tempDir };
+  } else if (kind === 'peer') {
+    if (!options.destinationPeer) {
+      throw new Error('Destination peer is missing; cannot download artifact');
+    }
+    const m = options.artifactPath.match(/^peer:\/\/[^/]+\/(.+)$/);
+    if (!m?.[1]) {
+      throw new Error(`Invalid peer artifact path: ${options.artifactPath}`);
+    }
+    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'lazybackup-restore-'));
+    localPath = path.join(tempDir, path.posix.basename(m[1]));
+    await downloadPeerObject(options.destinationPeer, m[1], localPath);
+  } else {
+    throw new Error(
+      'Restore is only supported when the backup destination is on the LazyBackup host, S3, or a bro peer'
+    );
   }
-  throw new Error(
-    'Restore is only supported when the backup destination is on the LazyBackup host or S3'
-  );
+
+  if (options.decrypt !== false && isAgeEncryptedPath(localPath)) {
+    const identity = await requireAgeIdentity();
+    const decryptDir =
+      tempDir || (await fs.mkdtemp(path.join(os.tmpdir(), 'lazybackup-decrypt-')));
+    if (!tempDir) tempDir = decryptDir;
+    const outPath = path.join(decryptDir, stripAgeExtension(path.basename(localPath)));
+    await decryptLocalFile(localPath, identity, outPath);
+    localPath = outPath;
+  }
+
+  return { localPath, tempDir };
 }
 
 /**
@@ -1312,6 +1533,7 @@ export async function restoreDockerVolumeBackup(
           server: true,
           destinationServer: true,
           destinationS3Profile: true,
+          destinationPeer: true,
         },
       },
     },
@@ -1348,6 +1570,7 @@ export async function restoreDockerVolumeBackup(
       artifactPath: historyEntry.artifactPath,
       destinationKind: config.destinationKind,
       destinationS3Profile: config.destinationS3Profile,
+      destinationPeer: config.destinationPeer,
     });
 
   const serverConfig = normalizeServer(config.server);
@@ -1438,6 +1661,7 @@ export async function restoreDatabaseBackup(
           server: true,
           destinationServer: true,
           destinationS3Profile: true,
+          destinationPeer: true,
         },
       },
     },
@@ -1469,6 +1693,7 @@ export async function restoreDatabaseBackup(
       artifactPath: historyEntry.artifactPath,
       destinationKind: config.destinationKind,
       destinationS3Profile: config.destinationS3Profile,
+      destinationPeer: config.destinationPeer,
     });
 
   const dbConn = connectionFromConfig({
@@ -1683,7 +1908,9 @@ export async function startBackup(configId: string): Promise<string> {
       with: {
         server: true,
         destinationServer: true,
+        sourceS3Profile: true,
         destinationS3Profile: true,
+        destinationPeer: true,
       },
     });
 

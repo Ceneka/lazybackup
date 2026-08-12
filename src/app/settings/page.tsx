@@ -2,6 +2,8 @@
 
 import { SSHKeyBootstrap } from "@/components/ssh-key-bootstrap"
 import { McpSettingsPanel } from "@/components/mcp-settings-panel"
+import { EncryptionSettingsPanel } from "@/components/encryption-settings-panel"
+import { BroSpaceSettingsPanel } from "@/components/bro-space-settings-panel"
 import { FailureWebhookSettings } from "@/components/failure-webhook-settings"
 import { PageHeader, PageLayout } from "@/components/page-layout"
 import { DeleteConfirmationDialog } from "@/components/ui/delete-confirmation-dialog"
@@ -18,7 +20,7 @@ import { useAuth } from "@/lib/hooks/useAuth"
 import { useSettings } from "@/lib/hooks/useSettings"
 import { SSHKey, SystemSSHKey, fetchSSHKeyInstallCommand, useSSHKeys } from "@/lib/hooks/useSSHKeys"
 import { useQueryClient } from "@tanstack/react-query"
-import { ClipboardIcon, KeyIcon, LockIcon, PlusIcon, SettingsIcon, TrashIcon, BotIcon } from "lucide-react"
+import { ClipboardIcon, KeyIcon, LockIcon, PlusIcon, SettingsIcon, TrashIcon, BotIcon, ShieldIcon, UsersIcon } from "lucide-react"
 import Link from "next/link"
 import { useSearchParams } from "next/navigation"
 import { Suspense, useEffect, useLayoutEffect, useMemo, useState } from "react"
@@ -30,7 +32,7 @@ function SettingsPageInner() {
 
   useLayoutEffect(() => {
     const t = searchParams.get("tab")
-    if (t === "ssh-keys" || t === "general" || t === "mcp") {
+    if (t === "ssh-keys" || t === "general" || t === "mcp" || t === "encryption" || t === "bro") {
       setTab(t)
     } else {
       setTab("general")
@@ -209,11 +211,19 @@ function SettingsPageInner() {
 
       <Tabs value={tab} onValueChange={setTab} className="w-full">
         <div className="-mx-1 overflow-x-auto px-1">
-          <TabsList className="inline-flex h-auto min-w-full w-max gap-1 p-1 sm:grid sm:w-full sm:min-w-0 sm:grid-cols-3">
+          <TabsList className="inline-flex h-auto min-w-full w-max gap-1 p-1 sm:grid sm:w-full sm:min-w-0 sm:grid-cols-5">
             <TabsTrigger value="general" className="shrink-0 gap-1.5 px-3 sm:flex-1">
               <SettingsIcon className="h-4 w-4" />
               <span className="sm:hidden">General</span>
               <span className="hidden sm:inline">General Settings</span>
+            </TabsTrigger>
+            <TabsTrigger value="encryption" className="shrink-0 gap-1.5 px-3 sm:flex-1">
+              <ShieldIcon className="h-4 w-4" />
+              Encryption
+            </TabsTrigger>
+            <TabsTrigger value="bro" className="shrink-0 gap-1.5 px-3 sm:flex-1">
+              <UsersIcon className="h-4 w-4" />
+              Bro Space
             </TabsTrigger>
             <TabsTrigger value="mcp" className="shrink-0 gap-1.5 px-3 sm:flex-1">
               <BotIcon className="h-4 w-4" />
@@ -444,6 +454,14 @@ function SettingsPageInner() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="encryption" className="mt-6 space-y-6">
+          <EncryptionSettingsPanel />
+        </TabsContent>
+
+        <TabsContent value="bro" className="mt-6 space-y-6">
+          <BroSpaceSettingsPanel />
         </TabsContent>
 
         <TabsContent value="mcp" className="mt-6 space-y-6">

@@ -151,6 +151,8 @@ export async function validateBackupConfig(
         'fail',
         'Destination S3 profile is missing'
       );
+    } else if (destinationKind === 'peer' && !config.destinationPeer) {
+      push(checks, 'config-dest', 'Destination endpoint', 'fail', 'Bro peer is missing');
     } else {
       push(
         checks,
@@ -159,6 +161,22 @@ export async function validateBackupConfig(
         'pass',
         `Destination kind: ${destinationKind}`
       );
+    }
+
+    if (config.enableEncryption || destinationKind === 'peer') {
+      const { getEncryptionKeyStatus } = await import('@/lib/crypto/keys');
+      const enc = await getEncryptionKeyStatus();
+      if (!enc.configured) {
+        push(
+          checks,
+          'config-encryption',
+          'Encryption key',
+          'fail',
+          'Generate an age key in Settings → Encryption'
+        );
+      } else {
+        push(checks, 'config-encryption', 'Encryption key', 'pass', 'age key configured');
+      }
     }
 
     if (sourceType === 'docker_volume' && sourceKind !== 'server') {
@@ -457,6 +475,23 @@ export async function validateBackupConfig(
         'Destination S3',
         'fail',
         error instanceof Error ? error.message : 'S3 destination check failed'
+      );
+    }
+  }
+
+  if (destinationKind === 'peer' && config.destinationPeer) {
+    const peer = config.destinationPeer;
+    if (peer.status !== 'active') {
+      push(checks, 'dest-peer', 'Bro peer', 'fail', `Peer status is ${peer.status}`);
+    } else if (!peer.outboundToken) {
+      push(checks, 'dest-peer', 'Bro peer', 'fail', 'Peer has no outbound token; re-pair');
+    } else {
+      push(
+        checks,
+        'dest-peer',
+        'Bro peer',
+        'pass',
+        `${peer.name} · quota ${peer.quotaBytes} bytes · used ${peer.usedBytes}`
       );
     }
   }

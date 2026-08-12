@@ -12,6 +12,8 @@ Guide for AI coding agents. User-facing setup lives in [README.md](./README.md) 
 - **SSH key required** for any server endpoint involved in a **transfer** (host-side rsync/scp). Password auth works for Test connection and other `node-ssh` operations (list volumes/containers, remote shell cmds); it is not enough alone to pull/push path backups.
 - **Optional app password** (single operator, no users table): first-run set/skip; manage in Settings. Hash in settings → middleware gates pages + `/api/*` (public: `/login`, `/api/auth/*`, `/api/health`). Session cookie `lb_session`, 30-day sliding expiry.
 - **API tokens** (Settings → API / MCP): Bearer `Authorization` for agents; hashed in `api_tokens`. Streamable HTTP MCP at `/mcp` (same auth gate). Token CRUD requires a browser session (tokens cannot mint tokens). Opt-in `remote_exec` permission gates `exec_command` and setting/changing `preBackupCommands` (session/unlocked always allowed).
+- **Encryption** (Settings → Encryption): optional per-backup **age** encryption before land (local/server/S3). Forced on for Bro destinations. Private identity stays on this instance; restore decrypts automatically.
+- **Bro Space** (Settings → Bro Space): 1:1 reciprocal peer storage. Invite code → accept → `destinationKind=peer`. Opaque quota’d blobs on each side; instances need a reachable URL (Tailscale/VPN/HTTPS).
 - Middleware verifies the session **in-process** (Node.js runtime + SQLite). Never HTTP self-fetch `/api/auth/status` from middleware (LAN Host hangs; loopback from Edge fails → pages load, APIs 401).
 - Cookies default **non-Secure**; set `AUTH_COOKIE_SECURE=true` only behind HTTPS.
 - Cron runs in the app **timezone** setting. Migrations are **`src/lib/db/migrate.ts`** only (no drizzle `migrations/` folder).
@@ -28,7 +30,9 @@ Bun · Next.js 15.5 App Router · React 19 · Tailwind 4 / shadcn · TanStack Qu
 src/app/           # pages + api/* routes
 src/components/    # ui/*, page-layout, backup-config-form (From→To), s3-profile-form, app-shell, navbar
 src/lib/auth/      # password hash, session cookie, isAuthorized
-src/lib/backup/    # executeBackup, validateBackupConfig, restore*, file-retention, storage-stats, destination, log-format
+src/lib/crypto/    # age encrypt/decrypt + key settings helpers
+src/lib/peer/      # Bro Space pairing, tokens, opaque store
+src/lib/backup/    # executeBackup, validate, restore*, encrypt-artifact, land-file, retention, …
 src/lib/api/       # resource-in-use, redact (strip secrets from API responses)
 src/lib/database/  # dump/restore/test command builders for Postgres/MySQL/MariaDB
 src/lib/docker/    # remote volume/container list, pack/restore, DB inspect hints
@@ -60,10 +64,11 @@ Restore (volume/database, local or S3 dest): history artifact → download from 
 | `servers` | host/port/user, `authType` password\|key, password / privateKey / `sshKeyId` / `systemKeyPath` |
 | `ssh_keys` | name + content or path |
 | `s3_profiles` | endpoint, region, bucket, access/secret keys, `forcePathStyle` |
-| `backup_configs` | `sourceKind`/`destinationKind` local\|server\|s3, nullable `serverId` / `destinationServerId` / `sourceS3ProfileId` / `destinationS3ProfileId`, `sourceType` path\|docker_volume\|database, `sourcePath`/`destinationPath` (prefix when S3), `db_*` for dumps, cron, excludes, pre-cmds, versioning + file retention, optional last validation (`lastValidatedAt` / `lastValidationOk` / `lastValidationChecks`; cleared on config update) |
+| `backup_configs` | `sourceKind`/`destinationKind` local\|server\|s3\|**peer**, nullable `serverId` / `destinationServerId` / `sourceS3ProfileId` / `destinationS3ProfileId` / **`destinationPeerId`**, `sourceType` path\|docker_volume\|database, `sourcePath`/`destinationPath` (prefix when S3/peer), `db_*` for dumps, cron, excludes, pre-cmds, **`enableEncryption`**, versioning + file retention, optional last validation (`lastValidatedAt` / `lastValidationOk` / `lastValidationChecks`; cleared on config update) |
 | `backup_history` | status running\|success\|failed, sizes, `logOutput`, `artifactPath` (local path or `s3://bucket/key`) |
 | `settings` | KV: timezone, SSH defaults, `appPasswordHash`, `sessionSecret`, `authSetupCompleted`, failure webhook URL/method/headers/body |
 | `api_tokens` | Named Bearer tokens (SHA-256 hash + prefix); optional JSON `permissions` (e.g. `["remote_exec"]`); used by MCP / machine clients |
+| `peers` / `peer_invites` | Bro Space pairing (1:1 quota, inbound token hash, outbound token); invite codes for non-tech pairing |
 | `audit_log` | Token/MCP action audit (no secrets) |
 
 Cascade: server/S3 profile → configs → history. Never return `appPasswordHash` / `sessionSecret` from `GET /api/settings`.
@@ -77,6 +82,8 @@ Pattern: Zod → Drizzle → `NextResponse.json`; errors `{ error, details? }`.
 | Public | `GET /api/health`, `/api/auth/{status,setup,login,logout}` |
 | Auth | `POST /api/auth/password` (set/change/remove) |
 | API tokens | `/api/api-tokens`, `/api/api-tokens/[id]` (session-only manage); MCP `GET|POST|DELETE /mcp` |
+| Encryption | `/api/encryption` (session-only generate/import/reveal/clear age keys) |
+| Bro Space | `/api/peers` (session manage), `POST /api/peers/pair` (invite secret), `/api/peers/store` (peer Bearer `lbpeer_`) |
 | MCP discovery | Tools: `find_server`, `list_docker_volumes`, `list_docker_containers`, `get_container_db_hints`, `test_server`, `test_database`, `exec_command` (SSH shell; needs `remote_exec`) |
 | Servers | `/api/servers`, `/api/servers/[id]`, `…/test`, `…/exec` (remote shell; Bearer needs `remote_exec`), `…/docker/volumes`, `…/docker/containers`, `…/docker/containers/[name]/db-hints`, `POST /api/servers/test` |
 | S3 | `/api/s3-profiles`, `/api/s3-profiles/[id]`, `…/test`, `POST /api/s3-profiles/test` |
@@ -140,6 +147,8 @@ CI publishes GHCR on `main` / `v*` tags (skips docs/`LICENSE`/`landing` via `pat
 11. Database dumps need client tools on the source (`pg_dump`/`mysqldump` or inside the DB container). Do not stream dump SQL through `execCommand` stdout — always write a temp `.sql.gz` then transfer.
 12. S3 sources only support `sourceType=path` (object prefix). Use `@aws-sdk/client-s3` with custom endpoint + path-style for MinIO/R2/B2.
 13. Bearer tokens without `remote_exec` cannot set/change `preBackupCommands` or call `exec_command` / `POST …/servers/:id/exec`. Browser sessions always can. Existing tokens default to no `remote_exec` after migration — recreate with the checkbox if needed.
+14. Encrypted backups need an age key (Settings → Encryption). Peer destinations always encrypt. Losing the private identity means you cannot restore ciphertext.
+15. Bro Space pairing requires mutual reachability (instance URL). `/api/peers/pair` and `/api/peers/store` authenticate via invite secret / `lbpeer_` Bearer (middleware-public; auth inside route).
 
 ## Read first
 

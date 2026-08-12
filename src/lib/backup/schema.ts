@@ -6,18 +6,19 @@ export const DB_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9_$-]*$/;
 
 export const dbEngineSchema = z.enum(['postgres', 'mysql', 'mariadb']);
 export const dbClientSchema = z.enum(['native', 'docker']);
-export const endpointKindSchema = z.enum(['local', 'server', 's3']);
+export const endpointKindSchema = z.enum(['local', 'server', 's3', 'peer']);
 
 export const backupConfigSchema = z
   .object({
     name: z.string().min(1, 'Name is required'),
-    sourceKind: endpointKindSchema.default('server'),
+    sourceKind: z.enum(['local', 'server', 's3']).default('server'),
     /** Source server when sourceKind === 'server' (legacy field name) */
     serverId: z.string().nullable().optional(),
     sourceS3ProfileId: z.string().nullable().optional(),
     destinationKind: endpointKindSchema.default('local'),
     destinationServerId: z.string().nullable().optional(),
     destinationS3ProfileId: z.string().nullable().optional(),
+    destinationPeerId: z.string().nullable().optional(),
     sourceType: z.enum(['path', 'docker_volume', 'database']).default('path'),
     sourcePath: z.string().min(1, 'Source path is required'),
     destinationPath: z.string().min(1, 'Destination path is required'),
@@ -37,6 +38,7 @@ export const backupConfigSchema = z
     dbUser: z.string().nullable().optional(),
     dbPassword: z.string().nullable().optional(),
     enabled: z.boolean().default(true),
+    enableEncryption: z.boolean().default(false),
     enableVersioning: z.boolean().default(false),
     versionsToKeep: z.coerce.number().min(1).max(100).optional().default(5),
     enableFileRetention: z.boolean().default(false),
@@ -88,6 +90,16 @@ export const backupConfigSchema = z
           code: z.ZodIssueCode.custom,
           message: 'Destination S3 profile is required',
           path: ['destinationS3ProfileId'],
+        });
+      }
+    }
+
+    if (data.destinationKind === 'peer') {
+      if (!data.destinationPeerId || !data.destinationPeerId.trim()) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Bro peer is required',
+          path: ['destinationPeerId'],
         });
       }
     }
@@ -200,6 +212,7 @@ export const backupConfigSchema = z
   })
   .transform((data) => {
     const isDatabase = data.sourceType === 'database';
+    const isPeer = data.destinationKind === 'peer';
     return {
       ...data,
       serverId: data.sourceKind === 'server' ? data.serverId || null : null,
@@ -207,6 +220,8 @@ export const backupConfigSchema = z
       destinationServerId: data.destinationKind === 'server' ? data.destinationServerId || null : null,
       destinationS3ProfileId:
         data.destinationKind === 's3' ? data.destinationS3ProfileId || null : null,
+      destinationPeerId: isPeer ? data.destinationPeerId || null : null,
+      enableEncryption: isPeer ? true : Boolean(data.enableEncryption),
       dbEngine: isDatabase ? data.dbEngine ?? null : null,
       dbClient: isDatabase ? data.dbClient ?? null : null,
       dbContainer: isDatabase && data.dbClient === 'docker' ? data.dbContainer?.trim() || null : null,

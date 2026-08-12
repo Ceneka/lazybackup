@@ -86,7 +86,7 @@ describe('restoreBlockedReason', () => {
         destinationKind: 'server',
         artifactPath: '/x',
       })
-    ).toMatch(/S3|this host/i);
+    ).toMatch(/S3|this host|bro/i);
   });
 
   test('returns null for non-volume backups', () => {

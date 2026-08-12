@@ -13,10 +13,15 @@ const PUBLIC_EXACT = new Set([
   '/api/auth/login',
   '/api/auth/setup',
   '/api/auth/logout',
+  '/api/peers/pair',
 ])
 
 function isPublicPath(pathname: string): boolean {
   if (PUBLIC_EXACT.has(pathname)) return true
+  // Peer opaque store authenticates with lbpeer_ Bearer inside the route
+  if (pathname === '/api/peers/store' || pathname.startsWith('/api/peers/store/')) {
+    return true
+  }
   if (
     pathname.startsWith('/_next/') ||
     pathname.startsWith('/favicon') ||

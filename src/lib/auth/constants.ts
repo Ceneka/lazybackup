@@ -9,6 +9,7 @@ export const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30 // 30 days
 export const SENSITIVE_SETTING_KEYS = [
   APP_PASSWORD_HASH_KEY,
   SESSION_SECRET_KEY,
+  'ageIdentity',
 ] as const
 
 export const MIN_PASSWORD_LENGTH = 4

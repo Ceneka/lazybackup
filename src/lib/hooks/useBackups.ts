@@ -20,9 +20,10 @@ export interface Backup {
   sourceKind?: 'local' | 'server' | 's3'
   serverId?: string | null
   sourceS3ProfileId?: string | null
-  destinationKind?: 'local' | 'server' | 's3'
+  destinationKind?: 'local' | 'server' | 's3' | 'peer'
   destinationServerId?: string | null
   destinationS3ProfileId?: string | null
+  destinationPeerId?: string | null
   name: string
   sourceType?: 'path' | 'docker_volume' | 'database'
   sourcePath: string
@@ -43,6 +44,7 @@ export interface Backup {
   dbPassword?: string | null
   hasDbPassword?: boolean
   enabled: boolean
+  enableEncryption?: boolean
   enableVersioning?: boolean
   versionsToKeep?: number
   enableFileRetention?: boolean
@@ -70,6 +72,12 @@ export interface Backup {
     name: string
     bucket?: string
     endpoint?: string
+  } | null
+  destinationPeer?: {
+    id?: string
+    name: string
+    quotaBytes?: number
+    usedBytes?: number
   } | null
   createdAt: string
   updatedAt: string

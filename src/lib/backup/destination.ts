@@ -1,4 +1,4 @@
-export type EndpointKind = 'local' | 'server' | 's3';
+export type EndpointKind = 'local' | 'server' | 's3' | 'peer';
 
 export type DestinationConfigRef = {
   id: string;
@@ -7,6 +7,7 @@ export type DestinationConfigRef = {
   destinationKind?: EndpointKind | null;
   destinationServerId?: string | null;
   destinationS3ProfileId?: string | null;
+  destinationPeerId?: string | null;
 };
 
 export type DestinationConflict = {
@@ -108,12 +109,13 @@ export function destinationCompareKey(destinationPath: string): string {
 }
 
 /**
- * Unique key for a destination endpoint (local path, remote server+path, or S3 profile+prefix).
+ * Unique key for a destination endpoint (local path, remote server+path, S3 profile+prefix, or peer+prefix).
  */
 export function destinationEndpointKey(options: {
   destinationKind?: EndpointKind | null;
   destinationServerId?: string | null;
   destinationS3ProfileId?: string | null;
+  destinationPeerId?: string | null;
   destinationPath: string;
 }): string {
   const kind = options.destinationKind || 'local';
@@ -124,6 +126,10 @@ export function destinationEndpointKey(options: {
   if (kind === 's3') {
     const profileId = options.destinationS3ProfileId || '';
     return `s3:${profileId}:${normalizeS3Prefix(options.destinationPath)}`;
+  }
+  if (kind === 'peer') {
+    const peerId = options.destinationPeerId || '';
+    return `peer:${peerId}:${normalizeS3Prefix(options.destinationPath)}`;
   }
   return `local:${destinationCompareKey(options.destinationPath)}`;
 }
@@ -161,6 +167,7 @@ function sameDestinationEndpoint(
     destinationKind?: EndpointKind | null;
     destinationServerId?: string | null;
     destinationS3ProfileId?: string | null;
+    destinationPeerId?: string | null;
     destinationPath: string;
   }
 ): boolean {
@@ -169,12 +176,14 @@ function sameDestinationEndpoint(
       destinationKind: a.destinationKind,
       destinationServerId: a.destinationServerId,
       destinationS3ProfileId: a.destinationS3ProfileId,
+      destinationPeerId: a.destinationPeerId,
       destinationPath: a.destinationPath,
     }) ===
     destinationEndpointKey({
       destinationKind: b.destinationKind,
       destinationServerId: b.destinationServerId,
       destinationS3ProfileId: b.destinationS3ProfileId,
+      destinationPeerId: b.destinationPeerId,
       destinationPath: b.destinationPath,
     })
   );
@@ -188,6 +197,7 @@ export function findExactConflictInList(
     destinationKind?: EndpointKind | null;
     destinationServerId?: string | null;
     destinationS3ProfileId?: string | null;
+    destinationPeerId?: string | null;
   }
 ): DestinationConflict | null {
   if (!destinationPath.trim()) {
@@ -197,6 +207,7 @@ export function findExactConflictInList(
     destinationKind: options?.destinationKind || 'local',
     destinationServerId: options?.destinationServerId ?? null,
     destinationS3ProfileId: options?.destinationS3ProfileId ?? null,
+    destinationPeerId: options?.destinationPeerId ?? null,
     destinationPath,
   };
   for (const config of configs) {
@@ -218,6 +229,7 @@ export function findNestedOverlapsInList(
     destinationKind?: EndpointKind | null;
     destinationServerId?: string | null;
     destinationS3ProfileId?: string | null;
+    destinationPeerId?: string | null;
   }
 ): DestinationConflict[] {
   if (!destinationPath.trim()) {
@@ -226,8 +238,9 @@ export function findNestedOverlapsInList(
   const targetKind = options?.destinationKind || 'local';
   const targetServerId = options?.destinationServerId ?? null;
   const targetS3Id = options?.destinationS3ProfileId ?? null;
+  const targetPeerId = options?.destinationPeerId ?? null;
 
-  // Nesting only applies to local destinations (or the same remote server / S3 profile).
+  // Nesting only applies to local destinations (or the same remote server / S3 profile / peer).
   const overlaps: DestinationConflict[] = [];
   for (const config of configs) {
     if (excludeConfigId && config.id === excludeConfigId) {
@@ -248,6 +261,15 @@ export function findNestedOverlapsInList(
     }
     if (targetKind === 's3') {
       if ((config.destinationS3ProfileId || null) !== targetS3Id) {
+        continue;
+      }
+      if (pathsNest(normalizeS3Prefix(destinationPath), normalizeS3Prefix(config.destinationPath))) {
+        overlaps.push({ id: config.id, name: config.name });
+      }
+      continue;
+    }
+    if (targetKind === 'peer') {
+      if ((config.destinationPeerId || null) !== targetPeerId) {
         continue;
       }
       if (pathsNest(normalizeS3Prefix(destinationPath), normalizeS3Prefix(config.destinationPath))) {
