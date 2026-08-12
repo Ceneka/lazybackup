@@ -102,6 +102,19 @@ function HistoryPageContent() {
     failed: "bg-red-500",
   }
 
+  function statusBadge(item: { status: string; mailboxPending?: boolean }) {
+    if (item.mailboxPending) {
+      return <Badge className="bg-amber-500">waiting for bro</Badge>
+    }
+    return (
+      <Badge
+        className={statusColors[item.status as keyof typeof statusColors] || "bg-gray-500"}
+      >
+        {item.status}
+      </Badge>
+    )
+  }
+
   const filteredConfigName = data?.filters?.configName
 
   return (
@@ -240,11 +253,7 @@ function HistoryPageContent() {
                       )}
                     </TableCell>
                     <TableCell>
-                      <Badge
-                        className={statusColors[item.status as keyof typeof statusColors] || "bg-gray-500"}
-                      >
-                        {item.status}
-                      </Badge>
+                      {statusBadge(item)}
                     </TableCell>
                     <TableCell>
                       {item.totalSize ? formatBytes(item.totalSize) : "-"}

@@ -22,6 +22,7 @@ import {
 import { decryptLocalFile, isAgeEncryptedPath, stripAgeExtension } from '@/lib/crypto/files';
 import { requireDecryptIdentities } from '@/lib/crypto/keys';
 import { downloadPeerObject } from '@/lib/peer/client';
+import { assertFileSha256 } from '@/lib/peer/digest';
 import {
   cleanupS3FileRetention,
   cleanupS3OldVersions,
@@ -574,6 +575,8 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
 
     let backupResult: { stdout: string; stderr: string };
     let usedMethod: string = 'rsync';
+    let mailboxPending = false;
+    let artifactSha256: string | undefined;
     let artifactPath =
       destinationKind === 'local'
         ? localDestination!
@@ -612,6 +615,8 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
         ? `lazybackup-instance-passphrase-${landed.usedMethod}`
         : `lazybackup-instance-${landed.usedMethod}`;
       artifactPath = landed.artifactPath;
+      mailboxPending = Boolean(landed.mailboxPending);
+      artifactSha256 = landed.artifactSha256;
       backupResult = {
         stdout: [
           'Source: LazyBackup instance (SQLite + age vault + SSH keys)',
@@ -681,6 +686,8 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
         destSsh = landed.destSsh;
         usedMethod = `database-${landed.usedMethod}${materialized.encrypted ? '-age' : ''}`;
         artifactPath = landed.artifactPath;
+        mailboxPending = Boolean(landed.mailboxPending);
+        artifactSha256 = landed.artifactSha256;
         backupResult = {
           stdout: [
             `Engine: ${dbConn.engine}`,
@@ -943,6 +950,8 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
         destSsh = landed.destSsh;
         usedMethod = `docker-${landed.usedMethod}${materialized.encrypted ? '-age' : ''}`;
         artifactPath = landed.artifactPath;
+        mailboxPending = Boolean(landed.mailboxPending);
+        artifactSha256 = landed.artifactSha256;
         backupResult = {
           stdout: [
             `Volume: ${config.sourcePath}`,
@@ -1138,6 +1147,8 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
       destSsh = landed.destSsh;
       usedMethod = `path-${landed.usedMethod}-age`;
       artifactPath = landed.artifactPath;
+      mailboxPending = Boolean(landed.mailboxPending);
+      artifactSha256 = landed.artifactSha256;
       backupResult = {
         stdout: [`Encryption: age`, landed.stdout].join('\n'),
         stderr: '',
@@ -1466,6 +1477,8 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
       ...parsedOutput,
       logOutput: combineBackupLog(preBackupLog, backupResult.stdout, usedMethod, fileRetentionLog),
       artifactPath,
+      artifactSha256,
+      mailboxPending,
     });
   } catch (error) {
     console.error(`Backup failed: ${error}`);
@@ -1508,6 +1521,8 @@ export async function resolveLocalRestoreArtifact(options: {
   destinationPeer?: PeerRow | null;
   /** When true (default), decrypt `.age` artifacts with the instance identity */
   decrypt?: boolean;
+  expectedSha256?: string | null;
+  historyId?: string | null;
 }): Promise<{ localPath: string; tempDir: string | null }> {
   const kind = options.destinationKind || 'local';
   let localPath: string;
@@ -1564,7 +1579,11 @@ export async function resolveLocalRestoreArtifact(options: {
           waitForRecall,
           consumeRecallArtifact,
         } = await import('@/lib/peer/recall');
-        const recall = await ensureRecall({ peerId, objectKey });
+        const recall = await ensureRecall({
+          peerId,
+          objectKey,
+          historyId: options.historyId ?? null,
+        });
         if (recall.status === 'ready') {
           await consumeRecallArtifact(recall.id, peerId, localPath);
         } else {
@@ -1585,6 +1604,8 @@ export async function resolveLocalRestoreArtifact(options: {
       'Restore is only supported when the backup destination is on the LazyBackup host, S3, or a bro peer'
     );
   }
+
+  await assertFileSha256(localPath, options.expectedSha256, 'restore artifact');
 
   if (options.decrypt !== false && isAgeEncryptedPath(localPath)) {
     const identities = await requireDecryptIdentities();
@@ -1657,6 +1678,8 @@ export async function restoreDockerVolumeBackup(
       destinationKind: config.destinationKind,
       destinationS3Profile: config.destinationS3Profile,
       destinationPeer: config.destinationPeer,
+      expectedSha256: historyEntry.artifactSha256,
+      historyId: historyEntry.id,
     });
 
   const serverConfig = normalizeServer(config.server);
@@ -1780,6 +1803,8 @@ export async function restoreDatabaseBackup(
       destinationKind: config.destinationKind,
       destinationS3Profile: config.destinationS3Profile,
       destinationPeer: config.destinationPeer,
+      expectedSha256: historyEntry.artifactSha256,
+      historyId: historyEntry.id,
     });
 
   const dbConn = connectionFromConfig({

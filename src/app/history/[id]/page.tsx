@@ -146,9 +146,13 @@ export default function HistoryDetailPage() {
                   <CardTitle className="flex items-center justify-between">
                     <span>{query.data?.backupConfig?.name || "Unknown Backup"}</span>
                     <Badge 
-                      className={statusColors[query.data?.status as keyof typeof statusColors] || ""}
+                      className={
+                        query.data?.mailboxPending
+                          ? "bg-amber-500 hover:bg-amber-500"
+                          : statusColors[query.data?.status as keyof typeof statusColors] || ""
+                      }
                     >
-                      {query.data?.status}
+                      {query.data?.mailboxPending ? "waiting for bro" : query.data?.status}
                     </Badge>
                   </CardTitle>
                   <CardDescription>

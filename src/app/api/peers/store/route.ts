@@ -1,10 +1,14 @@
 import { verifyPeerBearer } from '@/lib/peer/pairing';
 import {
   deletePeerObjectFile,
+  ingestPeerObjectUpload,
   listPeerObjects,
   readPeerObject,
-  writePeerObject,
 } from '@/lib/peer/storage';
+import {
+  assertDeclaredUploadSize,
+  PeerUploadLimitError,
+} from '@/lib/peer/upload-limit';
 import { NextRequest, NextResponse } from 'next/server';
 
 /**
@@ -66,14 +70,24 @@ export async function PUT(request: NextRequest) {
   }
 
   try {
-    const buf = Buffer.from(await request.arrayBuffer());
-    const result = await writePeerObject(peer.id, key, buf, peer.quotaBytes);
+    const declaredBytes = assertDeclaredUploadSize({
+      contentLengthHeader: request.headers.get('content-length'),
+      quotaBytes: peer.quotaBytes,
+    });
+    const result = await ingestPeerObjectUpload({
+      peerId: peer.id,
+      objectKey: key,
+      quotaBytes: peer.quotaBytes,
+      declaredBytes,
+      body: request.body,
+    });
     return NextResponse.json(result);
   } catch (error) {
     console.error('Peer store PUT failed:', error);
+    const status = error instanceof PeerUploadLimitError ? error.status : 400;
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Upload failed' },
-      { status: 400 }
+      { status }
     );
   }
 }

@@ -136,6 +136,16 @@ export const backupHistory = sqliteTable('backup_history', {
   logOutput: text('log_output'),
   /** Local/remote/S3 path to artifact (.tar.gz / .sql.gz for volume|database, directory for path) */
   artifactPath: text('artifact_path'),
+  /**
+   * SHA-256 hex of the landed ciphertext (age blob, archive, or dump).
+   * Used to detect peer store substitution on restore/recall.
+   */
+  artifactSha256: text('artifact_sha256'),
+  /**
+   * Bro mailbox: artifact is staged locally and waiting for a verified ACK.
+   * status stays `success` so existing UI/filters keep working.
+   */
+  mailboxPending: integer('mailbox_pending', { mode: 'boolean' }).notNull().default(false),
 });
 
 /** Machine API tokens for MCP / Bearer auth (hash only; plaintext shown once) */
