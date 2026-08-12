@@ -311,6 +311,43 @@ export function IconPasskey(props: { className?: string }) {
   );
 }
 
+export function IconValidate(props: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={props.className} aria-hidden>
+      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.5" />
+      <path
+        d="M8.5 12.5l2.5 2.5 4.5-5"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+export function IconWebhook(props: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={props.className} aria-hidden>
+      <path
+        d="M10 13a3.5 3.5 0 015.3-2.9L18 8.5"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+      <path
+        d="M14 11a3.5 3.5 0 01-5.3 2.9L6 15.5"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+      <circle cx="18.5" cy="7.5" r="2" stroke="currentColor" strokeWidth="1.5" />
+      <circle cx="5.5" cy="16.5" r="2" stroke="currentColor" strokeWidth="1.5" />
+      <circle cx="12" cy="12" r="2" stroke="currentColor" strokeWidth="1.5" />
+    </svg>
+  );
+}
+
 export type FeatureIcon = ComponentType<{ className?: string }>;
 
 export type FeatureHighlight = {
@@ -340,6 +377,16 @@ export const homeFeatures: readonly FeatureHighlight[] = [
     title: "Bro Space",
     desc: "1:1 reciprocal peer storage with invite codes. Blobs are age-encrypted before they leave your machine; hard quotas on each side.",
     Icon: IconUsers,
+  },
+  {
+    title: "Validate before run",
+    desc: "Probe SSH, S3, paths, and DB credentials without transferring. Last result is stored with a timestamp on the backup detail page.",
+    Icon: IconValidate,
+  },
+  {
+    title: "Failure webhooks",
+    desc: "HTTPS notify on backup.failed—method, headers, and {{tag}} templates. Presets for Discord, ntfy, Uptime Kuma, Telegram, and Slack.",
+    Icon: IconWebhook,
   },
   {
     title: "Status posture",
@@ -527,6 +574,32 @@ export const detailedFeatures: readonly DetailedFeature[] = [
     Icon: IconClock,
   },
   {
+    id: "validate",
+    title: "Validate before run",
+    tags: ["POST /api/backups/:id/validate", "lastValidation"],
+    summary:
+      "Dry-run connectivity and credentials without transferring data. Open a backup → Validate; the last result is stored for later.",
+    points: [
+      "Probes SSH reachability / key capability, local or remote paths, S3 profile access, and database dump credentials as applicable.",
+      "Returns pass / fail / warn checks with messages—no rsync, pack, or dump side effects.",
+      "lastValidatedAt / lastValidationOk / lastValidationChecks persist on the config; cleared when you edit the job.",
+    ],
+    Icon: IconValidate,
+  },
+  {
+    id: "webhooks",
+    title: "Failure webhooks",
+    tags: ["failureWebhookUrl", "{{backupName}}", "backup.failed"],
+    summary:
+      "Optional HTTPS notification when a backup fails. Configure once under Settings → General; empty URL disables.",
+    points: [
+      "Method GET / POST / PUT; URL, headers, and body support {{event}}, {{backupName}}, {{configId}}, {{historyId}}, {{errorMessage}}, {{endedAt}}.",
+      "Presets: Default JSON, Discord, Telegram, Uptime Kuma push, ntfy, Slack—paste your URL and tweak the template.",
+      "Empty POST/PUT body sends the built-in backup.failed JSON. HTTPS required (http only for localhost/LAN). Send test notification to verify.",
+    ],
+    Icon: IconWebhook,
+  },
+  {
     id: "auth",
     title: "App password & passkeys",
     tags: ["lb_session", "WebAuthn", "webauthn_credentials"],
@@ -559,3 +632,11 @@ export const detailedFeatures: readonly DetailedFeature[] = [
 export const GITHUB_URL = "https://github.com/Ceneka/lazybackup";
 export const SITE_URL = "https://lazy.zic.ar";
 export const DOCKER_IMAGE = "ghcr.io/ceneka/lazybackup:latest";
+
+/** Default Open Graph / Twitter share image (landing public/). */
+export const OG_IMAGE = {
+  url: "/screenshots/dashboard.png",
+  width: 1440,
+  height: 900,
+  alt: "LazyBackup dashboard — backup status, success rate, and upcoming schedules",
+} as const;

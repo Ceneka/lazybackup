@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import {
   GITHUB_URL,
+  OG_IMAGE,
+  SITE_URL,
   detailedFeatures,
 } from "@/components/landing/features-data";
 import { SiteFooter } from "@/components/landing/site-footer";
@@ -10,12 +12,24 @@ import { SiteHeader } from "@/components/landing/site-header";
 export const metadata: Metadata = {
   title: "Features",
   description:
-    "Technical reference for LazyBackup: From→To endpoints, source types, age vault, Bro Space, instance backup, Status posture, passkeys, MCP.",
+    "Technical reference for LazyBackup: From→To endpoints, validate before run, failure webhooks, age vault, Bro Space, Status posture, passkeys, MCP.",
+  alternates: {
+    canonical: "/features",
+  },
   openGraph: {
     title: "Features · LazyBackup",
     description:
-      "Endpoints, encryption vault, Bro Space, instance meta-backup, Status checks, passkeys, and MCP—reference-style.",
+      "Endpoints, validate before run, failure webhooks, age vault, Bro Space, Status checks, passkeys, and MCP—reference-style.",
     type: "website",
+    url: `${SITE_URL}/features`,
+    images: [OG_IMAGE],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Features · LazyBackup",
+    description:
+      "Validate before run, failure webhooks, From→To endpoints, age vault, Bro Space, MCP—reference-style.",
+    images: [OG_IMAGE.url],
   },
 };
 
@@ -35,7 +49,8 @@ export default function FeaturesPage() {
           </h1>
           <p className="mt-4 max-w-2xl text-base leading-relaxed text-slate-400">
             Reference for what the self-hosted app implements today. Prefer this
-            page over marketing blurbs when wiring backups, encryption, or MCP.
+            page over marketing blurbs when wiring backups, validate, webhooks,
+            encryption, or MCP.
           </p>
           <nav
             aria-label="Feature sections"

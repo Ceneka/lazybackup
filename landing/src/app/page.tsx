@@ -1,7 +1,10 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import {
   DOCKER_IMAGE,
   GITHUB_URL,
+  OG_IMAGE,
+  SITE_URL,
   homeFeatures,
 } from "@/components/landing/features-data";
 import { HeroOrbs } from "@/components/landing/hero-orbs";
@@ -11,6 +14,31 @@ import { ScrollReveal } from "@/components/landing/scroll-reveal";
 import { SiteHeader } from "@/components/landing/site-header";
 import { SiteFooter } from "@/components/landing/site-footer";
 import { TerminalDemo } from "@/components/landing/terminal-demo";
+
+export const metadata: Metadata = {
+  title: {
+    absolute: "LazyBackup — From → To backups for your servers",
+  },
+  description:
+    "Self-hosted From→To backups: local, SSH, S3; path, Docker volume, database; validate before run, failure webhooks, age vault, Bro Space, passkeys, MCP.",
+  alternates: {
+    canonical: "/",
+  },
+  openGraph: {
+    title: "LazyBackup — From → To backups for your servers",
+    description:
+      "Endpoints, validate before run, failure webhooks, age vault, Bro Space, passkeys, MCP—self-hosted.",
+    url: SITE_URL,
+    images: [OG_IMAGE],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "LazyBackup — From → To backups for your servers",
+    description:
+      "Self-hosted From→To backups with validate, failure webhooks, age encryption, and MCP.",
+    images: [OG_IMAGE.url],
+  },
+};
 
 const steps = [
   {
@@ -25,8 +53,8 @@ const steps = [
   },
   {
     step: 3,
-    title: "Monitor & harden",
-    desc: "History, restore, Status posture checklist, passkeys, and optional MCP so agents manage the same instance.",
+    title: "Validate & notify",
+    desc: "Validate SSH/S3/DB before a real run, then History, Status posture, failure webhooks, passkeys, and optional MCP.",
   },
 ] as const;
 
@@ -111,9 +139,9 @@ export default function Home() {
             <p className="mt-6 max-w-xl text-lg leading-relaxed text-slate-400">
               Move paths, Docker volumes, and database dumps between this host,
               SSH servers, and S3—plus Bro peer storage and an instance
-              meta-backup. Optional age encryption vault, passkeys, a Status
-              posture page, and MCP for Cursor/Claude. No agents on your VPS,
-              no cloud lock-in.
+              meta-backup. Validate before you transfer, ping Discord/ntfy/Kuma
+              on failure, optional age vault, passkeys, Status posture, and MCP
+              for Cursor/Claude. No agents on your VPS, no cloud lock-in.
             </p>
             <div className="mt-9 flex flex-wrap items-center gap-4">
               <Link
@@ -168,8 +196,8 @@ export default function Home() {
                 Built for operators who read logs
               </h2>
               <p className="mt-4 text-lg text-slate-400">
-                Endpoints, source types, age vault, Bro Space, instance backup,
-                Status checks, and MCP—see the full reference on Features.
+                Endpoints, validate before run, failure webhooks, age vault, Bro
+                Space, Status checks, and MCP—see the full reference on Features.
               </p>
             </div>
           </ScrollReveal>

@@ -3,7 +3,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { BlogBlocks } from "@/components/landing/blog-blocks";
-import { GITHUB_URL } from "@/components/landing/features-data";
+import { GITHUB_URL, SITE_URL } from "@/components/landing/features-data";
 import { HeroOrbs } from "@/components/landing/hero-orbs";
 import { SiteFooter } from "@/components/landing/site-footer";
 import { SiteHeader } from "@/components/landing/site-header";
@@ -23,14 +23,30 @@ export async function generateMetadata({
   const { slug } = await params;
   const post = getPost(slug);
   if (!post) return { title: "Post" };
+  const url = `${SITE_URL}/blog/${post.slug}`;
+  const ogImage = {
+    url: post.cover.src,
+    alt: post.cover.alt,
+  };
   return {
     title: post.title,
     description: post.description,
+    alternates: {
+      canonical: `/blog/${post.slug}`,
+    },
     openGraph: {
       title: `${post.title} · LazyBackup`,
       description: post.description,
       type: "article",
       publishedTime: post.date,
+      url,
+      images: [ogImage],
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: `${post.title} · LazyBackup`,
+      description: post.description,
+      images: [ogImage.url],
     },
   };
 }

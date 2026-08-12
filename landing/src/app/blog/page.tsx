@@ -4,18 +4,30 @@ import Link from "next/link";
 import { HeroOrbs } from "@/components/landing/hero-orbs";
 import { SiteFooter } from "@/components/landing/site-footer";
 import { SiteHeader } from "@/components/landing/site-header";
-import { GITHUB_URL } from "@/components/landing/features-data";
+import { GITHUB_URL, OG_IMAGE, SITE_URL } from "@/components/landing/features-data";
 import { getAllPosts } from "@/lib/blog/posts";
 
 export const metadata: Metadata = {
   title: "Blog",
   description:
-    "Guides and product notes for LazyBackup — self-hosted From → To backups, Docker databases, and more.",
+    "Guides and product notes for LazyBackup — failure webhooks, Docker databases to S3, MCP, and more.",
+  alternates: {
+    canonical: "/blog",
+  },
   openGraph: {
     title: "Blog · LazyBackup",
     description:
       "Guides and product notes for LazyBackup — self-hosted backups done simply.",
     type: "website",
+    url: `${SITE_URL}/blog`,
+    images: [OG_IMAGE],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Blog · LazyBackup",
+    description:
+      "Guides and product notes for LazyBackup — self-hosted backups done simply.",
+    images: [OG_IMAGE.url],
   },
 };
 
@@ -41,8 +53,8 @@ export default function BlogIndexPage() {
             </span>
           </h1>
           <p className="mt-6 max-w-2xl text-lg leading-relaxed text-slate-400">
-            Product walkthroughs and practical how-tos—Docker databases, From →
-            To jobs, and more as we ship.
+            Product walkthroughs and practical how-tos—failure webhooks, Docker
+            databases to S3, MCP, and more as we ship.
           </p>
         </div>
       </section>
