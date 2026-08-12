@@ -7,7 +7,9 @@ const footerLinks = [
   { href: SITE_URL, label: "lazy.zic.ar" },
   { href: "/", label: "Home" },
   { href: "/features", label: "Features" },
+  { href: "/compare", label: "Compare" },
   { href: "/blog", label: "Blog" },
+  { href: "/changelog", label: "Changelog" },
   { href: `${GITHUB_URL}#readme`, label: "Docs", external: true },
 ] as const;
 

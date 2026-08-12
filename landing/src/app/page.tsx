@@ -9,6 +9,7 @@ import {
 } from "@/components/landing/features-data";
 import { HeroOrbs } from "@/components/landing/hero-orbs";
 import { InstallTabs } from "@/components/landing/install-tabs";
+import { McpDemoStrip } from "@/components/landing/mcp-demo-strip";
 import { ScreenshotsGallery } from "@/components/landing/screenshots-gallery";
 import { ScrollReveal } from "@/components/landing/scroll-reveal";
 import { SiteHeader } from "@/components/landing/site-header";
@@ -231,6 +232,8 @@ export default function Home() {
       </section>
 
       <ScreenshotsGallery />
+
+      <McpDemoStrip />
 
       <section
         id="how-it-works"

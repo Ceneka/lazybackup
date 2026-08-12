@@ -11,6 +11,11 @@ const screenshots = [
     alt: "LazyBackup dashboard with last-30-day backup status, success rate, storage, recent activity, and upcoming schedules",
   },
   {
+    src: "/screenshots/status.png",
+    title: "Status",
+    alt: "LazyBackup Status posture page with critical/warn checklist for auth, age keys, instance backup, and failure webhooks",
+  },
+  {
     src: "/screenshots/servers.png",
     title: "Servers",
     alt: "LazyBackup servers page listing SSH connections with host, port, username, and key auth",
@@ -19,6 +24,26 @@ const screenshots = [
     src: "/screenshots/backups.png",
     title: "Backups",
     alt: "LazyBackup backup jobs page showing scheduled pull jobs with cron expressions and destinations",
+  },
+  {
+    src: "/screenshots/s3-profiles.png",
+    title: "S3 profiles",
+    alt: "LazyBackup S3 profiles page listing a MinIO-compatible endpoint, bucket, and region",
+  },
+  {
+    src: "/screenshots/encryption.png",
+    title: "Encryption",
+    alt: "LazyBackup Settings Encryption tab showing the age key vault with active key, export, and recovery recipients",
+  },
+  {
+    src: "/screenshots/mcp-api.png",
+    title: "API / MCP",
+    alt: "LazyBackup Settings API tab with Bearer token creation, remote_exec checkbox, and MCP client config snippet",
+  },
+  {
+    src: "/screenshots/bro-space.png",
+    title: "Bro Space",
+    alt: "LazyBackup Settings Bro Space tab for 1:1 peer storage invites, quota, and Tailscale helpers",
   },
   {
     src: "/screenshots/history.png",
@@ -48,8 +73,8 @@ export function ScreenshotsGallery() {
               See it in action
             </h2>
             <p className="mt-4 text-lg text-slate-400">
-              Servers, From→To jobs, retention, storage usage, and history—with
-              an optional app password lock.
+              Status posture, age vault, S3, Bro Space, MCP tokens, From→To
+              jobs, and history—on your own host.
             </p>
           </div>
         </ScrollReveal>

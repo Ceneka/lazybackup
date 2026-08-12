@@ -8,10 +8,11 @@ import { Logo } from "./logo";
 
 const homeNav = [
   { href: "/features", label: "Features" },
+  { href: "/compare", label: "Compare" },
   { href: "/blog", label: "Blog" },
+  { href: "/changelog", label: "Changelog" },
   { href: "/#screenshots", label: "Screenshots" },
   { href: "/#how-it-works", label: "How it works" },
-  { href: "/#tech-stack", label: "Stack" },
   { href: "/#cta", label: "Deploy" },
   { href: GITHUB_URL, label: "GitHub", external: true },
 ] as const;
@@ -19,7 +20,9 @@ const homeNav = [
 const innerNav = [
   { href: "/", label: "Home" },
   { href: "/features", label: "Features" },
+  { href: "/compare", label: "Compare" },
   { href: "/blog", label: "Blog" },
+  { href: "/changelog", label: "Changelog" },
   { href: "/#cta", label: "Deploy" },
   { href: GITHUB_URL, label: "GitHub", external: true },
 ] as const;
