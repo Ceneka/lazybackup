@@ -56,10 +56,17 @@ export async function execRemoteCommand(
 
   const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS
   const ssh = await connectToServer(server)
+  let timer: ReturnType<typeof setTimeout> | undefined
   try {
-    const result = await ssh.execCommand(trimmed, {
-      execOptions: { timeout: timeoutMs },
-    })
+    const result = await Promise.race([
+      ssh.execCommand(trimmed),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`Command timed out after ${timeoutMs}ms`)),
+          timeoutMs
+        )
+      }),
+    ])
     const stdout = truncateOutput(result.stdout ?? '')
     const stderr = truncateOutput(result.stderr ?? '')
     const exitCode = result.code ?? null
@@ -80,6 +87,7 @@ export async function execRemoteCommand(
       log,
     }
   } finally {
+    if (timer) clearTimeout(timer)
     ssh.dispose()
   }
 }

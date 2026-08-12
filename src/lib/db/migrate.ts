@@ -366,7 +366,7 @@ export async function runMigration() {
     `);
 
     const apiTokensInfo = await db.run(sql`PRAGMA table_info(api_tokens)`);
-    const apiTokenColumns = apiTokensInfo.rows.map((row: { name: string }) => row.name);
+    const apiTokenColumns = apiTokensInfo.rows.map((row: any) => row.name);
     if (!apiTokenColumns.includes('permissions')) {
       await db.run(
         sql`ALTER TABLE api_tokens ADD COLUMN permissions TEXT NOT NULL DEFAULT '[]'`

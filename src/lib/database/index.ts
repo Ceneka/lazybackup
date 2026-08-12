@@ -1,6 +1,6 @@
 import { shellSingleQuote } from '@/lib/ssh/rsync';
 import { DOCKER_VOLUME_NAME_RE } from '@/lib/docker/volumes';
-import { spawn, type ChildProcessWithoutNullStreams } from 'child_process';
+import { spawn, type ChildProcess } from 'child_process';
 import { createWriteStream } from 'fs';
 import { promises as fs } from 'fs';
 import os from 'os';
@@ -399,14 +399,14 @@ export type PackDatabaseResult = {
   stderr: string;
 };
 
-function collectStd(child: ChildProcessWithoutNullStreams): {
+function collectStd(child: ChildProcess): {
   stdout: string;
   stderr: string;
 } {
   const out: Buffer[] = [];
   const err: Buffer[] = [];
-  child.stdout.on('data', (chunk: Buffer) => out.push(chunk));
-  child.stderr.on('data', (chunk: Buffer) => err.push(chunk));
+  child.stdout?.on('data', (chunk: Buffer) => out.push(chunk));
+  child.stderr?.on('data', (chunk: Buffer) => err.push(chunk));
   return {
     get stdout() {
       return Buffer.concat(out).toString('utf8');
@@ -417,7 +417,7 @@ function collectStd(child: ChildProcessWithoutNullStreams): {
   };
 }
 
-function waitChild(child: ChildProcessWithoutNullStreams): Promise<number> {
+function waitChild(child: ChildProcess): Promise<number> {
   return new Promise((resolve, reject) => {
     child.on('error', reject);
     child.on('close', (code) => resolve(code ?? 1));

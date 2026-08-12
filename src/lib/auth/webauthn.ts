@@ -70,7 +70,7 @@ export async function getRegistrationOptions(rpID: string) {
     rpID,
     userName: USER_NAME,
     userDisplayName: USER_DISPLAY,
-    userID: USER_ID,
+    userID: new Uint8Array(USER_ID),
     attestationType: 'none',
     excludeCredentials: existing.map((c) => ({
       id: c.credentialId,

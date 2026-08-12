@@ -112,16 +112,20 @@ const postSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('clear') }),
 ]);
 
-function isSensitiveVaultAction(
-  action: z.infer<typeof postSchema>['action']
-): action is 'generate' | 'import' | 'reveal' | 'exportPassphrase' | 'addRecovery' {
+type EncryptionPostBody = z.infer<typeof postSchema>
+type SensitiveVaultBody = Extract<
+  EncryptionPostBody,
+  { action: 'generate' | 'import' | 'reveal' | 'exportPassphrase' | 'addRecovery' }
+>
+
+function isSensitiveVaultBody(body: EncryptionPostBody): body is SensitiveVaultBody {
   return (
-    action === 'generate' ||
-    action === 'import' ||
-    action === 'reveal' ||
-    action === 'exportPassphrase' ||
-    action === 'addRecovery'
-  );
+    body.action === 'generate' ||
+    body.action === 'import' ||
+    body.action === 'reveal' ||
+    body.action === 'exportPassphrase' ||
+    body.action === 'addRecovery'
+  )
 }
 
 /**
@@ -134,7 +138,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = postSchema.parse(await request.json());
 
-    if (isSensitiveVaultAction(body.action)) {
+    if (isSensitiveVaultBody(body)) {
       await requireVaultStepUp({
         currentPassword: body.currentPassword,
         confirm: body.confirm,
