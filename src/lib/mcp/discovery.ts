@@ -1,4 +1,4 @@
-import { redactServer } from '@/lib/api/redact'
+import { isBearerAudience, redactDbHints, redactServer } from '@/lib/api/redact'
 import { databaseConnectionTestSchema } from '@/lib/backup/schema'
 import {
   connectionFromConfig,
@@ -15,6 +15,13 @@ import { eq } from 'drizzle-orm'
 
 export type McpOpsContext = {
   actor?: AuditActor
+  /** Auth audience. Bearer omits live DB passwords from get_container_db_hints. */
+  via?: 'unlocked' | 'session' | 'bearer' | 'none'
+}
+
+/** Session/unlocked keep the password for the form; Bearer/MCP tokens get hasPassword only. */
+export function mcpIncludeDbHintPassword(via: string | undefined): boolean {
+  return !isBearerAudience(via ?? 'bearer')
 }
 
 function jsonResult(data: unknown) {
@@ -160,10 +167,13 @@ export async function getContainerDbHintsOp(
     const ssh = await connectToServer(server)
     try {
       const hints = await inspectContainerDatabaseHints(ssh, container)
+      const includePassword = mcpIncludeDbHintPassword(ctx.via)
       return jsonResult({
         serverId,
         serverName: server.name,
-        hints,
+        hints: redactDbHints(hints as unknown as Record<string, unknown>, {
+          includePassword,
+        }),
         hint: hints.found
           ? 'Use these fields for create_backup (sourceType=database, dbClient=docker) then call test_database before saving.'
           : 'No DB env detected — list containers or ask the user for credentials.',

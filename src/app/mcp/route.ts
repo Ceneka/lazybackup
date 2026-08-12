@@ -29,7 +29,7 @@ async function handle(req: Request) {
 
   const requestHandler = createMcpHandler(
     (server) => {
-      registerLazyBackupTools(server, { actor, canRemoteExec })
+      registerLazyBackupTools(server, { actor, canRemoteExec, via: resolved.via })
     },
     {
       serverInfo: {

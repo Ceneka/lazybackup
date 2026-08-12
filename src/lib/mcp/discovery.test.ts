@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { scoreServerMatch } from './discovery'
+import { mcpIncludeDbHintPassword, scoreServerMatch } from './discovery'
 
 describe('scoreServerMatch', () => {
   const server = {
@@ -28,5 +28,17 @@ describe('scoreServerMatch', () => {
 
   test('no match is zero', () => {
     expect(scoreServerMatch('database-only', server)).toBe(0)
+  })
+})
+
+describe('mcpIncludeDbHintPassword', () => {
+  test('session and unlocked keep the live password', () => {
+    expect(mcpIncludeDbHintPassword('session')).toBe(true)
+    expect(mcpIncludeDbHintPassword('unlocked')).toBe(true)
+  })
+
+  test('Bearer and missing via omit the password', () => {
+    expect(mcpIncludeDbHintPassword('bearer')).toBe(false)
+    expect(mcpIncludeDbHintPassword(undefined)).toBe(false)
   })
 })

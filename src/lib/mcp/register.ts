@@ -17,17 +17,26 @@ For database dumps prefer get_container_db_hints then test_database before creat
 const REMOTE_EXEC_NOTE =
   'Requires API token remote_exec permission (or a browser session). Prefer this over setting preBackupCommands just to run a one-off command.'
 
-function ctx(actor: AuditActor | undefined, canRemoteExec: boolean): ops.McpOpsContext {
-  return { actor, canRemoteExec }
+function ctx(
+  actor: AuditActor | undefined,
+  canRemoteExec: boolean,
+  via: ops.McpOpsContext['via']
+): ops.McpOpsContext {
+  return { actor, canRemoteExec, via }
 }
 
 export function registerLazyBackupTools(
   server: McpServer,
-  options?: { actor?: AuditActor; canRemoteExec?: boolean }
+  options?: {
+    actor?: AuditActor
+    canRemoteExec?: boolean
+    via?: ops.McpOpsContext['via']
+  }
 ) {
   const actor = options?.actor
   const canRemoteExec = options?.canRemoteExec ?? false
-  const c = ctx(actor, canRemoteExec)
+  const via = options?.via ?? 'bearer'
+  const c = ctx(actor, canRemoteExec, via)
 
   // --- Discovery & verify (call these before create_*) ---
 

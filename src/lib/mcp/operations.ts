@@ -93,6 +93,8 @@ export type McpOpsContext = {
   actor?: AuditActor
   /** Browser session / unlocked = true; Bearer only when token has remote_exec */
   canRemoteExec: boolean
+  /** Auth audience. Bearer omits live DB passwords from get_container_db_hints. */
+  via?: 'unlocked' | 'session' | 'bearer' | 'none'
 }
 
 function assertMcpCanSetPreBackup(
