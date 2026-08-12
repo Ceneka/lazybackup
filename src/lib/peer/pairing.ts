@@ -15,6 +15,7 @@ import {
 import { INSTANCE_BASE_URL_KEY, gbToBytes, redactPeer, type PeerPublic } from './types';
 import fs from 'fs/promises';
 import { peerDataDir } from './storage';
+import { listStagedObjects } from './staging';
 
 export async function getInstanceBaseUrl(): Promise<string | null> {
   const row = await db.query.settings.findFirst({
@@ -49,7 +50,19 @@ export async function setInstanceBaseUrl(url: string): Promise<void> {
 
 export async function listPeers(): Promise<PeerPublic[]> {
   const rows = await db.query.peers.findMany();
-  return rows.map(redactPeer);
+  const out: PeerPublic[] = [];
+  for (const row of rows) {
+    let pendingSyncCount = 0;
+    if (row.transport !== 'direct') {
+      try {
+        pendingSyncCount = (await listStagedObjects(row.id)).length;
+      } catch {
+        pendingSyncCount = 0;
+      }
+    }
+    out.push(redactPeer(row, { pendingSyncCount }));
+  }
+  return out;
 }
 
 export async function createInvite(options: {
@@ -110,24 +123,26 @@ export async function listInvites() {
 }
 
 /**
- * Accept a pasted invite on this instance (the bro).
+ * Accept a pasted invite on this instance (another full LB).
  * Calls the inviter's pair endpoint to complete mutual trust.
  */
 export async function acceptInvite(options: {
   inviteCode: string;
   localLabel: string;
   localBaseUrl?: string;
+  /** client = LazyBro-style (no local URL); host = full LB with URL */
+  mode?: 'client' | 'host';
 }): Promise<PeerPublic> {
   const payload = decodeInvitePayload(options.inviteCode);
-  const ourBaseUrl = (options.localBaseUrl || (await getInstanceBaseUrl()) || '').replace(
-    /\/+$/,
-    ''
-  );
-  if (!ourBaseUrl) {
+  const mode = options.mode || 'host';
+  const ourBaseUrl =
+    mode === 'client'
+      ? ''
+      : (options.localBaseUrl || (await getInstanceBaseUrl()) || '').replace(/\/+$/, '');
+  if (mode === 'host' && !ourBaseUrl) {
     throw new Error('Set your Instance URL in Settings → Bro Space before accepting.');
   }
 
-  // Tokens: we generate inbound for them; they will send us theirs in the response.
   const ourInbound = generatePeerToken();
   const ourPeerId = nanoid();
 
@@ -140,7 +155,8 @@ export async function acceptInvite(options: {
       secret: payload.s,
       acceptor: {
         peerId: ourPeerId,
-        baseUrl: ourBaseUrl,
+        baseUrl: ourBaseUrl || undefined,
+        mode,
         label: options.localLabel.trim() || 'LazyBackup',
         inboundToken: ourInbound.token,
         quotaBytes: payload.q,
@@ -173,6 +189,7 @@ export async function acceptInvite(options: {
     inboundTokenPrefix: ourInbound.prefix,
     quotaBytes: payload.q,
     usedBytes: 0,
+    transport: 'mailbox',
     status: 'active',
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -193,7 +210,8 @@ export async function completePairFromAcceptor(body: {
   secret: string;
   acceptor: {
     peerId: string;
-    baseUrl: string;
+    baseUrl?: string;
+    mode?: 'client' | 'host';
     label: string;
     inboundToken: string;
     quotaBytes: number;
@@ -225,6 +243,12 @@ export async function completePairFromAcceptor(body: {
     throw new Error('Quota mismatch');
   }
 
+  const mode = body.acceptor.mode || 'host';
+  const acceptorUrl = (body.acceptor.baseUrl || '').replace(/\/+$/, '');
+  if (mode === 'host' && !acceptorUrl) {
+    throw new Error('Acceptor baseUrl is required for host mode');
+  }
+
   const ourInbound = generatePeerToken();
   const ourPeerId = nanoid();
   const ourBase = invite.localBaseUrl;
@@ -232,13 +256,14 @@ export async function completePairFromAcceptor(body: {
   await db.insert(peers).values({
     id: ourPeerId,
     name: body.acceptor.label || 'Bro',
-    remoteBaseUrl: body.acceptor.baseUrl.replace(/\/+$/, ''),
+    remoteBaseUrl: mode === 'client' ? '' : acceptorUrl,
     remotePeerId: body.acceptor.peerId,
     outboundToken: body.acceptor.inboundToken,
     inboundTokenHash: ourInbound.hash,
     inboundTokenPrefix: ourInbound.prefix,
     quotaBytes: invite.quotaBytes,
     usedBytes: 0,
+    transport: 'mailbox',
     status: 'active',
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -273,6 +298,13 @@ export async function verifyPeerBearer(
     where: and(eq(peers.inboundTokenHash, hash), eq(peers.status, 'active')),
   });
   return row ?? null;
+}
+
+export async function touchPeerSeen(peerId: string): Promise<void> {
+  await db
+    .update(peers)
+    .set({ lastSeenAt: new Date(), lastActivityAt: new Date(), updatedAt: new Date() })
+    .where(eq(peers.id, peerId));
 }
 
 export async function revokePeer(peerId: string): Promise<void> {

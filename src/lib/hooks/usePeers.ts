@@ -9,9 +9,12 @@ export type PeerSummary = {
   quotaBytes: number
   quotaGb: number
   usedBytes: number
+  transport: "mailbox" | "direct"
   status: string
   inboundTokenPrefix: string
+  lastSeenAt: string | null
   lastActivityAt: string | null
+  pendingSyncCount?: number
   createdAt: string
   updatedAt: string
 }

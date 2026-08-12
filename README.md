@@ -27,7 +27,7 @@ Marketing site (static): [`landing/`](./landing) → [lazy.zic.ar](https://lazy.
 - **Encryption** — Age vault (active / retired / compromised keys), recovery recipients, passphrase-wrapped export (Settings → Encryption); works with local, server, and S3 destinations
 - **Instance backup** — Backup LazyBackup itself (SQLite + keys) as a schedulable job; optional archive passphrase
 - **Passkeys** — WebAuthn login alongside or instead of the app password
-- **Bro Space** — 1:1 encrypted peer storage with a friend (Settings → Bro Space); invite code pairing, hard quotas
+- **Bro Space** — share encrypted backup space with a friend (Settings → Bro Space). Invite them to install **LazyBro**, or pair with another LazyBackup.
 
 ## Tech stack
 
@@ -94,13 +94,17 @@ Set `DATABASE_URL` if you want a custom SQLite path (default: `file:./data.db`).
 6. **Encryption (optional)** — Settings → Encryption → generate an age key (export and acknowledge a copy), optionally add recovery recipients, then enable “Encrypt before storing” on a backup (or use a Bro destination). Create new keys instead of overwriting; old keys stay for decrypt.
 7. **Backup this instance** — Settings → Encryption → “Backup LazyBackup data”, or New Backup → local source → LazyBackup instance data. Restore is manual (replace DB / import keys).
 8. **Passkeys (optional)** — Settings → Passkeys to register; use “Sign in with passkey” on `/login`.
-9. **Bro Space (optional)** — Settings → Bro Space → set your instance URL, invite a bro with a shared GB quota, or paste their invite code.
+9. **Bro Space (optional)** — Settings → Bro Space → save your address, create an invite, and send it to your friend. They install **[LazyBro](./bro/)** and paste the invite (or Accept below if they also run LazyBackup).
+
+### LazyBro
+
+See [`bro/README.md`](./bro/README.md). Your friend installs LazyBro, pastes your invite, picks a folder, and leaves it running. If they’re offline for a bit, that’s fine — backups still succeed and catch up later.
 
 ### Bro Space + Tailscale (CGNAT)
 
-LazyBackup does **not** ship Tailscale in the image (~50MB+). Use one of:
+If friends can’t reach your LazyBackup from outside your network, Tailscale on **your** host is a common fix. LazyBackup does **not** ship Tailscale in the image (~50MB+). Use one of:
 
-1. **Host Tailscale (keeps LAN `:3000`)** — install Tailscale on the machine, uncomment the `/var/run/tailscale` volume in `docker-compose.yml`, open Settings → Bro Space → **Use as instance URL**.
+1. **Host Tailscale (keeps LAN `:3000`)** — install Tailscale on the machine, uncomment the `/var/run/tailscale` volume in `docker-compose.yml`, open Settings → Bro Space → **Use as LazyBackup address**.
 2. **Compose overlay** — create an auth key, set `TS_AUTHKEY` in `.env`, then:
 
 ```bash
@@ -108,8 +112,6 @@ docker compose -f docker-compose.yml -f docker-compose.tailscale.yml up -d
 ```
 
    The app shares the Tailscale network namespace (`http://100.x.x.x:3000`). Host port publish is disabled in that mode.
-
-For a non-tech bro: you create the Tailscale auth key + LazyBackup invite; they run Tailscale (or the overlay) and paste the Bro invite.
 6. **Run or schedule** — Trigger a manual run or rely on the cron schedule. View results, logs, and storage under History and each backup’s detail page.
 7. **Restore** — On a successful volume or database backup in History, restore into a named volume or pipe into `psql`/`mysql`. Artifacts on S3 are downloaded first; path-tree restores are not a one-click UI action.
 

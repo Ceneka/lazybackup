@@ -1539,13 +1539,47 @@ export async function resolveLocalRestoreArtifact(options: {
     if (!options.destinationPeer) {
       throw new Error('Destination peer is missing; cannot download artifact');
     }
-    const m = options.artifactPath.match(/^peer:\/\/[^/]+\/(.+)$/);
-    if (!m?.[1]) {
+    const m = options.artifactPath.match(/^peer:\/\/([^/]+)\/(.+)$/);
+    if (!m?.[1] || !m[2]) {
       throw new Error(`Invalid peer artifact path: ${options.artifactPath}`);
     }
+    const peerId = m[1];
+    const objectKey = m[2];
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'lazybackup-restore-'));
-    localPath = path.join(tempDir, path.posix.basename(m[1]));
-    await downloadPeerObject(options.destinationPeer, m[1], localPath);
+    localPath = path.join(tempDir, path.posix.basename(objectKey));
+
+    const peer = options.destinationPeer;
+    const transport = peer.transport === 'direct' ? 'direct' : 'mailbox';
+
+    if (transport === 'mailbox') {
+      const { stagedObjectExists, peerStagingObjectPath } = await import(
+        '@/lib/peer/staging'
+      );
+      if (await stagedObjectExists(peerId, objectKey)) {
+        await fs.copyFile(peerStagingObjectPath(peerId, objectKey), localPath);
+      } else {
+        // Ask bro to upload back; wait softly (not a critical failure / no webhook)
+        const {
+          ensureRecall,
+          waitForRecall,
+          consumeRecallArtifact,
+        } = await import('@/lib/peer/recall');
+        const recall = await ensureRecall({ peerId, objectKey });
+        if (recall.status === 'ready') {
+          await consumeRecallArtifact(recall.id, peerId, localPath);
+        } else {
+          const waited = await waitForRecall(recall.id);
+          if (waited.status !== 'ready') {
+            throw new Error(
+              `Waiting for Bro to connect and return the backup (recall ${recall.id}). This is not a failure — retry when your bro is online.`
+            );
+          }
+          await consumeRecallArtifact(recall.id, peerId, localPath);
+        }
+      }
+    } else {
+      await downloadPeerObject(peer, objectKey, localPath);
+    }
   } else {
     throw new Error(
       'Restore is only supported when the backup destination is on the LazyBackup host, S3, or a bro peer'

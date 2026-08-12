@@ -1,0 +1,21 @@
+{
+  "name": "lazybro",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "bun run src/main.ts",
+    "start": "bun run src/main.ts",
+    "build": "bun run scripts/build.ts",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "age-encryption": "^0.3.0",
+    "nanoid": "^5.1.5"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.8.2"
+  }
+}

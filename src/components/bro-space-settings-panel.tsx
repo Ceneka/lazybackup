@@ -59,20 +59,20 @@ export function BroSpaceSettingsPanel() {
             Bro Space
           </CardTitle>
           <CardDescription>
-            Lend disk space to a friend 1:1. Backups are age-encrypted before they
-            leave your machine — your bro only sees opaque blobs and how much
-            quota you use. Both instances need a reachable URL (Tailscale, VPN, or
-            public HTTPS).
+            Lend disk space to a friend, one-to-one. Backups are encrypted before
+            they leave your machine — your bro only stores sealed files. Send them
+            a LazyBro invite; they install the app, paste the code, and share a
+            folder.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <QueryState query={peers} dataLabel="Bro Space">
             <div className="space-y-2">
-              <Label htmlFor="instanceBaseUrl">Your instance URL</Label>
+              <Label htmlFor="instanceBaseUrl">Your LazyBackup address</Label>
               <div className="flex flex-col gap-2 sm:flex-row">
                 <Input
                   id="instanceBaseUrl"
-                  placeholder="https://lazybackup.example.com or http://100.x.x.x:3000"
+                  placeholder="https://lazybackup.example.com"
                   value={baseUrl}
                   onChange={(e) => setBaseUrl(e.target.value)}
                 />
@@ -85,8 +85,8 @@ export function BroSpaceSettingsPanel() {
                 </LoadingButton>
               </div>
               <p className="text-sm text-muted-foreground">
-                Your bro&apos;s LazyBackup must be able to open this URL when pairing
-                and when storing backups.
+                The link your bro’s app uses to find you. Save this before you
+                create an invite.
               </p>
             </div>
           </QueryState>
@@ -100,10 +100,9 @@ export function BroSpaceSettingsPanel() {
             Tailscale
           </CardTitle>
           <CardDescription>
-            For CGNAT / home networks without port forwarding. We do{" "}
-            <strong>not</strong> ship Tailscale in the LazyBackup image (~50MB+);
-            install it on the host or use the optional compose overlay, then we
-            auto-detect your 100.x address.
+            Optional helper if this LazyBackup is hard to reach from the
+            internet. Install Tailscale on the machine running LazyBackup, then
+            use the suggested address as your LazyBackup address above.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -118,13 +117,13 @@ export function BroSpaceSettingsPanel() {
               </div>
               {ts.ipv4 && (
                 <div>
-                  <span className="text-muted-foreground">Tailscale IPv4: </span>
+                  <span className="text-muted-foreground">Address: </span>
                   <code>{ts.ipv4}</code>
                 </div>
               )}
               {ts.dnsName && (
                 <div>
-                  <span className="text-muted-foreground">MagicDNS: </span>
+                  <span className="text-muted-foreground">Name: </span>
                   <code>{ts.dnsName}</code>
                 </div>
               )}
@@ -141,41 +140,24 @@ export function BroSpaceSettingsPanel() {
                       })
                     }}
                   >
-                    Use as instance URL
+                    Use as LazyBackup address
                   </LoadingButton>
                 </div>
               )}
             </div>
           ) : (
-            <div className="space-y-2 text-sm text-muted-foreground">
-              <p>{ts?.hint || "Tailscale not detected."}</p>
-              <ul className="list-disc space-y-1 pl-5">
-                <li>
-                  <strong>Host install (best):</strong> install Tailscale on the
-                  machine, then mount{" "}
-                  <code>/var/run/tailscale</code> into the container (see
-                  docker-compose comment).
-                </li>
-                <li>
-                  <strong>Compose overlay:</strong>{" "}
-                  <code>
-                    docker compose -f docker-compose.yml -f
-                    docker-compose.tailscale.yml up -d
-                  </code>{" "}
-                  with <code>TS_AUTHKEY</code> in <code>.env</code>.
-                </li>
-              </ul>
-            </div>
+            <p className="text-sm text-muted-foreground">
+              {ts?.hint ||
+                "Tailscale not detected on this machine. If friends can’t connect, see the README for setup options."}
+            </p>
           )}
 
           {ts?.cliAvailable && (
             <div className="space-y-2 border-t pt-4">
-              <Label htmlFor="tsAuthKey">Join with auth key (non-tech bro)</Label>
+              <Label htmlFor="tsAuthKey">Connect this machine with an auth key</Label>
               <p className="text-xs text-muted-foreground">
-                You create a key in the Tailscale admin console, send it to your
-                bro; they paste it here (or set <code>TS_AUTHKEY</code> for the
-                compose overlay). Requires the <code>tailscale</code> CLI on this
-                host — not inside the slim app image.
+                Paste a key from your Tailscale admin console to bring this host
+                onto your tailnet.
               </p>
               <Input
                 id="tsAuthKey"
@@ -209,8 +191,9 @@ export function BroSpaceSettingsPanel() {
         <CardHeader>
           <CardTitle>Invite a bro</CardTitle>
           <CardDescription>
-            Pick how many GB you will each lend (same amount both ways). Share the
-            invite code — they paste it in Accept below.
+            Choose how much space you’ll each share, then send them the invite.
+            They paste it in the LazyBro app (or Accept below if they also run
+            LazyBackup).
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -311,10 +294,10 @@ export function BroSpaceSettingsPanel() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Accept an invite</CardTitle>
+          <CardTitle>Accept an invite (another LazyBackup)</CardTitle>
           <CardDescription>
-            Paste the code your bro sent. You will lend them the same GB they
-            offered you.
+            If your friend also runs full LazyBackup, paste their invite here.
+            If they use the LazyBro app, they paste your invite there instead.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -357,7 +340,8 @@ export function BroSpaceSettingsPanel() {
         <CardHeader>
           <CardTitle>Paired bros</CardTitle>
           <CardDescription>
-            Active peers and how much of their slice they are using on your disk.
+            Friends you’ve paired with. If someone is offline for a while,
+            that’s okay — backups still complete here and sync when they’re back.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -373,10 +357,21 @@ export function BroSpaceSettingsPanel() {
                   <div>
                     <div className="font-medium">{p.name}</div>
                     <div className="text-sm text-muted-foreground">
-                      {p.remoteBaseUrl} · {p.status}
+                      {p.remoteBaseUrl ? "LazyBackup" : "LazyBro app"}
+                      {p.status !== "active" ? ` · ${p.status}` : ""}
                     </div>
                     <div className="text-sm">
                       Using {formatBytes(p.usedBytes)} of {p.quotaGb} GB
+                      {typeof p.pendingSyncCount === "number" &&
+                      p.pendingSyncCount > 0
+                        ? ` · ${p.pendingSyncCount} waiting to sync`
+                        : ""}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      Last seen:{" "}
+                      {p.lastSeenAt
+                        ? new Date(p.lastSeenAt).toLocaleString()
+                        : "not yet"}
                     </div>
                   </div>
                   {p.status === "active" && (

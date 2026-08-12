@@ -10,6 +10,8 @@
     "lint": "next lint",
     "test": "bun test",
     "test:docker": "bash scripts/docker-test.sh",
+    "bro:dev": "bun run --cwd bro dev",
+    "bro:build": "bun run --cwd bro build",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "bun run src/lib/db/migrate.ts",
     "db:studio": "drizzle-kit studio"

@@ -19,8 +19,11 @@ const PUBLIC_EXACT = new Set([
 
 function isPublicPath(pathname: string): boolean {
   if (PUBLIC_EXACT.has(pathname)) return true
-  // Peer opaque store authenticates with lbpeer_ Bearer inside the route
+  // Peer opaque store + mailbox agent API authenticate with lbpeer_ Bearer inside the route
   if (pathname === '/api/peers/store' || pathname.startsWith('/api/peers/store/')) {
+    return true
+  }
+  if (pathname.startsWith('/api/peers/agent/')) {
     return true
   }
   if (

@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LazyBro</title>
+    <style>
+      :root {
+        --bg0: #1a2332;
+        --bg1: #243044;
+        --ink: #f2f0ea;
+        --muted: #a8b0bd;
+        --accent: #3d9b8f;
+        --accent2: #e8a87c;
+        --line: rgba(242, 240, 234, 0.12);
+        --danger: #d97676;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+        color: var(--ink);
+        background:
+          radial-gradient(1200px 600px at 10% -10%, #2f4a5e 0%, transparent 55%),
+          radial-gradient(900px 500px at 100% 0%, #3a2f28 0%, transparent 50%),
+          linear-gradient(160deg, var(--bg0), var(--bg1));
+      }
+      main {
+        max-width: 42rem;
+        margin: 0 auto;
+        padding: 2.5rem 1.25rem 4rem;
+      }
+      h1 {
+        font-family: "Fraunces", Georgia, serif;
+        font-weight: 600;
+        font-size: clamp(2.4rem, 6vw, 3.4rem);
+        letter-spacing: -0.03em;
+        margin: 0 0 0.35rem;
+      }
+      .lead {
+        color: var(--muted);
+        margin: 0 0 2rem;
+        line-height: 1.45;
+      }
+      section {
+        margin-bottom: 1.75rem;
+        padding-bottom: 1.75rem;
+        border-bottom: 1px solid var(--line);
+      }
+      section:last-child {
+        border-bottom: 0;
+      }
+      h2 {
+        font-size: 0.85rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--muted);
+        margin: 0 0 0.75rem;
+      }
+      label {
+        display: block;
+        font-size: 0.9rem;
+        margin-bottom: 0.35rem;
+      }
+      input,
+      textarea {
+        width: 100%;
+        border: 1px solid var(--line);
+        background: rgba(0, 0, 0, 0.25);
+        color: var(--ink);
+        border-radius: 8px;
+        padding: 0.65rem 0.75rem;
+        font: inherit;
+      }
+      textarea {
+        min-height: 5.5rem;
+        font-family: ui-monospace, monospace;
+        font-size: 0.8rem;
+      }
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.6rem;
+        margin-top: 0.75rem;
+      }
+      button {
+        border: 0;
+        border-radius: 8px;
+        padding: 0.65rem 1rem;
+        font: inherit;
+        cursor: pointer;
+        background: var(--accent);
+        color: #0b1614;
+        font-weight: 600;
+      }
+      button.secondary {
+        background: transparent;
+        color: var(--ink);
+        border: 1px solid var(--line);
+        font-weight: 500;
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      .status {
+        display: grid;
+        gap: 0.4rem;
+        font-size: 0.95rem;
+      }
+      .status span {
+        color: var(--muted);
+      }
+      .ok {
+        color: var(--accent);
+      }
+      .warn {
+        color: var(--accent2);
+      }
+      .err {
+        color: var(--danger);
+      }
+      .banner {
+        background: rgba(232, 168, 124, 0.12);
+        border: 1px solid rgba(232, 168, 124, 0.35);
+        border-radius: 10px;
+        padding: 0.9rem 1rem;
+        margin-bottom: 1.5rem;
+      }
+      .msg {
+        margin-top: 0.75rem;
+        font-size: 0.9rem;
+        color: var(--muted);
+      }
+    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&family=IBM+Plex+Sans:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <main>
+      <h1>LazyBro</h1>
+      <p class="lead">
+        Share some disk space with a friend. Paste their invite, pick a folder,
+        and leave LazyBro running.
+      </p>
+
+      <div id="autostartBanner" class="banner" hidden>
+        Keep LazyBro running so your friend can use the space you shared.
+        <div class="row">
+          <button type="button" id="enableAutostart">Start when I log in</button>
+          <button type="button" class="secondary" id="dismissAutostart">Not now</button>
+        </div>
+      </div>
+
+      <section>
+        <h2>Status</h2>
+        <div class="status" id="status">
+          <div>Loading…</div>
+        </div>
+      </section>
+
+      <section>
+        <h2>Share folder</h2>
+        <label for="shareDir">Folder for your friend’s backups</label>
+        <input id="shareDir" type="text" placeholder="/path/to/share" />
+        <div class="row">
+          <button type="button" id="saveShare">Save share folder</button>
+        </div>
+      </section>
+
+      <section>
+        <h2>Pair</h2>
+        <label for="label">Your name</label>
+        <input id="label" type="text" value="LazyBro" />
+        <label for="invite" style="margin-top: 0.75rem">Invite from your friend</label>
+        <textarea id="invite" placeholder="lb1.…"></textarea>
+        <div class="row">
+          <button type="button" id="pair">Paste invite &amp; pair</button>
+          <button type="button" class="secondary" id="syncNow">Sync now</button>
+        </div>
+        <p class="msg" id="pairMsg"></p>
+      </section>
+
+      <section>
+        <h2>Your folder backup</h2>
+        <label for="folderPath">Optional: back up one of your folders to them</label>
+        <input id="folderPath" type="text" placeholder="/path/to/photos" />
+        <div class="row">
+          <button type="button" id="saveFolder">Save folder</button>
+          <button type="button" class="secondary" id="runBackup">Back up now</button>
+        </div>
+        <p class="msg" id="backupMsg"></p>
+      </section>
+
+      <section>
+        <h2>Autostart</h2>
+        <div id="autostartStatus" class="status"></div>
+        <div class="row">
+          <button type="button" id="toggleAutostart">Enable autostart</button>
+        </div>
+      </section>
+    </main>
+    <script>
+      async function api(path, opts) {
+        const res = await fetch(path, {
+          headers: { "Content-Type": "application/json", ...(opts?.headers || {}) },
+          ...opts,
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || res.statusText);
+        return data;
+      }
+
+      function renderStatus(s) {
+        const el = document.getElementById("status");
+        const reach = s.sync.hostReachable
+          ? '<span class="ok">connected</span>'
+          : s.config.hostBaseUrl
+            ? '<span class="warn">waiting to reconnect…</span>'
+            : '<span class="warn">not paired yet</span>';
+        el.innerHTML = `
+          <div>Friend: <span>${s.config.remoteLabel || "—"}</span> · ${reach}</div>
+          <div>Space used: <span>${formatBytes(s.sync.usedBytes)}</span> / ${formatBytes(s.sync.quotaBytes)}</div>
+          <div>Last check-in: <span>${s.sync.lastPingAt || "—"}</span></div>
+          ${s.sync.lastError ? `<div class="err">${s.sync.lastError}</div>` : ""}
+          <div>Share folder: <span>${s.config.shareDir}</span></div>
+        `;
+        document.getElementById("shareDir").value = s.config.shareDir || "";
+        document.getElementById("label").value = s.config.label || "LazyBro";
+        document.getElementById("folderPath").value = s.config.folderBackupPath || "";
+        renderAutostart(s.autostart);
+        if (!s.config.autostartPrompted && !s.autostart.enabled && s.autostart.supported) {
+          document.getElementById("autostartBanner").hidden = false;
+        }
+      }
+
+      function renderAutostart(a) {
+        const el = document.getElementById("autostartStatus");
+        el.innerHTML = a.supported
+          ? `<div>${a.enabled ? '<span class="ok">Enabled</span>' : '<span class="warn">Not enabled</span>'} — ${a.hint}</div>`
+          : `<div class="warn">${a.hint}</div>`;
+        document.getElementById("toggleAutostart").textContent = a.enabled
+          ? "Disable autostart"
+          : "Enable autostart";
+      }
+
+      function formatBytes(n) {
+        if (!n) return "0 B";
+        if (n < 1024) return n + " B";
+        if (n < 1024 * 1024) return (n / 1024).toFixed(1) + " KB";
+        if (n < 1024 * 1024 * 1024) return (n / (1024 * 1024)).toFixed(1) + " MB";
+        return (n / (1024 * 1024 * 1024)).toFixed(2) + " GB";
+      }
+
+      async function refresh() {
+        const s = await api("/api/status");
+        renderStatus(s);
+      }
+
+      document.getElementById("saveShare").onclick = async () => {
+        await api("/api/config", {
+          method: "POST",
+          body: JSON.stringify({ shareDir: document.getElementById("shareDir").value }),
+        });
+        await refresh();
+      };
+
+      document.getElementById("pair").onclick = async () => {
+        const msg = document.getElementById("pairMsg");
+        msg.textContent = "Pairing…";
+        try {
+          await api("/api/pair", {
+            method: "POST",
+            body: JSON.stringify({
+              inviteCode: document.getElementById("invite").value,
+              label: document.getElementById("label").value,
+            }),
+          });
+          msg.textContent = "Paired.";
+          await refresh();
+        } catch (e) {
+          msg.textContent = e.message;
+        }
+      };
+
+      document.getElementById("syncNow").onclick = async () => {
+        await api("/api/sync", { method: "POST" });
+        await refresh();
+      };
+
+      document.getElementById("saveFolder").onclick = async () => {
+        await api("/api/config", {
+          method: "POST",
+          body: JSON.stringify({
+            folderBackupPath: document.getElementById("folderPath").value || null,
+          }),
+        });
+        document.getElementById("backupMsg").textContent = "Saved.";
+        await refresh();
+      };
+
+      document.getElementById("runBackup").onclick = async () => {
+        const msg = document.getElementById("backupMsg");
+        msg.textContent = "Backing up…";
+        try {
+          const r = await api("/api/backup", { method: "POST" });
+          msg.textContent = `Uploaded ${r.key} (${formatBytes(r.size)})`;
+          await refresh();
+        } catch (e) {
+          msg.textContent = e.message;
+        }
+      };
+
+      document.getElementById("enableAutostart").onclick = async () => {
+        await api("/api/autostart", { method: "POST", body: JSON.stringify({ enabled: true }) });
+        document.getElementById("autostartBanner").hidden = true;
+        await refresh();
+      };
+      document.getElementById("dismissAutostart").onclick = async () => {
+        await api("/api/autostart", {
+          method: "POST",
+          body: JSON.stringify({ enabled: false, prompted: true }),
+        });
+        document.getElementById("autostartBanner").hidden = true;
+        await refresh();
+      };
+      document.getElementById("toggleAutostart").onclick = async () => {
+        const s = await api("/api/status");
+        await api("/api/autostart", {
+          method: "POST",
+          body: JSON.stringify({ enabled: !s.autostart.enabled }),
+        });
+        await refresh();
+      };
+
+      refresh();
+      setInterval(refresh, 15000);
+    </script>
+  </body>
+</html>

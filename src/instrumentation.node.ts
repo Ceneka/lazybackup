@@ -7,6 +7,7 @@ export async function registerNode(): Promise<void> {
   const { runMigration } = await import('./lib/db/migrate');
   const { markStaleRunningBackups } = await import('./lib/backup/mark-stale-running');
   const { initializeScheduler } = await import('./lib/scheduler');
+  const { startPeerSyncWorker } = await import('./lib/peer/sync-worker');
 
   console.log('🚀 Server starting - running database migrations...');
   await runMigration();
@@ -19,5 +20,6 @@ export async function registerNode(): Promise<void> {
 
   console.log('🚀 Initializing server components...');
   await initializeScheduler();
+  startPeerSyncWorker();
   console.log('✅ Server components initialized successfully');
 }

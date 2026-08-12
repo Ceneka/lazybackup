@@ -130,11 +130,31 @@ export async function landLocalFileArtifact(options: {
     }
     const prefix = (options.peerPrefix || '').replace(/^\/+|\/+$/g, '');
     const objectKey = prefix ? `${prefix}/${archiveName}` : archiveName;
-    const uploaded = await uploadPeerObject(options.destinationPeer, objectKey, localFilePath);
+    const peer = options.destinationPeer;
+    const transport = peer.transport === 'direct' ? 'direct' : 'mailbox';
+
+    if (transport === 'direct') {
+      const uploaded = await uploadPeerObject(peer, objectKey, localFilePath);
+      return {
+        artifactPath: `peer://${peer.id}/${objectKey}`,
+        usedMethod: 'file-peer',
+        stdout: `Archive: ${archiveName}\nPeer: ${peer.name}\nObject: ${objectKey}\nSize: ${uploaded.size} bytes`,
+        destSsh: options.destSsh ?? null,
+      };
+    }
+
+    const { writeStagedObject } = await import('@/lib/peer/staging');
+    const staged = await writeStagedObject(peer.id, objectKey, localFilePath);
     return {
-      artifactPath: `peer://${options.destinationPeer.id}/${objectKey}`,
-      usedMethod: 'file-peer',
-      stdout: `Archive: ${archiveName}\nPeer: ${options.destinationPeer.name}\nObject: ${objectKey}\nSize: ${uploaded.size} bytes`,
+      artifactPath: `peer://${peer.id}/${objectKey}`,
+      usedMethod: 'file-peer-mailbox',
+      stdout: [
+        `Archive: ${archiveName}`,
+        `Peer: ${peer.name}`,
+        `Object: ${objectKey}`,
+        `Size: ${staged.size} bytes`,
+        `Mailbox: staged (waiting for bro to pull — not a failure)`,
+      ].join('\n'),
       destSsh: options.destSsh ?? null,
     };
   }

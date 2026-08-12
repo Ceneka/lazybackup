@@ -14,7 +14,7 @@ Guide for AI coding agents. User-facing setup lives in [README.md](./README.md) 
 - **API tokens** (Settings → API / MCP): Bearer `Authorization` for agents; hashed in `api_tokens`. Streamable HTTP MCP at `/mcp` (same auth gate). Token CRUD requires a browser session (tokens cannot mint tokens). Opt-in `remote_exec` permission gates `exec_command` and setting/changing `preBackupCommands` (session/unlocked always allowed).
 - **Encryption** (Settings → Encryption): optional per-backup **age** encryption before land (local/server/S3). Forced on for Bro destinations. Keys live in an **`age_keys` vault** (one **active** for new encrypts; **retired** / **compromised** kept for decrypt). Optional **recovery recipients** (`age1…`) are added on every encrypt. Private identities stay on this instance; export (plaintext or passphrase-wrapped) for disaster recovery. **Create new key** demotes the previous active to retired (never silent overwrite).
 - **Instance meta-backup** (`sourceType=lazybackup_instance`): packs SQLite + age vault + SSH keys to a destination; optional archive **passphrase** (not the instance age key). Settings → Encryption has a prefills link. Restore is manual.
-- **Bro Space** (Settings → Bro Space): 1:1 reciprocal peer storage. Invite code → accept → `destinationKind=peer`. Opaque quota’d blobs on each side; instances need a reachable URL (Tailscale/VPN/HTTPS).
+- **Bro Space** (Settings → Bro Space): 1:1 reciprocal peer storage. Invite code → accept → `destinationKind=peer`. **Mailbox** transport (default for new pairs): land to local staging, peer pulls via `/api/peers/agent/*`. **LazyBro** clients are outbound-only (`mode=client`, no remote URL). Full LB↔LB both run the outbound sync worker. Opaque quota’d blobs; instances need a reachable URL for LazyBro to dial (Tailscale/VPN/HTTPS).
 - Middleware verifies the session **in-process** (Node.js runtime + SQLite). Never HTTP self-fetch `/api/auth/status` from middleware (LAN Host hangs; loopback from Edge fails → pages load, APIs 401).
 - Cookies default **non-Secure**; set `AUTH_COOKIE_SECURE=true` only behind HTTPS.
 - Cron runs in the app **timezone** setting. Migrations are **`src/lib/db/migrate.ts`** only (no drizzle `migrations/` folder).
@@ -32,7 +32,8 @@ src/app/           # pages + api/* routes
 src/components/    # ui/*, page-layout, backup-config-form (From→To), s3-profile-form, app-shell, navbar
 src/lib/auth/      # password hash, session cookie, isAuthorized
 src/lib/crypto/    # age encrypt/decrypt + key settings helpers
-src/lib/peer/      # Bro Space pairing, tokens, opaque store
+src/lib/peer/      # Bro Space pairing, mailbox staging/recall, sync worker, opaque store
+bro/               # LazyBro outbound agent (Bun); see bro/README.md
 src/lib/backup/    # executeBackup, validate, restore*, encrypt-artifact, land-file, retention, …
 src/lib/api/       # resource-in-use, redact (strip secrets from API responses)
 src/lib/database/  # dump/restore/test command builders for Postgres/MySQL/MariaDB
@@ -72,7 +73,7 @@ Restore (volume/database, local or S3 dest): history artifact → download from 
 | `age_recovery_recipients` | Extra public `age1…` included on every encrypt |
 | `webauthn_credentials` | Passkey login credentials |
 | `api_tokens` | Named Bearer tokens (SHA-256 hash + prefix); optional JSON `permissions` (e.g. `["remote_exec"]`); used by MCP / machine clients |
-| `peers` / `peer_invites` | Bro Space pairing (1:1 quota, inbound token hash, outbound token); invite codes for non-tech pairing |
+| `peers` / `peer_invites` / `peer_recalls` | Bro Space pairing + mailbox recalls; peers have `transport` mailbox\|direct, `lastSeenAt`; LazyBro has empty `remoteBaseUrl` |
 | `audit_log` | Token/MCP action audit (no secrets) |
 
 Cascade: server/S3 profile → configs → history. Never return `appPasswordHash` / `sessionSecret` from `GET /api/settings`.
@@ -88,7 +89,7 @@ Pattern: Zod → Drizzle → `NextResponse.json`; errors `{ error, details? }`.
 | API tokens | `/api/api-tokens`, `/api/api-tokens/[id]` (session-only manage); MCP `GET|POST|DELETE /mcp` |
 | Encryption | `/api/encryption` (session-only age vault CRUD, export, recovery recipients) |
 | Passkeys | `/api/auth/webauthn/{register,login,credentials}` |
-| Bro Space | `/api/peers` (session manage), `POST /api/peers/pair` (invite secret), `/api/peers/store` (peer Bearer `lbpeer_`) |
+| Bro Space | `/api/peers` (session manage), `POST /api/peers/pair` (invite secret), `/api/peers/store` (peer Bearer `lbpeer_`), `/api/peers/agent/{ping,work,pending,ack,recall}` (mailbox), `POST /api/peers/recall` (session wait-for-bro) |
 | MCP discovery | Tools: `find_server`, `list_docker_volumes`, `list_docker_containers`, `get_container_db_hints`, `test_server`, `test_database`, `exec_command` (SSH shell; needs `remote_exec`) |
 | Servers | `/api/servers`, `/api/servers/[id]`, `…/test`, `…/exec` (remote shell; Bearer needs `remote_exec`), `…/docker/volumes`, `…/docker/containers`, `…/docker/containers/[name]/db-hints`, `POST /api/servers/test` |
 | S3 | `/api/s3-profiles`, `/api/s3-profiles/[id]`, `…/test`, `POST /api/s3-profiles/test` |
@@ -155,7 +156,7 @@ CI publishes GHCR on `main` / `v*` tags (skips docs/`LICENSE`/`landing` via `pat
 12. S3 sources only support `sourceType=path` (object prefix). Use `@aws-sdk/client-s3` with custom endpoint + path-style for MinIO/R2/B2.
 13. Bearer tokens without `remote_exec` cannot set/change `preBackupCommands` or call `exec_command` / `POST …/servers/:id/exec`. Browser sessions always can. Existing tokens default to no `remote_exec` after migration — recreate with the checkbox if needed.
 14. Encrypted backups need an age key in the vault (Settings → Encryption). Peer destinations always encrypt. Losing all private identities (instance + offline exports + recovery keys) means you cannot restore ciphertext. Creating a new key retires the old one; decrypt still tries all vault identities.
-15. Bro Space pairing requires mutual reachability (instance URL). `/api/peers/pair` and `/api/peers/store` authenticate via invite secret / `lbpeer_` Bearer (middleware-public; auth inside route).
+15. Bro Space mailbox: LazyBro only needs the host LB reachable (outbound phone-home). Two full LBs each need a URL and both run the sync worker. `/api/peers/pair`, `/api/peers/store`, and `/api/peers/agent/*` are middleware-public (auth inside route). Bro offline / sync pending is soft status — do not treat as a critical backup failure or fire failure webhooks.
 16. Tailscale is **not** bundled in the Docker image. Detect via LocalAPI socket or host CLI; optional `docker-compose.tailscale.yml` sidecar. Settings → Bro Space can fill `http://100.x:PORT`.
 17. Auth locks when an app password **or** ≥1 passkey is configured. Passkey login is public at `/api/auth/webauthn/login`; registration requires a session (or unlocked instance).
 18. Instance meta-backups (`lazybackup_instance`) include secrets; restore manually. Prefer passphrase wrap or a trusted destination — never Bro.

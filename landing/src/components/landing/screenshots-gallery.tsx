@@ -43,7 +43,7 @@ const screenshots = [
   {
     src: "/screenshots/bro-space.png",
     title: "Bro Space",
-    alt: "LazyBackup Settings Bro Space tab for 1:1 peer storage invites, quota, and Tailscale helpers",
+    alt: "LazyBackup Settings Bro Space tab for inviting a friend to share backup space",
   },
   {
     src: "/screenshots/history.png",

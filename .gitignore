@@ -2,6 +2,8 @@
 
 # dependencies
 /node_modules
+/bro/node_modules
+/bro/dist
 /.pnp
 .pnp.*
 .yarn/*

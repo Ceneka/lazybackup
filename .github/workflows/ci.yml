@@ -9,6 +9,7 @@ on:
       - "**.md"
       - "LICENSE"
       - "landing/**"
+      - "bro/**"
 
 jobs:
   test:

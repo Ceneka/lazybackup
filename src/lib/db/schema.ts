@@ -173,8 +173,11 @@ export const peers = sqliteTable('peers', {
   id: text('id').primaryKey().notNull(),
   /** Display name (bro's chosen label or hostname) */
   name: text('name').notNull(),
-  /** Base URL of the remote LazyBackup instance (https://… or http://…) */
-  remoteBaseUrl: text('remote_base_url').notNull(),
+  /**
+   * Base URL of the remote mailbox host (https://… or http://…).
+   * Empty for LazyBro clients (outbound-only; we never dial them).
+   */
+  remoteBaseUrl: text('remote_base_url').notNull().default(''),
   /** Peer id on the remote instance */
   remotePeerId: text('remote_peer_id'),
   /** Bearer token we present when calling the remote (plaintext; treat as secret) */
@@ -187,12 +190,43 @@ export const peers = sqliteTable('peers', {
   quotaBytes: integer('quota_bytes').notNull(),
   /** Bytes currently stored by the remote peer on this host */
   usedBytes: integer('used_bytes').notNull().default(0),
+  /**
+   * mailbox = stage locally + peer pulls (default for new pairs).
+   * direct = legacy live PUT to remote /api/peers/store.
+   */
+  transport: text('transport', { enum: ['mailbox', 'direct'] })
+    .notNull()
+    .default('mailbox'),
   status: text('status', { enum: ['pending', 'active', 'revoked'] })
     .notNull()
     .default('pending'),
+  /** Last successful agent ping/work from this peer (soft presence) */
+  lastSeenAt: integer('last_seen_at', { mode: 'timestamp' }),
   lastActivityAt: integer('last_activity_at', { mode: 'timestamp' }),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+});
+
+/**
+ * Recall requests: ask a peer holding an object to upload it back (mailbox restore).
+ */
+export const peerRecalls = sqliteTable('peer_recalls', {
+  id: text('id').primaryKey().notNull(),
+  peerId: text('peer_id')
+    .notNull()
+    .references(() => peers.id, { onDelete: 'cascade' }),
+  objectKey: text('object_key').notNull(),
+  historyId: text('history_id'),
+  status: text('status', {
+    enum: ['pending', 'uploading', 'ready', 'consumed', 'failed', 'expired'],
+  })
+    .notNull()
+    .default('pending'),
+  error: text('error'),
+  expiresAt: integer('expires_at', { mode: 'timestamp' }).notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+  readyAt: integer('ready_at', { mode: 'timestamp' }),
+  consumedAt: integer('consumed_at', { mode: 'timestamp' }),
 });
 
 /** Age encryption key vault (multiple identities; one active for new encrypts) */
@@ -306,6 +340,14 @@ export const backupConfigsRelations = relations(backupConfigs, ({ one, many }) =
 
 export const peersRelations = relations(peers, ({ many }) => ({
   destinationBackupConfigs: many(backupConfigs, { relationName: 'backupDestinationPeer' }),
+  recalls: many(peerRecalls),
+}));
+
+export const peerRecallsRelations = relations(peerRecalls, ({ one }) => ({
+  peer: one(peers, {
+    fields: [peerRecalls.peerId],
+    references: [peers.id],
+  }),
 }));
 
 export const backupHistoryRelations = relations(backupHistory, ({ one }) => ({

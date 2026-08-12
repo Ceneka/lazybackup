@@ -1,0 +1,35 @@
+name: Publish LazyBro
+
+on:
+  push:
+    tags:
+      - "bro-v*"
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Install and compile
+        working-directory: bro
+        run: |
+          bun install --frozen-lockfile
+          bun run build
+      - name: Upload binaries
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: |
+            bro/dist/lazybro-linux-x64
+            bro/dist/lazybro-windows-x64.exe
+          fail_on_unmatched_files: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

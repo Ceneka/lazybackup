@@ -9,14 +9,21 @@ export type PeerPublic = {
   remotePeerId: string | null;
   quotaBytes: number;
   usedBytes: number;
+  transport: 'mailbox' | 'direct';
   status: string;
   inboundTokenPrefix: string;
+  lastSeenAt: Date | null;
   lastActivityAt: Date | null;
+  /** Soft: objects waiting in our staging for this peer to pull */
+  pendingSyncCount?: number;
   createdAt: Date;
   updatedAt: Date;
 };
 
-export function redactPeer(peer: PeerRow): PeerPublic {
+export function redactPeer(
+  peer: PeerRow,
+  extra?: { pendingSyncCount?: number }
+): PeerPublic {
   return {
     id: peer.id,
     name: peer.name,
@@ -24,9 +31,12 @@ export function redactPeer(peer: PeerRow): PeerPublic {
     remotePeerId: peer.remotePeerId,
     quotaBytes: peer.quotaBytes,
     usedBytes: peer.usedBytes,
+    transport: peer.transport === 'direct' ? 'direct' : 'mailbox',
     status: peer.status,
     inboundTokenPrefix: peer.inboundTokenPrefix,
+    lastSeenAt: peer.lastSeenAt,
     lastActivityAt: peer.lastActivityAt,
+    pendingSyncCount: extra?.pendingSyncCount,
     createdAt: peer.createdAt,
     updatedAt: peer.updatedAt,
   };
@@ -48,4 +58,9 @@ export function gbToBytes(gb: number): number {
 
 export function bytesToGb(bytes: number): number {
   return bytes / (1024 * 1024 * 1024);
+}
+
+/** True when we can dial this peer's mailbox API (LB↔LB). */
+export function peerIsDialable(peer: PeerRow): boolean {
+  return Boolean(peer.remoteBaseUrl?.trim() && peer.outboundToken);
 }

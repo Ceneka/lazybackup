@@ -418,6 +418,34 @@ export async function runMigration() {
       await db.run(sql`ALTER TABLE backup_configs ADD COLUMN instance_backup_passphrase TEXT`);
     }
 
+    // Bro Space mailbox: transport, last_seen_at, peer_recalls
+    const peersInfo = await db.run(sql`PRAGMA table_info(peers)`);
+    const peerCols = peersInfo.rows.map((row: any) => row.name as string);
+    if (!peerCols.includes('transport')) {
+      await db.run(
+        sql`ALTER TABLE peers ADD COLUMN transport TEXT NOT NULL DEFAULT 'direct'`
+      );
+      // Existing pairs keep live PUT; new pairs default to mailbox in app code
+    }
+    if (!peerCols.includes('last_seen_at')) {
+      await db.run(sql`ALTER TABLE peers ADD COLUMN last_seen_at INTEGER`);
+    }
+
+    await db.run(sql`
+      CREATE TABLE IF NOT EXISTS peer_recalls (
+        id TEXT PRIMARY KEY NOT NULL,
+        peer_id TEXT NOT NULL REFERENCES peers(id) ON DELETE CASCADE,
+        object_key TEXT NOT NULL,
+        history_id TEXT,
+        status TEXT NOT NULL DEFAULT 'pending',
+        error TEXT,
+        expires_at INTEGER NOT NULL,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        ready_at INTEGER,
+        consumed_at INTEGER
+      );
+    `);
+
     // Migrate legacy settings ageIdentity/ageRecipient → age_keys vault
     const legacyIdentity = await db.run(
       sql`SELECT id, value FROM settings WHERE key = 'ageIdentity' LIMIT 1`

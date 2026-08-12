@@ -375,7 +375,7 @@ export const homeFeatures: readonly FeatureHighlight[] = [
   },
   {
     title: "Bro Space",
-    desc: "1:1 reciprocal peer storage with invite codes. Blobs are age-encrypted before they leave your machine; hard quotas on each side.",
+    desc: "Lend backup space to a friend. They install LazyBro, paste your invite, and share a folder — encrypted end to end.",
     Icon: IconUsers,
   },
   {
@@ -499,11 +499,11 @@ export const detailedFeatures: readonly DetailedFeature[] = [
     title: "Bro Space",
     tags: ["destinationKind=peer", "lbpeer_", "/api/peers"],
     summary:
-      "1:1 reciprocal peer storage between LazyBackup instances. Opaque quota’d blobs; invite-code pairing.",
+      "1:1 reciprocal peer storage. Mailbox sync + LazyBro outbound agent; invite-code pairing.",
     points: [
       "Artifacts are age-encrypted before upload; the peer never sees plaintext.",
-      "Instances need a reachable base URL (Tailscale / VPN / HTTPS). Tailscale is not bundled in the image.",
-      "Pairing uses /api/peers/pair (invite secret) and /api/peers/store (Bearer lbpeer_).",
+      "Only the LazyBackup host needs inbound reachability for LazyBro; LB↔LB both need URLs.",
+      "Pairing uses /api/peers/pair; mailbox via /api/peers/agent/*; store Bearer lbpeer_.",
     ],
     Icon: IconUsers,
   },
