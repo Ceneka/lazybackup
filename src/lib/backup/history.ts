@@ -49,6 +49,18 @@ export async function updateBackupHistorySuccess(
     })
     .where(eq(backupHistory.id, historyId))
     .returning();
+
+  // Fire-and-forget: never block or fail the backup outcome on ping errors
+  void import('@/lib/notify/success-ping')
+    .then(({ notifyBackupSuccess }) =>
+      notifyBackupSuccess({
+        historyId,
+        configId: updatedEntry[0]?.configId,
+      })
+    )
+    .catch((notifyError) => {
+      console.error('Success ping notify error:', notifyError);
+    });
   
   return updatedEntry[0];
 }

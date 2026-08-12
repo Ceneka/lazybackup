@@ -5,6 +5,7 @@ import { McpSettingsPanel } from "@/components/mcp-settings-panel"
 import { EncryptionSettingsPanel } from "@/components/encryption-settings-panel"
 import { BroSpaceSettingsPanel } from "@/components/bro-space-settings-panel"
 import { FailureWebhookSettings } from "@/components/failure-webhook-settings"
+import { SuccessPingSettings } from "@/components/success-ping-settings"
 import { PasskeySettingsPanel } from "@/components/passkey-settings-panel"
 import { PageHeader, PageLayout } from "@/components/page-layout"
 import { DeleteConfirmationDialog } from "@/components/ui/delete-confirmation-dialog"
@@ -347,6 +348,26 @@ function SettingsPageInner() {
               >
                 {settingsQuery.settings && (
                   <FailureWebhookSettings settings={settingsQuery} />
+                )}
+              </QueryState>
+            </CardContent>
+          </Card>
+
+          <Card className="w-full">
+            <CardHeader>
+              <CardTitle>Success ping</CardTitle>
+              <CardDescription>
+                Healthchecks.io-style ping (or any URL) when a backup succeeds. Independent of the failure webhook.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <QueryState
+                query={settingsQuery}
+                dataLabel="success ping settings"
+                errorIcon={<SettingsIcon className="h-12 w-12 text-red-500" />}
+              >
+                {settingsQuery.settings && (
+                  <SuccessPingSettings settings={settingsQuery} />
                 )}
               </QueryState>
             </CardContent>

@@ -37,7 +37,7 @@ src/lib/backup/    # executeBackup, validate, restore*, encrypt-artifact, land-f
 src/lib/api/       # resource-in-use, redact (strip secrets from API responses)
 src/lib/database/  # dump/restore/test command builders for Postgres/MySQL/MariaDB
 src/lib/docker/    # remote volume/container list, pack/restore, DB inspect hints
-src/lib/notify/    # failure webhook (templates, presets)
+src/lib/notify/    # failure webhook + success ping (templates, presets)
 src/lib/s3/        # S3-compatible client (upload/download/list/delete/test)
 src/lib/db/        # schema, client, migrate.ts
 src/lib/hooks/     # React Query hooks (1:1 with APIs)
@@ -67,7 +67,7 @@ Restore (volume/database, local or S3 dest): history artifact → download from 
 | `s3_profiles` | endpoint, region, bucket, access/secret keys, `forcePathStyle` |
 | `backup_configs` | `sourceKind`/`destinationKind` local\|server\|s3\|**peer**, nullable `serverId` / `destinationServerId` / `sourceS3ProfileId` / `destinationS3ProfileId` / **`destinationPeerId`**, `sourceType` path\|docker_volume\|database\|**lazybackup_instance**, `sourcePath`/`destinationPath` (prefix when S3/peer), `db_*` for dumps, optional **`instanceBackupPassphrase`**, cron, excludes, pre-cmds, **`enableEncryption`**, versioning + file retention, optional last validation (`lastValidatedAt` / `lastValidationOk` / `lastValidationChecks`; cleared on config update) |
 | `backup_history` | status running\|success\|failed, sizes, `logOutput`, `artifactPath` (local path or `s3://bucket/key`) |
-| `settings` | KV: timezone, SSH defaults, `appPasswordHash`, `sessionSecret`, `authSetupCompleted`, failure webhook URL/method/headers/body |
+| `settings` | KV: timezone, SSH defaults, `appPasswordHash`, `sessionSecret`, `authSetupCompleted`, failure webhook + success ping URL/method/headers/body |
 | `age_keys` | Age vault: identity + recipient, status active\|retired\|compromised, export ack |
 | `age_recovery_recipients` | Extra public `age1…` included on every encrypt |
 | `webauthn_credentials` | Passkey login credentials |
@@ -117,6 +117,7 @@ Pattern: Zod → Drizzle → `NextResponse.json`; errors `{ error, details? }`.
 - UI: `QueryState`, `DataState`, `LoadingButton`, `DeleteConfirmationDialog`, sonner toasts, `cn()`.
 - Mobile `Sheet` uses `modal={false}` (avoids stuck body `pointer-events`).
 - Failure webhooks: Settings KV `failureWebhookUrl` / `Method` / `Headers` / `Body` with `{{tag}}` templates (`lib/notify/failure-webhook.ts`).
+- Success pings: Settings KV `successPingUrl` / `Method` / `Headers` / `Body` (default GET; Healthchecks-style); fire-and-forget from success history (`lib/notify/success-ping.ts`).
 
 ## Env & commands
 

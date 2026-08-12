@@ -21,6 +21,7 @@ Marketing site (static): [`landing/`](./landing) → [lazy.zic.ar](https://lazy.
 - **History & dashboard** — Track runs, view logs, next run times, storage usage, and success rates
 - **Validate before run** — Probe SSH/S3/paths/DB without transferring (backup detail → Validate); last result is stored with a timestamp so you can see status without re-running
 - **Failure webhooks** — Customizable HTTPS webhook on backup failure (method, headers, `{{tag}}` body/URL templates; Discord / Telegram / Kuma / ntfy / Slack presets)
+- **Success pings** — Optional Healthchecks.io / Uptime Kuma-style GET (or POST) when a backup succeeds
 - **Optional app password** — Single-operator lock (set on first run or later in Settings); session cookie lasts 30 days
 - **MCP / API tokens** — Let Cursor, Claude, or other agents manage backups via Streamable HTTP MCP at `/mcp` (Settings → API / MCP)
 - **Encryption** — Age vault (active / retired / compromised keys), recovery recipients, passphrase-wrapped export (Settings → Encryption); works with local, server, and S3 destinations
@@ -159,6 +160,18 @@ Empty body (POST/PUT) sends the built-in JSON:
 ```
 
 HTTPS is required (`http://` only for localhost/LAN). Empty URL disables notifications. Use **Send test notification** to verify.
+
+### Success pings
+
+Also under **Settings → General**, optionally configure a **success ping** (Healthchecks.io / Uptime Kuma style):
+
+- Defaults to **GET** (paste your check’s ping URL)
+- Same URL rules and optional `{{tags}}` (`{{event}}`, `{{backupName}}`, `{{configId}}`, `{{historyId}}`, `{{endedAt}}`)
+- Presets — Healthchecks.io, Uptime Kuma (up), Default JSON (POST)
+- Empty URL disables pings; failures never fail the backup (fire-and-forget)
+- Use **Send test ping** to verify
+
+POST/PUT with an empty body sends `{"event":"backup.succeeded",…}`.
 
 ### Secrets in the API
 
