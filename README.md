@@ -90,6 +90,21 @@ Set `DATABASE_URL` if you want a custom SQLite path (default: `file:./data.db`).
 5. **Timezone** — Settings → choose the timezone used for cron schedules and “next run” times.
 6. **Encryption (optional)** — Settings → Encryption → generate an age key, then enable “Encrypt before storing” on a backup (or use a Bro destination).
 7. **Bro Space (optional)** — Settings → Bro Space → set your instance URL, invite a bro with a shared GB quota, or paste their invite code.
+
+### Bro Space + Tailscale (CGNAT)
+
+LazyBackup does **not** ship Tailscale in the image (~50MB+). Use one of:
+
+1. **Host Tailscale (keeps LAN `:3000`)** — install Tailscale on the machine, uncomment the `/var/run/tailscale` volume in `docker-compose.yml`, open Settings → Bro Space → **Use as instance URL**.
+2. **Compose overlay** — create an auth key, set `TS_AUTHKEY` in `.env`, then:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.tailscale.yml up -d
+```
+
+   The app shares the Tailscale network namespace (`http://100.x.x.x:3000`). Host port publish is disabled in that mode.
+
+For a non-tech bro: you create the Tailscale auth key + LazyBackup invite; they run Tailscale (or the overlay) and paste the Bro invite.
 6. **Run or schedule** — Trigger a manual run or rely on the cron schedule. View results, logs, and storage under History and each backup’s detail page.
 7. **Restore** — On a successful volume or database backup in History, restore into a named volume or pipe into `psql`/`mysql`. Artifacts on S3 are downloaded first; path-tree restores are not a one-click UI action.
 

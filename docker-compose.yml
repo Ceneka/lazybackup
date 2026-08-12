@@ -24,9 +24,10 @@ services:
       - "${BACKUP_STORAGE_PATH:-./backups}:/backups"
       - "${BACKUP_STORAGE_PATH:-./backups}:/app/backups"
       - "${SSH_KEYS_PATH:-~/.ssh}:/root/.ssh:ro"
+      # Optional: if Tailscale is installed on the host, uncomment to auto-detect
+      # 100.x URL in Settings → Bro Space (adds 0 bytes to the LazyBackup image):
+      # - /var/run/tailscale:/var/run/tailscale:ro
     healthcheck:
-      # Use 127.0.0.1 — Alpine often resolves localhost to ::1 while the app
-      # listens on IPv4 only, which makes Docker report the container unhealthy.
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:3000/api/health || exit 1"]
       interval: 30s
       timeout: 10s

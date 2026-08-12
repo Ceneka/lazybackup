@@ -1,0 +1,50 @@
+# Optional Tailscale — LazyBackup image stays lean (no Tailscale binary baked in).
+#
+# Preferred (LAN ports keep working): install Tailscale on the *host*, then mount
+# the LocalAPI socket into the app container. See README “Bro Space + Tailscale”.
+#
+# This overlay instead runs an official Tailscale sidecar and puts LazyBackup on
+# that network namespace (bros reach http://100.x.x.x:3000). Host port publish is
+# dropped because Docker forbids ports with network_mode: service:….
+#
+#   1. Auth key: https://login.tailscale.com/admin/settings/keys
+#   2. TS_AUTHKEY=tskey-auth-… in .env
+#   3. docker compose -f docker-compose.yml -f docker-compose.tailscale.yml up -d
+#
+# Then open Settings → Bro Space → “Use Tailscale URL”.
+
+services:
+  tailscale:
+    image: tailscale/tailscale:stable
+    container_name: lazybackup-tailscale
+    hostname: ${TS_HOSTNAME:-lazybackup}
+    restart: unless-stopped
+    environment:
+      TS_AUTHKEY: ${TS_AUTHKEY:?Set TS_AUTHKEY in .env}
+      TS_STATE_DIR: /var/lib/tailscale
+      TS_USERSPACE: "false"
+      TS_EXTRA_ARGS: --accept-dns=false
+    volumes:
+      - lazybackup_tailscale_state:/var/lib/tailscale
+      # Shared so LazyBackup can read status via LocalAPI (optional but used by UI)
+      - lazybackup_tailscale_run:/var/run/tailscale
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+
+  lazybackup:
+    network_mode: service:tailscale
+    depends_on:
+      - tailscale
+    # Cannot publish ports while using network_mode: service:…
+    ports: []
+    volumes:
+      - lazybackup_tailscale_run:/var/run/tailscale:ro
+
+volumes:
+  lazybackup_tailscale_state:
+    driver: local
+  lazybackup_tailscale_run:
+    driver: local

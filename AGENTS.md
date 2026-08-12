@@ -149,6 +149,7 @@ CI publishes GHCR on `main` / `v*` tags (skips docs/`LICENSE`/`landing` via `pat
 13. Bearer tokens without `remote_exec` cannot set/change `preBackupCommands` or call `exec_command` / `POST …/servers/:id/exec`. Browser sessions always can. Existing tokens default to no `remote_exec` after migration — recreate with the checkbox if needed.
 14. Encrypted backups need an age key (Settings → Encryption). Peer destinations always encrypt. Losing the private identity means you cannot restore ciphertext.
 15. Bro Space pairing requires mutual reachability (instance URL). `/api/peers/pair` and `/api/peers/store` authenticate via invite secret / `lbpeer_` Bearer (middleware-public; auth inside route).
+16. Tailscale is **not** bundled in the Docker image. Detect via LocalAPI socket or host CLI; optional `docker-compose.tailscale.yml` sidecar. Settings → Bro Space can fill `http://100.x:PORT`.
 
 ## Read first
 

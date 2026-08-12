@@ -210,31 +210,43 @@ function SettingsPageInner() {
       <PageHeader title="Settings" />
 
       <Tabs value={tab} onValueChange={setTab} className="w-full">
-        <div className="-mx-1 overflow-x-auto px-1">
-          <TabsList className="inline-flex h-auto min-w-full w-max gap-1 p-1 sm:grid sm:w-full sm:min-w-0 sm:grid-cols-5">
-            <TabsTrigger value="general" className="shrink-0 gap-1.5 px-3 sm:flex-1">
-              <SettingsIcon className="h-4 w-4" />
-              <span className="sm:hidden">General</span>
-              <span className="hidden sm:inline">General Settings</span>
-            </TabsTrigger>
-            <TabsTrigger value="encryption" className="shrink-0 gap-1.5 px-3 sm:flex-1">
-              <ShieldIcon className="h-4 w-4" />
-              Encryption
-            </TabsTrigger>
-            <TabsTrigger value="bro" className="shrink-0 gap-1.5 px-3 sm:flex-1">
-              <UsersIcon className="h-4 w-4" />
-              Bro Space
-            </TabsTrigger>
-            <TabsTrigger value="mcp" className="shrink-0 gap-1.5 px-3 sm:flex-1">
-              <BotIcon className="h-4 w-4" />
-              API / MCP
-            </TabsTrigger>
-            <TabsTrigger value="ssh-keys" className="shrink-0 gap-1.5 px-3 sm:flex-1">
-              <KeyIcon className="h-4 w-4" />
-              SSH Keys
-            </TabsTrigger>
-          </TabsList>
-        </div>
+        <TabsList className="grid h-auto w-full grid-cols-5 gap-0.5 p-1">
+          <TabsTrigger
+            value="general"
+            className="flex min-w-0 flex-col items-center gap-0.5 px-1 py-2 text-[10px] leading-tight sm:flex-row sm:gap-1.5 sm:px-2 sm:text-sm"
+          >
+            <SettingsIcon className="h-4 w-4 shrink-0" />
+            <span className="truncate">General</span>
+          </TabsTrigger>
+          <TabsTrigger
+            value="encryption"
+            className="flex min-w-0 flex-col items-center gap-0.5 px-1 py-2 text-[10px] leading-tight sm:flex-row sm:gap-1.5 sm:px-2 sm:text-sm"
+          >
+            <ShieldIcon className="h-4 w-4 shrink-0" />
+            <span className="truncate">Encrypt</span>
+          </TabsTrigger>
+          <TabsTrigger
+            value="bro"
+            className="flex min-w-0 flex-col items-center gap-0.5 px-1 py-2 text-[10px] leading-tight sm:flex-row sm:gap-1.5 sm:px-2 sm:text-sm"
+          >
+            <UsersIcon className="h-4 w-4 shrink-0" />
+            <span className="truncate">Bro</span>
+          </TabsTrigger>
+          <TabsTrigger
+            value="mcp"
+            className="flex min-w-0 flex-col items-center gap-0.5 px-1 py-2 text-[10px] leading-tight sm:flex-row sm:gap-1.5 sm:px-2 sm:text-sm"
+          >
+            <BotIcon className="h-4 w-4 shrink-0" />
+            <span className="truncate">API</span>
+          </TabsTrigger>
+          <TabsTrigger
+            value="ssh-keys"
+            className="flex min-w-0 flex-col items-center gap-0.5 px-1 py-2 text-[10px] leading-tight sm:flex-row sm:gap-1.5 sm:px-2 sm:text-sm"
+          >
+            <KeyIcon className="h-4 w-4 shrink-0" />
+            <span className="truncate">SSH</span>
+          </TabsTrigger>
+        </TabsList>
 
         <TabsContent value="general" className="mt-6 space-y-6">
           <Card className="w-full">

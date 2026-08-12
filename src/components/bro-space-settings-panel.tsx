@@ -13,7 +13,8 @@ import {
 } from "@/components/ui/card"
 import { QueryState } from "@/components/ui/query-state"
 import { usePeers } from "@/lib/hooks/usePeers"
-import { CopyIcon, UsersIcon } from "lucide-react"
+import { useTailscale } from "@/lib/hooks/useTailscale"
+import { CopyIcon, NetworkIcon, UsersIcon } from "lucide-react"
 import { useEffect, useState } from "react"
 import { toast } from "sonner"
 
@@ -26,18 +27,28 @@ function formatBytes(n: number): string {
 
 export function BroSpaceSettingsPanel() {
   const peers = usePeers()
+  const tailscale = useTailscale()
   const [baseUrl, setBaseUrl] = useState("")
   const [label, setLabel] = useState("My LazyBackup")
   const [quotaGb, setQuotaGb] = useState("50")
   const [inviteCode, setInviteCode] = useState<string | null>(null)
   const [acceptCode, setAcceptCode] = useState("")
   const [acceptLabel, setAcceptLabel] = useState("My LazyBackup")
+  const [authKey, setAuthKey] = useState("")
 
   useEffect(() => {
     if (peers.data?.instanceBaseUrl) {
       setBaseUrl(peers.data.instanceBaseUrl)
     }
   }, [peers.data?.instanceBaseUrl])
+
+  useEffect(() => {
+    if (tailscale.data?.instanceBaseUrl) {
+      setBaseUrl(tailscale.data.instanceBaseUrl)
+    }
+  }, [tailscale.data?.instanceBaseUrl])
+
+  const ts = tailscale.data
 
   return (
     <div className="space-y-6">
@@ -79,6 +90,118 @@ export function BroSpaceSettingsPanel() {
               </p>
             </div>
           </QueryState>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <NetworkIcon className="h-5 w-5" />
+            Tailscale
+          </CardTitle>
+          <CardDescription>
+            For CGNAT / home networks without port forwarding. We do{" "}
+            <strong>not</strong> ship Tailscale in the LazyBackup image (~50MB+);
+            install it on the host or use the optional compose overlay, then we
+            auto-detect your 100.x address.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {tailscale.isLoading ? (
+            <p className="text-sm text-muted-foreground">Checking Tailscale…</p>
+          ) : ts?.available ? (
+            <div className="space-y-3 rounded-md border p-3 text-sm">
+              <div>
+                <span className="text-muted-foreground">Status: </span>
+                {ts.backendState || "connected"}
+                {ts.via !== "none" ? ` (via ${ts.via})` : ""}
+              </div>
+              {ts.ipv4 && (
+                <div>
+                  <span className="text-muted-foreground">Tailscale IPv4: </span>
+                  <code>{ts.ipv4}</code>
+                </div>
+              )}
+              {ts.dnsName && (
+                <div>
+                  <span className="text-muted-foreground">MagicDNS: </span>
+                  <code>{ts.dnsName}</code>
+                </div>
+              )}
+              {ts.suggestedBaseUrl && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <code className="text-xs break-all">{ts.suggestedBaseUrl}</code>
+                  <LoadingButton
+                    type="button"
+                    size="sm"
+                    isLoading={tailscale.useSuggestedUrl.isPending}
+                    onClick={() => {
+                      tailscale.useSuggestedUrl.mutate(undefined, {
+                        onSuccess: (data) => setBaseUrl(data.instanceBaseUrl),
+                      })
+                    }}
+                  >
+                    Use as instance URL
+                  </LoadingButton>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-2 text-sm text-muted-foreground">
+              <p>{ts?.hint || "Tailscale not detected."}</p>
+              <ul className="list-disc space-y-1 pl-5">
+                <li>
+                  <strong>Host install (best):</strong> install Tailscale on the
+                  machine, then mount{" "}
+                  <code>/var/run/tailscale</code> into the container (see
+                  docker-compose comment).
+                </li>
+                <li>
+                  <strong>Compose overlay:</strong>{" "}
+                  <code>
+                    docker compose -f docker-compose.yml -f
+                    docker-compose.tailscale.yml up -d
+                  </code>{" "}
+                  with <code>TS_AUTHKEY</code> in <code>.env</code>.
+                </li>
+              </ul>
+            </div>
+          )}
+
+          {ts?.cliAvailable && (
+            <div className="space-y-2 border-t pt-4">
+              <Label htmlFor="tsAuthKey">Join with auth key (non-tech bro)</Label>
+              <p className="text-xs text-muted-foreground">
+                You create a key in the Tailscale admin console, send it to your
+                bro; they paste it here (or set <code>TS_AUTHKEY</code> for the
+                compose overlay). Requires the <code>tailscale</code> CLI on this
+                host — not inside the slim app image.
+              </p>
+              <Input
+                id="tsAuthKey"
+                type="password"
+                autoComplete="off"
+                placeholder="tskey-auth-…"
+                value={authKey}
+                onChange={(e) => setAuthKey(e.target.value)}
+              />
+              <LoadingButton
+                type="button"
+                isLoading={tailscale.join.isPending}
+                disabled={!authKey.trim()}
+                onClick={() =>
+                  tailscale.join.mutate(authKey.trim(), {
+                    onSuccess: (data) => {
+                      setAuthKey("")
+                      if (data.instanceBaseUrl) setBaseUrl(data.instanceBaseUrl)
+                    },
+                  })
+                }
+              >
+                Connect Tailscale
+              </LoadingButton>
+            </div>
+          )}
         </CardContent>
       </Card>
 
