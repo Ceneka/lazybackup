@@ -37,6 +37,11 @@ export type EncryptionKeyReveal = {
   identity: string
 }
 
+export type VaultStepUpFields = {
+  currentPassword?: string
+  confirm?: boolean
+}
+
 export const encryptionKeys = {
   all: ["encryption"] as const,
 }
@@ -73,35 +78,44 @@ export function useEncryption() {
     queryClient.invalidateQueries({ queryKey: encryptionKeys.all })
 
   const generate = useMutation({
-    mutationFn: (label?: string) =>
-      postAction<EncryptionKeyReveal>({ action: "generate", label }),
+    mutationFn: (args?: { label?: string } & VaultStepUpFields) =>
+      postAction<EncryptionKeyReveal>({ action: "generate", ...args }),
     onSuccess: () => invalidate(),
     onError: (e: Error) => toast.error(e.message),
   })
 
   const importKey = useMutation({
-    mutationFn: (args: { identity: string; label?: string }) =>
+    mutationFn: (args: { identity: string; label?: string } & VaultStepUpFields) =>
       postAction<EncryptionKeyReveal>({
         action: "import",
         identity: args.identity,
         label: args.label,
+        currentPassword: args.currentPassword,
+        confirm: args.confirm,
       }),
     onSuccess: () => invalidate(),
     onError: (e: Error) => toast.error(e.message),
   })
 
   const reveal = useMutation({
-    mutationFn: (keyId: string) =>
-      postAction<EncryptionKeyReveal>({ action: "reveal", keyId }),
+    mutationFn: (args: { keyId: string } & VaultStepUpFields) =>
+      postAction<EncryptionKeyReveal>({
+        action: "reveal",
+        keyId: args.keyId,
+        currentPassword: args.currentPassword,
+        confirm: args.confirm,
+      }),
     onError: (e: Error) => toast.error(e.message),
   })
 
   const exportPassphrase = useMutation({
-    mutationFn: (args: { keyId: string; passphrase: string }) =>
+    mutationFn: (args: { keyId: string; passphrase: string } & VaultStepUpFields) =>
       postAction<{ id: string; filename: string; armored: string }>({
         action: "exportPassphrase",
         keyId: args.keyId,
         passphrase: args.passphrase,
+        currentPassword: args.currentPassword,
+        confirm: args.confirm,
       }),
     onError: (e: Error) => toast.error(e.message),
   })
@@ -156,11 +170,13 @@ export function useEncryption() {
   })
 
   const addRecovery = useMutation({
-    mutationFn: (args: { label?: string; recipient: string }) =>
+    mutationFn: (args: { label?: string; recipient: string } & VaultStepUpFields) =>
       postAction<{ recipient: PublicRecoveryRecipient }>({
         action: "addRecovery",
         label: args.label,
         recipient: args.recipient,
+        currentPassword: args.currentPassword,
+        confirm: args.confirm,
       }),
     onSuccess: () => {
       invalidate()

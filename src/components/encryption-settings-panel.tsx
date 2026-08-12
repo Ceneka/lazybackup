@@ -15,7 +15,10 @@ import {
   useEncryption,
   type EncryptionKeyReveal,
   type PublicAgeKey,
+  type VaultStepUpFields,
 } from "@/lib/hooks/useEncryption"
+import { useAuthStatus } from "@/lib/hooks/useAuth"
+import { MIN_WRAP_PASSPHRASE_LENGTH } from "@/lib/crypto/constants"
 import {
   AlertTriangleIcon,
   CopyIcon,
@@ -134,6 +137,10 @@ function ExportAckDialog({
 
 export function EncryptionSettingsPanel() {
   const enc = useEncryption()
+  const auth = useAuthStatus()
+  const hasPassword = Boolean(auth.data?.hasPassword)
+  const hasPasskeys = Boolean(auth.data?.hasPasskeys)
+  const [vaultPassword, setVaultPassword] = useState("")
   const [importValue, setImportValue] = useState("")
   const [importLabel, setImportLabel] = useState("")
   const [revealed, setRevealed] = useState<EncryptionKeyReveal | null>(null)
@@ -145,6 +152,12 @@ export function EncryptionSettingsPanel() {
   const keys = enc.status?.keys ?? []
   const recovery = enc.status?.recoveryRecipients ?? []
   const configured = Boolean(enc.status?.configured)
+  const stepUpReady = !hasPassword || vaultPassword.length > 0
+
+  function vaultStepUp(): VaultStepUpFields {
+    if (hasPassword) return { currentPassword: vaultPassword }
+    return { confirm: true }
+  }
 
   return (
     <Card className="w-full">
@@ -180,13 +193,39 @@ export function EncryptionSettingsPanel() {
           </div>
         )}
 
+        {hasPassword && (
+          <div className="space-y-2 rounded-md border p-3">
+            <Label htmlFor="vaultCurrentPassword">Current app password</Label>
+            <Input
+              id="vaultCurrentPassword"
+              type="password"
+              autoComplete="current-password"
+              value={vaultPassword}
+              onChange={(e) => setVaultPassword(e.target.value)}
+              placeholder="Required to create, import, export, or add recovery keys"
+            />
+            <p className="text-xs text-muted-foreground">
+              Exporting private keys and adding recovery recipients requires your
+              app password, not just a signed-in session.
+            </p>
+          </div>
+        )}
+        {hasPasskeys && !hasPassword && (
+          <p className="text-xs text-muted-foreground">
+            Passkey-only instance: exporting keys and adding recovery recipients
+            uses this browser session (WebAuthn re-auth is not required). Sign
+            out if this is not your session.
+          </p>
+        )}
+
         <div className="flex flex-wrap gap-2">
           <LoadingButton
             type="button"
             isLoading={enc.generate.isPending}
+            disabled={!stepUpReady}
             onClick={async () => {
               try {
-                const result = await enc.generate.mutateAsync(undefined)
+                const result = await enc.generate.mutateAsync(vaultStepUp())
                 setRevealed(result)
                 toast.success("New encryption key created — save the private key")
               } catch {
@@ -273,9 +312,13 @@ export function EncryptionSettingsPanel() {
                       size="sm"
                       variant="outline"
                       isLoading={enc.reveal.isPending}
+                      disabled={!stepUpReady}
                       onClick={async () => {
                         try {
-                          const result = await enc.reveal.mutateAsync(key.id)
+                          const result = await enc.reveal.mutateAsync({
+                            keyId: key.id,
+                            ...vaultStepUp(),
+                          })
                           setRevealed(result)
                         } catch {
                           /* toast */
@@ -351,18 +394,19 @@ export function EncryptionSettingsPanel() {
               type="password"
               value={passphrase}
               onChange={(e) => setPassphrase(e.target.value)}
-              placeholder="At least 8 characters"
+              placeholder={`At least ${MIN_WRAP_PASSPHRASE_LENGTH} characters`}
             />
             <div className="flex gap-2">
               <LoadingButton
                 type="button"
                 isLoading={enc.exportPassphrase.isPending}
-                disabled={passphrase.length < 8}
+                disabled={passphrase.length < MIN_WRAP_PASSPHRASE_LENGTH || !stepUpReady}
                 onClick={async () => {
                   try {
                     const result = await enc.exportPassphrase.mutateAsync({
                       keyId: passphraseKeyId,
                       passphrase,
+                      ...vaultStepUp(),
                     })
                     const blob = new Blob([result.armored], {
                       type: "text/plain",
@@ -415,12 +459,13 @@ export function EncryptionSettingsPanel() {
             type="button"
             variant="secondary"
             isLoading={enc.importKey.isPending}
-            disabled={!importValue.trim()}
+            disabled={!importValue.trim() || !stepUpReady}
             onClick={async () => {
               try {
                 const result = await enc.importKey.mutateAsync({
                   identity: importValue.trim(),
                   label: importLabel.trim() || undefined,
+                  ...vaultStepUp(),
                 })
                 setImportValue("")
                 setImportLabel("")
@@ -483,11 +528,12 @@ export function EncryptionSettingsPanel() {
             type="button"
             variant="secondary"
             isLoading={enc.addRecovery.isPending}
-            disabled={!recoveryRecipient.trim().startsWith("age1")}
+            disabled={!recoveryRecipient.trim().startsWith("age1") || !stepUpReady}
             onClick={() => {
               enc.addRecovery.mutate({
                 label: recoveryLabel.trim() || undefined,
                 recipient: recoveryRecipient.trim(),
+                ...vaultStepUp(),
               })
               setRecoveryLabel("")
               setRecoveryRecipient("")
