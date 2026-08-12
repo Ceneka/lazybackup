@@ -47,6 +47,32 @@ describe('age crypto', () => {
     }
   });
 
+  test('multi-recipient encrypt + multi-identity decrypt', async () => {
+    const a = await generateAgeKeyPair();
+    const b = await generateAgeKeyPair();
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'lb-age-multi-'));
+    try {
+      const plain = path.join(dir, 'data.bin');
+      const enc = path.join(dir, 'data.bin.age');
+      const out = path.join(dir, 'data.out');
+      await fs.writeFile(plain, 'vault-data');
+      await encryptFileToPath(plain, enc, [a.recipient, b.recipient]);
+      // Decrypt with only the second identity
+      await decryptFileToPath(enc, out, [b.identity]);
+      expect(await fs.readFile(out, 'utf8')).toBe('vault-data');
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('passphrase wrap round-trip', async () => {
+    const { encryptWithPassphrase, decryptWithPassphrase } = await import('./age');
+    const armored = await encryptWithPassphrase('AGE-SECRET-KEY-1TEST', 'correct horse battery');
+    expect(armored).toContain('BEGIN AGE ENCRYPTED FILE');
+    const plain = await decryptWithPassphrase(armored, 'correct horse battery');
+    expect(plain).toBe('AGE-SECRET-KEY-1TEST');
+  });
+
   test('filename helpers', () => {
     expect(ageEncryptedFileName('a.sql.gz')).toBe('a.sql.gz.age');
     expect(ageEncryptedFileName('a.sql.gz.age')).toBe('a.sql.gz.age');

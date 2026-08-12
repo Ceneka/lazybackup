@@ -7,7 +7,7 @@ import {
   ageEncryptedFileName,
   encryptLocalFile,
 } from '@/lib/crypto/files';
-import { requireAgeRecipient } from '@/lib/crypto/keys';
+import { requireEncryptRecipients } from '@/lib/crypto/keys';
 
 const execFileAsync = promisify(execFile);
 
@@ -35,10 +35,10 @@ export async function maybeEncryptLocalArtifact(options: {
     };
   }
 
-  const recipient = await requireAgeRecipient();
+  const recipients = await requireEncryptRecipients();
   const encName = ageEncryptedFileName(options.archiveName);
   const encPath = path.join(path.dirname(options.localPath), encName);
-  await encryptLocalFile(options.localPath, recipient, encPath);
+  await encryptLocalFile(options.localPath, recipients, encPath);
   return {
     localPath: encPath,
     archiveName: encName,

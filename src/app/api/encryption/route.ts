@@ -1,10 +1,19 @@
 import { isSessionAuthorized } from '@/lib/auth';
 import {
+  acknowledgeAgeKeyExport,
+  addRecoveryRecipient,
   clearEncryptionKeys,
-  createEncryptionKeys,
+  createAgeKey,
+  deleteAgeKey,
+  deleteRecoveryRecipient,
+  getAgeKeyById,
   getEncryptionKeyStatus,
-  importEncryptionIdentity,
+  importAgeKey,
+  setActiveAgeKey,
+  setAgeKeyStatus,
+  updateAgeKeyLabel,
 } from '@/lib/crypto/keys';
+import { encryptWithPassphrase } from '@/lib/crypto/age';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 
@@ -19,7 +28,7 @@ async function requireSession(request: NextRequest) {
   return null;
 }
 
-/** GET /api/encryption — public recipient status (never returns private key) */
+/** GET /api/encryption — vault status (never returns private keys) */
 export async function GET(request: NextRequest) {
   const denied = await requireSession(request);
   if (denied) return denied;
@@ -33,23 +42,60 @@ export async function GET(request: NextRequest) {
 }
 
 const postSchema = z.discriminatedUnion('action', [
-  z.object({ action: z.literal('generate') }),
+  z.object({
+    action: z.literal('generate'),
+    label: z.string().optional(),
+  }),
   z.object({
     action: z.literal('import'),
     identity: z.string().min(20, 'Identity is required'),
+    label: z.string().optional(),
   }),
   z.object({
     action: z.literal('reveal'),
+    keyId: z.string().min(1),
+  }),
+  z.object({
+    action: z.literal('exportPassphrase'),
+    keyId: z.string().min(1),
+    passphrase: z.string().min(8, 'Passphrase must be at least 8 characters'),
+  }),
+  z.object({
+    action: z.literal('acknowledgeExport'),
+    keyId: z.string().min(1),
+  }),
+  z.object({
+    action: z.literal('setActive'),
+    keyId: z.string().min(1),
+  }),
+  z.object({
+    action: z.literal('setStatus'),
+    keyId: z.string().min(1),
+    status: z.enum(['retired', 'compromised']),
+  }),
+  z.object({
+    action: z.literal('updateLabel'),
+    keyId: z.string().min(1),
+    label: z.string().min(1),
+  }),
+  z.object({
+    action: z.literal('deleteKey'),
+    keyId: z.string().min(1),
+  }),
+  z.object({
+    action: z.literal('addRecovery'),
+    label: z.string().optional(),
+    recipient: z.string().min(10),
+  }),
+  z.object({
+    action: z.literal('deleteRecovery'),
+    id: z.string().min(1),
   }),
   z.object({ action: z.literal('clear') }),
 ]);
 
 /**
- * POST /api/encryption
- * - generate: create new keypair (returns identity once)
- * - import: import AGE-SECRET-KEY-…
- * - reveal: return private identity once (operator export)
- * - clear: delete keys
+ * POST /api/encryption — vault CRUD and export helpers
  */
 export async function POST(request: NextRequest) {
   const denied = await requireSession(request);
@@ -59,38 +105,90 @@ export async function POST(request: NextRequest) {
     const body = postSchema.parse(await request.json());
 
     if (body.action === 'generate') {
-      const pair = await createEncryptionKeys();
+      const created = await createAgeKey({ label: body.label });
       return NextResponse.json(
         {
-          configured: true,
-          recipient: pair.recipient,
-          identity: pair.identity,
+          id: created.id,
+          label: created.label,
+          recipient: created.recipient,
+          identity: created.identity,
         },
         { status: 201 }
       );
     }
 
     if (body.action === 'import') {
-      const pair = await importEncryptionIdentity(body.identity);
+      const imported = await importAgeKey(body.identity, { label: body.label });
       return NextResponse.json({
-        configured: true,
-        recipient: pair.recipient,
-        identity: pair.identity,
+        id: imported.id,
+        label: imported.label,
+        recipient: imported.recipient,
+        identity: imported.identity,
       });
     }
 
     if (body.action === 'reveal') {
-      const { getAgeIdentity, getEncryptionKeyStatus } = await import('@/lib/crypto/keys');
-      const status = await getEncryptionKeyStatus();
-      if (!status.configured) {
-        return NextResponse.json({ error: 'No encryption key configured' }, { status: 404 });
+      const row = await getAgeKeyById(body.keyId);
+      if (!row) {
+        return NextResponse.json({ error: 'Key not found' }, { status: 404 });
       }
-      const identity = await getAgeIdentity();
       return NextResponse.json({
-        configured: true,
-        recipient: status.recipient,
-        identity,
+        id: row.id,
+        label: row.label,
+        recipient: row.recipient,
+        identity: row.identity,
       });
+    }
+
+    if (body.action === 'exportPassphrase') {
+      const row = await getAgeKeyById(body.keyId);
+      if (!row) {
+        return NextResponse.json({ error: 'Key not found' }, { status: 404 });
+      }
+      const armored = await encryptWithPassphrase(row.identity, body.passphrase);
+      return NextResponse.json({
+        id: row.id,
+        filename: `${row.label.replace(/[^\w.-]+/g, '_') || 'age-key'}.age`,
+        armored,
+      });
+    }
+
+    if (body.action === 'acknowledgeExport') {
+      const key = await acknowledgeAgeKeyExport(body.keyId);
+      return NextResponse.json({ key });
+    }
+
+    if (body.action === 'setActive') {
+      const key = await setActiveAgeKey(body.keyId);
+      return NextResponse.json({ key });
+    }
+
+    if (body.action === 'setStatus') {
+      const key = await setAgeKeyStatus(body.keyId, body.status);
+      return NextResponse.json({ key });
+    }
+
+    if (body.action === 'updateLabel') {
+      const key = await updateAgeKeyLabel(body.keyId, body.label);
+      return NextResponse.json({ key });
+    }
+
+    if (body.action === 'deleteKey') {
+      await deleteAgeKey(body.keyId);
+      return NextResponse.json({ ok: true });
+    }
+
+    if (body.action === 'addRecovery') {
+      const recipient = await addRecoveryRecipient({
+        label: body.label || 'Recovery key',
+        recipient: body.recipient,
+      });
+      return NextResponse.json({ recipient }, { status: 201 });
+    }
+
+    if (body.action === 'deleteRecovery') {
+      await deleteRecoveryRecipient(body.id);
+      return NextResponse.json({ ok: true });
     }
 
     await clearEncryptionKeys();

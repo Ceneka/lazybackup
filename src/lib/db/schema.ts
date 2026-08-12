@@ -77,8 +77,13 @@ export const backupConfigs = sqliteTable('backup_configs', {
   /** Destination bro peer when destinationKind === 'peer' */
   destinationPeerId: text('destination_peer_id'),
   name: text('name').notNull(),
-  /** 'path' | 'docker_volume' (server only) | 'database' (local or server; sourcePath = DB name) */
-  sourceType: text('source_type', { enum: ['path', 'docker_volume', 'database'] })
+  /**
+   * 'path' | 'docker_volume' (server only) | 'database' (local or server; sourcePath = DB name)
+   * | 'lazybackup_instance' (local only; packs SQLite + keys)
+   */
+  sourceType: text('source_type', {
+    enum: ['path', 'docker_volume', 'database', 'lazybackup_instance'],
+  })
     .notNull()
     .default('path'),
   sourcePath: text('source_path').notNull(),
@@ -94,6 +99,11 @@ export const backupConfigs = sqliteTable('backup_configs', {
   dbPort: integer('db_port'),
   dbUser: text('db_user'),
   dbPassword: text('db_password'),
+  /**
+   * Optional age passphrase wrap for lazybackup_instance archives
+   * (not the instance age key — avoids circular encrypt).
+   */
+  instanceBackupPassphrase: text('instance_backup_passphrase'),
   enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
   /** Client-side age encryption before land (forced on for peer destinations) */
   enableEncryption: integer('enable_encryption', { mode: 'boolean' }).notNull().default(false),
@@ -183,6 +193,46 @@ export const peers = sqliteTable('peers', {
   lastActivityAt: integer('last_activity_at', { mode: 'timestamp' }),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+});
+
+/** Age encryption key vault (multiple identities; one active for new encrypts) */
+export const ageKeys = sqliteTable('age_keys', {
+  id: text('id').primaryKey().notNull(),
+  label: text('label').notNull(),
+  /** AGE-SECRET-KEY-1… */
+  identity: text('identity').notNull(),
+  /** age1… public recipient */
+  recipient: text('recipient').notNull(),
+  status: text('status', { enum: ['active', 'retired', 'compromised'] })
+    .notNull()
+    .default('active'),
+  /** Operator acknowledged offline export */
+  exportAcknowledgedAt: integer('export_acknowledged_at', { mode: 'timestamp' }),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+});
+
+/** Extra public recipients included on every encrypt (offline recovery keys) */
+export const ageRecoveryRecipients = sqliteTable('age_recovery_recipients', {
+  id: text('id').primaryKey().notNull(),
+  label: text('label').notNull(),
+  recipient: text('recipient').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+});
+
+/** WebAuthn / passkey credentials for app login */
+export const webauthnCredentials = sqliteTable('webauthn_credentials', {
+  id: text('id').primaryKey().notNull(),
+  name: text('name').notNull(),
+  /** Base64URL credential id */
+  credentialId: text('credential_id').notNull().unique(),
+  /** Base64URL public key */
+  publicKey: text('public_key').notNull(),
+  counter: integer('counter').notNull().default(0),
+  /** JSON array of AuthenticatorTransport */
+  transports: text('transports').notNull().default('[]'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+  lastUsedAt: integer('last_used_at', { mode: 'timestamp' }),
 });
 
 /** Outbound pairing invites (one-time) */

@@ -11,16 +11,139 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import { useEncryption } from "@/lib/hooks/useEncryption"
-import { CopyIcon, KeyRoundIcon, ShieldIcon } from "lucide-react"
+import {
+  useEncryption,
+  type EncryptionKeyReveal,
+  type PublicAgeKey,
+} from "@/lib/hooks/useEncryption"
+import {
+  AlertTriangleIcon,
+  CopyIcon,
+  DownloadIcon,
+  KeyRoundIcon,
+  ShieldIcon,
+} from "lucide-react"
+import Link from "next/link"
 import { useState } from "react"
 import { toast } from "sonner"
+
+function statusBadgeClass(status: PublicAgeKey["status"]) {
+  if (status === "active") return "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
+  if (status === "compromised") return "bg-red-500/15 text-red-700 dark:text-red-400"
+  return "bg-muted text-muted-foreground"
+}
+
+function ExportAckDialog({
+  revealed,
+  onAcknowledge,
+  onDismiss,
+  isLoading,
+}: {
+  revealed: EncryptionKeyReveal
+  onAcknowledge: () => void
+  onDismiss: () => void
+  isLoading: boolean
+}) {
+  const [checks, setChecks] = useState({
+    copied: false,
+    offline: false,
+    understand: false,
+  })
+  const allChecked = checks.copied && checks.offline && checks.understand
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="w-full max-w-lg rounded-lg border bg-background p-4 shadow-lg space-y-4">
+        <div>
+          <h3 className="font-semibold text-lg">Save this private key</h3>
+          <p className="text-sm text-muted-foreground mt-1">
+            The private key is stored on this LazyBackup instance. Export a copy
+            for disaster recovery — if you lose both this instance and the
+            offline copy, encrypted backups cannot be restored.
+          </p>
+        </div>
+        <div className="space-y-2">
+          <Label>Private identity</Label>
+          <textarea
+            readOnly
+            className="w-full min-h-[80px] rounded-md border bg-background p-2 font-mono text-xs"
+            value={revealed.identity}
+          />
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              void navigator.clipboard.writeText(revealed.identity)
+              toast.success("Identity copied")
+              setChecks((c) => ({ ...c, copied: true }))
+            }}
+          >
+            <CopyIcon className="mr-2 h-4 w-4" />
+            Copy identity
+          </Button>
+        </div>
+        <div className="space-y-2 text-sm">
+          <label className="flex gap-2 items-start">
+            <input
+              type="checkbox"
+              className="mt-1"
+              checked={checks.copied}
+              onChange={(e) => setChecks((c) => ({ ...c, copied: e.target.checked }))}
+            />
+            I copied the key (password manager, printed, or secure file)
+          </label>
+          <label className="flex gap-2 items-start">
+            <input
+              type="checkbox"
+              className="mt-1"
+              checked={checks.offline}
+              onChange={(e) => setChecks((c) => ({ ...c, offline: e.target.checked }))}
+            />
+            I stored it somewhere that survives this machine dying
+          </label>
+          <label className="flex gap-2 items-start">
+            <input
+              type="checkbox"
+              className="mt-1"
+              checked={checks.understand}
+              onChange={(e) =>
+                setChecks((c) => ({ ...c, understand: e.target.checked }))
+              }
+            />
+            I understand losing the key means losing access to ciphertext
+          </label>
+        </div>
+        <div className="flex flex-wrap gap-2 justify-end">
+          <Button type="button" variant="ghost" onClick={onDismiss}>
+            Later
+          </Button>
+          <LoadingButton
+            type="button"
+            isLoading={isLoading}
+            disabled={!allChecked}
+            onClick={onAcknowledge}
+          >
+            I saved it
+          </LoadingButton>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 export function EncryptionSettingsPanel() {
   const enc = useEncryption()
   const [importValue, setImportValue] = useState("")
-  const [revealedIdentity, setRevealedIdentity] = useState<string | null>(null)
+  const [importLabel, setImportLabel] = useState("")
+  const [revealed, setRevealed] = useState<EncryptionKeyReveal | null>(null)
+  const [passphraseKeyId, setPassphraseKeyId] = useState<string | null>(null)
+  const [passphrase, setPassphrase] = useState("")
+  const [recoveryLabel, setRecoveryLabel] = useState("")
+  const [recoveryRecipient, setRecoveryRecipient] = useState("")
 
+  const keys = enc.status?.keys ?? []
+  const recovery = enc.status?.recoveryRecipients ?? []
   const configured = Boolean(enc.status?.configured)
 
   return (
@@ -40,60 +163,20 @@ export function EncryptionSettingsPanel() {
           >
             age
           </a>{" "}
-          encryption. When enabled on a backup, ciphertext is written to the
-          destination — local, server, S3, or a bro. Keep a copy of the private
-          key; without it you cannot restore.
+          encryption. Private keys live on this instance; new backups encrypt to
+          the <strong>active</strong> key plus any recovery recipients. Keep an
+          offline copy of each private key for disaster recovery.
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4">
-        {configured ? (
-          <div className="space-y-2">
-            <Label>Public recipient</Label>
-            <div className="flex gap-2">
-              <Input readOnly value={enc.status?.recipient || ""} className="font-mono text-xs" />
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                onClick={() => {
-                  void navigator.clipboard.writeText(enc.status?.recipient || "")
-                  toast.success("Recipient copied")
-                }}
-              >
-                <CopyIcon className="h-4 w-4" />
-              </Button>
+      <CardContent className="space-y-6">
+        {enc.status?.needsExportAck && (
+          <div className="flex gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-sm">
+            <AlertTriangleIcon className="h-4 w-4 shrink-0 mt-0.5 text-amber-600" />
+            <div>
+              Encrypted or Bro backups are enabled, but the active key has not
+              been marked as exported. Export it below and confirm you saved a
+              copy.
             </div>
-            <p className="text-sm text-muted-foreground">
-              Private key is stored on this instance and never shown in the
-              settings list. Export it below and store it offline.
-            </p>
-          </div>
-        ) : (
-          <p className="text-sm text-muted-foreground">
-            No key yet. Generate one to use encrypted backups or Bro Space.
-          </p>
-        )}
-
-        {revealedIdentity && (
-          <div className="space-y-2 rounded-md border border-amber-500/40 bg-amber-500/5 p-3">
-            <Label>Private identity (copy now)</Label>
-            <textarea
-              readOnly
-              className="w-full min-h-[80px] rounded-md border bg-background p-2 font-mono text-xs"
-              value={revealedIdentity}
-            />
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                void navigator.clipboard.writeText(revealedIdentity)
-                toast.success("Identity copied")
-              }}
-            >
-              <CopyIcon className="mr-2 h-4 w-4" />
-              Copy identity
-            </Button>
           </div>
         )}
 
@@ -103,63 +186,224 @@ export function EncryptionSettingsPanel() {
             isLoading={enc.generate.isPending}
             onClick={async () => {
               try {
-                const result = await enc.generate.mutateAsync()
-                setRevealedIdentity(result.identity)
-                toast.success("Encryption key created — copy the private key now")
+                const result = await enc.generate.mutateAsync(undefined)
+                setRevealed(result)
+                toast.success("New encryption key created — save the private key")
               } catch {
                 /* toast in hook */
               }
             }}
           >
             <KeyRoundIcon className="mr-2 h-4 w-4" />
-            {configured ? "Rotate (new key)" : "Generate key"}
+            {configured ? "Create new key" : "Generate key"}
           </LoadingButton>
-          {configured && (
-            <>
-              <LoadingButton
-                type="button"
-                variant="outline"
-                isLoading={enc.reveal.isPending}
-                onClick={async () => {
-                  try {
-                    const result = await enc.reveal.mutateAsync()
-                    setRevealedIdentity(result.identity)
-                  } catch {
-                    /* toast in hook */
-                  }
-                }}
-              >
-                Export private key
-              </LoadingButton>
-              <LoadingButton
-                type="button"
-                variant="destructive"
-                isLoading={enc.clear.isPending}
-                onClick={async () => {
-                  if (
-                    !confirm(
-                      "Delete the encryption key? Encrypted backups cannot be restored without it."
-                    )
-                  ) {
-                    return
-                  }
-                  try {
-                    await enc.clear.mutateAsync()
-                    setRevealedIdentity(null)
-                    toast.success("Encryption key removed")
-                  } catch {
-                    /* toast in hook */
-                  }
-                }}
-              >
-                Delete key
-              </LoadingButton>
-            </>
-          )}
+          <Button type="button" variant="outline" asChild>
+            <Link href="/backups/new?source=lazybackup_instance">
+              Backup LazyBackup data
+            </Link>
+          </Button>
         </div>
+
+        {keys.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No keys yet. Generate one to use encrypted backups or Bro Space.
+          </p>
+        ) : (
+          <div className="space-y-3">
+            {keys.map((key) => (
+              <div
+                key={key.id}
+                className="rounded-md border p-3 space-y-2"
+              >
+                <div className="flex flex-wrap items-center gap-2 justify-between">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="font-medium truncate">{key.label}</span>
+                    <span
+                      className={`text-xs px-2 py-0.5 rounded ${statusBadgeClass(key.status)}`}
+                    >
+                      {key.status}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {key.status !== "active" && (
+                      <LoadingButton
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        isLoading={enc.setActive.isPending}
+                        onClick={() => enc.setActive.mutate(key.id)}
+                      >
+                        Set active
+                      </LoadingButton>
+                    )}
+                    {key.status === "retired" && (
+                      <LoadingButton
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        isLoading={enc.setStatus.isPending}
+                        onClick={() =>
+                          enc.setStatus.mutate({
+                            keyId: key.id,
+                            status: "compromised",
+                          })
+                        }
+                      >
+                        Mark compromised
+                      </LoadingButton>
+                    )}
+                    {key.status === "compromised" && (
+                      <LoadingButton
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        isLoading={enc.setStatus.isPending}
+                        onClick={() =>
+                          enc.setStatus.mutate({
+                            keyId: key.id,
+                            status: "retired",
+                          })
+                        }
+                      >
+                        Mark retired
+                      </LoadingButton>
+                    )}
+                    <LoadingButton
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      isLoading={enc.reveal.isPending}
+                      onClick={async () => {
+                        try {
+                          const result = await enc.reveal.mutateAsync(key.id)
+                          setRevealed(result)
+                        } catch {
+                          /* toast */
+                        }
+                      }}
+                    >
+                      Export
+                    </LoadingButton>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        setPassphraseKeyId(key.id)
+                        setPassphrase("")
+                      }}
+                    >
+                      <DownloadIcon className="mr-1 h-3 w-3" />
+                      Passphrase wrap
+                    </Button>
+                    <LoadingButton
+                      type="button"
+                      size="sm"
+                      variant="destructive"
+                      isLoading={enc.deleteKey.isPending}
+                      onClick={() => {
+                        if (
+                          !confirm(
+                            "Permanently delete this key? Encrypted backups that only use this key cannot be restored."
+                          )
+                        ) {
+                          return
+                        }
+                        enc.deleteKey.mutate(key.id)
+                      }}
+                    >
+                      Delete
+                    </LoadingButton>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <Input
+                    readOnly
+                    value={key.recipient}
+                    className="font-mono text-xs"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    onClick={() => {
+                      void navigator.clipboard.writeText(key.recipient)
+                      toast.success("Recipient copied")
+                    }}
+                  >
+                    <CopyIcon className="h-4 w-4" />
+                  </Button>
+                </div>
+                {!key.exportAcknowledgedAt && (
+                  <p className="text-xs text-amber-700 dark:text-amber-400">
+                    Offline export not acknowledged yet
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {passphraseKeyId && (
+          <div className="rounded-md border p-3 space-y-2">
+            <Label>Passphrase for wrapped export</Label>
+            <Input
+              type="password"
+              value={passphrase}
+              onChange={(e) => setPassphrase(e.target.value)}
+              placeholder="At least 8 characters"
+            />
+            <div className="flex gap-2">
+              <LoadingButton
+                type="button"
+                isLoading={enc.exportPassphrase.isPending}
+                disabled={passphrase.length < 8}
+                onClick={async () => {
+                  try {
+                    const result = await enc.exportPassphrase.mutateAsync({
+                      keyId: passphraseKeyId,
+                      passphrase,
+                    })
+                    const blob = new Blob([result.armored], {
+                      type: "text/plain",
+                    })
+                    const url = URL.createObjectURL(blob)
+                    const a = document.createElement("a")
+                    a.href = url
+                    a.download = result.filename
+                    a.click()
+                    URL.revokeObjectURL(url)
+                    toast.success("Passphrase-wrapped key downloaded")
+                    setPassphraseKeyId(null)
+                    setPassphrase("")
+                  } catch {
+                    /* toast */
+                  }
+                }}
+              >
+                Download .age
+              </LoadingButton>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => {
+                  setPassphraseKeyId(null)
+                  setPassphrase("")
+                }}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        )}
 
         <div className="space-y-2 border-t pt-4">
           <Label htmlFor="importIdentity">Import existing identity</Label>
+          <Input
+            placeholder="Label (optional)"
+            value={importLabel}
+            onChange={(e) => setImportLabel(e.target.value)}
+          />
           <textarea
             id="importIdentity"
             className="w-full min-h-[72px] rounded-md border bg-background p-2 font-mono text-xs"
@@ -174,19 +418,102 @@ export function EncryptionSettingsPanel() {
             disabled={!importValue.trim()}
             onClick={async () => {
               try {
-                await enc.importKey.mutateAsync(importValue.trim())
+                const result = await enc.importKey.mutateAsync({
+                  identity: importValue.trim(),
+                  label: importLabel.trim() || undefined,
+                })
                 setImportValue("")
-                setRevealedIdentity(null)
-                toast.success("Encryption key imported")
+                setImportLabel("")
+                setRevealed(result)
+                toast.success("Encryption key imported as active")
               } catch {
-                /* toast in hook */
+                /* toast */
               }
             }}
           >
             Import key
           </LoadingButton>
         </div>
+
+        <div className="space-y-3 border-t pt-4">
+          <div>
+            <h4 className="font-medium">Recovery recipients</h4>
+            <p className="text-sm text-muted-foreground">
+              Extra public <code className="text-xs">age1…</code> keys included
+              on every encrypt. Keep those private keys offline (paper, YubiKey,
+              second machine).
+            </p>
+          </div>
+          {recovery.length > 0 && (
+            <ul className="space-y-2">
+              {recovery.map((r) => (
+                <li
+                  key={r.id}
+                  className="flex flex-wrap items-center gap-2 rounded-md border p-2 text-sm"
+                >
+                  <span className="font-medium">{r.label}</span>
+                  <code className="font-mono text-xs truncate flex-1">
+                    {r.recipient}
+                  </code>
+                  <LoadingButton
+                    type="button"
+                    size="sm"
+                    variant="destructive"
+                    isLoading={enc.deleteRecovery.isPending}
+                    onClick={() => enc.deleteRecovery.mutate(r.id)}
+                  >
+                    Remove
+                  </LoadingButton>
+                </li>
+              ))}
+            </ul>
+          )}
+          <Input
+            placeholder="Label"
+            value={recoveryLabel}
+            onChange={(e) => setRecoveryLabel(e.target.value)}
+          />
+          <Input
+            placeholder="age1…"
+            className="font-mono text-xs"
+            value={recoveryRecipient}
+            onChange={(e) => setRecoveryRecipient(e.target.value)}
+          />
+          <LoadingButton
+            type="button"
+            variant="secondary"
+            isLoading={enc.addRecovery.isPending}
+            disabled={!recoveryRecipient.trim().startsWith("age1")}
+            onClick={() => {
+              enc.addRecovery.mutate({
+                label: recoveryLabel.trim() || undefined,
+                recipient: recoveryRecipient.trim(),
+              })
+              setRecoveryLabel("")
+              setRecoveryRecipient("")
+            }}
+          >
+            Add recovery recipient
+          </LoadingButton>
+        </div>
       </CardContent>
+
+      {revealed && (
+        <ExportAckDialog
+          revealed={revealed}
+          isLoading={enc.acknowledgeExport.isPending}
+          onDismiss={() => setRevealed(null)}
+          onAcknowledge={async () => {
+            try {
+              await enc.acknowledgeExport.mutateAsync(revealed.id)
+              setRevealed(null)
+              toast.success("Export acknowledged")
+            } catch {
+              /* toast */
+            }
+          }}
+        />
+      )}
     </Card>
   )
 }

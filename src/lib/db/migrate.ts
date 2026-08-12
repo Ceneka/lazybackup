@@ -377,6 +377,78 @@ export async function runMigration() {
       );
     `);
 
+    await db.run(sql`
+      CREATE TABLE IF NOT EXISTS age_keys (
+        id TEXT PRIMARY KEY NOT NULL,
+        label TEXT NOT NULL,
+        identity TEXT NOT NULL,
+        recipient TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'active',
+        export_acknowledged_at INTEGER,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+      );
+    `);
+
+    await db.run(sql`
+      CREATE TABLE IF NOT EXISTS age_recovery_recipients (
+        id TEXT PRIMARY KEY NOT NULL,
+        label TEXT NOT NULL,
+        recipient TEXT NOT NULL,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch())
+      );
+    `);
+
+    await db.run(sql`
+      CREATE TABLE IF NOT EXISTS webauthn_credentials (
+        id TEXT PRIMARY KEY NOT NULL,
+        name TEXT NOT NULL,
+        credential_id TEXT NOT NULL UNIQUE,
+        public_key TEXT NOT NULL,
+        counter INTEGER NOT NULL DEFAULT 0,
+        transports TEXT NOT NULL DEFAULT '[]',
+        created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        last_used_at INTEGER
+      );
+    `);
+
+    const backupConfigsInstance = await db.run(sql`PRAGMA table_info(backup_configs)`);
+    const backupColsInstance = backupConfigsInstance.rows.map((row: any) => row.name);
+    if (!backupColsInstance.includes('instance_backup_passphrase')) {
+      await db.run(sql`ALTER TABLE backup_configs ADD COLUMN instance_backup_passphrase TEXT`);
+    }
+
+    // Migrate legacy settings ageIdentity/ageRecipient → age_keys vault
+    const legacyIdentity = await db.run(
+      sql`SELECT id, value FROM settings WHERE key = 'ageIdentity' LIMIT 1`
+    );
+    const legacyRecipient = await db.run(
+      sql`SELECT id, value FROM settings WHERE key = 'ageRecipient' LIMIT 1`
+    );
+    const identityVal = legacyIdentity.rows[0]?.value as string | undefined;
+    const recipientVal = legacyRecipient.rows[0]?.value as string | undefined;
+    if (identityVal?.trim() && recipientVal?.trim()) {
+      const existingKeys = await db.run(sql`SELECT COUNT(*) AS c FROM age_keys`);
+      const count = Number(existingKeys.rows[0]?.c ?? 0);
+      if (count === 0) {
+        const { nanoid } = await import('nanoid');
+        const id = nanoid();
+        await db.run(sql`
+          INSERT INTO age_keys (id, label, identity, recipient, status, created_at, updated_at)
+          VALUES (
+            ${id},
+            'Migrated key',
+            ${identityVal.trim()},
+            ${recipientVal.trim()},
+            'active',
+            unixepoch(),
+            unixepoch()
+          )
+        `);
+      }
+      await db.run(sql`DELETE FROM settings WHERE key IN ('ageIdentity', 'ageRecipient')`);
+    }
+
     console.log('Migration completed successfully');
   } catch (error) {
     console.error('Migration failed:', error);

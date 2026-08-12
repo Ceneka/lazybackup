@@ -1,12 +1,39 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 
+export type AgeKeyStatus = "active" | "retired" | "compromised"
+
+export type PublicAgeKey = {
+  id: string
+  label: string
+  recipient: string
+  status: AgeKeyStatus
+  exportAcknowledgedAt: string | Date | null
+  createdAt: string | Date
+  updatedAt: string | Date
+}
+
+export type PublicRecoveryRecipient = {
+  id: string
+  label: string
+  recipient: string
+  createdAt: string | Date
+}
+
 export type EncryptionStatus = {
   configured: boolean
   recipient: string | null
+  activeKeyId: string | null
+  keys: PublicAgeKey[]
+  recoveryRecipients: PublicRecoveryRecipient[]
+  needsExportAck: boolean
+  encryptionInUse: boolean
 }
 
-export type EncryptionKeyResult = EncryptionStatus & {
+export type EncryptionKeyReveal = {
+  id: string
+  label: string
+  recipient: string
   identity: string
 }
 
@@ -14,12 +41,24 @@ export const encryptionKeys = {
   all: ["encryption"] as const,
 }
 
+async function parseError(res: Response, fallback: string): Promise<string> {
+  const err = await res.json().catch(() => ({}))
+  return (err as { error?: string }).error || fallback
+}
+
 async function fetchStatus(): Promise<EncryptionStatus> {
   const res = await fetch("/api/encryption")
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}))
-    throw new Error((err as { error?: string }).error || "Failed to load encryption status")
-  }
+  if (!res.ok) throw new Error(await parseError(res, "Failed to load encryption status"))
+  return res.json()
+}
+
+async function postAction<T>(body: Record<string, unknown>): Promise<T> {
+  const res = await fetch("/api/encryption", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(await parseError(res, "Encryption action failed"))
   return res.json()
 }
 
@@ -34,68 +73,114 @@ export function useEncryption() {
     queryClient.invalidateQueries({ queryKey: encryptionKeys.all })
 
   const generate = useMutation({
-    mutationFn: async (): Promise<EncryptionKeyResult> => {
-      const res = await fetch("/api/encryption", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "generate" }),
-      })
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}))
-        throw new Error((err as { error?: string }).error || "Failed to generate key")
-      }
-      return res.json()
-    },
+    mutationFn: (label?: string) =>
+      postAction<EncryptionKeyReveal>({ action: "generate", label }),
     onSuccess: () => invalidate(),
     onError: (e: Error) => toast.error(e.message),
   })
 
   const importKey = useMutation({
-    mutationFn: async (identity: string): Promise<EncryptionKeyResult> => {
-      const res = await fetch("/api/encryption", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "import", identity }),
-      })
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}))
-        throw new Error((err as { error?: string }).error || "Failed to import key")
-      }
-      return res.json()
-    },
+    mutationFn: (args: { identity: string; label?: string }) =>
+      postAction<EncryptionKeyReveal>({
+        action: "import",
+        identity: args.identity,
+        label: args.label,
+      }),
     onSuccess: () => invalidate(),
     onError: (e: Error) => toast.error(e.message),
   })
 
   const reveal = useMutation({
-    mutationFn: async (): Promise<EncryptionKeyResult> => {
-      const res = await fetch("/api/encryption", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "reveal" }),
-      })
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}))
-        throw new Error((err as { error?: string }).error || "Failed to export key")
-      }
-      return res.json()
+    mutationFn: (keyId: string) =>
+      postAction<EncryptionKeyReveal>({ action: "reveal", keyId }),
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  const exportPassphrase = useMutation({
+    mutationFn: (args: { keyId: string; passphrase: string }) =>
+      postAction<{ id: string; filename: string; armored: string }>({
+        action: "exportPassphrase",
+        keyId: args.keyId,
+        passphrase: args.passphrase,
+      }),
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  const acknowledgeExport = useMutation({
+    mutationFn: (keyId: string) =>
+      postAction<{ key: PublicAgeKey }>({ action: "acknowledgeExport", keyId }),
+    onSuccess: () => invalidate(),
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  const setActive = useMutation({
+    mutationFn: (keyId: string) =>
+      postAction<{ key: PublicAgeKey }>({ action: "setActive", keyId }),
+    onSuccess: () => {
+      invalidate()
+      toast.success("Active encryption key updated")
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  const setStatus = useMutation({
+    mutationFn: (args: { keyId: string; status: "retired" | "compromised" }) =>
+      postAction<{ key: PublicAgeKey }>({
+        action: "setStatus",
+        keyId: args.keyId,
+        status: args.status,
+      }),
+    onSuccess: () => invalidate(),
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  const updateLabel = useMutation({
+    mutationFn: (args: { keyId: string; label: string }) =>
+      postAction<{ key: PublicAgeKey }>({
+        action: "updateLabel",
+        keyId: args.keyId,
+        label: args.label,
+      }),
+    onSuccess: () => invalidate(),
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  const deleteKey = useMutation({
+    mutationFn: (keyId: string) =>
+      postAction<{ ok: boolean }>({ action: "deleteKey", keyId }),
+    onSuccess: () => {
+      invalidate()
+      toast.success("Key deleted permanently")
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  const addRecovery = useMutation({
+    mutationFn: (args: { label?: string; recipient: string }) =>
+      postAction<{ recipient: PublicRecoveryRecipient }>({
+        action: "addRecovery",
+        label: args.label,
+        recipient: args.recipient,
+      }),
+    onSuccess: () => {
+      invalidate()
+      toast.success("Recovery recipient added")
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  const deleteRecovery = useMutation({
+    mutationFn: (id: string) =>
+      postAction<{ ok: boolean }>({ action: "deleteRecovery", id }),
+    onSuccess: () => {
+      invalidate()
+      toast.success("Recovery recipient removed")
     },
     onError: (e: Error) => toast.error(e.message),
   })
 
   const clear = useMutation({
-    mutationFn: async () => {
-      const res = await fetch("/api/encryption", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "clear" }),
-      })
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}))
-        throw new Error((err as { error?: string }).error || "Failed to clear key")
-      }
-      return res.json()
-    },
+    mutationFn: () => postAction<{ configured: boolean }>({ action: "clear" }),
     onSuccess: () => invalidate(),
     onError: (e: Error) => toast.error(e.message),
   })
@@ -106,6 +191,14 @@ export function useEncryption() {
     generate,
     importKey,
     reveal,
+    exportPassphrase,
+    acknowledgeExport,
+    setActive,
+    setStatus,
+    updateLabel,
+    deleteKey,
+    addRecovery,
+    deleteRecovery,
     clear,
   }
 }
