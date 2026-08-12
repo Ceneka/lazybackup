@@ -94,7 +94,7 @@ Pattern: Zod → Drizzle → `NextResponse.json`; errors `{ error, details? }`.
 | S3 | `/api/s3-profiles`, `/api/s3-profiles/[id]`, `…/test`, `POST /api/s3-profiles/test` |
 | Backups | `/api/backups`, `/api/backups/[id]`, `…/run`, `…/validate`, `…/toggle`, `…/storage`, `POST /api/backups/start`, `POST /api/backups/database/test` |
 | History | `/api/history`, `/api/history/[id]`, `…/restore`, `/api/history/stats?chartData=` |
-| Other | `/api/ssh-keys`, `/api/settings`, `/api/scheduler/restart`, `/api/dashboard`, `/api/seed` (dev only) |
+| Other | `/api/ssh-keys`, `/api/settings`, `/api/scheduler/restart`, `/api/dashboard`, `/api/status` (safety posture), `/api/seed` (dev only) |
 
 ## Backup workflow (`lib/backup/index.ts`)
 
@@ -172,4 +172,5 @@ CI publishes GHCR on `main` / `v*` tags (skips docs/`LICENSE`/`landing` via `pat
 | DB | `lib/db/schema.ts`, `lib/db/migrate.ts` |
 | Encryption / vault / passkeys | `lib/crypto/`, `lib/auth/webauthn.ts`, `/api/encryption`, `/api/auth/webauthn/*`, `components/encryption-settings-panel.tsx` |
 | App password | `lib/auth/`, `middleware.ts`, `app/api/auth/` |
+| Safety status | `lib/status/build-status.ts`, `/api/status`, `app/status` |
 | UI patterns | `lib/hooks/useBackups.ts`, `components/ui/query-state.tsx` |

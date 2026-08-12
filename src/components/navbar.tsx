@@ -22,6 +22,7 @@ import {
   MenuIcon,
   ServerIcon,
   SettingsIcon,
+  ShieldIcon,
 } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
@@ -52,6 +53,11 @@ const navItems = [
     name: "History",
     href: "/history",
     icon: HistoryIcon,
+  },
+  {
+    name: "Status",
+    href: "/status",
+    icon: ShieldIcon,
   },
   {
     name: "Settings",
