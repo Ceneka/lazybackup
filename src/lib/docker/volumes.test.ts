@@ -71,5 +71,7 @@ describe('buildRestoreDockerVolumeCommand', () => {
     expect(cmd).toContain('/from/myvol.tar.gz');
     expect(cmd).toContain('-C /to');
     expect(cmd).toContain('sh -c');
+    expect(cmd).toContain('*/../*');
+    expect(cmd).toContain('Refusing absolute tar member');
   });
 });

@@ -7,6 +7,15 @@ export type FileCandidate = {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/** Archives LazyBackup lands: dumps, volume tars, instance packs, optional .age wrap. */
+export const BACKUP_ARTIFACT_NAME_RE = /\.(tar\.gz|sql\.gz)(\.age)?$/i;
+
+export function isBackupArtifactFileName(name: string): boolean {
+  const base = name.split(/[/\\]/).pop() || '';
+  if (!base || base.startsWith('.') || base.includes('..')) return false;
+  return BACKUP_ARTIFACT_NAME_RE.test(base);
+}
+
 export function maxAgeToMs(maxAge: number, unit: RetentionAgeUnit): number {
   if (unit === 'months') {
     return maxAge * 30 * DAY_MS;

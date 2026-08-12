@@ -1,4 +1,7 @@
 import { describe, expect, test } from 'bun:test';
+import * as fs from 'fs/promises';
+import * as os from 'os';
+import * as path from 'path';
 import type { BackupConfigWithEndpoints } from './index';
 import {
   attachLastValidation,
@@ -72,20 +75,30 @@ describe('formatLastValidation', () => {
 
 describe('validateBackupConfig', () => {
   test('passes for local→local with existing source path', async () => {
-    const result = await validateBackupConfig(
-      baseConfig({
-        sourcePath: process.cwd(),
-        destinationPath: `/tmp/lazybackup-validate-${Date.now()}`,
-      })
-    );
-    expect(result.ok).toBe(true);
-    expect(result.checks.some((c) => c.id === 'source-path' && c.status === 'pass')).toBe(
-      true
-    );
-    expect(result.checks.some((c) => c.id === 'dest-local' && c.status === 'pass')).toBe(
-      true
-    );
-    expect(result.checks.some((c) => c.id === 'schedule' && c.status === 'pass')).toBe(true);
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'lb-validate-'));
+    const prev = process.env.BACKUP_STORAGE_PATH;
+    process.env.BACKUP_STORAGE_PATH = tmp;
+    try {
+      const dest = path.join(tmp, 'dest');
+      const result = await validateBackupConfig(
+        baseConfig({
+          sourcePath: process.cwd(),
+          destinationPath: dest,
+        })
+      );
+      expect(result.ok).toBe(true);
+      expect(result.checks.some((c) => c.id === 'source-path' && c.status === 'pass')).toBe(
+        true
+      );
+      expect(result.checks.some((c) => c.id === 'dest-local' && c.status === 'pass')).toBe(
+        true
+      );
+      expect(result.checks.some((c) => c.id === 'schedule' && c.status === 'pass')).toBe(true);
+    } finally {
+      if (prev === undefined) delete process.env.BACKUP_STORAGE_PATH;
+      else process.env.BACKUP_STORAGE_PATH = prev;
+      await fs.rm(tmp, { recursive: true, force: true });
+    }
   });
 
   test('fails when source server is missing', async () => {

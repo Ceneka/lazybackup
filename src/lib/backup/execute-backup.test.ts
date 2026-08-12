@@ -66,15 +66,23 @@ function baseLocalConfig(
 
 describe('executeBackup', () => {
   let tmpRoot: string;
+  const prevStorage = process.env.BACKUP_STORAGE_PATH;
+  const prevAllow = process.env.ALLOW_ARBITRARY_LOCAL_PATHS;
 
   beforeEach(async () => {
     updateSuccess.mockClear();
     updateFailure.mockClear();
     tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'lazybackup-exec-'));
+    process.env.BACKUP_STORAGE_PATH = tmpRoot;
+    delete process.env.ALLOW_ARBITRARY_LOCAL_PATHS;
   });
 
   afterEach(async () => {
     await fs.rm(tmpRoot, { recursive: true, force: true });
+    if (prevStorage === undefined) delete process.env.BACKUP_STORAGE_PATH;
+    else process.env.BACKUP_STORAGE_PATH = prevStorage;
+    if (prevAllow === undefined) delete process.env.ALLOW_ARBITRARY_LOCAL_PATHS;
+    else process.env.ALLOW_ARBITRARY_LOCAL_PATHS = prevAllow;
   });
 
   test('local → local path copies files and records success', async () => {
@@ -138,6 +146,38 @@ describe('executeBackup', () => {
     await expect(executeBackup(config, 'hist-s3')).rejects.toThrow(
       /S3 sources only support path/i
     );
+    expect(updateFailure).toHaveBeenCalled();
+  });
+
+  test('rejects local destination outside BACKUP_STORAGE_PATH', async () => {
+    const config = baseLocalConfig({
+      sourcePath: path.join(tmpRoot, 'src'),
+      destinationPath: '/etc/cron.d',
+    });
+    await expect(executeBackup(config, 'hist-path')).rejects.toThrow(/BACKUP_STORAGE_PATH/);
+    expect(updateFailure).toHaveBeenCalled();
+  });
+
+  test('instance meta-backup to S3 without passphrase fails closed', async () => {
+    const config = baseLocalConfig({
+      sourcePath: 'instance',
+      destinationPath: 'prefix',
+      sourceType: 'lazybackup_instance',
+      destinationKind: 's3',
+      destinationS3Profile: {
+        id: 's3-1',
+        name: 'minio',
+        endpoint: 'https://s3.example.com',
+        region: 'us-east-1',
+        bucket: 'backups',
+        accessKeyId: 'x',
+        secretAccessKey: 'y',
+        forcePathStyle: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    });
+    await expect(executeBackup(config, 'hist-inst')).rejects.toThrow(/passphrase/i);
     expect(updateFailure).toHaveBeenCalled();
   });
 });

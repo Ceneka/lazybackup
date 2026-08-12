@@ -1,13 +1,11 @@
 import { shellSingleQuote } from '@/lib/ssh/rsync';
 import { DOCKER_VOLUME_NAME_RE } from '@/lib/docker/volumes';
-import { exec } from 'child_process';
+import { spawn, type ChildProcessWithoutNullStreams } from 'child_process';
+import { createWriteStream } from 'fs';
 import { promises as fs } from 'fs';
 import os from 'os';
 import path from 'path';
-import { promisify } from 'util';
 import type { NodeSSH } from 'node-ssh';
-
-const execAsync = promisify(exec);
 
 const REMOTE_STANDARD_PATH =
   'PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"';
@@ -48,14 +46,41 @@ export function assertValidContainerName(name: string): void {
   }
 }
 
-function passwordEnvAssignment(engine: DbEngine, password: string): string {
-  const envName = engine === 'postgres' ? 'PGPASSWORD' : 'MYSQL_PWD';
-  return `${envName}=${shellSingleQuote(password)}`;
+function passwordEnvName(engine: DbEngine): 'PGPASSWORD' | 'MYSQL_PWD' {
+  return engine === 'postgres' ? 'PGPASSWORD' : 'MYSQL_PWD';
 }
 
-function dockerPasswordFlag(engine: DbEngine, password: string): string {
-  const envName = engine === 'postgres' ? 'PGPASSWORD' : 'MYSQL_PWD';
-  return `-e ${envName}=${shellSingleQuote(password)}`;
+function assertSafeSecret(password: string): void {
+  if (/[\r\n\0]/.test(password)) {
+    throw new Error('Database password contains invalid characters');
+  }
+}
+
+/** libpq pgpass: hostname:port:database:username:password */
+export function buildPgpassContents(conn: DatabaseConnection): string {
+  const password = conn.password ?? '';
+  assertSafeSecret(password);
+  const escaped = password.replace(/\\/g, '\\\\').replace(/:/g, '\\:');
+  return `*:*:${conn.database}:${conn.user}:${escaped}\n`;
+}
+
+/** MySQL/MariaDB defaults file used via --defaults-extra-file (not argv password). */
+export function buildMysqlDefaultsContents(conn: DatabaseConnection): string {
+  const password = conn.password ?? '';
+  assertSafeSecret(password);
+  const escaped = password.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  return `[client]\npassword="${escaped}"\n`;
+}
+
+export function passwordFileContents(conn: DatabaseConnection): string {
+  if (conn.client === 'docker' || conn.engine === 'postgres') {
+    if (conn.client === 'docker') {
+      assertSafeSecret(conn.password ?? '');
+      return `${conn.password ?? ''}\n`;
+    }
+    return buildPgpassContents(conn);
+  }
+  return buildMysqlDefaultsContents(conn);
 }
 
 function dumpBinary(engine: DbEngine): string {
@@ -76,6 +101,45 @@ function effectiveHost(conn: DatabaseConnection): string {
 }
 
 /** pg_dump / mysqldump argv (no env, no gzip). */
+export function buildDumpArgv(conn: DatabaseConnection): string[] {
+  assertValidDatabaseName(conn.database);
+  const host = effectiveHost(conn);
+  const port = resolveDbPort(conn);
+  const user = conn.user;
+  const db = conn.database;
+
+  if (conn.engine === 'postgres') {
+    return [
+      dumpBinary(conn.engine),
+      '-h',
+      host,
+      '-p',
+      String(port),
+      '-U',
+      user,
+      '-d',
+      db,
+      '--no-owner',
+      '--no-acl',
+    ];
+  }
+
+  return [
+    dumpBinary(conn.engine),
+    '-h',
+    host,
+    '-P',
+    String(port),
+    '-u',
+    user,
+    '--single-transaction',
+    '--routines',
+    '--triggers',
+    db,
+  ];
+}
+
+/** Quoted remote-shell dump command (no password). */
 export function buildDumpArgs(conn: DatabaseConnection): string {
   assertValidDatabaseName(conn.database);
   const host = effectiveHost(conn);
@@ -172,26 +236,54 @@ function requireContainer(conn: DatabaseConnection): string {
   return container;
 }
 
+function dockerPasswordFromFileFlag(engine: DbEngine, passwordFile: string): string {
+  const envName = passwordEnvName(engine);
+  return `-e ${envName}="$(cat ${shellSingleQuote(passwordFile)})"`;
+}
+
+function nativePasswordPrefix(conn: DatabaseConnection, passwordFile: string): string {
+  if (conn.engine === 'postgres') {
+    return `PGPASSFILE=${shellSingleQuote(passwordFile)}`;
+  }
+  return '';
+}
+
+function withMysqlDefaultsFile(dumpArgs: string, passwordFile: string, engine: DbEngine): string {
+  const bin = dumpBinary(engine);
+  return dumpArgs.replace(
+    bin,
+    `${bin} --defaults-extra-file=${shellSingleQuote(passwordFile)}`
+  );
+}
+
 /**
  * Host-side command that dumps to archiveFilePath (.sql.gz).
- * Dump bytes go to the file via shell redirection — not through Node stdout.
- * One shell-quoting level only (caller may invoke via SSH or child_process shell).
+ * Password is never interpolated: pass a chmod-600 file via `passwordFile`.
  */
 export function buildPackDatabaseCommand(
   conn: DatabaseConnection,
-  archiveFilePath: string
+  archiveFilePath: string,
+  options?: { passwordFile?: string }
 ): string {
   assertValidDatabaseName(conn.database);
   const quotedOut = shellSingleQuote(archiveFilePath);
-  const password = conn.password ?? '';
-  const dumpArgs = buildDumpArgs(conn);
+  let dumpArgs = buildDumpArgs(conn);
+  const passwordFile = options?.passwordFile;
 
   let dumpPart: string;
   if (conn.client === 'docker') {
     const container = requireContainer(conn);
-    dumpPart = `docker exec ${dockerPasswordFlag(conn.engine, password)} ${shellSingleQuote(container)} ${dumpArgs}`;
+    const envFlag = passwordFile ? dockerPasswordFromFileFlag(conn.engine, passwordFile) : '';
+    dumpPart = `docker exec ${envFlag} ${shellSingleQuote(container)} ${dumpArgs}`.replace(
+      /  +/g,
+      ' '
+    );
+  } else if (passwordFile && conn.engine === 'postgres') {
+    dumpPart = `${nativePasswordPrefix(conn, passwordFile)} ${dumpArgs}`;
+  } else if (passwordFile) {
+    dumpPart = withMysqlDefaultsFile(dumpArgs, passwordFile, conn.engine);
   } else {
-    dumpPart = `${passwordEnvAssignment(conn.engine, password)} ${dumpArgs}`;
+    dumpPart = dumpArgs;
   }
 
   return `${REMOTE_STANDARD_PATH} ${dumpPart} | gzip > ${quotedOut}`;
@@ -199,41 +291,71 @@ export function buildPackDatabaseCommand(
 
 export function buildRestoreDatabaseCommand(
   conn: DatabaseConnection,
-  archiveFilePath: string
+  archiveFilePath: string,
+  options?: { passwordFile?: string }
 ): string {
   assertValidDatabaseName(conn.database);
   const quotedIn = shellSingleQuote(archiveFilePath);
-  const password = conn.password ?? '';
-  const clientArgs = buildRestoreClientArgs(conn);
+  let clientArgs = buildRestoreClientArgs(conn);
+  const passwordFile = options?.passwordFile;
 
   let restorePart: string;
   if (conn.client === 'docker') {
     const container = requireContainer(conn);
-    restorePart = `docker exec -i ${dockerPasswordFlag(conn.engine, password)} ${shellSingleQuote(container)} ${clientArgs}`;
+    const envFlag = passwordFile ? dockerPasswordFromFileFlag(conn.engine, passwordFile) : '';
+    restorePart = `docker exec -i ${envFlag} ${shellSingleQuote(container)} ${clientArgs}`.replace(
+      /  +/g,
+      ' '
+    );
+  } else if (passwordFile && conn.engine === 'postgres') {
+    restorePart = `${nativePasswordPrefix(conn, passwordFile)} ${clientArgs}`;
+  } else if (passwordFile) {
+    const bin = clientBinary(conn.engine);
+    clientArgs = clientArgs.replace(
+      bin,
+      `${bin} --defaults-extra-file=${shellSingleQuote(passwordFile)}`
+    );
+    restorePart = clientArgs;
   } else {
-    restorePart = `${passwordEnvAssignment(conn.engine, password)} ${clientArgs}`;
+    restorePart = clientArgs;
   }
 
   return `${REMOTE_STANDARD_PATH} gzip -dc ${quotedIn} | ${restorePart}`;
 }
 
-export function buildDatabaseTestCommand(conn: DatabaseConnection): string {
+export function buildDatabaseTestCommand(
+  conn: DatabaseConnection,
+  options?: { passwordFile?: string }
+): string {
   assertValidDatabaseName(conn.database);
-  const password = conn.password ?? '';
-  const testArgs = buildTestClientArgs(conn);
+  let testArgs = buildTestClientArgs(conn);
+  const passwordFile = options?.passwordFile;
 
   if (conn.client === 'docker') {
     const container = requireContainer(conn);
+    const envFlag = passwordFile ? dockerPasswordFromFileFlag(conn.engine, passwordFile) : '';
     return [
       REMOTE_STANDARD_PATH,
       'docker exec',
-      dockerPasswordFlag(conn.engine, password),
+      envFlag,
       shellSingleQuote(container),
       testArgs,
-    ].join(' ');
+    ]
+      .filter(Boolean)
+      .join(' ');
   }
 
-  return `${REMOTE_STANDARD_PATH} ${passwordEnvAssignment(conn.engine, password)} ${testArgs}`;
+  if (passwordFile && conn.engine === 'postgres') {
+    return `${REMOTE_STANDARD_PATH} ${nativePasswordPrefix(conn, passwordFile)} ${testArgs}`;
+  }
+  if (passwordFile) {
+    const bin = clientBinary(conn.engine);
+    testArgs = testArgs.replace(
+      bin,
+      `${bin} --defaults-extra-file=${shellSingleQuote(passwordFile)}`
+    );
+  }
+  return `${REMOTE_STANDARD_PATH} ${testArgs}`;
 }
 
 export function archiveFileNameForDatabase(database: string): string {
@@ -277,23 +399,175 @@ export type PackDatabaseResult = {
   stderr: string;
 };
 
-async function runLocalShell(
-  command: string
-): Promise<{ stdout: string; stderr: string; code: number }> {
-  try {
-    const { stdout, stderr } = await execAsync(command, {
-      maxBuffer: 2 * 1024 * 1024,
-      shell: '/bin/sh',
-    });
-    return { stdout: stdout || '', stderr: stderr || '', code: 0 };
-  } catch (err: unknown) {
-    const e = err as { stdout?: string; stderr?: string; code?: number; message?: string };
-    return {
-      stdout: e.stdout || '',
-      stderr: e.stderr || e.message || 'Command failed',
-      code: typeof e.code === 'number' ? e.code : 1,
-    };
+function collectStd(child: ChildProcessWithoutNullStreams): {
+  stdout: string;
+  stderr: string;
+} {
+  const out: Buffer[] = [];
+  const err: Buffer[] = [];
+  child.stdout.on('data', (chunk: Buffer) => out.push(chunk));
+  child.stderr.on('data', (chunk: Buffer) => err.push(chunk));
+  return {
+    get stdout() {
+      return Buffer.concat(out).toString('utf8');
+    },
+    get stderr() {
+      return Buffer.concat(err).toString('utf8');
+    },
+  };
+}
+
+function waitChild(child: ChildProcessWithoutNullStreams): Promise<number> {
+  return new Promise((resolve, reject) => {
+    child.on('error', reject);
+    child.on('close', (code) => resolve(code ?? 1));
+  });
+}
+
+function localPasswordEnv(conn: DatabaseConnection): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  const password = conn.password ?? '';
+  if (password) {
+    assertSafeSecret(password);
+    env[passwordEnvName(conn.engine)] = password;
   }
+  return env;
+}
+
+async function pipeDumpToGzip(
+  argv: string[],
+  archivePath: string,
+  env: NodeJS.ProcessEnv
+): Promise<{ stdout: string; stderr: string; code: number }> {
+  const [bin, ...args] = argv;
+  const dump = spawn(bin, args, { env, stdio: ['ignore', 'pipe', 'pipe'] });
+  const gzip = spawn('gzip', ['-c'], { stdio: ['pipe', 'pipe', 'pipe'] });
+  const out = createWriteStream(archivePath, { mode: 0o600 });
+  dump.stdout.pipe(gzip.stdin);
+  gzip.stdout.pipe(out);
+  const dumpStd = collectStd(dump);
+  const gzipStd = collectStd(gzip);
+  const [dumpCode, gzipCode] = await Promise.all([waitChild(dump), waitChild(gzip)]);
+  await new Promise<void>((resolve, reject) => {
+    out.on('finish', resolve);
+    out.on('error', reject);
+    out.end();
+  }).catch(() => undefined);
+  const stderr = `${dumpStd.stderr}${gzipStd.stderr}`;
+  const stdout = `${dumpStd.stdout}${gzipStd.stdout}`;
+  return { stdout, stderr, code: dumpCode !== 0 ? dumpCode : gzipCode };
+}
+
+async function withLocalPasswordFile<T>(
+  conn: DatabaseConnection,
+  fn: (passwordFile: string) => Promise<T>
+): Promise<T> {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'lazybackup-dbpw-'));
+  const file = path.join(dir, 'pw');
+  await fs.writeFile(file, passwordFileContents(conn), { mode: 0o600 });
+  await fs.chmod(file, 0o600);
+  try {
+    return await fn(file);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+async function withRemotePasswordFile<T>(
+  ssh: NodeSSH,
+  conn: DatabaseConnection,
+  fn: (passwordFile: string) => Promise<T>
+): Promise<T> {
+  return withLocalPasswordFile(conn, async (localFile) => {
+    const remote = `/tmp/lazybackup-dbpw-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    try {
+      await ssh.putFile(localFile, remote);
+      await ssh.execCommand(`chmod 600 ${shellSingleQuote(remote)}`);
+      return await fn(remote);
+    } finally {
+      await ssh.execCommand(`rm -f ${shellSingleQuote(remote)}`).catch(() => {});
+    }
+  });
+}
+
+function restoreClientArgv(conn: DatabaseConnection): string[] {
+  assertValidDatabaseName(conn.database);
+  const host = effectiveHost(conn);
+  const port = resolveDbPort(conn);
+  if (conn.engine === 'postgres') {
+    return [
+      clientBinary(conn.engine),
+      '-h',
+      host,
+      '-p',
+      String(port),
+      '-U',
+      conn.user,
+      '-d',
+      conn.database,
+      '-v',
+      'ON_ERROR_STOP=1',
+    ];
+  }
+  return [
+    clientBinary(conn.engine),
+    '-h',
+    host,
+    '-P',
+    String(port),
+    '-u',
+    conn.user,
+    conn.database,
+  ];
+}
+
+function testClientArgv(conn: DatabaseConnection): string[] {
+  assertValidDatabaseName(conn.database);
+  const host = effectiveHost(conn);
+  const port = resolveDbPort(conn);
+  if (conn.engine === 'postgres') {
+    return [
+      clientBinary(conn.engine),
+      '-h',
+      host,
+      '-p',
+      String(port),
+      '-U',
+      conn.user,
+      '-d',
+      conn.database,
+      '-tAc',
+      'SELECT 1',
+    ];
+  }
+  return [
+    clientBinary(conn.engine),
+    '-h',
+    host,
+    '-P',
+    String(port),
+    '-u',
+    conn.user,
+    '-N',
+    '-e',
+    'SELECT 1',
+    conn.database,
+  ];
+}
+
+async function runArgv(
+  argv: string[],
+  env: NodeJS.ProcessEnv,
+  stdin?: NodeJS.ReadableStream
+): Promise<{ stdout: string; stderr: string; code: number }> {
+  const [bin, ...args] = argv;
+  const child = spawn(bin, args, { env, stdio: [stdin ? 'pipe' : 'ignore', 'pipe', 'pipe'] });
+  if (stdin && child.stdin) {
+    stdin.pipe(child.stdin);
+  }
+  const std = collectStd(child);
+  const code = await waitChild(child);
+  return { stdout: std.stdout, stderr: std.stderr, code };
 }
 
 /** Dump database to a temp .sql.gz on the local host. Caller must clean up tmpDir. */
@@ -303,20 +577,33 @@ export async function packDatabaseDumpLocal(
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'lazybackup-db-'));
   const archiveName = archiveFileNameForDatabase(conn.database);
   const archivePath = path.join(tmpDir, archiveName);
-  const cmd = buildPackDatabaseCommand(conn, archivePath);
-  const result = await runLocalShell(cmd);
-  if (result.code !== 0) {
+  try {
+    let result: { stdout: string; stderr: string; code: number };
+    if (conn.client === 'docker') {
+      result = await withLocalPasswordFile(conn, async (passwordFile) => {
+        const cmd = buildPackDatabaseCommand(conn, archivePath, { passwordFile });
+        return runArgv(['/bin/sh', '-c', cmd], { ...process.env });
+      });
+    } else {
+      result = await pipeDumpToGzip(buildDumpArgv(conn), archivePath, localPasswordEnv(conn));
+    }
+    if (result.code !== 0) {
+      throw new Error((result.stderr || result.stdout).trim() || `exit ${result.code}`);
+    }
+    return {
+      archivePath,
+      tmpDir,
+      stdout: result.stdout,
+      stderr: result.stderr,
+    };
+  } catch (error) {
     await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
     throw new Error(
-      `Failed to dump database ${conn.database}: ${(result.stderr || result.stdout).trim()}`
+      `Failed to dump database ${conn.database}: ${
+        error instanceof Error ? error.message : 'Command failed'
+      }`
     );
   }
-  return {
-    archivePath,
-    tmpDir,
-    stdout: result.stdout,
-    stderr: result.stderr,
-  };
 }
 
 /** Dump database to a remote temp .sql.gz via SSH. Caller must clean up tmpDir. */
@@ -333,34 +620,62 @@ export async function packDatabaseDumpRemote(
   const tmpDir = mktemp.stdout.trim();
   const archiveName = archiveFileNameForDatabase(conn.database);
   const archivePath = `${tmpDir}/${archiveName}`;
-  const cmd = buildPackDatabaseCommand(conn, archivePath);
-  const packResult = await ssh.execCommand(cmd);
-  if (isFailedExit(packResult.code)) {
+  try {
+    const packResult = await withRemotePasswordFile(ssh, conn, async (passwordFile) => {
+      const cmd = buildPackDatabaseCommand(conn, archivePath, { passwordFile });
+      return ssh.execCommand(cmd);
+    });
+    if (isFailedExit(packResult.code)) {
+      throw new Error((packResult.stderr || packResult.stdout).trim() || 'dump failed');
+    }
+    return {
+      archivePath,
+      tmpDir,
+      stdout: packResult.stdout,
+      stderr: packResult.stderr,
+    };
+  } catch (error) {
     await ssh.execCommand(`rm -rf ${shellSingleQuote(tmpDir)}`).catch(() => {});
     throw new Error(
-      `Failed to dump database ${conn.database}: ${(packResult.stderr || packResult.stdout).trim()}`
+      `Failed to dump database ${conn.database}: ${
+        error instanceof Error ? error.message : 'Command failed'
+      }`
     );
   }
-  return {
-    archivePath,
-    tmpDir,
-    stdout: packResult.stdout,
-    stderr: packResult.stderr,
-  };
 }
 
 export async function restoreDatabaseLocal(
   conn: DatabaseConnection,
   archiveFilePath: string
 ): Promise<{ stdout: string; stderr: string }> {
-  const cmd = buildRestoreDatabaseCommand(conn, archiveFilePath);
-  const result = await runLocalShell(cmd);
-  if (result.code !== 0) {
+  if (conn.client === 'docker') {
+    const result = await withLocalPasswordFile(conn, async (passwordFile) => {
+      const cmd = buildRestoreDatabaseCommand(conn, archiveFilePath, { passwordFile });
+      return runArgv(['/bin/sh', '-c', cmd], { ...process.env });
+    });
+    if (result.code !== 0) {
+      throw new Error(
+        `Failed to restore database ${conn.database}: ${(result.stderr || result.stdout).trim()}`
+      );
+    }
+    return { stdout: result.stdout, stderr: result.stderr };
+  }
+
+  const gzip = spawn('gzip', ['-dc', archiveFilePath], { stdio: ['ignore', 'pipe', 'pipe'] });
+  const client = spawn(restoreClientArgv(conn)[0], restoreClientArgv(conn).slice(1), {
+    env: localPasswordEnv(conn),
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  gzip.stdout.pipe(client.stdin);
+  const gzipStd = collectStd(gzip);
+  const clientStd = collectStd(client);
+  const [gzipCode, clientCode] = await Promise.all([waitChild(gzip), waitChild(client)]);
+  if (gzipCode !== 0 || clientCode !== 0) {
     throw new Error(
-      `Failed to restore database ${conn.database}: ${(result.stderr || result.stdout).trim()}`
+      `Failed to restore database ${conn.database}: ${(clientStd.stderr || gzipStd.stderr).trim()}`
     );
   }
-  return { stdout: result.stdout, stderr: result.stderr };
+  return { stdout: clientStd.stdout, stderr: clientStd.stderr };
 }
 
 export async function restoreDatabaseRemote(
@@ -368,8 +683,10 @@ export async function restoreDatabaseRemote(
   conn: DatabaseConnection,
   remoteArchivePath: string
 ): Promise<{ stdout: string; stderr: string }> {
-  const cmd = buildRestoreDatabaseCommand(conn, remoteArchivePath);
-  const result = await ssh.execCommand(cmd);
+  const result = await withRemotePasswordFile(ssh, conn, async (passwordFile) => {
+    const cmd = buildRestoreDatabaseCommand(conn, remoteArchivePath, { passwordFile });
+    return ssh.execCommand(cmd);
+  });
   if (isFailedExit(result.code)) {
     throw new Error(
       `Failed to restore database ${conn.database}: ${(result.stderr || result.stdout).trim()}`
@@ -381,8 +698,15 @@ export async function restoreDatabaseRemote(
 export async function testDatabaseConnectionLocal(
   conn: DatabaseConnection
 ): Promise<{ ok: true; stdout: string }> {
-  const cmd = buildDatabaseTestCommand(conn);
-  const result = await runLocalShell(cmd);
+  let result: { stdout: string; stderr: string; code: number };
+  if (conn.client === 'docker') {
+    result = await withLocalPasswordFile(conn, async (passwordFile) => {
+      const cmd = buildDatabaseTestCommand(conn, { passwordFile });
+      return runArgv(['/bin/sh', '-c', cmd], { ...process.env });
+    });
+  } else {
+    result = await runArgv(testClientArgv(conn), localPasswordEnv(conn));
+  }
   if (result.code !== 0) {
     throw new Error(`Database connection failed: ${(result.stderr || result.stdout).trim()}`);
   }
@@ -393,8 +717,10 @@ export async function testDatabaseConnectionRemote(
   ssh: NodeSSH,
   conn: DatabaseConnection
 ): Promise<{ ok: true; stdout: string }> {
-  const cmd = buildDatabaseTestCommand(conn);
-  const result = await ssh.execCommand(cmd);
+  const result = await withRemotePasswordFile(ssh, conn, async (passwordFile) => {
+    const cmd = buildDatabaseTestCommand(conn, { passwordFile });
+    return ssh.execCommand(cmd);
+  });
   if (isFailedExit(result.code)) {
     throw new Error(`Database connection failed: ${(result.stderr || result.stdout).trim()}`);
   }

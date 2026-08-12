@@ -54,6 +54,20 @@ export function buildPackDockerVolumeCommand(
     .join(' ');
 }
 
+export function buildTarMemberSafetyCheck(archiveInContainer: string): string {
+  const quoted = shellSingleQuote(archiveInContainer);
+  return [
+    `tar tzf ${quoted} | while IFS= read -r member || [ -n "$member" ]; do`,
+    `  case "$member" in`,
+    `    /*) echo "Refusing absolute tar member: $member" >&2; exit 1 ;;`,
+    `  esac`,
+    `  case "/$member/" in`,
+    `    */../*) echo "Refusing tar member path traversal: $member" >&2; exit 1 ;;`,
+    `  esac`,
+    `done`,
+  ].join(' ');
+}
+
 export function buildRestoreDockerVolumeCommand(
   volumeName: string,
   remoteTarPath: string,
@@ -64,6 +78,10 @@ export function buildRestoreDockerVolumeCommand(
   if (!archiveName) {
     throw new Error('Invalid remote tar path');
   }
+  const archiveInContainer = `/from/${archiveName}`;
+  const safety = buildTarMemberSafetyCheck(archiveInContainer);
+  // BusyBox tar (alpine) strips leading '/' by default and has no --no-absolute-names.
+  // GNU tar: add the flag when advertised. Always pre-check members for `..` / absolute names.
   const inner = [
     `docker volume create ${shellSingleQuote(volumeName)} >/dev/null`,
     '&&',
@@ -71,9 +89,17 @@ export function buildRestoreDockerVolumeCommand(
     `-v ${shellSingleQuote(`${volumeName}:/to`)}`,
     `-v ${shellSingleQuote(`${remoteTmpDir}:/from:ro`)}`,
     HELPER_IMAGE,
-    'tar xzf',
-    shellSingleQuote(`/from/${archiveName}`),
-    '-C /to',
+    'sh -c',
+    shellSingleQuote(
+      [
+        safety,
+        '&&',
+        'tar_extra=',
+        'if tar --help 2>&1 | grep -q -- --no-absolute-names; then tar_extra=--no-absolute-names; fi',
+        '&&',
+        `tar xzf ${shellSingleQuote(archiveInContainer)} $tar_extra -C /to`,
+      ].join(' ')
+    ),
   ].join(' ');
 
   return `${REMOTE_STANDARD_PATH} sh -c ${shellSingleQuote(inner)}`;

@@ -34,7 +34,7 @@ export async function POST(
         { status: 400 }
       );
     }
-    const { volumeName, databaseName } = restoreHistorySchema.parse(body);
+    const { volumeName, databaseName, allowRetarget } = restoreHistorySchema.parse(body);
 
     const historyEntry = await db.query.backupHistory.findFirst({
       where: eq(backupHistory.id, id),
@@ -51,7 +51,11 @@ export async function POST(
       if (databaseName && !DB_NAME_RE.test(databaseName)) {
         return NextResponse.json({ error: 'Invalid database name' }, { status: 400 });
       }
-      const result = await restoreDatabaseBackup(id, databaseName);
+      const result = await restoreDatabaseBackup(id, {
+        databaseName,
+        confirm: true,
+        allowRetarget,
+      });
       return NextResponse.json({
         success: true,
         database: result.database,
@@ -66,7 +70,11 @@ export async function POST(
           { status: 400 }
         );
       }
-      const result = await restoreDockerVolumeBackup(id, volumeName);
+      const result = await restoreDockerVolumeBackup(id, {
+        volumeName,
+        confirm: true,
+        allowRetarget,
+      });
       return NextResponse.json({
         success: true,
         volumeName: result.volumeName,

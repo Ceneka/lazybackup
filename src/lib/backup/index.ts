@@ -53,15 +53,31 @@ import {
   removeEphemeralAuthorizedKey,
   runEphemeralDirectRsync,
 } from '@/lib/ssh/ephemeral';
-import { buildRsyncCommand, shellSingleQuote } from '@/lib/ssh/rsync';
+import {
+  buildFindCommand,
+  buildRsyncArgv,
+  buildScpArgv,
+  formatRshArgument,
+  runRsync,
+  runScp,
+  sshCliArgv,
+  sshUserHost,
+} from '@/lib/ssh/rsync';
+import { ensureKnownHostsFile } from '@/lib/ssh/known-hosts';
 import dayjs from 'dayjs';
 import { eq } from 'drizzle-orm';
-import { Stats } from 'fs';
 import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
 import { parseRsyncOutput } from '../utils/rsync-parser';
-import { selectFilesToDelete, type RetentionAgeUnit } from './file-retention';
+import { VERSION_DIR_PATTERN } from '@/lib/backup/storage-stats';
+import {
+  assertLocalDestinationPath,
+  assertLocalSourcePath,
+  confineRelativePath,
+  isUnderBackupStoragePath,
+} from '@/lib/backup/local-paths';
+import { isBackupArtifactFileName, selectFilesToDelete, type RetentionAgeUnit } from './file-retention';
 import { assertCanStartBackup } from './concurrent-run';
 import { createBackupHistoryEntry, updateBackupHistoryFailure, updateBackupHistorySuccess } from './history';
 import {
@@ -127,14 +143,7 @@ function toS3ProfileConfig(row: S3ProfileRow): S3ProfileConfig {
 }
 
 function expandLocalPath(dest: string): string {
-  let backupDestination = dest;
-  if (backupDestination.startsWith('~')) {
-    backupDestination = backupDestination.replace('~', process.env.HOME || os.homedir());
-  }
-  if (!path.isAbsolute(backupDestination)) {
-    backupDestination = path.resolve(backupDestination);
-  }
-  return backupDestination;
+  return assertLocalSourcePath(dest);
 }
 
 function slugifyArchiveBase(name: string): string {
@@ -157,8 +166,8 @@ function normalizeServer(server: ServerRow) {
   };
 }
 
-function sshShellForIdentity(port: number, keyPath: string): string {
-  return `ssh -p ${port} -i ${shellSingleQuote(keyPath)} -F /dev/null -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR`;
+async function sshRshForIdentity(port: number, keyPath: string): Promise<string> {
+  return formatRshArgument(await sshCliArgv({ port, keyPath }));
 }
 
 async function runLocalPreBackupCommands(commandsText: string): Promise<string> {
@@ -202,23 +211,19 @@ async function pullPathFromServer(options: {
   keyPath: string;
   excludePatterns: string[];
 }): Promise<{ stdout: string; stderr: string; method: 'rsync' | 'scp' }> {
-  const { exec } = require('child_process');
-  const { promisify } = require('util');
-  const execPromise = promisify(exec);
-
   const { rsyncAvailable, scpAvailable } = await getBackupTransportCapabilities(options.ssh);
-  const localSshShell = sshShellForIdentity(options.server.port, options.keyPath);
-  const remoteSource = `${options.server.username}@${options.server.host}:${options.remotePath}/`;
+  const rsh = await sshRshForIdentity(options.server.port, options.keyPath);
+  const remoteSource = `${sshUserHost(options.server.username, options.server.host)}:${options.remotePath}/`;
 
   if (rsyncAvailable) {
-    const rsyncCommand = buildRsyncCommand(
-      remoteSource,
-      options.localDestination,
-      options.excludePatterns,
-      [],
-      localSshShell
+    const result = await runRsync(
+      buildRsyncArgv({
+        sourcePath: remoteSource,
+        destinationPath: options.localDestination,
+        excludePatterns: options.excludePatterns,
+        rsh,
+      })
     );
-    const result = await execPromise(rsyncCommand);
     return { stdout: result.stdout, stderr: result.stderr, method: 'rsync' };
   }
 
@@ -228,40 +233,54 @@ async function pullPathFromServer(options: {
     );
   }
 
-  const findCommand = await buildFindCommand(options.remotePath, options.excludePatterns);
+  const findCommand = buildFindCommand(options.remotePath, options.excludePatterns);
   const fileListResult = await options.ssh.execCommand(findCommand);
   const filesToCopy = fileListResult.stdout.split('\n').filter(Boolean);
+  const destRoot = path.resolve(options.localDestination);
 
   if (filesToCopy.length === 0) {
     throw new Error('No files to copy, skipping backup');
   }
+
+  const knownHostsPath = await ensureKnownHostsFile();
+  const scpBase = buildScpArgv({
+    port: options.server.port,
+    keyPath: options.keyPath,
+    knownHostsPath,
+  });
+  const remoteUserHost = sshUserHost(options.server.username, options.server.host);
 
   let transferredFiles = 0;
   let totalSize = 0;
   const scpPromises = [];
 
   for (const filePath of filesToCopy) {
-    if (filePath.endsWith('/')) {
-      await fs.mkdir(path.join(options.localDestination, filePath), { recursive: true });
+    const relative = filePath.replace(/^\.\//, '');
+    if (!relative || relative === '.') continue;
+
+    const localFilePath = confineRelativePath(destRoot, relative);
+    const st = await fs.lstat(localFilePath).catch(() => null);
+    if (st?.isSymbolicLink()) {
+      throw new Error(`Refusing to write through symlink: ${relative}`);
+    }
+
+    if (relative.endsWith('/')) {
+      await fs.mkdir(localFilePath, { recursive: true });
       continue;
     }
 
-    const remoteFilePath = path.join(options.remotePath, filePath);
-    const localFilePath = path.join(options.localDestination, filePath);
     await fs.mkdir(path.dirname(localFilePath), { recursive: true });
-
-    const scpOpts = `-P ${options.server.port} -F /dev/null -i ${shellSingleQuote(options.keyPath)} -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR`;
-    const scpCommand = `scp ${scpOpts} ${options.server.username}@${options.server.host}:"${remoteFilePath}" "${localFilePath}"`;
+    const remoteFilePath = `${options.remotePath.replace(/\/+$/, '')}/${relative}`;
 
     scpPromises.push(
-      execPromise(scpCommand)
-        .then(() => {
-          transferredFiles++;
-          return fs.stat(localFilePath);
-        })
-        .then((stats: Stats) => {
-          totalSize += stats.size;
-        })
+      runScp([...scpBase, `${remoteUserHost}:${remoteFilePath}`, localFilePath]).then(async () => {
+        const written = await fs.lstat(localFilePath);
+        if (written.isSymbolicLink()) {
+          throw new Error(`Refusing symlink created at destination: ${relative}`);
+        }
+        transferredFiles++;
+        totalSize += written.size;
+      })
     );
   }
 
@@ -282,28 +301,24 @@ async function pushPathToServer(options: {
   keyPath: string;
   excludePatterns: string[];
 }): Promise<{ stdout: string; stderr: string; method: 'rsync' | 'scp' }> {
-  const { exec } = require('child_process');
-  const { promisify } = require('util');
-  const execPromise = promisify(exec);
-
   const { rsyncAvailable, scpAvailable } = await getBackupTransportCapabilities(options.ssh);
   await ensureRemoteDirectory(options.ssh, options.remoteDestination);
 
-  const localSshShell = sshShellForIdentity(options.server.port, options.keyPath);
+  const rsh = await sshRshForIdentity(options.server.port, options.keyPath);
   const source = options.localSource.endsWith('/')
     ? options.localSource
     : `${options.localSource}/`;
-  const remoteTarget = `${options.server.username}@${options.server.host}:${options.remoteDestination}`;
+  const remoteTarget = `${sshUserHost(options.server.username, options.server.host)}:${options.remoteDestination}`;
 
   if (rsyncAvailable) {
-    const rsyncCommand = buildRsyncCommand(
-      source,
-      remoteTarget,
-      options.excludePatterns,
-      [],
-      localSshShell
+    const result = await runRsync(
+      buildRsyncArgv({
+        sourcePath: source,
+        destinationPath: remoteTarget,
+        excludePatterns: options.excludePatterns,
+        rsh,
+      })
     );
-    const result = await execPromise(rsyncCommand);
     return { stdout: result.stdout, stderr: result.stderr, method: 'rsync' };
   }
 
@@ -313,9 +328,17 @@ async function pushPathToServer(options: {
     );
   }
 
-  const scpOpts = `-P ${options.server.port} -F /dev/null -i ${shellSingleQuote(options.keyPath)} -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -r`;
-  const scpCommand = `scp ${scpOpts} ${shellSingleQuote(source)} ${shellSingleQuote(remoteTarget)}`;
-  const result = await execPromise(scpCommand);
+  const knownHostsPath = await ensureKnownHostsFile();
+  const result = await runScp([
+    ...buildScpArgv({
+      port: options.server.port,
+      keyPath: options.keyPath,
+      knownHostsPath,
+      recursive: true,
+    }),
+    source,
+    remoteTarget,
+  ]);
   return { stdout: result.stdout, stderr: result.stderr, method: 'scp' };
 }
 
@@ -324,14 +347,15 @@ async function localPathCopy(
   destinationPath: string,
   excludePatterns: string[]
 ): Promise<{ stdout: string; stderr: string }> {
-  const { exec } = require('child_process');
-  const { promisify } = require('util');
-  const execPromise = promisify(exec);
-
   await fs.mkdir(destinationPath, { recursive: true });
   const source = sourcePath.endsWith('/') ? sourcePath : `${sourcePath}/`;
-  const rsyncCommand = buildRsyncCommand(source, destinationPath, excludePatterns);
-  return execPromise(rsyncCommand);
+  return runRsync(
+    buildRsyncArgv({
+      sourcePath: source,
+      destinationPath,
+      excludePatterns,
+    })
+  );
 }
 
 async function transferServerToServer(options: {
@@ -549,7 +573,7 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
     }
 
     if (destinationKind === 'local') {
-      localDestination = expandLocalPath(config.destinationPath);
+      localDestination = assertLocalDestinationPath(config.destinationPath);
       if (config.enableVersioning) {
         localDestination = path.join(localDestination, timestamp);
       }
@@ -588,6 +612,16 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
 
     // --- LazyBackup instance meta-backup ---
     if (sourceType === 'lazybackup_instance') {
+      const passphrase = config.instanceBackupPassphrase?.trim();
+      const destIsLocalStorage =
+        destinationKind === 'local' &&
+        localDestination !== null &&
+        isUnderBackupStoragePath(localDestination);
+      if (!passphrase && !destIsLocalStorage) {
+        throw new Error(
+          'Instance meta-backup to a non-local destination requires a passphrase wrap (or a local destination under BACKUP_STORAGE_PATH).'
+        );
+      }
       const packed = await packLazybackupInstance({
         passphrase: config.instanceBackupPassphrase,
         archiveBaseName: `lazybackup-instance-${timestamp}`,
@@ -1620,13 +1654,38 @@ export async function resolveLocalRestoreArtifact(options: {
   return { localPath, tempDir };
 }
 
+export type RestoreTargetOptions = {
+  confirm?: boolean;
+  allowRetarget?: boolean;
+  volumeName?: string;
+  databaseName?: string;
+};
+
+function resolveRestoreTarget(
+  configured: string,
+  requested: string | undefined,
+  options: RestoreTargetOptions | undefined,
+  kind: 'volume' | 'database'
+): string {
+  if (!options?.confirm) {
+    throw new Error('Refusing to restore: pass confirm=true to proceed');
+  }
+  const target = requested?.trim() || configured;
+  if (requested?.trim() && requested.trim() !== configured && !options.allowRetarget) {
+    throw new Error(
+      `Refusing to restore to a different ${kind}: pass allowRetarget=true (and confirm=true)`
+    );
+  }
+  return target;
+}
+
 /**
  * Restore a successful Docker volume backup onto the remote server.
  * Artifact must be local or downloadable from S3.
  */
 export async function restoreDockerVolumeBackup(
   historyId: string,
-  volumeName?: string
+  volumeNameOrOptions?: string | RestoreTargetOptions
 ): Promise<{ log: string; volumeName: string }> {
   if (process.env.NEXT_RUNTIME !== 'nodejs') {
     throw new Error('Not in Node.js environment');
@@ -1671,7 +1730,16 @@ export async function restoreDockerVolumeBackup(
     throw new Error('Source server is missing; cannot restore Docker volume');
   }
 
-  const targetVolume = volumeName?.trim() || config.sourcePath;
+  const restoreOpts: RestoreTargetOptions =
+    typeof volumeNameOrOptions === 'string'
+      ? { volumeName: volumeNameOrOptions }
+      : volumeNameOrOptions || {};
+  const targetVolume = resolveRestoreTarget(
+    config.sourcePath,
+    restoreOpts.volumeName,
+    restoreOpts,
+    'volume'
+  );
   const { localPath: artifactPath, tempDir: downloadTempDir } =
     await resolveLocalRestoreArtifact({
       artifactPath: historyEntry.artifactPath,
@@ -1756,7 +1824,7 @@ export async function restoreDockerVolumeBackup(
  */
 export async function restoreDatabaseBackup(
   historyId: string,
-  databaseName?: string
+  databaseNameOrOptions?: string | RestoreTargetOptions
 ): Promise<{ log: string; database: string }> {
   if (process.env.NEXT_RUNTIME !== 'nodejs') {
     throw new Error('Not in Node.js environment');
@@ -1797,6 +1865,17 @@ export async function restoreDatabaseBackup(
     throw new Error('This backup has no stored artifact path and cannot be restored');
   }
 
+  const restoreOpts: RestoreTargetOptions =
+    typeof databaseNameOrOptions === 'string'
+      ? { databaseName: databaseNameOrOptions }
+      : databaseNameOrOptions || {};
+  const targetDatabase = resolveRestoreTarget(
+    config.sourcePath,
+    restoreOpts.databaseName,
+    restoreOpts,
+    'database'
+  );
+
   const { localPath: artifactPath, tempDir: downloadTempDir } =
     await resolveLocalRestoreArtifact({
       artifactPath: historyEntry.artifactPath,
@@ -1809,7 +1888,7 @@ export async function restoreDatabaseBackup(
 
   const dbConn = connectionFromConfig({
     ...config,
-    sourcePath: databaseName?.trim() || config.sourcePath,
+    sourcePath: targetDatabase,
   });
   const sourceKind = config.sourceKind || 'server';
 
@@ -1909,28 +1988,6 @@ export async function restoreDatabaseBackup(
   }
 }
 
-async function buildFindCommand(remotePath: string, excludePatterns: string[] = []): Promise<string> {
-  let findCommand = `find "${remotePath}" -type f -o -type d -name "."`;
-
-  if (excludePatterns.length > 0) {
-    const excludeExpressions = excludePatterns
-      .map((pattern) => {
-        const regexPattern = pattern
-          .replace(/\./g, '\\.')
-          .replace(/\*/g, '.*')
-          .replace(/\?/g, '.');
-        return `-not -path "${remotePath}/${regexPattern}"`;
-      })
-      .join(' ');
-
-    findCommand += ` ${excludeExpressions}`;
-  }
-
-  findCommand += ` | sed -e "s|^${remotePath}/||"`;
-
-  return findCommand;
-}
-
 async function cleanupOldVersions(baseDir: string, versionsToKeep: number): Promise<void> {
   try {
     let expandedBaseDir = baseDir;
@@ -1946,7 +2003,7 @@ async function cleanupOldVersions(baseDir: string, versionsToKeep: number): Prom
     const entries = await fs.readdir(expandedBaseDir, { withFileTypes: true });
 
     const versionDirs = entries
-      .filter((entry) => entry.isDirectory())
+      .filter((entry) => entry.isDirectory() && VERSION_DIR_PATTERN.test(entry.name))
       .map((dir) => dir.name)
       .sort()
       .reverse();
@@ -1995,7 +2052,10 @@ async function cleanupOldFiles(
       files.push({ name: entry.name, mtimeMs: stat.mtimeMs });
     }
 
-    const toDelete = selectFilesToDelete(files, { maxAge, unit, minKeep });
+    const toDelete = selectFilesToDelete(
+      files.filter((file) => isBackupArtifactFileName(file.name)),
+      { maxAge, unit, minKeep }
+    );
 
     for (const name of toDelete) {
       console.log(`Deleting old backup file (retention): ${name}`);

@@ -47,6 +47,7 @@ export const updateHistorySchema = z
 /** POST /api/history/:id/restore — MCP-style confirm gate plus optional target. */
 export const restoreHistorySchema = z.object({
   confirm: z.literal(true),
+  allowRetarget: z.boolean().optional(),
   volumeName: z.string().min(1).optional(),
   databaseName: z.string().min(1).optional(),
 });

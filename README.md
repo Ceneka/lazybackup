@@ -195,6 +195,10 @@ POST/PUT with an empty body sends `{"event":"backup.succeeded",…}`.
 | `SSH_KEYS_PATH` | `~/.ssh` | System SSH keys (Docker mount, read-only) |
 | `AUTH_SECRET` | (auto in settings) | HMAC secret for session cookies; auto-generated in SQLite if unset |
 | `AUTH_COOKIE_SECURE` | unset (`false`) | Set `true` only behind HTTPS; Secure cookies are dropped on plain HTTP |
+| `AUTH_TRUST_PROXY` | unset (`false`) | Trust `X-Forwarded-Host` / `X-Forwarded-Proto` / `X-Forwarded-For` for WebAuthn RP ID and login backoff. Set `true` only behind a reverse proxy that overwrites these headers. |
+| `AUTH_PUBLIC_URL` | unset | Public origin for WebAuthn (overrides Host / forwarded headers), e.g. `https://backup.example.com` |
+| `ALLOW_ARBITRARY_LOCAL_PATHS` | unset (`false`) | Allow local backup destinations outside `BACKUP_STORAGE_PATH`. Default denies paths outside the storage root. |
+| `ALLOW_PRIVATE_S3_ENDPOINTS` | unset (`false`) | Allow S3-compatible endpoints on loopback/private IPs (LAN MinIO). Default denies loopback, RFC1918, link-local, and cloud metadata addresses. |
 | `ALLOW_PRIVATE_PEER_URLS` | unset (`false`) | Allow Bro Space pairing/sync to RFC1918 and loopback URLs. Default allows public http(s) and Tailscale only. IMDS/link-local are always blocked. |
 | `ALLOW_LAN_WEBHOOKS` | unset (`true`) | Allow HTTP webhooks/pings to localhost and RFC1918 (LAN ntfy/Kuma). IMDS/link-local are always blocked. Set `false` for public HTTPS only. |
 

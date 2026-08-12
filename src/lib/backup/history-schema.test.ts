@@ -71,11 +71,13 @@ describe('restoreHistorySchema', () => {
         confirm: true,
         volumeName: 'data',
         databaseName: 'app',
+        allowRetarget: true,
       })
     ).toEqual({
       confirm: true,
       volumeName: 'data',
       databaseName: 'app',
+      allowRetarget: true,
     });
   });
 });
