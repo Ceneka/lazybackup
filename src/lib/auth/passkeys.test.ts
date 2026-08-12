@@ -5,7 +5,7 @@ import {
   saveWebauthnChallenge,
   takeWebauthnChallenge,
   webauthnRpFromRequest,
-} from './webauthn'
+} from './webauthn-helpers'
 
 function clientDataJSON(challenge: string): string {
   const json = JSON.stringify({
