@@ -31,5 +31,8 @@ The app uses `output: "export"` so the build produces a static `out/` directory.
 - `/blog` — guides and product notes
 - `/blog/introducing-lazybackup` — product presentation
 - `/blog/easily-backup-docker-database` — Docker DB dump howto
+- `/blog/failure-webhooks-discord-ntfy-kuma` — Discord / ntfy / Uptime Kuma webhooks
+- `/blog/database-dumps-to-s3` — Postgres/MySQL dumps to MinIO/R2/B2/AWS
+- `/blog/manage-backups-with-mcp` — MCP / API tokens for agents
 
-Posts live in `src/lib/blog/posts.ts` (typed blocks; easy to extend).
+Posts live in `src/lib/blog/posts.ts` (typed blocks; easy to extend). SEO: `src/app/sitemap.ts`, `src/app/robots.ts`, and `metadataBase` in `layout.tsx` (canonical + Open Graph / Twitter).

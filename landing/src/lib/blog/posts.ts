@@ -266,7 +266,7 @@ If anything failed in the last day, summarize the error from history.`,
       },
       {
         type: "p",
-        text: "Next up on the blog: how to back up a Postgres (or MySQL) database running in Docker in a few clicks—logical dumps, not volume tarballs.",
+        text: "For a hands-on dump walkthrough, see Easily back up a Docker database—logical dumps for Postgres/MySQL/MariaDB, not volume tarballs. Land those dumps on S3/MinIO/R2 in the sequel: Database dumps to S3.",
       },
     ],
   },
@@ -400,7 +400,299 @@ Out:   something like app_2026-08-11_….sql.gz`,
       },
       {
         type: "callout",
-        text: "Deploy LazyBackup with Docker, add the server, create one Database dump job—and you have scheduled logical backups without a custom shell script per box.",
+        text: "Want off-box storage next? See Database dumps to S3 — same dump source, To = S3 profile (MinIO, R2, B2, or AWS).",
+      },
+    ],
+  },
+  {
+    slug: "failure-webhooks-discord-ntfy-kuma",
+    title: "Failure webhooks: Discord, ntfy, and Uptime Kuma",
+    description:
+      "Wire LazyBackup’s backup.failed webhook to Discord, ntfy, or an Uptime Kuma push monitor—using the built-in presets and {{tag}} templates.",
+    date: "2026-08-12",
+    dateLabel: "Aug 12, 2026",
+    readingMinutes: 7,
+    tags: ["howto", "webhooks", "ops"],
+    cover: {
+      src: "/screenshots/settings.png",
+      alt: "LazyBackup Settings — where failure webhooks are configured",
+    },
+    body: [
+      {
+        type: "p",
+        text: "Cron backups fail quietly if nobody is watching History. LazyBackup can POST (or GET) a failure notification when a job ends badly—one URL under Settings → General, optional headers and body templates, and presets for the tools homelab operators already run.",
+      },
+      {
+        type: "callout",
+        text: "Empty webhook URL = notifications off. HTTPS is required; http:// is allowed only for localhost / private LAN hosts. Use Send test notification after you paste a preset.",
+      },
+      {
+        type: "h2",
+        text: "Where it lives",
+      },
+      {
+        type: "ol",
+        items: [
+          "Open Settings → General",
+          "Find Failure webhook (method, URL, headers, body)",
+          "Pick a preset or start from Default JSON",
+          "Send test notification, then save",
+        ],
+      },
+      {
+        type: "img",
+        src: "/screenshots/settings.png",
+        alt: "LazyBackup Settings page",
+        caption: "Settings holds the webhook URL once for the whole instance—not per backup.",
+      },
+      {
+        type: "h2",
+        text: "Tags you can use",
+      },
+      {
+        type: "p",
+        text: "URL, headers, and body support {{tag}} placeholders. Unknown tags are left as-is. In URLs, values are URI-encoded so query strings stay valid.",
+      },
+      {
+        type: "ul",
+        items: [
+          "{{event}} — always backup.failed for this path",
+          "{{backupName}} — job name (may be empty)",
+          "{{configId}} / {{historyId}} — IDs for deep links or log correlation",
+          "{{errorMessage}} — failure text from the run",
+          "{{endedAt}} — ISO timestamp",
+        ],
+      },
+      {
+        type: "p",
+        text: "If the body template is empty on POST/PUT, LazyBackup sends the built-in JSON payload:",
+      },
+      {
+        type: "code",
+        lang: "json",
+        code: `{
+  "event": "backup.failed",
+  "backupName": "Daily DB",
+  "configId": "…",
+  "historyId": "…",
+  "errorMessage": "…",
+  "endedAt": "2026-08-12T12:00:00.000Z"
+}`,
+      },
+      {
+        type: "h2",
+        text: "Discord",
+      },
+      {
+        type: "p",
+        text: "Create an Incoming Webhook in your Discord channel (Channel settings → Integrations → Webhooks). In LazyBackup, choose the Discord preset and paste that URL.",
+      },
+      {
+        type: "code",
+        lang: "text",
+        code: `Method: POST
+URL:    https://discord.com/api/webhooks/ID/TOKEN
+Header: Content-Type: application/json`,
+      },
+      {
+        type: "p",
+        text: "Preset body (you can edit the content string):",
+      },
+      {
+        type: "code",
+        lang: "json",
+        code: `{
+  "content": "**Backup failed:** {{backupName}}\\n\`\`\`{{errorMessage}}\`\`\`\\n_History:_ \`{{historyId}}\` · {{endedAt}}"
+}`,
+      },
+      {
+        type: "h2",
+        text: "ntfy",
+      },
+      {
+        type: "p",
+        text: "ntfy is a simple topic publish. Use the public ntfy.sh service or your own server. The preset sets Title / Priority / Tags headers and a plain-text body.",
+      },
+      {
+        type: "code",
+        lang: "text",
+        code: `Method:  POST
+URL:     https://ntfy.sh/your-topic
+Headers:
+  Title: LazyBackup failure
+  Priority: high
+  Tags: warning,backup
+Body:    {{backupName}}: {{errorMessage}}`,
+      },
+      {
+        type: "p",
+        text: "For a private topic, add an Authorization header (or ntfy’s token header) in the headers field—line format Name: value, or a JSON object.",
+      },
+      {
+        type: "h2",
+        text: "Uptime Kuma push monitor",
+      },
+      {
+        type: "p",
+        text: "Create a Push monitor in Kuma and copy the push URL. The Kuma preset uses GET with status=down and the error in msg—so a failed backup flips the monitor down with context.",
+      },
+      {
+        type: "code",
+        lang: "text",
+        code: `Method: GET
+URL:    https://kuma.example.com/api/push/TOKEN?status=down&msg={{errorMessage}}&ping=
+Body:   (unused for GET)`,
+      },
+      {
+        type: "callout",
+        text: "This fires only on failure—it does not heartbeat on success. Pair with Kuma’s own push heartbeat (or an external cron ping) if you need “backup didn’t run” detection, not just “backup failed.”",
+      },
+      {
+        type: "h2",
+        text: "Also in the preset list",
+      },
+      {
+        type: "ul",
+        items: [
+          "Telegram — Bot API sendMessage; replace BOT_TOKEN and CHAT_ID",
+          "Slack — Incoming webhook with a text field",
+          "Default JSON — empty body template → built-in backup.failed object",
+        ],
+      },
+      {
+        type: "h2",
+        text: "Quick checklist",
+      },
+      {
+        type: "ul",
+        items: [
+          "HTTPS URL (or LAN http)",
+          "Preset that matches your tool, then replace placeholders",
+          "Send test notification before you trust cron",
+          "Status posture will nag if webhooks are still empty—optional but useful",
+        ],
+      },
+      {
+        type: "callout",
+        text: "One webhook for the instance. When a job fails, LazyBackup fills the tags and fires—Discord channel, phone via ntfy, or a red Kuma monitor.",
+      },
+    ],
+  },
+  {
+    slug: "database-dumps-to-s3",
+    title: "Database dumps to S3 (MinIO, R2, B2)",
+    description:
+      "Sequel to the Docker database guide: land Postgres/MySQL/MariaDB .sql.gz dumps on S3-compatible storage—MinIO, Cloudflare R2, Backblaze B2, or AWS.",
+    date: "2026-08-12",
+    dateLabel: "Aug 12, 2026",
+    readingMinutes: 6,
+    tags: ["howto", "database", "s3"],
+    cover: {
+      src: "/screenshots/db-dump-form.png",
+      alt: "Database dump backup form — destination can be an S3 profile",
+    },
+    body: [
+      {
+        type: "p",
+        text: "The Docker database post ends with a .sql.gz on this host or another server. Off-box object storage is the usual next step: keep dumps off the app VPS, version them cheaply, and restore by downloading first. LazyBackup treats S3-compatible profiles as first-class To endpoints—same database dump source, different destination.",
+      },
+      {
+        type: "callout",
+        text: "Start from Easily back up a Docker database if you still need the dump source wired. This post assumes you can already produce a logical dump; we only change where it lands.",
+      },
+      {
+        type: "h2",
+        text: "Step 1 — Add an S3 profile",
+      },
+      {
+        type: "p",
+        text: "Open S3 Profiles → New. Fill endpoint, region, bucket, access key, and secret. For MinIO, Cloudflare R2, and Backblaze B2, enable path-style (forcePathStyle) when the provider expects it—LazyBackup’s form exposes that toggle.",
+      },
+      {
+        type: "ul",
+        items: [
+          "MinIO — your https://minio.example.com (or :9000) endpoint + path-style",
+          "Cloudflare R2 — R2 S3 API endpoint for the account/bucket; path-style as documented by Cloudflare",
+          "Backblaze B2 — S3-compatible endpoint for the bucket’s region",
+          "AWS S3 — standard regional endpoint; path-style usually off",
+        ],
+      },
+      {
+        type: "p",
+        text: "Use Test connection on the profile before you point jobs at it. Secrets never come back in GET responses—leave the secret blank on edit to keep the stored value.",
+      },
+      {
+        type: "h2",
+        text: "Step 2 — Database dump → S3 prefix",
+      },
+      {
+        type: "p",
+        text: "Create or edit a backup. Keep Source type = Database dump (Postgres / MySQL / MariaDB; native or Docker exec). Set To → S3, pick the profile, and choose a prefix (destination path field)—for example backups/app-db/ or prod/postgres/.",
+      },
+      {
+        type: "img",
+        src: "/screenshots/db-dump-form.png",
+        alt: "Database dump From → To form",
+        caption: "Same dump form as the Docker guide—switch To from This host to an S3 profile.",
+      },
+      {
+        type: "code",
+        lang: "text",
+        code: `From:  Server (or local) → Database dump → .sql.gz
+To:    S3 profile → prefix e.g. backups/app-db/
+Relay: always via the LazyBackup host (upload after dump)`,
+      },
+      {
+        type: "p",
+        text: "S3 transfers always relay through the LazyBackup host: dump to a temp file, then upload. There is no direct server→bucket pipe that skips the host.",
+      },
+      {
+        type: "h2",
+        text: "Step 3 — Retention and encryption",
+      },
+      {
+        type: "ul",
+        items: [
+          "File retention — age + min-keep on the destination prefix so old dumps are deleted from the bucket",
+          "Versioning — timestamped sub-prefixes if you prefer snapshot folders over flat dump files",
+          "age encryption — optional enableEncryption so the object is ciphertext before upload (needs an active key in Settings → Encryption)",
+        ],
+      },
+      {
+        type: "p",
+        text: "Validate before run is useful here: it probes SSH/DB and the S3 profile without uploading a dump. Open the backup detail → Validate; the last result sticks until you edit the job.",
+      },
+      {
+        type: "img",
+        src: "/screenshots/history.png",
+        alt: "Backup history after a successful dump",
+        caption: "History stores artifactPath as s3://bucket/key when the dump landed on object storage.",
+      },
+      {
+        type: "h2",
+        text: "Restore from S3",
+      },
+      {
+        type: "p",
+        text: "From History → Restore on a successful database run, LazyBackup downloads the artifact from S3 first, then pipes into psql/mysql (native or docker exec). Encrypted .age objects decrypt with vault identities automatically.",
+      },
+      {
+        type: "h2",
+        text: "Quick checklist",
+      },
+      {
+        type: "ul",
+        items: [
+          "S3 profile tested (endpoint, bucket, keys, path-style if needed)",
+          "Source = Database dump (not a volume tarball)",
+          "To = S3 + prefix you’re happy to retain/delete",
+          "Validate once, then cron + retention",
+          "Optional: age encrypt before land; failure webhook if the upload path breaks",
+        ],
+      },
+      {
+        type: "callout",
+        text: "Same From → To model: dump on the source, land on MinIO/R2/B2/AWS. No custom sync script—just a profile and a prefix.",
       },
     ],
   },
