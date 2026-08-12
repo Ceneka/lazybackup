@@ -23,7 +23,9 @@ Marketing site (static): [`landing/`](./landing) → [lazy.zic.ar](https://lazy.
 - **Failure webhooks** — Customizable HTTPS webhook on backup failure (method, headers, `{{tag}}` body/URL templates; Discord / Telegram / Kuma / ntfy / Slack presets)
 - **Optional app password** — Single-operator lock (set on first run or later in Settings); session cookie lasts 30 days
 - **MCP / API tokens** — Let Cursor, Claude, or other agents manage backups via Streamable HTTP MCP at `/mcp` (Settings → API / MCP)
-- **Encryption** — Optional age encryption before storing (Settings → Encryption); works with local, server, and S3 destinations
+- **Encryption** — Age vault (active / retired / compromised keys), recovery recipients, passphrase-wrapped export (Settings → Encryption); works with local, server, and S3 destinations
+- **Instance backup** — Backup LazyBackup itself (SQLite + keys) as a schedulable job; optional archive passphrase
+- **Passkeys** — WebAuthn login alongside or instead of the app password
 - **Bro Space** — 1:1 encrypted peer storage with a friend (Settings → Bro Space); invite code pairing, hard quotas
 
 ## Tech stack
@@ -88,8 +90,10 @@ Set `DATABASE_URL` if you want a custom SQLite path (default: `file:./data.db`).
 3. **(Optional) S3 profile** — S3 Profiles → endpoint, bucket, and keys (path-style for MinIO/R2/B2 as needed).
 4. **Create a backup** — Backups → pick **From** and **To** (local, server, or S3), then **filesystem path**, **Docker volume** (volume sources need a source server), or **database**. Default dest is still `/backups/<server>/<name>` on this host when To is local. Optionally enable versioning and/or age-based file retention.
 5. **Timezone** — Settings → choose the timezone used for cron schedules and “next run” times.
-6. **Encryption (optional)** — Settings → Encryption → generate an age key, then enable “Encrypt before storing” on a backup (or use a Bro destination).
-7. **Bro Space (optional)** — Settings → Bro Space → set your instance URL, invite a bro with a shared GB quota, or paste their invite code.
+6. **Encryption (optional)** — Settings → Encryption → generate an age key (export and acknowledge a copy), optionally add recovery recipients, then enable “Encrypt before storing” on a backup (or use a Bro destination). Create new keys instead of overwriting; old keys stay for decrypt.
+7. **Backup this instance** — Settings → Encryption → “Backup LazyBackup data”, or New Backup → local source → LazyBackup instance data. Restore is manual (replace DB / import keys).
+8. **Passkeys (optional)** — Settings → Passkeys to register; use “Sign in with passkey” on `/login`.
+9. **Bro Space (optional)** — Settings → Bro Space → set your instance URL, invite a bro with a shared GB quota, or paste their invite code.
 
 ### Bro Space + Tailscale (CGNAT)
 

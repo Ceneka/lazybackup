@@ -7,12 +7,13 @@ Guide for AI coding agents. User-facing setup lives in [README.md](./README.md) 
 - Backups are **From → To** transfers between endpoints: **this host (local)**, any configured **Server**, or an **S3-compatible** profile. Directions include local↔local, local↔server, server↔server, and any side with S3 (S3 path sources; archives and path trees can land on S3).
 - Default for new configs remains **Server → Local** (`/backups/<server-slug>/<backup-slug>`). Destination uniqueness is per endpoint (local path, `(destinationServerId, path)`, or `(destinationS3ProfileId, prefix)`).
 - **Server → Server** prefers an **ephemeral SSH key** installed on the destination so the source can rsync directly; if the source cannot reach the dest, LazyBackup **relays** (pull then push via the host). S3 transfers always relay via the LazyBackup host.
-- **Source types:** `path` (filesystem or S3 object prefix), `docker_volume` (named volume on a **source server** only → alpine tar → `.tar.gz`), or `database` (Postgres/MySQL/MariaDB logical dump → `.sql.gz` via native client or `docker exec`; local or server source). Destinations are paths or S3 prefixes. Volume tar is **not** a consistent live-DB backup — use `database` for that. Restore (volume + database) needs a **local** artifact or downloads from **S3** first.
+- **Source types:** `path` (filesystem or S3 object prefix), `docker_volume` (named volume on a **source server** only → alpine tar → `.tar.gz`), `database` (Postgres/MySQL/MariaDB logical dump → `.sql.gz` via native client or `docker exec`; local or server source), or **`lazybackup_instance`** (local only; packs SQLite + age vault + SSH keys; optional passphrase wrap). Destinations are paths or S3 prefixes. Volume tar is **not** a consistent live-DB backup — use `database` for that. Restore (volume + database) needs a **local** artifact or downloads from **S3** first.
 - For **database + docker client** on a server source, the form can list running containers and auto-fill credentials from `docker inspect` env (`POSTGRES_*` / `MYSQL_*` / `MARIADB_*`).
 - **SSH key required** for any server endpoint involved in a **transfer** (host-side rsync/scp). Password auth works for Test connection and other `node-ssh` operations (list volumes/containers, remote shell cmds); it is not enough alone to pull/push path backups.
-- **Optional app password** (single operator, no users table): first-run set/skip; manage in Settings. Hash in settings → middleware gates pages + `/api/*` (public: `/login`, `/api/auth/*`, `/api/health`). Session cookie `lb_session`, 30-day sliding expiry.
+- **Optional app password** (single operator, no users table): first-run set/skip; manage in Settings. Hash in settings → middleware gates pages + `/api/*` (public: `/login`, `/api/auth/*`, `/api/health`). Session cookie `lb_session`, 30-day sliding expiry. **Passkeys** (WebAuthn) can lock the instance alone or alongside the password (`webauthn_credentials`).
 - **API tokens** (Settings → API / MCP): Bearer `Authorization` for agents; hashed in `api_tokens`. Streamable HTTP MCP at `/mcp` (same auth gate). Token CRUD requires a browser session (tokens cannot mint tokens). Opt-in `remote_exec` permission gates `exec_command` and setting/changing `preBackupCommands` (session/unlocked always allowed).
-- **Encryption** (Settings → Encryption): optional per-backup **age** encryption before land (local/server/S3). Forced on for Bro destinations. Private identity stays on this instance; restore decrypts automatically.
+- **Encryption** (Settings → Encryption): optional per-backup **age** encryption before land (local/server/S3). Forced on for Bro destinations. Keys live in an **`age_keys` vault** (one **active** for new encrypts; **retired** / **compromised** kept for decrypt). Optional **recovery recipients** (`age1…`) are added on every encrypt. Private identities stay on this instance; export (plaintext or passphrase-wrapped) for disaster recovery. **Create new key** demotes the previous active to retired (never silent overwrite).
+- **Instance meta-backup** (`sourceType=lazybackup_instance`): packs SQLite + age vault + SSH keys to a destination; optional archive **passphrase** (not the instance age key). Settings → Encryption has a prefills link. Restore is manual.
 - **Bro Space** (Settings → Bro Space): 1:1 reciprocal peer storage. Invite code → accept → `destinationKind=peer`. Opaque quota’d blobs on each side; instances need a reachable URL (Tailscale/VPN/HTTPS).
 - Middleware verifies the session **in-process** (Node.js runtime + SQLite). Never HTTP self-fetch `/api/auth/status` from middleware (LAN Host hangs; loopback from Edge fails → pages load, APIs 401).
 - Cookies default **non-Secure**; set `AUTH_COOKIE_SECURE=true` only behind HTTPS.
@@ -64,9 +65,12 @@ Restore (volume/database, local or S3 dest): history artifact → download from 
 | `servers` | host/port/user, `authType` password\|key, password / privateKey / `sshKeyId` / `systemKeyPath` |
 | `ssh_keys` | name + content or path |
 | `s3_profiles` | endpoint, region, bucket, access/secret keys, `forcePathStyle` |
-| `backup_configs` | `sourceKind`/`destinationKind` local\|server\|s3\|**peer**, nullable `serverId` / `destinationServerId` / `sourceS3ProfileId` / `destinationS3ProfileId` / **`destinationPeerId`**, `sourceType` path\|docker_volume\|database, `sourcePath`/`destinationPath` (prefix when S3/peer), `db_*` for dumps, cron, excludes, pre-cmds, **`enableEncryption`**, versioning + file retention, optional last validation (`lastValidatedAt` / `lastValidationOk` / `lastValidationChecks`; cleared on config update) |
+| `backup_configs` | `sourceKind`/`destinationKind` local\|server\|s3\|**peer**, nullable `serverId` / `destinationServerId` / `sourceS3ProfileId` / `destinationS3ProfileId` / **`destinationPeerId`**, `sourceType` path\|docker_volume\|database\|**lazybackup_instance**, `sourcePath`/`destinationPath` (prefix when S3/peer), `db_*` for dumps, optional **`instanceBackupPassphrase`**, cron, excludes, pre-cmds, **`enableEncryption`**, versioning + file retention, optional last validation (`lastValidatedAt` / `lastValidationOk` / `lastValidationChecks`; cleared on config update) |
 | `backup_history` | status running\|success\|failed, sizes, `logOutput`, `artifactPath` (local path or `s3://bucket/key`) |
 | `settings` | KV: timezone, SSH defaults, `appPasswordHash`, `sessionSecret`, `authSetupCompleted`, failure webhook URL/method/headers/body |
+| `age_keys` | Age vault: identity + recipient, status active\|retired\|compromised, export ack |
+| `age_recovery_recipients` | Extra public `age1…` included on every encrypt |
+| `webauthn_credentials` | Passkey login credentials |
 | `api_tokens` | Named Bearer tokens (SHA-256 hash + prefix); optional JSON `permissions` (e.g. `["remote_exec"]`); used by MCP / machine clients |
 | `peers` / `peer_invites` | Bro Space pairing (1:1 quota, inbound token hash, outbound token); invite codes for non-tech pairing |
 | `audit_log` | Token/MCP action audit (no secrets) |
@@ -82,7 +86,8 @@ Pattern: Zod → Drizzle → `NextResponse.json`; errors `{ error, details? }`.
 | Public | `GET /api/health`, `/api/auth/{status,setup,login,logout}` |
 | Auth | `POST /api/auth/password` (set/change/remove) |
 | API tokens | `/api/api-tokens`, `/api/api-tokens/[id]` (session-only manage); MCP `GET|POST|DELETE /mcp` |
-| Encryption | `/api/encryption` (session-only generate/import/reveal/clear age keys) |
+| Encryption | `/api/encryption` (session-only age vault CRUD, export, recovery recipients) |
+| Passkeys | `/api/auth/webauthn/{register,login,credentials}` |
 | Bro Space | `/api/peers` (session manage), `POST /api/peers/pair` (invite secret), `/api/peers/store` (peer Bearer `lbpeer_`) |
 | MCP discovery | Tools: `find_server`, `list_docker_volumes`, `list_docker_containers`, `get_container_db_hints`, `test_server`, `test_database`, `exec_command` (SSH shell; needs `remote_exec`) |
 | Servers | `/api/servers`, `/api/servers/[id]`, `…/test`, `…/exec` (remote shell; Bearer needs `remote_exec`), `…/docker/volumes`, `…/docker/containers`, `…/docker/containers/[name]/db-hints`, `POST /api/servers/test` |
@@ -97,7 +102,8 @@ Pattern: Zod → Drizzle → `NextResponse.json`; errors `{ error, details? }`.
 2. Prepare destination (local mkdir, remote mkdir, or S3 prefix). Versioning → `YYYY-MM-DD_HH-mm-ss` subfolder/prefix.
 3. **Path:** local→local rsync; server→local pull; local→server push; server→server ephemeral direct or relay; any side with S3 via host upload/download.
 4. **Docker volume (source server only):** pack with alpine on source → land `.tar.gz` at destination path/prefix.
-5. **Database (local or server):** `pg_dump` / `mysqldump` (native or `docker exec`) → `.sql.gz` temp file → land at destination.
+5. **Database dump (local or server):** `pg_dump` / `mysqldump` (native or `docker exec`) → `.sql.gz` temp file → land at destination.
+5b. **LazyBackup instance:** pack SQLite + age vault + SSH keys → optional passphrase wrap → land (not Bro; not instance age-key encrypt).
 6. Temp SSH identity + `-F /dev/null` (ignore host ssh config); ephemeral keys cleaned in `finally`.
 7. Cleanup: version count and/or age-based file retention (local FS, remote SSH, or S3 delete).
 8. History + `combineBackupLog`; storage stats for local dest (`storage-stats.ts`); remote/S3 dest returns a marker.
@@ -147,9 +153,11 @@ CI publishes GHCR on `main` / `v*` tags (skips docs/`LICENSE`/`landing` via `pat
 11. Database dumps need client tools on the source (`pg_dump`/`mysqldump` or inside the DB container). Do not stream dump SQL through `execCommand` stdout — always write a temp `.sql.gz` then transfer.
 12. S3 sources only support `sourceType=path` (object prefix). Use `@aws-sdk/client-s3` with custom endpoint + path-style for MinIO/R2/B2.
 13. Bearer tokens without `remote_exec` cannot set/change `preBackupCommands` or call `exec_command` / `POST …/servers/:id/exec`. Browser sessions always can. Existing tokens default to no `remote_exec` after migration — recreate with the checkbox if needed.
-14. Encrypted backups need an age key (Settings → Encryption). Peer destinations always encrypt. Losing the private identity means you cannot restore ciphertext.
+14. Encrypted backups need an age key in the vault (Settings → Encryption). Peer destinations always encrypt. Losing all private identities (instance + offline exports + recovery keys) means you cannot restore ciphertext. Creating a new key retires the old one; decrypt still tries all vault identities.
 15. Bro Space pairing requires mutual reachability (instance URL). `/api/peers/pair` and `/api/peers/store` authenticate via invite secret / `lbpeer_` Bearer (middleware-public; auth inside route).
 16. Tailscale is **not** bundled in the Docker image. Detect via LocalAPI socket or host CLI; optional `docker-compose.tailscale.yml` sidecar. Settings → Bro Space can fill `http://100.x:PORT`.
+17. Auth locks when an app password **or** ≥1 passkey is configured. Passkey login is public at `/api/auth/webauthn/login`; registration requires a session (or unlocked instance).
+18. Instance meta-backups (`lazybackup_instance`) include secrets; restore manually. Prefer passphrase wrap or a trusted destination — never Bro.
 
 ## Read first
 
@@ -162,5 +170,6 @@ CI publishes GHCR on `main` / `v*` tags (skips docs/`LICENSE`/`landing` via `pat
 | Database dumps | `lib/database/`, `POST /api/backups/database/test`, restore via `POST …/history/[id]/restore` |
 | Scheduling / timezone | `lib/scheduler/`, `instrumentation.ts` |
 | DB | `lib/db/schema.ts`, `lib/db/migrate.ts` |
+| Encryption / vault / passkeys | `lib/crypto/`, `lib/auth/webauthn.ts`, `/api/encryption`, `/api/auth/webauthn/*`, `components/encryption-settings-panel.tsx` |
 | App password | `lib/auth/`, `middleware.ts`, `app/api/auth/` |
 | UI patterns | `lib/hooks/useBackups.ts`, `components/ui/query-state.tsx` |
