@@ -11,11 +11,10 @@ import { isoBase64URL } from '@simplewebauthn/server/helpers'
 import { desc, eq } from 'drizzle-orm'
 import { nanoid } from 'nanoid'
 import { db } from '@/lib/db'
-import { settings, webauthnCredentials } from '@/lib/db/schema'
+import { webauthnCredentials } from '@/lib/db/schema'
 
-const CHALLENGE_REGISTER_KEY = 'webauthnChallengeRegister'
-const CHALLENGE_LOGIN_KEY = 'webauthnChallengeLogin'
 const CHALLENGE_TTL_MS = 5 * 60 * 1000
+const MAX_CHALLENGES = 64
 
 const RP_NAME = 'LazyBackup'
 /** Stable user handle for single-operator instance */
@@ -23,77 +22,90 @@ const USER_ID = new TextEncoder().encode('lazybackup-operator')
 const USER_NAME = 'operator'
 const USER_DISPLAY = 'LazyBackup operator'
 
+type ChallengeKind = 'register' | 'login'
+
 type StoredChallenge = {
-  challenge: string
+  kind: ChallengeKind
   expiresAt: number
 }
 
-async function getSettingValue(key: string): Promise<string | null> {
-  const row = await db.query.settings.findFirst({
-    where: eq(settings.key, key),
-  })
-  return row?.value ?? null
-}
+const challenges = new Map<string, StoredChallenge>()
 
-async function setSettingValue(key: string, value: string): Promise<void> {
-  const existing = await db.query.settings.findFirst({
-    where: eq(settings.key, key),
-  })
-  if (existing) {
-    await db
-      .update(settings)
-      .set({ value, updatedAt: new Date() })
-      .where(eq(settings.key, key))
-    return
+function pruneChallenges(now = Date.now()) {
+  for (const [key, stored] of challenges) {
+    if (stored.expiresAt <= now) challenges.delete(key)
   }
-  await db.insert(settings).values({
-    id: nanoid(),
-    key,
-    value,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  })
+  while (challenges.size > MAX_CHALLENGES) {
+    const oldest = challenges.keys().next().value
+    if (oldest === undefined) break
+    challenges.delete(oldest)
+  }
 }
 
-async function deleteSettingValue(key: string): Promise<void> {
-  await db.delete(settings).where(eq(settings.key, key))
-}
-
-async function saveChallenge(
-  key: string,
-  challenge: string
-): Promise<void> {
-  await setSettingValue(
-    key,
-    JSON.stringify({
-      challenge,
-      expiresAt: Date.now() + CHALLENGE_TTL_MS,
-    } satisfies StoredChallenge)
-  )
-}
-
-async function takeChallenge(key: string): Promise<string | null> {
-  const raw = await getSettingValue(key)
-  await deleteSettingValue(key)
-  if (!raw) return null
+function challengeFromClientDataJSON(clientDataJSON: string): string | null {
   try {
-    const parsed = JSON.parse(raw) as StoredChallenge
-    if (!parsed.challenge || Date.now() > parsed.expiresAt) return null
-    return parsed.challenge
+    const json = JSON.parse(
+      new TextDecoder().decode(isoBase64URL.toBuffer(clientDataJSON))
+    ) as { challenge?: unknown }
+    return typeof json.challenge === 'string' ? json.challenge : null
   } catch {
     return null
   }
+}
+
+export function saveWebauthnChallenge(kind: ChallengeKind, challenge: string): void {
+  pruneChallenges()
+  challenges.set(challenge, {
+    kind,
+    expiresAt: Date.now() + CHALLENGE_TTL_MS,
+  })
+}
+
+export function takeWebauthnChallenge(
+  kind: ChallengeKind,
+  clientDataJSON: string
+): string | null {
+  pruneChallenges()
+  const challenge = challengeFromClientDataJSON(clientDataJSON)
+  if (!challenge) return null
+  const stored = challenges.get(challenge)
+  challenges.delete(challenge)
+  if (!stored || stored.kind !== kind || Date.now() > stored.expiresAt) {
+    return null
+  }
+  return challenge
+}
+
+export function resetWebauthnChallenges(): void {
+  challenges.clear()
 }
 
 export function webauthnRpFromRequest(request: {
   headers: Headers
   nextUrl?: { protocol: string; host: string }
 }): { rpID: string; origin: string } {
-  const forwardedHost = request.headers.get('x-forwarded-host')?.split(',')[0]?.trim()
+  const configured = process.env.AUTH_PUBLIC_URL?.trim()
+  if (configured) {
+    try {
+      const url = new URL(configured)
+      if (url.protocol === 'http:' || url.protocol === 'https:') {
+        return { rpID: url.hostname, origin: url.origin }
+      }
+    } catch {
+      // fall through to Host
+    }
+  }
+
+  const trustProxy = process.env.AUTH_TRUST_PROXY === 'true'
+  const forwardedHost = trustProxy
+    ? request.headers.get('x-forwarded-host')?.split(',')[0]?.trim()
+    : undefined
   const hostHeader = request.headers.get('host')?.trim()
   const host = forwardedHost || hostHeader || request.nextUrl?.host || 'localhost'
   const rpID = host.split(':')[0] || 'localhost'
-  const forwardedProto = request.headers.get('x-forwarded-proto')?.split(',')[0]?.trim()
+  const forwardedProto = trustProxy
+    ? request.headers.get('x-forwarded-proto')?.split(',')[0]?.trim()
+    : undefined
   const proto =
     forwardedProto ||
     request.nextUrl?.protocol?.replace(':', '') ||
@@ -133,6 +145,12 @@ export async function deletePasskey(id: string): Promise<void> {
   await db.delete(webauthnCredentials).where(eq(webauthnCredentials.id, id))
 }
 
+/** Refuse deleting the last authenticator unless a password still locks the instance. */
+export function canDeletePasskey(currentCount: number, hasPassword: boolean): boolean {
+  if (currentCount > 1) return true
+  return hasPassword
+}
+
 export async function getRegistrationOptions(rpID: string) {
   const existing = await db.query.webauthnCredentials.findMany()
   const options = await generateRegistrationOptions({
@@ -151,7 +169,7 @@ export async function getRegistrationOptions(rpID: string) {
       userVerification: 'preferred',
     },
   })
-  await saveChallenge(CHALLENGE_REGISTER_KEY, options.challenge)
+  saveWebauthnChallenge('register', options.challenge)
   return options
 }
 
@@ -161,7 +179,10 @@ export async function verifyAndStoreRegistration(options: {
   expectedRPID: string
   name?: string
 }): Promise<PublicPasskey> {
-  const expectedChallenge = await takeChallenge(CHALLENGE_REGISTER_KEY)
+  const expectedChallenge = takeWebauthnChallenge(
+    'register',
+    options.response.response.clientDataJSON
+  )
   if (!expectedChallenge) {
     throw new Error('Registration challenge expired — try again')
   }
@@ -171,6 +192,7 @@ export async function verifyAndStoreRegistration(options: {
     expectedChallenge,
     expectedOrigin: options.expectedOrigin,
     expectedRPID: options.expectedRPID,
+    // Generate uses UV 'preferred'; keep verify false so existing passkeys still work.
     requireUserVerification: false,
   })
 
@@ -215,7 +237,7 @@ export async function getAuthenticationOptions(rpID: string) {
     })),
     userVerification: 'preferred',
   })
-  await saveChallenge(CHALLENGE_LOGIN_KEY, options.challenge)
+  saveWebauthnChallenge('login', options.challenge)
   return options
 }
 
@@ -224,7 +246,10 @@ export async function verifyAuthentication(options: {
   expectedOrigin: string
   expectedRPID: string
 }): Promise<boolean> {
-  const expectedChallenge = await takeChallenge(CHALLENGE_LOGIN_KEY)
+  const expectedChallenge = takeWebauthnChallenge(
+    'login',
+    options.response.response.clientDataJSON
+  )
   if (!expectedChallenge) {
     throw new Error('Login challenge expired — try again')
   }

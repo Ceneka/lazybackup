@@ -73,7 +73,7 @@ export function AuthSetupPrompt() {
               autoComplete="new-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="At least 4 characters"
+              placeholder="At least 12 characters"
             />
           </div>
           <div className="space-y-2">

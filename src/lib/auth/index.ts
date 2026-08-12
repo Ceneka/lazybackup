@@ -6,11 +6,17 @@ import {
 } from './api-tokens'
 import {
   SESSION_COOKIE_NAME,
+  SESSION_MAX_AGE_SECONDS,
   createSessionToken,
+  inspectSessionToken,
+  parseCookieValue,
+  sessionCookieOptions,
+  sessionNeedsRefresh,
   verifySessionToken,
 } from './session'
 import {
   getPasswordHash,
+  getSessionEpoch,
   getSessionSecret,
   isAuthSetupCompleted,
 } from './settings'
@@ -18,10 +24,12 @@ import {
 export {
   APP_PASSWORD_HASH_KEY,
   AUTH_SETUP_COMPLETED_KEY,
+  SESSION_EPOCH_KEY,
   SESSION_SECRET_KEY,
   SENSITIVE_SETTING_KEYS,
   SESSION_COOKIE_NAME,
   SESSION_MAX_AGE_SECONDS,
+  SESSION_REFRESH_AFTER_SECONDS,
   MIN_PASSWORD_LENGTH,
 } from './constants'
 
@@ -33,11 +41,16 @@ export {
 
 export {
   createSessionToken,
+  inspectSessionToken,
+  parseCookieValue,
+  sessionNeedsRefresh,
   verifySessionToken,
   sessionCookieOptions,
   clearSessionCookieOptions,
   sessionCookieSecure,
 } from './session'
+
+export { safeInternalPath } from './redirect'
 
 export {
   getPasswordHash,
@@ -46,6 +59,9 @@ export {
   isAuthSetupCompleted,
   markAuthSetupCompleted,
   getSessionSecret,
+  getSessionEpoch,
+  bumpSessionEpoch,
+  claimFirstPasswordHash,
 } from './settings'
 
 export {
@@ -82,15 +98,18 @@ export async function isAuthEnabled(): Promise<boolean> {
   return (await countPasskeys()) > 0
 }
 
+async function verifyCookieToken(token: string | undefined): Promise<boolean> {
+  if (!token) return false
+  const [secret, epoch] = await Promise.all([getSessionSecret(), getSessionEpoch()])
+  return verifySessionToken(secret, token, epoch)
+}
+
 export async function getSessionFromCookies(
   cookieStore?: Awaited<ReturnType<typeof cookies>>
 ): Promise<boolean> {
   const store = cookieStore ?? (await cookies())
   const token = store.get(SESSION_COOKIE_NAME)?.value
-  if (!token) return false
-
-  const secret = await getSessionSecret()
-  return verifySessionToken(secret, token)
+  return verifyCookieToken(token)
 }
 
 /** Valid session cookie only (not Bearer). Used to manage API tokens. */
@@ -102,11 +121,21 @@ export async function isSessionAuthorized(
 
   if (cookieHeader !== undefined) {
     const token = parseCookieValue(cookieHeader, SESSION_COOKIE_NAME)
-    const secret = await getSessionSecret()
-    return verifySessionToken(secret, token)
+    return verifyCookieToken(token)
   }
 
   return getSessionFromCookies()
+}
+
+/**
+ * Cookie session on a locked instance. Unlocked first-run is not sufficient —
+ * used to block token mint and passkey register as anonymous lock-out tools.
+ */
+export async function requireLockedBrowserSession(
+  cookieHeader?: string | null
+): Promise<boolean> {
+  if (!(await isAuthEnabled())) return false
+  return isSessionAuthorized(cookieHeader)
 }
 
 export type AuthResolution = {
@@ -114,6 +143,14 @@ export type AuthResolution = {
   /** Present when authenticated via API token */
   apiToken?: VerifiedApiToken
   via: 'unlocked' | 'session' | 'bearer' | 'none'
+}
+
+/**
+ * Who may set an app password: browser session or unlocked first-run.
+ * API Bearer is never enough (passkey-only operators use Settings).
+ */
+export function allowsPasswordSet(via: AuthResolution['via']): boolean {
+  return via === 'session' || via === 'unlocked'
 }
 
 /**
@@ -139,8 +176,7 @@ export async function resolveAuth(
 
   if (cookieHeader !== undefined) {
     const token = parseCookieValue(cookieHeader, SESSION_COOKIE_NAME)
-    const secret = await getSessionSecret()
-    if (await verifySessionToken(secret, token)) {
+    if (await verifyCookieToken(token)) {
       return { authorized: true, via: 'session' }
     }
     return { authorized: false, via: 'none' }
@@ -182,26 +218,35 @@ export async function getAuthStatus(
     authenticated,
     hasPassword,
     hasPasskeys: passkeyCount > 0,
-    passkeyCount,
+    ...(authEnabled && authenticated ? { passkeyCount } : {}),
   }
 }
 
 export async function createSessionCookieValue(): Promise<string> {
-  const secret = await getSessionSecret()
-  return createSessionToken(secret)
+  const [secret, epoch] = await Promise.all([getSessionSecret(), getSessionEpoch()])
+  return createSessionToken(secret, SESSION_MAX_AGE_SECONDS, epoch)
 }
 
-export function parseCookieValue(
-  cookieHeader: string | null | undefined,
-  name: string
-): string | undefined {
-  if (!cookieHeader) return undefined
-  const parts = cookieHeader.split(';')
-  for (const part of parts) {
-    const [rawKey, ...rest] = part.trim().split('=')
-    if (rawKey === name) {
-      return decodeURIComponent(rest.join('='))
-    }
+type CookieSetter = {
+  cookies: {
+    set: (
+      name: string,
+      value: string,
+      options: ReturnType<typeof sessionCookieOptions>
+    ) => unknown
   }
-  return undefined
+}
+
+/** Slide the session cookie only after SESSION_REFRESH_AFTER_SECONDS of age. */
+export async function maybeRefreshSessionCookie(
+  response: CookieSetter,
+  cookieHeader: string | null
+): Promise<void> {
+  const token = parseCookieValue(cookieHeader, SESSION_COOKIE_NAME)
+  if (!token) return
+  const [secret, epoch] = await Promise.all([getSessionSecret(), getSessionEpoch()])
+  const inspected = await inspectSessionToken(secret, token, epoch)
+  if (!inspected.ok || !sessionNeedsRefresh(inspected.exp)) return
+  const next = await createSessionToken(secret, SESSION_MAX_AGE_SECONDS, epoch)
+  response.cookies.set(SESSION_COOKIE_NAME, next, sessionCookieOptions())
 }

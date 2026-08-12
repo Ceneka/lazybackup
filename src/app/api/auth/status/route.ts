@@ -1,21 +1,19 @@
 import {
-  createSessionCookieValue,
   getAuthStatus,
-  SESSION_COOKIE_NAME,
-  sessionCookieOptions,
+  maybeRefreshSessionCookie,
 } from '@/lib/auth'
 import { NextRequest, NextResponse } from 'next/server'
 
 // GET /api/auth/status — public; used by middleware and UI.
-// When authenticated, refreshes the session cookie (sliding 30-day expiry).
+// Sliding cookie refresh uses an idle window (not every request).
 export async function GET(request: NextRequest) {
   try {
-    const status = await getAuthStatus(request.headers.get('cookie'))
+    const cookieHeader = request.headers.get('cookie')
+    const status = await getAuthStatus(cookieHeader)
     const response = NextResponse.json(status)
 
     if (status.authEnabled && status.authenticated) {
-      const token = await createSessionCookieValue()
-      response.cookies.set(SESSION_COOKIE_NAME, token, sessionCookieOptions())
+      await maybeRefreshSessionCookie(response, cookieHeader)
     }
 
     return response

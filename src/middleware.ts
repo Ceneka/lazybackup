@@ -1,8 +1,6 @@
 import {
-  createSessionCookieValue,
   getAuthStatus,
-  SESSION_COOKIE_NAME,
-  sessionCookieOptions,
+  maybeRefreshSessionCookie,
 } from '@/lib/auth'
 import { NextRequest, NextResponse } from 'next/server'
 
@@ -55,8 +53,9 @@ export async function middleware(request: NextRequest) {
   }
 
   try {
+    const cookieHeader = request.headers.get('cookie')
     const status = await getAuthStatus(
-      request.headers.get('cookie'),
+      cookieHeader,
       request.headers.get('authorization')
     )
 
@@ -74,11 +73,9 @@ export async function middleware(request: NextRequest) {
     }
 
     const response = NextResponse.next()
-    // Only slide session cookies for browser sessions (not Bearer)
     const hasBearer = Boolean(request.headers.get('authorization')?.match(/^Bearer\s+/i))
     if (status.authEnabled && status.authenticated && !hasBearer) {
-      const token = await createSessionCookieValue()
-      response.cookies.set(SESSION_COOKIE_NAME, token, sessionCookieOptions())
+      await maybeRefreshSessionCookie(response, cookieHeader)
     }
     return response
   } catch (error) {
@@ -86,7 +83,7 @@ export async function middleware(request: NextRequest) {
     if (pathname.startsWith('/api/') || pathname === '/mcp' || pathname.startsWith('/mcp/')) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
-    return NextResponse.next()
+    return NextResponse.redirect(new URL('/login', request.url))
   }
 }
 

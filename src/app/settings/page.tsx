@@ -407,7 +407,7 @@ function SettingsPageInner() {
                       autoComplete="new-password"
                       value={newPassword}
                       onChange={(e) => setNewPassword(e.target.value)}
-                      placeholder="At least 4 characters"
+                      placeholder="At least 12 characters"
                     />
                   </div>
                   <div className="space-y-2">

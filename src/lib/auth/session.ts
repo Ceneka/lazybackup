@@ -1,6 +1,7 @@
 import {
   SESSION_COOKIE_NAME,
   SESSION_MAX_AGE_SECONDS,
+  SESSION_REFRESH_AFTER_SECONDS,
 } from './constants'
 
 function toBase64Url(bytes: Uint8Array): string {
@@ -58,40 +59,93 @@ async function verifySignature(
   )
 }
 
-/** Create a signed session token: `exp.signature` */
+export type SessionVerifyResult =
+  | { ok: true; exp: number; epoch: number }
+  | { ok: false }
+
+/** Create a signed session token: `exp.epoch.HMAC(secret, exp.epoch)` */
 export async function createSessionToken(
   secret: string,
-  maxAgeSeconds = SESSION_MAX_AGE_SECONDS
+  maxAgeSeconds = SESSION_MAX_AGE_SECONDS,
+  epoch = 0
 ): Promise<string> {
   const exp = Math.floor(Date.now() / 1000) + maxAgeSeconds
-  const payload = String(exp)
+  const payload = `${exp}.${epoch}`
   const signature = await signPayload(secret, payload)
   return `${payload}.${signature}`
 }
 
-/** Verify a session token. Returns true if valid and not expired. */
-export async function verifySessionToken(
+/**
+ * Verify a session token against the current session epoch.
+ * Legacy `exp.sig` tokens are treated as epoch 0 so AUTH_SECRET upgrades
+ * stay valid until the first logout or password change bumps the epoch.
+ */
+export async function inspectSessionToken(
   secret: string,
-  token: string | undefined | null
-): Promise<boolean> {
-  if (!token) return false
+  token: string | undefined | null,
+  epoch = 0
+): Promise<SessionVerifyResult> {
+  if (!token) return { ok: false }
 
   const parts = token.split('.')
-  if (parts.length !== 2) return false
+  let expStr: string
+  let tokenEpoch: number
+  let signature: string
+  let payload: string
 
-  const [payload, signature] = parts
-  if (!payload || !signature) return false
+  if (parts.length === 2) {
+    ;[expStr, signature] = parts
+    tokenEpoch = 0
+    payload = expStr
+  } else if (parts.length === 3) {
+    const epochStr = parts[1]
+    ;[expStr, , signature] = parts
+    tokenEpoch = Number(epochStr)
+    payload = `${expStr}.${epochStr}`
+  } else {
+    return { ok: false }
+  }
 
-  const exp = Number(payload)
+  if (!expStr || !signature || !Number.isFinite(tokenEpoch)) {
+    return { ok: false }
+  }
+  if (tokenEpoch !== epoch) {
+    return { ok: false }
+  }
+
+  const exp = Number(expStr)
   if (!Number.isFinite(exp) || exp * 1000 < Date.now()) {
-    return false
+    return { ok: false }
   }
 
   try {
-    return await verifySignature(secret, payload, signature)
+    const valid = await verifySignature(secret, payload, signature)
+    if (!valid) return { ok: false }
+    return { ok: true, exp, epoch: tokenEpoch }
   } catch {
-    return false
+    return { ok: false }
   }
+}
+
+/** Verify a session token. Returns true if valid, not expired, and epoch matches. */
+export async function verifySessionToken(
+  secret: string,
+  token: string | undefined | null,
+  epoch = 0
+): Promise<boolean> {
+  return (await inspectSessionToken(secret, token, epoch)).ok
+}
+
+/** True when a valid token is old enough to slide the 30-day window. */
+export function sessionNeedsRefresh(
+  exp: number,
+  nowSeconds = Math.floor(Date.now() / 1000)
+): boolean {
+  const remaining = exp - nowSeconds
+  if (remaining <= 0) return false
+  const refreshWhenRemainingBelow =
+    SESSION_MAX_AGE_SECONDS - SESSION_REFRESH_AFTER_SECONDS
+  return remaining <= refreshWhenRemainingBelow
 }
 
 /**
@@ -124,4 +178,24 @@ export function clearSessionCookieOptions() {
   }
 }
 
-export { SESSION_COOKIE_NAME, SESSION_MAX_AGE_SECONDS }
+/** Invalid encoding is treated as missing (unauthenticated), never thrown. */
+export function parseCookieValue(
+  cookieHeader: string | null | undefined,
+  name: string
+): string | undefined {
+  if (!cookieHeader) return undefined
+  const parts = cookieHeader.split(';')
+  for (const part of parts) {
+    const [rawKey, ...rest] = part.trim().split('=')
+    if (rawKey === name) {
+      try {
+        return decodeURIComponent(rest.join('='))
+      } catch {
+        return undefined
+      }
+    }
+  }
+  return undefined
+}
+
+export { SESSION_COOKIE_NAME, SESSION_MAX_AGE_SECONDS, SESSION_REFRESH_AFTER_SECONDS }

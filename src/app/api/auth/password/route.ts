@@ -1,11 +1,13 @@
 import {
   assertPasswordStrength,
+  bumpSessionEpoch,
   clearPasswordHash,
   clearSessionCookieOptions,
   createSessionCookieValue,
   getPasswordHash,
   hashPassword,
   isAuthorized,
+  isSessionAuthorized,
   markAuthSetupCompleted,
   SESSION_COOKIE_NAME,
   sessionCookieOptions,
@@ -47,6 +49,12 @@ export async function POST(request: NextRequest) {
         )
       }
 
+      // Cookie session only — never Bearer. Unlocked first-run still allowed
+      // (Settings after skip); passkey-only operators must be logged in.
+      if (!(await isSessionAuthorized(cookieHeader))) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      }
+
       const strengthError = assertPasswordStrength(data.password)
       if (strengthError) {
         return NextResponse.json({ error: strengthError }, { status: 400 })
@@ -55,6 +63,7 @@ export async function POST(request: NextRequest) {
       const passwordHash = await hashPassword(data.password)
       await setPasswordHash(passwordHash)
       await markAuthSetupCompleted()
+      await bumpSessionEpoch()
 
       const token = await createSessionCookieValue()
       const response = NextResponse.json({ ok: true, authEnabled: true })
@@ -93,6 +102,7 @@ export async function POST(request: NextRequest) {
 
       const passwordHash = await hashPassword(data.password)
       await setPasswordHash(passwordHash)
+      await bumpSessionEpoch()
 
       const token = await createSessionCookieValue()
       const response = NextResponse.json({ ok: true, authEnabled: true })
