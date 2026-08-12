@@ -2,13 +2,23 @@ import { execFile } from 'child_process';
 import { randomBytes } from 'crypto';
 import { eq } from 'drizzle-orm';
 import { promises as fs } from 'fs';
-import { tmpdir } from 'os';
 import path from 'path';
 import { promisify } from 'util';
 import { NodeSSH } from 'node-ssh';
 import { db } from '../db';
 import { servers, sshKeys } from '../db/schema';
-import { buildRsyncCommand } from './rsync';
+import { createHostVerifier } from './known-hosts';
+import {
+  buildRsyncArgv,
+  buildRsyncCommand,
+  buildScpArgv,
+  formatRshArgument,
+  runRsync,
+  runScp,
+  sshCliArgv,
+  sshUserHost,
+} from './rsync';
+import { ensureSshTempDir } from './temp-dir';
 
 const execFileAsync = promisify(execFile);
 
@@ -74,8 +84,9 @@ export function normalizePrivateKeyForOpenSsh(content: string): string {
 export async function writeTemporarySshIdentityFile(
   keyContent: string
 ): Promise<{ path: string; cleanup: () => Promise<void> }> {
+  const dir = await ensureSshTempDir();
   const id = randomBytes(16).toString('hex');
-  const keyPath = path.join(tmpdir(), `lazybackup-ssh-${id}`);
+  const keyPath = path.join(dir, `id-${id}`);
   const normalized = normalizePrivateKeyForOpenSsh(keyContent);
   await fs.writeFile(keyPath, normalized, { mode: 0o600 });
   await fs.chmod(keyPath, 0o600);
@@ -153,6 +164,7 @@ export async function connectToServer(server: Server): Promise<NodeSSH> {
   }
 
   const ssh = new NodeSSH();
+  const hostVerifier = createHostVerifier(server.host, server.port);
 
   try {
     // If using password authentication
@@ -162,7 +174,8 @@ export async function connectToServer(server: Server): Promise<NodeSSH> {
         port: server.port,
         username: server.username,
         password: server.password,
-      });
+        hostVerifier,
+      } as Parameters<NodeSSH['connect']>[0]);
     } else if (server.authType === 'key') {
       const privateKey = await resolvePrivateKeyForServer(server);
       await ssh.connect({
@@ -170,7 +183,8 @@ export async function connectToServer(server: Server): Promise<NodeSSH> {
         port: server.port,
         username: server.username,
         privateKey,
-      });
+        hostVerifier,
+      } as Parameters<NodeSSH['connect']>[0]);
     } else {
       throw new Error('Invalid authentication configuration');
     }
@@ -270,30 +284,32 @@ export async function pushFileToRemote(options: PushFileOptions): Promise<{
   stdout: string;
   stderr: string;
 }> {
-  const { exec } = await import('child_process');
-  const { promisify } = await import('util');
-  const execPromise = promisify(exec);
-  const { shellSingleQuote, buildRsyncCommand } = await import('./rsync');
-
-  const localSshShell = `ssh -p ${options.port} -i ${shellSingleQuote(options.identityKeyPath)} -F /dev/null -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR`;
-  const remoteTarget = `${options.username}@${options.host}:${options.remotePath}`;
+  const remoteTarget = `${sshUserHost(options.username, options.host)}:${options.remotePath}`;
 
   if (options.rsyncAvailable) {
-    const rsyncCommand = buildRsyncCommand(
-      options.localPath,
-      remoteTarget,
-      [],
-      [],
-      localSshShell
+    const rsh = formatRshArgument(await sshCliArgv({ port: options.port, keyPath: options.identityKeyPath }));
+    const result = await runRsync(
+      buildRsyncArgv({
+        sourcePath: options.localPath,
+        destinationPath: remoteTarget,
+        rsh,
+      })
     );
-    const result = await execPromise(rsyncCommand);
     return { method: 'rsync', stdout: result.stdout, stderr: result.stderr };
   }
 
   if (options.scpAvailable) {
-    const scpOpts = `-P ${options.port} -F /dev/null -i ${shellSingleQuote(options.identityKeyPath)} -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR`;
-    const scpCommand = `scp ${scpOpts} ${shellSingleQuote(options.localPath)} ${shellSingleQuote(remoteTarget)}`;
-    const result = await execPromise(scpCommand);
+    const { ensureKnownHostsFile } = await import('./known-hosts');
+    const knownHostsPath = await ensureKnownHostsFile();
+    const result = await runScp([
+      ...buildScpArgv({
+        port: options.port,
+        keyPath: options.identityKeyPath,
+        knownHostsPath,
+      }),
+      options.localPath,
+      remoteTarget,
+    ]);
     return { method: 'scp', stdout: result.stdout, stderr: result.stderr };
   }
 
@@ -319,30 +335,32 @@ export async function pullFileFromRemote(options: {
   stdout: string;
   stderr: string;
 }> {
-  const { exec } = await import('child_process');
-  const { promisify } = await import('util');
-  const execPromise = promisify(exec);
-  const { shellSingleQuote, buildRsyncCommand } = await import('./rsync');
-
-  const localSshShell = `ssh -p ${options.port} -i ${shellSingleQuote(options.identityKeyPath)} -F /dev/null -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR`;
-  const remoteSource = `${options.username}@${options.host}:${options.remotePath}`;
+  const remoteSource = `${sshUserHost(options.username, options.host)}:${options.remotePath}`;
 
   if (options.rsyncAvailable) {
-    const rsyncCommand = buildRsyncCommand(
-      remoteSource,
-      options.localPath,
-      [],
-      [],
-      localSshShell
+    const rsh = formatRshArgument(await sshCliArgv({ port: options.port, keyPath: options.identityKeyPath }));
+    const result = await runRsync(
+      buildRsyncArgv({
+        sourcePath: remoteSource,
+        destinationPath: options.localPath,
+        rsh,
+      })
     );
-    const result = await execPromise(rsyncCommand);
     return { method: 'rsync', stdout: result.stdout, stderr: result.stderr };
   }
 
   if (options.scpAvailable) {
-    const scpOpts = `-P ${options.port} -F /dev/null -i ${shellSingleQuote(options.identityKeyPath)} -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR`;
-    const scpCommand = `scp ${scpOpts} ${shellSingleQuote(remoteSource)} ${shellSingleQuote(options.localPath)}`;
-    const result = await execPromise(scpCommand);
+    const { ensureKnownHostsFile } = await import('./known-hosts');
+    const knownHostsPath = await ensureKnownHostsFile();
+    const result = await runScp([
+      ...buildScpArgv({
+        port: options.port,
+        keyPath: options.identityKeyPath,
+        knownHostsPath,
+      }),
+      remoteSource,
+      options.localPath,
+    ]);
     return { method: 'scp', stdout: result.stdout, stderr: result.stderr };
   }
 

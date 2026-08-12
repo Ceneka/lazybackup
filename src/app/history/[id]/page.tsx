@@ -107,10 +107,13 @@ export default function HistoryDetailPage() {
   })
 
   const handleRestore = () => {
+    const configured = query.data?.backupConfig?.sourcePath || ''
+    const requested = restoreTargetName.trim()
+    const allowRetarget = Boolean(requested && configured && requested !== configured)
     restoreMutation.mutate(
       isDatabaseRestore
-        ? { id, databaseName: restoreTargetName || undefined }
-        : { id, volumeName: restoreTargetName || undefined },
+        ? { id, databaseName: requested || undefined, allowRetarget }
+        : { id, volumeName: requested || undefined, allowRetarget },
       {
         onSuccess: (data) => {
           setRestoreLog(data.log)

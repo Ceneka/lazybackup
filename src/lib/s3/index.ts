@@ -14,8 +14,15 @@ import { pipeline } from 'stream/promises';
 import { normalizeS3Prefix } from '@/lib/backup/destination';
 import {
   selectFilesToDelete,
+  isBackupArtifactFileName,
   type RetentionAgeUnit,
 } from '@/lib/backup/file-retention';
+import { confineRelativePath } from '@/lib/backup/local-paths';
+import {
+  assertS3EndpointAllowed,
+  assertS3EndpointHostSync,
+  type S3EndpointPolicy,
+} from '@/lib/s3/endpoint';
 
 export type S3ProfileConfig = {
   endpoint: string;
@@ -24,10 +31,16 @@ export type S3ProfileConfig = {
   accessKeyId: string;
   secretAccessKey: string;
   forcePathStyle?: boolean | null;
+  allowPrivateEndpoint?: boolean | null;
 };
+
+function endpointPolicy(profile: S3ProfileConfig): S3EndpointPolicy {
+  return { allowPrivate: profile.allowPrivateEndpoint };
+}
 
 export function createS3Client(profile: S3ProfileConfig): S3Client {
   const endpoint = profile.endpoint.trim().replace(/\/+$/, '');
+  assertS3EndpointHostSync(endpoint, endpointPolicy(profile));
   return new S3Client({
     endpoint,
     region: profile.region.trim() || 'us-east-1',
@@ -47,6 +60,7 @@ export function joinS3Key(...parts: string[]): string {
 }
 
 export async function testS3Connection(profile: S3ProfileConfig): Promise<void> {
+  await assertS3EndpointAllowed(profile.endpoint, endpointPolicy(profile));
   const client = createS3Client(profile);
   try {
     await client.send(new HeadBucketCommand({ Bucket: profile.bucket }));
@@ -83,6 +97,7 @@ export async function listObjectsUnderPrefix(
   profile: S3ProfileConfig,
   prefix: string
 ): Promise<S3ObjectInfo[]> {
+  await assertS3EndpointAllowed(profile.endpoint, endpointPolicy(profile));
   const client = createS3Client(profile);
   const normalized = normalizeS3Prefix(prefix);
   const listPrefix = normalized ? `${normalized}/` : '';
@@ -120,6 +135,7 @@ export async function listVersionPrefixes(
   profile: S3ProfileConfig,
   basePrefix: string
 ): Promise<Array<{ name: string; prefix: string; lastModifiedMs: number }>> {
+  await assertS3EndpointAllowed(profile.endpoint, endpointPolicy(profile));
   const client = createS3Client(profile);
   const normalized = normalizeS3Prefix(basePrefix);
   const listPrefix = normalized ? `${normalized}/` : '';
@@ -169,6 +185,7 @@ export async function deleteObjectsByKeys(
   keys: string[]
 ): Promise<number> {
   if (keys.length === 0) return 0;
+  await assertS3EndpointAllowed(profile.endpoint, endpointPolicy(profile));
   const client = createS3Client(profile);
   let deleted = 0;
   try {
@@ -207,6 +224,7 @@ export async function uploadFile(
   localFilePath: string,
   key: string
 ): Promise<{ key: string; size: number }> {
+  await assertS3EndpointAllowed(profile.endpoint, endpointPolicy(profile));
   const client = createS3Client(profile);
   const stat = await fs.stat(localFilePath);
   const body = createReadStream(localFilePath);
@@ -276,6 +294,7 @@ export async function downloadFile(
   key: string,
   localFilePath: string
 ): Promise<{ size: number }> {
+  await assertS3EndpointAllowed(profile.endpoint, endpointPolicy(profile));
   const client = createS3Client(profile);
   try {
     await fs.mkdir(path.dirname(localFilePath), { recursive: true });
@@ -298,6 +317,17 @@ export async function downloadFile(
   }
 }
 
+export function confinedS3DownloadPath(
+  localDir: string,
+  objectKey: string,
+  prefix: string
+): string | null {
+  const base = normalizeS3Prefix(prefix);
+  const rel = base ? objectKey.slice(base.length).replace(/^\//, '') : objectKey;
+  if (!rel) return null;
+  return confineRelativePath(localDir, rel);
+}
+
 export async function downloadPrefix(
   profile: S3ProfileConfig,
   prefix: string,
@@ -309,17 +339,17 @@ export async function downloadPrefix(
       `No objects found under s3://${profile.bucket}/${normalizeS3Prefix(prefix)}`
     );
   }
-  const base = normalizeS3Prefix(prefix);
   await fs.mkdir(localDir, { recursive: true });
   let totalSize = 0;
+  let fileCount = 0;
   for (const obj of objects) {
-    const rel = base ? obj.key.slice(base.length).replace(/^\//, '') : obj.key;
-    if (!rel) continue;
-    const localPath = path.join(localDir, ...rel.split('/'));
+    const localPath = confinedS3DownloadPath(localDir, obj.key, prefix);
+    if (!localPath) continue;
     const downloaded = await downloadFile(profile, obj.key, localPath);
     totalSize += downloaded.size;
+    fileCount += 1;
   }
-  return { fileCount: objects.length, totalSize };
+  return { fileCount, totalSize };
 }
 
 /**
@@ -343,10 +373,12 @@ export async function cleanupS3FileRetention(
   });
 
   const toDeleteNames = selectFilesToDelete(
-    topLevel.map((obj) => ({
-      name: path.posix.basename(obj.key),
-      mtimeMs: obj.lastModifiedMs,
-    })),
+    topLevel
+      .filter((obj) => isBackupArtifactFileName(path.posix.basename(obj.key)))
+      .map((obj) => ({
+        name: path.posix.basename(obj.key),
+        mtimeMs: obj.lastModifiedMs,
+      })),
     options
   );
   const nameSet = new Set(toDeleteNames);

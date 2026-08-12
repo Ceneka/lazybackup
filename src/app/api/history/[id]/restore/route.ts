@@ -1,4 +1,9 @@
 import { restoreDatabaseBackup, restoreDockerVolumeBackup } from '@/lib/backup';
+import {
+  RESTORE_CONFIRM_REQUIRED,
+  hasRestoreConfirm,
+  restoreHistorySchema,
+} from '@/lib/backup/history-schema';
 import { isValidDockerVolumeName } from '@/lib/docker/volumes';
 import { DB_NAME_RE } from '@/lib/database';
 import { db } from '@/lib/db';
@@ -6,11 +11,6 @@ import { backupHistory } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-
-const restoreSchema = z.object({
-  volumeName: z.string().min(1).optional(),
-  databaseName: z.string().min(1).optional(),
-});
 
 // POST /api/history/[id]/restore — restore Docker volume or database dump
 export async function POST(
@@ -28,7 +28,13 @@ export async function POST(
     }
 
     const body = await request.json().catch(() => ({}));
-    const { volumeName, databaseName } = restoreSchema.parse(body);
+    if (!hasRestoreConfirm(body)) {
+      return NextResponse.json(
+        { error: RESTORE_CONFIRM_REQUIRED },
+        { status: 400 }
+      );
+    }
+    const { volumeName, databaseName, allowRetarget } = restoreHistorySchema.parse(body);
 
     const historyEntry = await db.query.backupHistory.findFirst({
       where: eq(backupHistory.id, id),
@@ -45,7 +51,11 @@ export async function POST(
       if (databaseName && !DB_NAME_RE.test(databaseName)) {
         return NextResponse.json({ error: 'Invalid database name' }, { status: 400 });
       }
-      const result = await restoreDatabaseBackup(id, databaseName);
+      const result = await restoreDatabaseBackup(id, {
+        databaseName,
+        confirm: true,
+        allowRetarget,
+      });
       return NextResponse.json({
         success: true,
         database: result.database,
@@ -60,7 +70,11 @@ export async function POST(
           { status: 400 }
         );
       }
-      const result = await restoreDockerVolumeBackup(id, volumeName);
+      const result = await restoreDockerVolumeBackup(id, {
+        volumeName,
+        confirm: true,
+        allowRetarget,
+      });
       return NextResponse.json({
         success: true,
         volumeName: result.volumeName,

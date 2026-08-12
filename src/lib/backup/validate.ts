@@ -1,5 +1,6 @@
 import { normalizeS3Prefix } from '@/lib/backup/destination';
 import type { BackupConfigWithEndpoints } from '@/lib/backup/index';
+import { assertLocalDestinationPath, expandLocalPath } from '@/lib/backup/local-paths';
 import {
   connectionFromConfig,
   testDatabaseConnectionLocal,
@@ -9,8 +10,6 @@ import { testS3Connection, type S3ProfileConfig } from '@/lib/s3';
 import { connectToServer, testServerBackupCapabilities } from '@/lib/ssh';
 import { CronJob } from 'cron';
 import * as fs from 'fs/promises';
-import * as os from 'os';
-import * as path from 'path';
 
 export type ValidateCheckStatus = 'pass' | 'fail' | 'warn';
 
@@ -72,13 +71,6 @@ export function attachLastValidation<T extends Record<string, unknown>>(config: 
   delete copy.lastValidationChecks;
   copy.lastValidation = lastValidation;
   return copy as T & { lastValidation: StoredValidation | null };
-}
-
-function expandLocalPath(dest: string): string {
-  if (dest.startsWith('~')) {
-    return path.join(os.homedir(), dest.slice(1));
-  }
-  return dest;
 }
 
 function toS3ProfileConfig(row: {
@@ -416,8 +408,8 @@ export async function validateBackupConfig(
 
   // --- Destination probes ---
   if (destinationKind === 'local') {
-    const dest = expandLocalPath(config.destinationPath);
     try {
+      const dest = assertLocalDestinationPath(config.destinationPath);
       await fs.mkdir(dest, { recursive: true });
       await fs.access(dest);
       push(checks, 'dest-local', 'Local destination', 'pass', `Writable: ${dest}`);
@@ -427,7 +419,7 @@ export async function validateBackupConfig(
         'dest-local',
         'Local destination',
         'fail',
-        error instanceof Error ? error.message : `Cannot write to ${dest}`
+        error instanceof Error ? error.message : 'Cannot write local destination'
       );
     }
   }

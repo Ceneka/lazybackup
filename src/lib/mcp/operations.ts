@@ -370,11 +370,19 @@ export async function restoreHistoryOp(
 
     const sourceType = historyEntry.backupConfig?.sourceType || 'path'
     if (sourceType === 'database') {
-      const result = await restoreDatabaseBackup(id, opts.databaseName)
+      const result = await restoreDatabaseBackup(id, {
+        databaseName: opts.databaseName,
+        confirm: true,
+        allowRetarget: Boolean(opts.databaseName),
+      })
       return jsonResult({ success: true, database: result.database, log: truncateLog(result.log) })
     }
     if (sourceType === 'docker_volume') {
-      const result = await restoreDockerVolumeBackup(id, opts.volumeName)
+      const result = await restoreDockerVolumeBackup(id, {
+        volumeName: opts.volumeName,
+        confirm: true,
+        allowRetarget: Boolean(opts.volumeName),
+      })
       return jsonResult({
         success: true,
         volume: result.volumeName,

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { maxAgeToMs, selectFilesToDelete } from './file-retention';
+import { maxAgeToMs, selectFilesToDelete, isBackupArtifactFileName } from './file-retention';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const NOW = Date.parse('2026-08-07T12:00:00.000Z');
@@ -93,5 +93,20 @@ describe('selectFilesToDelete', () => {
         nowMs: NOW,
       })
     ).toEqual([]);
+  });
+});
+
+describe('isBackupArtifactFileName', () => {
+  test('accepts dump and archive names', () => {
+    expect(isBackupArtifactFileName('appdb.sql.gz')).toBe(true);
+    expect(isBackupArtifactFileName('vol.tar.gz')).toBe(true);
+    expect(isBackupArtifactFileName('vol.tar.gz.age')).toBe(true);
+    expect(isBackupArtifactFileName('lazybackup-instance-x.tar.gz.age')).toBe(true);
+  });
+
+  test('rejects unrelated top-level files', () => {
+    expect(isBackupArtifactFileName('notes.txt')).toBe(false);
+    expect(isBackupArtifactFileName('README')).toBe(false);
+    expect(isBackupArtifactFileName('.env')).toBe(false);
   });
 });

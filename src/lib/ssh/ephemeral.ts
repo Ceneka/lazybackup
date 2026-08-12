@@ -1,11 +1,14 @@
 import { randomBytes } from 'crypto';
 import { promises as fs } from 'fs';
-import { tmpdir } from 'os';
 import path from 'path';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import type { NodeSSH } from 'node-ssh';
-import { shellSingleQuote } from './rsync';
+import { isBackupArtifactFileName } from '@/lib/backup/file-retention';
+import { assertSafePathString } from '@/lib/backup/local-paths';
+import { ensureKnownHostsFile, sshStrictHostKeyCliOptions } from './known-hosts';
+import { shellSingleQuote, sshUserHost, assertSshPort, assertSafeCliToken } from './rsync';
+import { ensureSshTempDir } from './temp-dir';
 
 const execFileAsync = promisify(execFile);
 
@@ -48,8 +51,9 @@ export async function generateEphemeralEd25519KeyPair(): Promise<{
   cleanup: () => Promise<void>;
 }> {
   const marker = buildEphemeralKeyMarker();
+  const dir = await ensureSshTempDir();
   const id = randomBytes(8).toString('hex');
-  const privateKeyPath = path.join(tmpdir(), `lazybackup-eph-${id}`);
+  const privateKeyPath = path.join(dir, `eph-${id}`);
   const publicKeyPath = `${privateKeyPath}.pub`;
 
   await execFileAsync('ssh-keygen', [
@@ -128,23 +132,45 @@ export async function runEphemeralDirectRsync(options: {
   ephemeralPrivateKeyPath: string;
   excludePatterns?: string[];
 }): Promise<{ stdout: string; stderr: string }> {
+  const destPort = assertSshPort(options.destPort);
+  assertSafeCliToken(options.sourcePath, 'Source path');
+  assertSafeCliToken(options.destPath, 'Destination path');
+  const destUserHost = sshUserHost(options.destUsername, options.destHost);
   const remoteKeyPath = `/tmp/lazybackup-eph-${randomBytes(8).toString('hex')}`;
+  const knownHostsPath = await ensureKnownHostsFile();
+  const remoteKnownHosts = `/tmp/lazybackup-known-hosts-${randomBytes(8).toString('hex')}`;
 
   try {
     await options.sourceSsh.putFile(options.ephemeralPrivateKeyPath, remoteKeyPath);
     await options.sourceSsh.execCommand(`chmod 600 ${shellSingleQuote(remoteKeyPath)}`);
+    await options.sourceSsh.putFile(knownHostsPath, remoteKnownHosts);
+    await options.sourceSsh.execCommand(`chmod 600 ${shellSingleQuote(remoteKnownHosts)}`);
 
     const excludeArgs = (options.excludePatterns || [])
-      .map((pattern) => `--exclude=${shellSingleQuote(pattern)}`)
+      .map((pattern) => {
+        assertSafePathString(pattern, 'Exclude pattern');
+        return `--exclude=${shellSingleQuote(pattern)}`;
+      })
       .join(' ');
 
     const sourceArg = options.sourcePath.endsWith('/')
       ? options.sourcePath
       : `${options.sourcePath}/`;
-    const destArg = `${options.destUsername}@${options.destHost}:${options.destPath}`;
+    const destArg = `${destUserHost}:${options.destPath}`;
 
-    const sshOpts = `-p ${options.destPort} -i ${remoteKeyPath} -F /dev/null -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR`;
-    const rsyncCmd = `${REMOTE_STANDARD_PATH} rsync -avz --stats ${excludeArgs} -e ${shellSingleQuote(`ssh ${sshOpts}`)} ${shellSingleQuote(sourceArg)} ${shellSingleQuote(destArg)}`;
+    const sshOptParts: string[] = [
+      '-p',
+      String(destPort),
+      '-i',
+      remoteKeyPath,
+      '-F',
+      '/dev/null',
+      ...sshStrictHostKeyCliOptions(remoteKnownHosts),
+    ];
+    const sshOptsQuoted = sshOptParts
+      .map((part) => (part.startsWith('-') && !part.includes('=') ? part : shellSingleQuote(part)))
+      .join(' ');
+    const rsyncCmd = `${REMOTE_STANDARD_PATH} rsync -avz --stats --safe-links ${excludeArgs} -e ${shellSingleQuote(`ssh ${sshOptsQuoted}`)} ${shellSingleQuote(sourceArg)} ${shellSingleQuote(destArg)}`;
 
     const result = await options.sourceSsh.execCommand(rsyncCmd);
     if (result.code !== 0 && result.code !== null && result.code !== undefined) {
@@ -156,7 +182,9 @@ export async function runEphemeralDirectRsync(options: {
     return { stdout: result.stdout || '', stderr: result.stderr || '' };
   } finally {
     await options.sourceSsh
-      .execCommand(`rm -f ${shellSingleQuote(remoteKeyPath)}`)
+      .execCommand(
+        `rm -f ${shellSingleQuote(remoteKeyPath)} ${shellSingleQuote(remoteKnownHosts)}`
+      )
       .catch(() => {});
   }
 }
@@ -229,7 +257,8 @@ export async function cleanupRemoteOldFiles(
   }
 
   const { selectFilesToDelete } = await import('@/lib/backup/file-retention');
-  const toDelete = selectFilesToDelete(files, {
+  const artifacts = files.filter((file) => isBackupArtifactFileName(file.name));
+  const toDelete = selectFilesToDelete(artifacts, {
     maxAge,
     unit,
     minKeep,

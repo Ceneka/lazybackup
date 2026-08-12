@@ -58,12 +58,16 @@ describe('database command builders', () => {
     expect(args).toContain('mariadb-dump');
   });
 
-  test('pack command redirects gzip to file and quotes password', () => {
-    const cmd = buildPackDatabaseCommand(basePostgres, '/tmp/lazybackup-db-x/appdb.sql.gz');
+  test('pack command redirects gzip to file and does not embed the password', () => {
+    const cmd = buildPackDatabaseCommand(basePostgres, '/tmp/lazybackup-db-x/appdb.sql.gz', {
+      passwordFile: '/tmp/pw',
+    });
     expect(cmd).toContain('gzip >');
     expect(cmd).toContain('/tmp/lazybackup-db-x/appdb.sql.gz');
-    expect(cmd).toContain("PGPASSWORD='s'\\''ecret'");
+    expect(cmd).toContain("PGPASSFILE='/tmp/pw'");
     expect(cmd).toContain('pg_dump');
+    expect(cmd).not.toContain('PGPASSWORD=');
+    expect(cmd).not.toContain("s'ecret");
   });
 
   test('docker pack uses docker exec and host gzip redirect', () => {
@@ -73,12 +77,14 @@ describe('database command builders', () => {
         client: 'docker',
         container: 'postgres_1',
       },
-      '/tmp/out/appdb.sql.gz'
+      '/tmp/out/appdb.sql.gz',
+      { passwordFile: '/tmp/pw' }
     );
     expect(cmd).toContain('docker exec');
     expect(cmd).toContain("'postgres_1'");
     expect(cmd).toContain('gzip >');
-    expect(cmd).toContain('-e PGPASSWORD=');
+    expect(cmd).toContain('$(cat');
+    expect(cmd).not.toContain("s'ecret");
   });
 
   test('restore pipes gunzip into client', () => {
@@ -95,11 +101,13 @@ describe('database command builders', () => {
         client: 'docker',
         container: 'mysql',
       },
-      '/tmp/shop.sql.gz'
+      '/tmp/shop.sql.gz',
+      { passwordFile: '/tmp/pw' }
     );
     expect(cmd).toContain('docker exec -i');
     expect(cmd).toContain('mysql');
-    expect(cmd).toContain('-e MYSQL_PWD=');
+    expect(cmd).toContain('$(cat');
+    expect(cmd).not.toContain('-e MYSQL_PWD=pw');
   });
 
   test('test command runs SELECT 1', () => {

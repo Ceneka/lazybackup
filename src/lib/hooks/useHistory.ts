@@ -129,15 +129,17 @@ export function useRestoreBackupHistory() {
       id,
       volumeName,
       databaseName,
+      allowRetarget,
     }: {
       id: string
       volumeName?: string
       databaseName?: string
+      allowRetarget?: boolean
     }) => {
       const res = await fetch(`/api/history/${id}/restore`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ volumeName, databaseName }),
+        body: JSON.stringify({ confirm: true, volumeName, databaseName, allowRetarget }),
       })
 
       const data = await res.json()

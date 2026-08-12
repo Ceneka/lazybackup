@@ -121,6 +121,40 @@ describe('restoreDockerVolumeBackup guards', () => {
       /no stored artifact path/i
     );
   });
+
+  test('requires confirm=true before restoring', async () => {
+    historyFixture = {
+      id: 'h1',
+      status: 'success',
+      artifactPath: '/tmp/x.tar.gz',
+      backupConfig: {
+        sourceType: 'docker_volume',
+        sourcePath: 'vol',
+        destinationKind: 'local',
+        server: { id: 's1', host: 'h', port: 22, username: 'u' },
+      },
+    };
+    await expect(restoreDockerVolumeBackup('h1', { volumeName: 'vol' })).rejects.toThrow(
+      /confirm=true/i
+    );
+  });
+
+  test('requires allowRetarget to change volume', async () => {
+    historyFixture = {
+      id: 'h1',
+      status: 'success',
+      artifactPath: '/tmp/x.tar.gz',
+      backupConfig: {
+        sourceType: 'docker_volume',
+        sourcePath: 'vol',
+        destinationKind: 'local',
+        server: { id: 's1', host: 'h', port: 22, username: 'u' },
+      },
+    };
+    await expect(
+      restoreDockerVolumeBackup('h1', { confirm: true, volumeName: 'other' })
+    ).rejects.toThrow(/allowRetarget/i);
+  });
 });
 
 describe('restoreDatabaseBackup guards', () => {
