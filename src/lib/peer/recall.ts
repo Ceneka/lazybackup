@@ -3,7 +3,11 @@ import fs from 'fs/promises';
 import { nanoid } from 'nanoid';
 import path from 'path';
 import { db } from '@/lib/db';
-import { peerRecalls } from '@/lib/db/schema';
+import { backupHistory, peerRecalls } from '@/lib/db/schema';
+import { writeCappedBodyToTempFile } from './capped-body';
+import { assertFileSha256, sha256File } from './digest';
+import { withPeerLock } from './peer-lock';
+import { assertPeerQuota } from './storage';
 
 const DEFAULT_TTL_MS = 24 * 3600 * 1000;
 const DEFAULT_WAIT_MS = 15 * 60 * 1000;
@@ -98,8 +102,9 @@ export async function markRecallUploading(recallId: string): Promise<void> {
 export async function completeRecallUpload(
   recallId: string,
   peerId: string,
-  data: Buffer
-): Promise<void> {
+  localFilePath: string,
+  receivedSha256?: string
+): Promise<{ size: number; sha256: string }> {
   const row = await getRecall(recallId);
   if (!row || row.peerId !== peerId) {
     throw new Error('Recall not found');
@@ -117,11 +122,77 @@ export async function completeRecallUpload(
 
   const dest = recallSpoolPath(peerId, recallId);
   await fs.mkdir(path.dirname(dest), { recursive: true });
-  await fs.writeFile(dest, data);
+  await fs.copyFile(localFilePath, dest);
+  const st = await fs.stat(dest);
+  const sha256 = receivedSha256 || (await sha256File(dest));
+
+  const expected = await expectedRecallDigest(row);
+  if (expected) {
+    try {
+      await assertFileSha256(dest, expected, 'recall artifact');
+    } catch (error) {
+      await fs.unlink(dest).catch(() => {});
+      await db
+        .update(peerRecalls)
+        .set({ status: 'failed', error: error instanceof Error ? error.message : 'digest mismatch' })
+        .where(eq(peerRecalls.id, recallId));
+      throw error;
+    }
+  }
+
   await db
     .update(peerRecalls)
-    .set({ status: 'ready', readyAt: new Date() })
+    .set({ status: 'ready', readyAt: new Date(), error: null })
     .where(eq(peerRecalls.id, recallId));
+  return { size: st.size, sha256 };
+}
+
+async function expectedRecallDigest(
+  row: typeof peerRecalls.$inferSelect
+): Promise<string | null> {
+  if (row.historyId) {
+    const history = await db.query.backupHistory.findFirst({
+      where: eq(backupHistory.id, row.historyId),
+      columns: { artifactSha256: true },
+    });
+    if (history?.artifactSha256) return history.artifactSha256;
+  }
+  const artifactPath = `peer://${row.peerId}/${row.objectKey}`;
+  const byPath = await db.query.backupHistory.findFirst({
+    where: eq(backupHistory.artifactPath, artifactPath),
+    columns: { artifactSha256: true },
+  });
+  return byPath?.artifactSha256 ?? null;
+}
+
+/**
+ * Stream a recall PUT under the per-peer lock with quota + size ceiling.
+ */
+export async function ingestRecallUpload(options: {
+  recallId: string;
+  peerId: string;
+  quotaBytes: number;
+  declaredBytes: number;
+  body: ReadableStream<Uint8Array> | null;
+}): Promise<{ size: number; sha256: string }> {
+  const { recallId, peerId, quotaBytes, declaredBytes, body } = options;
+  return withPeerLock(peerId, async () => {
+    await assertPeerQuota(peerId, quotaBytes, declaredBytes);
+    const ingested = await writeCappedBodyToTempFile(body, declaredBytes);
+    try {
+      if (ingested.size !== declaredBytes) {
+        throw new Error(
+          `Content-Length mismatch: declared ${declaredBytes} bytes, received ${ingested.size}`
+        );
+      }
+      if (ingested.size === 0) {
+        throw new Error('Empty body');
+      }
+      return await completeRecallUpload(recallId, peerId, ingested.tempPath, ingested.sha256);
+    } finally {
+      await ingested.cleanup();
+    }
+  });
 }
 
 export async function consumeRecallArtifact(

@@ -257,6 +257,14 @@ export async function runMigration() {
     if (!historyColumns.includes('artifact_path')) {
       await db.run(sql`ALTER TABLE backup_history ADD COLUMN artifact_path TEXT`);
     }
+    if (!historyColumns.includes('artifact_sha256')) {
+      await db.run(sql`ALTER TABLE backup_history ADD COLUMN artifact_sha256 TEXT`);
+    }
+    if (!historyColumns.includes('mailbox_pending')) {
+      await db.run(
+        sql`ALTER TABLE backup_history ADD COLUMN mailbox_pending INTEGER NOT NULL DEFAULT 0`
+      );
+    }
 
     // S3-compatible profiles + backup_configs FKs
     await db.run(sql`

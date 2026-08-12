@@ -26,6 +26,8 @@ export type BackupHistory = {
   errorMessage?: string
   logOutput?: string
   artifactPath?: string | null
+  artifactSha256?: string | null
+  mailboxPending?: boolean
   backupConfig: {
     id: string
     name: string

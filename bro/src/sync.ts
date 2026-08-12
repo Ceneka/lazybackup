@@ -2,6 +2,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import type { BroConfig } from './config';
 import { objectFilePath, upsertObject, usedBytes } from './db';
+import { createHash } from 'crypto';
 
 export type SyncStatus = {
   lastPingAt: string | null;
@@ -111,10 +112,15 @@ export async function syncOnce(cfg: BroConfig): Promise<SyncStatus> {
       await fs.mkdir(path.dirname(dest), { recursive: true });
       await fs.writeFile(dest, buf);
       upsertObject(cfg, pull.key, buf.byteLength, new Date().toISOString());
+      const sha256 = createHash('sha256').update(buf).digest('hex');
       await hostFetch(cfg, '/api/peers/agent/ack', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key: pull.key }),
+        body: JSON.stringify({
+          key: pull.key,
+          size: buf.byteLength,
+          sha256,
+        }),
       });
     }
 

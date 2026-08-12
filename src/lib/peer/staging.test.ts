@@ -19,8 +19,9 @@ describe('peer staging', () => {
       await fs.writeFile(src, Buffer.from('hello-bro'));
       const peerId = 'peer_test';
       const key = 'backups/a/file.age';
-      const { size } = await writeStagedObject(peerId, key, src);
+      const { size, sha256 } = await writeStagedObject(peerId, key, src);
       expect(size).toBe(9);
+      expect(sha256).toHaveLength(64);
       expect(await stagedObjectExists(peerId, key)).toBe(true);
       const listed = await listStagedObjects(peerId);
       expect(listed.some((o) => o.key === key && o.size === 9)).toBe(true);

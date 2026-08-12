@@ -19,6 +19,8 @@ export const createHistorySchema = z
     errorMessage: z.string().optional().nullable(),
     logOutput: z.string().optional().nullable(),
     artifactPath: z.string().optional().nullable(),
+    artifactSha256: z.string().optional().nullable(),
+    mailboxPending: z.boolean().optional(),
   })
   .strict();
 
@@ -34,6 +36,8 @@ export const updateHistorySchema = z
     errorMessage: z.string().optional().nullable(),
     logOutput: z.string().optional().nullable(),
     artifactPath: z.string().optional().nullable(),
+    artifactSha256: z.string().optional().nullable(),
+    mailboxPending: z.boolean().optional(),
   })
   .strict()
   .refine((data) => Object.keys(data).length > 0, {

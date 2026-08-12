@@ -1,4 +1,5 @@
 import { and, eq, ne } from 'drizzle-orm';
+import { createHash } from 'crypto';
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
@@ -69,10 +70,15 @@ export async function syncPeerOnce(peer: PeerRow): Promise<void> {
     }
     const buf = Buffer.from(await getRes.arrayBuffer());
     await writePeerObject(peer.id, pull.key, buf, peer.quotaBytes);
+    const sha256 = createHash('sha256').update(buf).digest('hex');
     const ackRes = await peerFetch(peer, '/api/peers/agent/ack', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ key: pull.key }),
+      body: JSON.stringify({
+        key: pull.key,
+        size: buf.byteLength,
+        sha256,
+      }),
     });
     if (!ackRes.ok) {
       console.warn(`[peer-sync] ack failed ${pull.key}: ${ackRes.status}`);

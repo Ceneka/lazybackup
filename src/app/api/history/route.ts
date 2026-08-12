@@ -151,6 +151,8 @@ export async function POST(request: NextRequest) {
         errorMessage: validated.errorMessage ?? null,
         logOutput: validated.logOutput ?? null,
         artifactPath: validated.artifactPath ?? null,
+        artifactSha256: validated.artifactSha256 ?? null,
+        mailboxPending: validated.mailboxPending ?? false,
       })
       .returning();
 

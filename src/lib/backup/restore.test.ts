@@ -53,6 +53,24 @@ describe('resolveLocalRestoreArtifact', () => {
     ).rejects.toThrow(/not found on disk/i);
   });
 
+  test('rejects when expected sha256 does not match the file', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'lazybackup-restore-'));
+    const file = path.join(dir, 'vol.tar.gz.age');
+    await fs.writeFile(file, 'ciphertext');
+    try {
+      await expect(
+        resolveLocalRestoreArtifact({
+          artifactPath: file,
+          destinationKind: 'local',
+          expectedSha256: '0'.repeat(64),
+          decrypt: false,
+        })
+      ).rejects.toThrow(/SHA-256 mismatch/i);
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test('rejects server destination kind', async () => {
     await expect(
       resolveLocalRestoreArtifact({

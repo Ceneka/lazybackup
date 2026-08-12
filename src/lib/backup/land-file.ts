@@ -1,4 +1,5 @@
 import type { peers, servers } from '@/lib/db/schema';
+import { sha256File } from '@/lib/peer/digest';
 import { uploadPeerObject } from '@/lib/peer/client';
 import {
   formatS3ArtifactPath,
@@ -52,8 +53,11 @@ export async function landLocalFileArtifact(options: {
   stdout: string;
   destSsh: NodeSSH | null;
   cleanupDestIdentity?: () => Promise<void>;
+  mailboxPending?: boolean;
+  artifactSha256?: string;
 }> {
   const { localFilePath, archiveName, destinationKind } = options;
+  const artifactSha256 = await sha256File(localFilePath);
 
   if (destinationKind === 'local') {
     if (!options.localDestination) {
@@ -68,6 +72,7 @@ export async function landLocalFileArtifact(options: {
       usedMethod: 'file-local',
       stdout: `Archive: ${archiveName}\nLocal path: ${localArchivePath}\nSize: ${stats.size} bytes`,
       destSsh: options.destSsh ?? null,
+      artifactSha256,
     };
   }
 
@@ -106,6 +111,7 @@ export async function landLocalFileArtifact(options: {
         .join('\n'),
       destSsh,
       cleanupDestIdentity,
+      artifactSha256,
     };
   }
 
@@ -121,6 +127,7 @@ export async function landLocalFileArtifact(options: {
       usedMethod: 'file-s3',
       stdout: `Archive: ${archiveName}\nS3: ${artifactPath}\nSize: ${uploaded.size} bytes`,
       destSsh: options.destSsh ?? null,
+      artifactSha256,
     };
   }
 
@@ -140,6 +147,7 @@ export async function landLocalFileArtifact(options: {
         usedMethod: 'file-peer',
         stdout: `Archive: ${archiveName}\nPeer: ${peer.name}\nObject: ${objectKey}\nSize: ${uploaded.size} bytes`,
         destSsh: options.destSsh ?? null,
+        artifactSha256,
       };
     }
 
@@ -148,12 +156,15 @@ export async function landLocalFileArtifact(options: {
     return {
       artifactPath: `peer://${peer.id}/${objectKey}`,
       usedMethod: 'file-peer-mailbox',
+      mailboxPending: true,
+      artifactSha256: staged.sha256,
       stdout: [
         `Archive: ${archiveName}`,
         `Peer: ${peer.name}`,
         `Object: ${objectKey}`,
         `Size: ${staged.size} bytes`,
-        `Mailbox: staged (waiting for bro to pull — not a failure)`,
+        `SHA-256: ${staged.sha256}`,
+        `Mailbox: staged locally — waiting for bro to pull and ACK (not yet stored on peer)`,
       ].join('\n'),
       destSsh: options.destSsh ?? null,
     };

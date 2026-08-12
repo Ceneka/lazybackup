@@ -1,9 +1,9 @@
 import { touchPeerSeen, verifyPeerBearer } from '@/lib/peer/pairing';
+import { getRecall, ingestRecallUpload, markRecallUploading } from '@/lib/peer/recall';
 import {
-  completeRecallUpload,
-  getRecall,
-  markRecallUploading,
-} from '@/lib/peer/recall';
+  assertDeclaredUploadSize,
+  PeerUploadLimitError,
+} from '@/lib/peer/upload-limit';
 import { NextRequest, NextResponse } from 'next/server';
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -25,18 +25,25 @@ export async function PUT(request: NextRequest, context: Ctx) {
   }
 
   try {
+    const declaredBytes = assertDeclaredUploadSize({
+      contentLengthHeader: request.headers.get('content-length'),
+      quotaBytes: peer.quotaBytes,
+    });
     await markRecallUploading(id);
-    const buf = Buffer.from(await request.arrayBuffer());
-    if (buf.byteLength === 0) {
-      return NextResponse.json({ error: 'Empty body' }, { status: 400 });
-    }
-    await completeRecallUpload(id, peer.id, buf);
-    return NextResponse.json({ ok: true, recallId: id, size: buf.byteLength });
+    const result = await ingestRecallUpload({
+      recallId: id,
+      peerId: peer.id,
+      quotaBytes: peer.quotaBytes,
+      declaredBytes,
+      body: request.body,
+    });
+    return NextResponse.json({ ok: true, recallId: id, size: result.size, sha256: result.sha256 });
   } catch (error) {
     console.error('Recall upload failed:', error);
+    const status = error instanceof PeerUploadLimitError ? error.status : 400;
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Recall upload failed' },
-      { status: 400 }
+      { status }
     );
   }
 }

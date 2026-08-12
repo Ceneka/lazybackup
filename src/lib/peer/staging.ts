@@ -1,5 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
+import { sha256File } from './digest';
 
 /**
  * Outbound mailbox staging: objects waiting for the peer to pull.
@@ -54,12 +55,27 @@ export async function writeStagedObject(
   peerId: string,
   objectKey: string,
   localFilePath: string
-): Promise<{ size: number }> {
+): Promise<{ size: number; sha256: string }> {
   const dest = peerStagingObjectPath(peerId, objectKey);
   await fs.mkdir(path.dirname(dest), { recursive: true });
   await fs.copyFile(localFilePath, dest);
   const st = await fs.stat(dest);
-  return { size: st.size };
+  const sha256 = await sha256File(dest);
+  return { size: st.size, sha256 };
+}
+
+export async function stagedObjectDigest(
+  peerId: string,
+  objectKey: string
+): Promise<{ size: number; sha256: string } | null> {
+  try {
+    const dest = peerStagingObjectPath(peerId, objectKey);
+    const st = await fs.stat(dest);
+    const sha256 = await sha256File(dest);
+    return { size: st.size, sha256 };
+  } catch {
+    return null;
+  }
 }
 
 export async function readStagedObject(
