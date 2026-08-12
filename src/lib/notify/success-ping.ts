@@ -1,3 +1,5 @@
+import { validateHttpUrlResolved } from '@/lib/net/url-guard-resolve';
+import { validateRedirectTarget, webhookUrlPolicy } from '@/lib/net/url-guard';
 import {
   WEBHOOK_TIMEOUT_MS,
   applyWebhookTemplate,
@@ -7,25 +9,25 @@ import {
   type WebhookHttpMethod,
 } from '@/lib/notify/failure-webhook';
 import {
-  validateHttpUrlResolved,
-  validateRedirectTarget,
-  webhookUrlPolicy,
-} from '@/lib/net/url-guard';
+  SUCCESS_PING_PRESETS,
+  SUCCESS_PING_TAG_KEYS,
+  parseSuccessPingMethod,
+  type SuccessPingPreset,
+  type SuccessPingTagKey,
+} from '@/lib/notify/presets';
+
+export {
+  SUCCESS_PING_PRESETS,
+  SUCCESS_PING_TAG_KEYS,
+  parseSuccessPingMethod,
+  type SuccessPingPreset,
+  type SuccessPingTagKey,
+};
 
 export const SUCCESS_PING_URL_KEY = 'successPingUrl';
 export const SUCCESS_PING_METHOD_KEY = 'successPingMethod';
 export const SUCCESS_PING_HEADERS_KEY = 'successPingHeaders';
 export const SUCCESS_PING_BODY_KEY = 'successPingBody';
-
-export const SUCCESS_PING_TAG_KEYS = [
-  'event',
-  'backupName',
-  'configId',
-  'historyId',
-  'endedAt',
-] as const;
-
-export type SuccessPingTagKey = (typeof SUCCESS_PING_TAG_KEYS)[number];
 
 export type BackupSucceededPayload = {
   event: 'backup.succeeded';
@@ -41,56 +43,6 @@ export type SuccessPingConfig = {
   headersRaw: string;
   bodyTemplate: string;
 };
-
-export type SuccessPingPreset = {
-  id: string;
-  name: string;
-  description: string;
-  method: WebhookHttpMethod;
-  url: string;
-  headers: string;
-  body: string;
-};
-
-/** Presets shown in Settings — placeholders the operator replaces. */
-export const SUCCESS_PING_PRESETS: SuccessPingPreset[] = [
-  {
-    id: 'healthchecks',
-    name: 'Healthchecks.io',
-    description: 'GET your check’s ping URL (…/ping/UUID).',
-    method: 'GET',
-    url: 'https://hc-ping.com/YOUR-UUID',
-    headers: '',
-    body: '',
-  },
-  {
-    id: 'kuma',
-    name: 'Uptime Kuma',
-    description: 'Push monitor — status=up on success.',
-    method: 'GET',
-    url: 'https://kuma.example.com/api/push/TOKEN?status=up&msg=OK&ping=',
-    headers: '',
-    body: '',
-  },
-  {
-    id: 'default',
-    name: 'Default JSON',
-    description: 'POST the built-in backup.succeeded object (empty body template).',
-    method: 'POST',
-    url: 'https://hooks.example.com/lazybackup/success',
-    headers: 'Content-Type: application/json',
-    body: '',
-  },
-];
-
-/** Success pings default to GET (Healthchecks / Kuma push style). */
-export function parseSuccessPingMethod(
-  raw: string | null | undefined
-): WebhookHttpMethod {
-  const upper = (raw ?? 'GET').trim().toUpperCase();
-  if (upper === 'POST' || upper === 'PUT') return upper;
-  return 'GET';
-}
 
 export function buildBackupSucceededPayload(input: {
   historyId: string;

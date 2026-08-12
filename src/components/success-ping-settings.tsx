@@ -7,10 +7,10 @@ import { Textarea } from "@/components/ui/textarea"
 import {
   SUCCESS_PING_PRESETS,
   SUCCESS_PING_TAG_KEYS,
-  type SuccessPingPreset,
   parseSuccessPingMethod,
-} from "@/lib/notify/success-ping"
-import type { WebhookHttpMethod } from "@/lib/notify/failure-webhook"
+  type SuccessPingPreset,
+  type WebhookHttpMethod,
+} from "@/lib/notify/presets"
 import { useSettings } from "@/lib/hooks/useSettings"
 import { useQueryClient } from "@tanstack/react-query"
 import { useEffect, useState } from "react"

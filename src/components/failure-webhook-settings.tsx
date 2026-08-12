@@ -9,7 +9,7 @@ import {
   WEBHOOK_TAG_KEYS,
   type WebhookHttpMethod,
   type WebhookPreset,
-} from "@/lib/notify/failure-webhook"
+} from "@/lib/notify/presets"
 import { useSettings } from "@/lib/hooks/useSettings"
 import { useQueryClient } from "@tanstack/react-query"
 import { useEffect, useState } from "react"

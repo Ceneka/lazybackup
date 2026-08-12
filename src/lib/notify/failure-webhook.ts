@@ -1,10 +1,25 @@
+import { validateHttpUrlResolved } from '@/lib/net/url-guard-resolve';
 import {
   isForbiddenRequestHeader,
   validateHttpUrl,
-  validateHttpUrlResolved,
   validateRedirectTarget,
   webhookUrlPolicy,
 } from '@/lib/net/url-guard';
+import {
+  WEBHOOK_PRESETS,
+  WEBHOOK_TAG_KEYS,
+  type WebhookHttpMethod,
+  type WebhookPreset,
+  type WebhookTagKey,
+} from '@/lib/notify/presets';
+
+export {
+  WEBHOOK_PRESETS,
+  WEBHOOK_TAG_KEYS,
+  type WebhookHttpMethod,
+  type WebhookPreset,
+  type WebhookTagKey,
+};
 
 export const FAILURE_WEBHOOK_URL_KEY = 'failureWebhookUrl';
 export const FAILURE_WEBHOOK_METHOD_KEY = 'failureWebhookMethod';
@@ -12,17 +27,6 @@ export const FAILURE_WEBHOOK_HEADERS_KEY = 'failureWebhookHeaders';
 export const FAILURE_WEBHOOK_BODY_KEY = 'failureWebhookBody';
 
 export const WEBHOOK_TIMEOUT_MS = 5_000;
-
-export const WEBHOOK_TAG_KEYS = [
-  'event',
-  'backupName',
-  'configId',
-  'historyId',
-  'errorMessage',
-  'endedAt',
-] as const;
-
-export type WebhookTagKey = (typeof WEBHOOK_TAG_KEYS)[number];
 
 export type BackupFailedPayload = {
   event: 'backup.failed';
@@ -32,8 +36,6 @@ export type BackupFailedPayload = {
   errorMessage: string;
   endedAt: string;
 };
-
-export type WebhookHttpMethod = 'GET' | 'POST' | 'PUT';
 
 export type FailureWebhookConfig = {
   url: string;
@@ -47,95 +49,6 @@ export type FailureWebhookConfig = {
 export type WebhookUrlValidation =
   | { ok: true; url: string }
   | { ok: false; error: string };
-
-export type WebhookPreset = {
-  id: string;
-  name: string;
-  description: string;
-  method: WebhookHttpMethod;
-  url: string;
-  headers: string;
-  body: string;
-};
-
-/** Presets shown in Settings — placeholders the operator replaces. */
-export const WEBHOOK_PRESETS: WebhookPreset[] = [
-  {
-    id: 'default',
-    name: 'Default JSON',
-    description: 'POST the built-in backup.failed object (empty body template).',
-    method: 'POST',
-    url: 'https://hooks.example.com/lazybackup',
-    headers: 'Content-Type: application/json',
-    body: '',
-  },
-  {
-    id: 'discord',
-    name: 'Discord',
-    description: 'Incoming webhook — paste your Discord webhook URL.',
-    method: 'POST',
-    url: 'https://discord.com/api/webhooks/ID/TOKEN',
-    headers: 'Content-Type: application/json',
-    body: JSON.stringify(
-      {
-        content:
-          '**Backup failed:** {{backupName}}\n```{{errorMessage}}```\n_History:_ `{{historyId}}` · {{endedAt}}',
-      },
-      null,
-      2
-    ),
-  },
-  {
-    id: 'telegram',
-    name: 'Telegram',
-    description: 'Bot API sendMessage — replace BOT_TOKEN and CHAT_ID.',
-    method: 'POST',
-    url: 'https://api.telegram.org/botBOT_TOKEN/sendMessage',
-    headers: 'Content-Type: application/json',
-    body: JSON.stringify(
-      {
-        chat_id: 'CHAT_ID',
-        text: 'Backup failed: {{backupName}}\n{{errorMessage}}\n({{endedAt}})',
-        disable_web_page_preview: true,
-      },
-      null,
-      2
-    ),
-  },
-  {
-    id: 'kuma',
-    name: 'Uptime Kuma',
-    description: 'Push monitor — status=down with the error in msg.',
-    method: 'GET',
-    url: 'https://kuma.example.com/api/push/TOKEN?status=down&msg={{errorMessage}}&ping=',
-    headers: '',
-    body: '',
-  },
-  {
-    id: 'ntfy',
-    name: 'ntfy',
-    description: 'Simple topic publish (optional auth header).',
-    method: 'POST',
-    url: 'https://ntfy.sh/your-topic',
-    headers: 'Title: LazyBackup failure\nPriority: high\nTags: warning,backup',
-    body: '{{backupName}}: {{errorMessage}}',
-  },
-  {
-    id: 'slack',
-    name: 'Slack',
-    description: 'Incoming webhook with a text field.',
-    method: 'POST',
-    url: 'https://hooks.slack.com/services/T00/B00/XXX',
-    headers: 'Content-Type: application/json',
-    body: JSON.stringify(
-      {
-        text: 'Backup failed: *{{backupName}}*\n```{{errorMessage}}```',
-      },
-      null,
-      2
-    ),
-  },
-];
 
 /**
  * Validate a failure webhook URL (after tag substitution for the final request).

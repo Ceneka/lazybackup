@@ -2,7 +2,8 @@ import { and, eq } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { db } from '@/lib/db';
 import { peerInvites, peers, settings } from '@/lib/db/schema';
-import { validatePeerUrl, validatePeerUrlResolved } from '@/lib/net/url-guard';
+import { validatePeerUrl } from '@/lib/net/url-guard';
+import { validatePeerUrlResolved } from '@/lib/net/url-guard-resolve';
 import {
   decodeInvitePayload,
   encodeInvitePayload,

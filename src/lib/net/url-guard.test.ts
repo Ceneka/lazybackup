@@ -1,10 +1,10 @@
 import { describe, expect, test } from 'bun:test';
+import { validateHttpUrlResolved } from './url-guard-resolve';
 import {
   classifyIp,
   mappedIpv4,
   peerUrlPolicy,
   validateHttpUrl,
-  validateHttpUrlResolved,
   validatePeerUrl,
   validateRedirectTarget,
   webhookUrlPolicy,
