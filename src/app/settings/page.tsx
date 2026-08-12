@@ -560,7 +560,7 @@ function SettingsPageInner() {
                             )}
                           </div>
                           <div className="flex shrink-0 items-center">
-                            {(key.privateKeyContent || key.privateKeyPath) && (
+                            {(key.hasPrivateKeyContent || key.privateKeyContent || key.privateKeyPath) && (
                               <Button
                                 variant="ghost"
                                 size="icon"

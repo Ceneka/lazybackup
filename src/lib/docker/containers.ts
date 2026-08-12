@@ -21,6 +21,8 @@ export type ContainerDatabaseHints = {
   image?: string;
   /** True when at least one credential/engine field was inferred */
   found: boolean;
+  /** Set by the db-hints API; password itself is session-only */
+  hasPassword?: boolean;
 };
 
 /**

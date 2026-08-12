@@ -12,4 +12,17 @@ export const SENSITIVE_SETTING_KEYS = [
   'ageIdentity',
 ] as const
 
+/**
+ * Webhook / success-ping secrets. Cookie sessions keep them for Settings UI;
+ * Bearer tokens must not receive URLs, headers, or bodies (bot tokens, etc.).
+ */
+export const BEARER_REDACTED_SETTING_KEYS = [
+  'failureWebhookUrl',
+  'failureWebhookHeaders',
+  'failureWebhookBody',
+  'successPingUrl',
+  'successPingHeaders',
+  'successPingBody',
+] as const
+
 export const MIN_PASSWORD_LENGTH = 4

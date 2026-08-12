@@ -52,7 +52,7 @@ export async function GET(request: NextRequest) {
       where: sql`${backupHistory.status} = 'success'`,
       orderBy: [sql`${backupHistory.endTime} DESC`],
       with: {
-        backupConfig: true,
+        backupConfig: { columns: { name: true } },
       },
     });
 

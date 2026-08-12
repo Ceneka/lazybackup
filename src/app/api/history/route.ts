@@ -1,9 +1,9 @@
-import { createHistorySchema } from '@/lib/backup/history-schema';
+import { historyBackupConfigWith } from '@/lib/api/history-query';
+import { redactHistoryEntry } from '@/lib/api/redact';
 import { db } from '@/lib/db';
 import { backupConfigs, backupHistory, servers } from '@/lib/db/schema';
 import { and, desc, eq, inArray, like, or, sql } from 'drizzle-orm';
 import { NextRequest, NextResponse } from 'next/server';
-import { z } from 'zod';
 
 function escapeLike(value: string): string {
   return value.replace(/[\\%_]/g, (ch) => `\\${ch}`);
@@ -66,14 +66,7 @@ export async function GET(request: NextRequest) {
     const history = await db.query.backupHistory.findMany({
       where: whereClause,
       with: {
-        backupConfig: {
-          with: {
-            server: true,
-            destinationServer: true,
-            sourceS3Profile: true,
-            destinationS3Profile: true,
-          },
-        },
+        backupConfig: historyBackupConfigWith,
       },
       orderBy: [desc(backupHistory.startTime)],
       limit,
@@ -97,7 +90,9 @@ export async function GET(request: NextRequest) {
     }
 
     return NextResponse.json({
-      history,
+      history: history.map((row) =>
+        redactHistoryEntry(row as unknown as Record<string, unknown>)
+      ),
       pagination: {
         total,
         limit,
@@ -115,58 +110,6 @@ export async function GET(request: NextRequest) {
     console.error('Error fetching backup history:', error);
     return NextResponse.json(
       { error: 'Failed to fetch backup history' },
-      { status: 500 }
-    );
-  }
-}
-
-// POST /api/history - Create a new backup history entry
-export async function POST(request: NextRequest) {
-  try {
-    const body = await request.json();
-    const validated = createHistorySchema.parse(body);
-
-    const config = await db.query.backupConfigs.findFirst({
-      where: eq(backupConfigs.id, validated.configId),
-      columns: { id: true },
-    });
-    if (!config) {
-      return NextResponse.json(
-        { error: 'Backup configuration not found' },
-        { status: 400 }
-      );
-    }
-
-    const newHistoryEntry = await db
-      .insert(backupHistory)
-      .values({
-        id: validated.id ?? crypto.randomUUID(),
-        configId: validated.configId,
-        status: validated.status,
-        startTime: validated.startTime ?? new Date(),
-        endTime: validated.endTime ?? null,
-        fileCount: validated.fileCount ?? null,
-        totalSize: validated.totalSize ?? null,
-        transferredSize: validated.transferredSize ?? null,
-        errorMessage: validated.errorMessage ?? null,
-        logOutput: validated.logOutput ?? null,
-        artifactPath: validated.artifactPath ?? null,
-      })
-      .returning();
-
-    return NextResponse.json(newHistoryEntry[0], { status: 201 });
-  } catch (error) {
-    console.error('Error creating backup history entry:', error);
-
-    if (error instanceof z.ZodError) {
-      return NextResponse.json(
-        { error: 'Validation error', details: error.issues },
-        { status: 400 }
-      );
-    }
-
-    return NextResponse.json(
-      { error: 'Failed to create backup history entry' },
       { status: 500 }
     );
   }

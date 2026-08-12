@@ -1,3 +1,5 @@
+import { isBearerAudience, redactSshKey } from '@/lib/api/redact';
+import { resolveAuth } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { sshKeys } from '@/lib/db/schema';
 import { findServersUsingSshKey } from '@/lib/ssh/key-usage';
@@ -38,7 +40,18 @@ export async function GET(
     });
     const usedByServers = findServersUsingSshKey(allServers, id);
 
-    return NextResponse.json({ ...key, usedByServers });
+    const auth = await resolveAuth(
+      request.headers.get('cookie'),
+      request.headers.get('authorization')
+    );
+    const includePrivateKeyContent = !isBearerAudience(auth.via);
+
+    return NextResponse.json({
+      ...redactSshKey(key as unknown as Record<string, unknown>, {
+        includePrivateKeyContent,
+      }),
+      usedByServers,
+    });
   } catch (error) {
     console.error('Failed to fetch SSH key:', error);
     return NextResponse.json(
@@ -80,7 +93,9 @@ export async function PUT(
       );
     }
 
-    return NextResponse.json(updatedKey);
+    return NextResponse.json(
+      redactSshKey(updatedKey as unknown as Record<string, unknown>)
+    );
   } catch (error) {
     console.error('Failed to update SSH key:', error);
 

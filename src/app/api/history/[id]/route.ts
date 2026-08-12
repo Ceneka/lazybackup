@@ -1,9 +1,9 @@
-import { updateHistorySchema } from '@/lib/backup/history-schema';
+import { historyBackupConfigWith } from '@/lib/api/history-query';
+import { redactHistoryEntry } from '@/lib/api/redact';
 import { db } from '@/lib/db';
 import { backupHistory } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { NextRequest, NextResponse } from 'next/server';
-import { z } from 'zod';
 
 // GET /api/history/[id] - Get a specific backup history entry
 export async function GET(
@@ -17,14 +17,7 @@ export async function GET(
     const historyEntry = await db.query.backupHistory.findFirst({
       where: eq(backupHistory.id, id),
       with: {
-        backupConfig: {
-          with: {
-            server: true,
-            destinationServer: true,
-            sourceS3Profile: true,
-            destinationS3Profile: true,
-          },
-        },
+        backupConfig: historyBackupConfigWith,
       },
     });
     
@@ -35,52 +28,13 @@ export async function GET(
       );
     }
     
-    return NextResponse.json(historyEntry);
+    return NextResponse.json(
+      redactHistoryEntry(historyEntry as unknown as Record<string, unknown>)
+    );
   } catch (error) {
     console.error('Error fetching backup history entry:', error);
     return NextResponse.json(
       { error: 'Failed to fetch backup history entry' },
-      { status: 500 }
-    );
-  }
-}
-
-// PUT /api/history/[id] - Update a specific backup history entry
-export async function PUT(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const { id } = await params;
-    const body = await request.json();
-    const validated = updateHistorySchema.parse(body);
-    
-    const updatedHistoryEntry = await db
-      .update(backupHistory)
-      .set(validated)
-      .where(eq(backupHistory.id, id))
-      .returning();
-    
-    if (updatedHistoryEntry.length === 0) {
-      return NextResponse.json(
-        { error: 'Backup history entry not found' },
-        { status: 404 }
-      );
-    }
-    
-    return NextResponse.json(updatedHistoryEntry[0]);
-  } catch (error) {
-    console.error('Error updating backup history entry:', error);
-
-    if (error instanceof z.ZodError) {
-      return NextResponse.json(
-        { error: 'Validation error', details: error.issues },
-        { status: 400 }
-      );
-    }
-
-    return NextResponse.json(
-      { error: 'Failed to update backup history entry' },
       { status: 500 }
     );
   }
