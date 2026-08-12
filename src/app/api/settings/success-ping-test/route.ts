@@ -1,3 +1,4 @@
+import { isSessionAuthorized } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { settings } from '@/lib/db/schema';
 import {
@@ -36,8 +37,17 @@ async function settingValue(key: string): Promise<string> {
 /**
  * POST /api/settings/success-ping-test — send a sample backup.succeeded ping using the
  * configured (or request-provided) URL / method / headers / body template.
+ * Session cookie only (not API tokens) to reduce authenticated SSRF.
  */
 export async function POST(request: NextRequest) {
+  const sessionOk = await isSessionAuthorized(request.headers.get('cookie'));
+  if (!sessionOk) {
+    return NextResponse.json(
+      { error: 'Session required to test success pings' },
+      { status: 401 }
+    );
+  }
+
   try {
     let body: z.infer<typeof bodySchema> = {};
     try {
@@ -87,7 +97,7 @@ export async function POST(request: NextRequest) {
     const result = await postSuccessPing(config, payload);
     if (!result.ok) {
       return NextResponse.json(
-        { error: result.error || 'Success ping request failed' },
+        { error: 'Success ping request failed' },
         { status: 502 }
       );
     }
@@ -96,10 +106,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Success ping test failed:', error);
     return NextResponse.json(
-      {
-        error: 'Failed to send success ping',
-        details: error instanceof Error ? error.message : 'Unknown error',
-      },
+      { error: 'Failed to send success ping' },
       { status: 500 }
     );
   }

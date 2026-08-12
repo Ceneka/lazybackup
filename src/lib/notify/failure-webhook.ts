@@ -1,3 +1,11 @@
+import {
+  isForbiddenRequestHeader,
+  validateHttpUrl,
+  validateHttpUrlResolved,
+  validateRedirectTarget,
+  webhookUrlPolicy,
+} from '@/lib/net/url-guard';
+
 export const FAILURE_WEBHOOK_URL_KEY = 'failureWebhookUrl';
 export const FAILURE_WEBHOOK_METHOD_KEY = 'failureWebhookMethod';
 export const FAILURE_WEBHOOK_HEADERS_KEY = 'failureWebhookHeaders';
@@ -131,61 +139,18 @@ export const WEBHOOK_PRESETS: WebhookPreset[] = [
 
 /**
  * Validate a failure webhook URL (after tag substitution for the final request).
- * HTTPS is required except for localhost / private LAN hosts (http allowed for self-host).
+ * HTTPS is required except for localhost / private LAN hosts when ALLOW_LAN_WEBHOOKS is on (default).
+ * Link-local / IMDS addresses are always rejected, including via HTTPS.
  */
 export function validateFailureWebhookUrl(
   raw: string | null | undefined,
   options?: { allowHttpLocal?: boolean }
 ): WebhookUrlValidation {
-  const trimmed = (raw ?? '').trim();
-  if (!trimmed) {
-    return { ok: false, error: 'Webhook URL is empty' };
-  }
-
-  let parsed: URL;
-  try {
-    parsed = new URL(trimmed);
-  } catch {
-    return { ok: false, error: 'Invalid webhook URL' };
-  }
-
-  const allowHttpLocal = options?.allowHttpLocal !== false;
-  const host = parsed.hostname.toLowerCase();
-  const isLocalHost =
-    host === 'localhost' ||
-    host === '127.0.0.1' ||
-    host === '::1' ||
-    host.endsWith('.local') ||
-    isPrivateIpv4(host);
-
-  if (parsed.protocol === 'https:') {
-    return { ok: true, url: parsed.toString() };
-  }
-
-  if (parsed.protocol === 'http:' && allowHttpLocal && isLocalHost) {
-    return { ok: true, url: parsed.toString() };
-  }
-
-  if (parsed.protocol === 'http:') {
-    return {
-      ok: false,
-      error: 'Webhook URL must use HTTPS (http is only allowed for localhost/LAN)',
-    };
-  }
-
-  return { ok: false, error: 'Webhook URL must be http(s)' };
-}
-
-function isPrivateIpv4(host: string): boolean {
-  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
-  if (!m) return false;
-  const parts = m.slice(1).map(Number);
-  if (parts.some((n) => n > 255)) return false;
-  const [a, b] = parts;
-  if (a === 10) return true;
-  if (a === 192 && b === 168) return true;
-  if (a === 172 && b >= 16 && b <= 31) return true;
-  return false;
+  const allowLan = options?.allowHttpLocal ?? undefined;
+  return validateHttpUrl(
+    raw,
+    webhookUrlPolicy(allowLan === undefined ? undefined : { allowLan })
+  );
 }
 
 export function buildBackupFailedPayload(input: {
@@ -272,6 +237,9 @@ export function parseWebhookHeaders(
         if (typeof value !== 'string') {
           return { ok: false, error: `Header "${key}" must be a string` };
         }
+        if (isForbiddenRequestHeader(key)) {
+          return { ok: false, error: `Header "${key}" is not allowed` };
+        }
         headers[key] = value;
       }
       return { ok: true, headers };
@@ -295,6 +263,9 @@ export function parseWebhookHeaders(
     const value = t.slice(idx + 1).trim();
     if (!name) {
       return { ok: false, error: 'Header name cannot be empty' };
+    }
+    if (isForbiddenRequestHeader(name)) {
+      return { ok: false, error: `Header "${name}" is not allowed` };
     }
     headers[name] = value;
   }
@@ -362,10 +333,18 @@ export async function postFailureWebhook(
     }
   }
 
+  if (!options?.fetchImpl) {
+    const resolved = await validateHttpUrlResolved(validation.url, webhookUrlPolicy());
+    if (!resolved.ok) {
+      return { ok: false, error: resolved.error };
+    }
+  }
+
   const fetchImpl = options?.fetchImpl ?? fetch;
   const timeoutMs = options?.timeoutMs ?? WEBHOOK_TIMEOUT_MS;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const policy = webhookUrlPolicy();
 
   try {
     const response = await fetchImpl(validation.url, {
@@ -373,7 +352,31 @@ export async function postFailureWebhook(
       headers,
       body,
       signal: controller.signal,
+      redirect: 'manual',
     });
+
+    if (response.status >= 300 && response.status < 400) {
+      const next = validateRedirectTarget(
+        validation.url,
+        response.headers.get('location'),
+        policy
+      );
+      if (!next.ok) {
+        return { ok: false, error: next.error };
+      }
+      const followed = await fetchImpl(next.url, {
+        method,
+        headers,
+        body,
+        signal: controller.signal,
+        redirect: 'error',
+      });
+      if (!followed.ok) {
+        return { ok: false, error: `Webhook responded with HTTP ${followed.status}` };
+      }
+      return { ok: true };
+    }
+
     if (!response.ok) {
       return { ok: false, error: `Webhook responded with HTTP ${response.status}` };
     }
