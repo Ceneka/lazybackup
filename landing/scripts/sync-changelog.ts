@@ -1,0 +1,232 @@
+/**
+ * Parse repo-root CHANGELOG.md (Keep a Changelog) → landing/src/lib/changelog.ts
+ *
+ * Run via `bun run sync-changelog` or automatically on `prebuild`.
+ */
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+type ChangelogSection = {
+  heading: string;
+  items: readonly string[];
+};
+
+type ChangelogEntry = {
+  id: string;
+  title: string;
+  date: string;
+  intro?: string;
+  sections: readonly ChangelogSection[];
+};
+
+const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
+const ROOT = resolve(SCRIPT_DIR, "../..");
+const SOURCE = join(ROOT, "CHANGELOG.md");
+const OUT = join(SCRIPT_DIR, "../src/lib/changelog.ts");
+
+const VERSION_RE = /^## \[([^\]]+)\](?:\s*-\s*(.+))?\s*$/;
+const SECTION_RE = /^###\s+(.+)\s*$/;
+const BULLET_RE = /^[-*]\s+(.+)$/;
+const LINK_DEF_RE = /^\[[^\]]+\]:\s+\S+/;
+
+function stripInlineMarkdown(text: string): string {
+  return text
+    .replace(/\*\*(.+?)\*\*/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function slugify(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+type DraftSection = { heading: string; prose: string[]; items: string[] };
+type DraftEntry = {
+  id: string;
+  title: string;
+  date: string;
+  intro: string[];
+  sections: DraftSection[];
+};
+
+function flushBullet(
+  section: DraftSection | null,
+  pending: string | null,
+): string | null {
+  if (!section || pending === null) return null;
+  const cleaned = stripInlineMarkdown(pending);
+  if (cleaned) section.items.push(cleaned);
+  return null;
+}
+
+function parseChangelog(markdown: string): ChangelogEntry[] {
+  const lines = markdown.replace(/\r\n/g, "\n").split("\n");
+  const entries: DraftEntry[] = [];
+  let entry: DraftEntry | null = null;
+  let section: DraftSection | null = null;
+  let pendingBullet: string | null = null;
+
+  const pushSection = () => {
+    pendingBullet = flushBullet(section, pendingBullet);
+    if (!entry || !section) return;
+    if (section.items.length === 0 && section.prose.length > 0) {
+      section.items.push(stripInlineMarkdown(section.prose.join(" ")));
+    }
+    if (section.items.length > 0) {
+      entry.sections.push(section);
+    }
+    section = null;
+  };
+
+  const pushEntry = () => {
+    pushSection();
+    if (entry) entries.push(entry);
+    entry = null;
+  };
+
+  for (const raw of lines) {
+    const line = raw.trimEnd();
+    const trimmed = line.trim();
+
+    if (LINK_DEF_RE.test(trimmed)) continue;
+
+    const versionMatch = trimmed.match(VERSION_RE);
+    if (versionMatch) {
+      pushEntry();
+      const label = versionMatch[1]!.trim();
+      const datePart = versionMatch[2]?.trim();
+      const isUnreleased = label.toLowerCase() === "unreleased";
+      entry = {
+        id: isUnreleased ? "unreleased" : slugify(label),
+        title: label,
+        date: isUnreleased ? "main" : (datePart ?? ""),
+        intro: [],
+        sections: [],
+      };
+      section = null;
+      pendingBullet = null;
+      continue;
+    }
+
+    // Non-version ## headings (e.g. Tagging practice) end release notes.
+    if (trimmed.startsWith("## ") && entry) {
+      pushEntry();
+      continue;
+    }
+
+    if (!entry) continue;
+
+    const sectionMatch = trimmed.match(SECTION_RE);
+    if (sectionMatch) {
+      pushSection();
+      section = {
+        heading: sectionMatch[1]!.trim(),
+        prose: [],
+        items: [],
+      };
+      continue;
+    }
+
+    const bulletMatch = trimmed.match(BULLET_RE);
+    if (bulletMatch) {
+      pendingBullet = flushBullet(section, pendingBullet);
+      const target = section ?? null;
+      if (!target) {
+        // Bullets directly under a version become a synthetic "Notes" section.
+        section = { heading: "Notes", prose: [], items: [] };
+      }
+      pendingBullet = bulletMatch[1]!;
+      continue;
+    }
+
+    if (!trimmed) {
+      pendingBullet = flushBullet(section, pendingBullet);
+      continue;
+    }
+
+    // Continuation of a multi-line bullet
+    if (pendingBullet !== null) {
+      pendingBullet = `${pendingBullet} ${trimmed}`;
+      continue;
+    }
+
+    if (section) {
+      section.prose.push(trimmed);
+    } else {
+      entry.intro.push(trimmed);
+    }
+  }
+
+  pushEntry();
+
+  return entries.map((e) => {
+    const intro = stripInlineMarkdown(e.intro.join(" "));
+    return {
+      id: e.id,
+      title: e.title,
+      date: e.date,
+      ...(intro ? { intro } : {}),
+      sections: e.sections.map((s) => ({
+        heading: s.heading,
+        items: s.items,
+      })),
+    };
+  });
+}
+
+function renderTs(entries: ChangelogEntry[]): string {
+  const data = JSON.stringify(entries, null, 2);
+  return `/* AUTO-GENERATED by scripts/sync-changelog.ts — do not edit by hand.
+ * Source of truth: repo-root CHANGELOG.md
+ * Regenerate: bun run sync-changelog (also runs on prebuild)
+ */
+
+export type ChangelogSection = {
+  heading: string;
+  items: readonly string[];
+};
+
+export type ChangelogEntry = {
+  id: string;
+  title: string;
+  date: string;
+  intro?: string;
+  sections: readonly ChangelogSection[];
+};
+
+export const changelogEntries: readonly ChangelogEntry[] = ${data} as const;
+`;
+}
+
+function main() {
+  let markdown: string;
+  try {
+    markdown = readFileSync(SOURCE, "utf8");
+  } catch {
+    console.error(
+      `sync-changelog: missing ${SOURCE}\n` +
+        "Cloudflare Pages must clone the monorepo (Root directory = landing).",
+    );
+    process.exit(1);
+  }
+
+  const entries = parseChangelog(markdown);
+  if (entries.length === 0) {
+    console.error("sync-changelog: no version sections found in CHANGELOG.md");
+    process.exit(1);
+  }
+
+  mkdirSync(dirname(OUT), { recursive: true });
+  writeFileSync(OUT, renderTs(entries));
+  console.log(
+    `sync-changelog: wrote ${entries.length} entr${entries.length === 1 ? "y" : "ies"} → ${OUT}`,
+  );
+}
+
+main();

@@ -24,12 +24,25 @@ Keep the Pages build the same as the old standalone repo; only set the project r
 
 The app uses `output: "export"` so the build produces a static `out/` directory.
 
+## Changelog
+
+Repo-root [`CHANGELOG.md`](../CHANGELOG.md) is the single source of truth.
+`prebuild` runs `bun run sync-changelog`, which parses Keep a Changelog sections
+into `src/lib/changelog.ts` for `/changelog`. Regenerate anytime with:
+
+```bash
+bun run sync-changelog
+```
+
+(Requires the monorepo checkout so `../CHANGELOG.md` exists — Cloudflare Pages
+Root directory = `landing` still has the parent repo on disk.)
+
 ## Routes
 
 - `/` — product landing
 - `/features` — detailed feature walkthrough
 - `/compare` — LazyBackup vs rsync/cron (and briefly Restic/Borg/Duplicati)
-- `/changelog` — user-facing release notes (mirrors repo `CHANGELOG.md`)
+- `/changelog` — user-facing release notes (from repo `CHANGELOG.md`)
 - `/blog` — guides and product notes
 - `/blog/introducing-lazybackup` — product presentation
 - `/blog/easily-backup-docker-database` — Docker DB dump howto

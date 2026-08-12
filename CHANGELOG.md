@@ -2,8 +2,9 @@
 
 All notable user-facing changes to LazyBackup are listed here.
 GitHub Releases should track **`v*`** tags (for example `v0.2.0`) and can paste
-the matching section below. Landing mirrors this file at
-[lazy.zic.ar/changelog](https://lazy.zic.ar/changelog).
+the matching section below. This file is the source of truth for
+[lazy.zic.ar/changelog](https://lazy.zic.ar/changelog) (landing build generates
+`landing/src/lib/changelog.ts` via `bun run sync-changelog`).
 
 The format is inspired by [Keep a Changelog](https://keepachangelog.com/).
 Versions before a formal `v*` tag are dated unreleased / pre-release notes.
@@ -12,6 +13,8 @@ Versions before a formal `v*` tag are dated unreleased / pre-release notes.
 
 ### Added
 
+- **Landing changelog sync** — `/changelog` is generated from this file at
+  landing build time (`landing/scripts/sync-changelog.ts`); no hand mirror.
 - **Landing compare page** (`/compare`) — LazyBackup vs rsync/cron, with short
   notes on Restic, Borg, and Duplicati. Positions LazyBackup as a From→To
   control plane (SSH, Docker volumes, DB dumps, MCP), not a dedup archive CLI.

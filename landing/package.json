@@ -4,6 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack",
+    "sync-changelog": "bun run scripts/sync-changelog.ts",
+    "prebuild": "bun run sync-changelog",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"
