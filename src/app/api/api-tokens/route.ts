@@ -3,6 +3,7 @@ import {
   isSessionAuthorized,
   listApiTokens,
   normalizeApiTokenPermissionsInput,
+  requireLockedBrowserSession,
 } from '@/lib/auth'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
@@ -38,10 +39,15 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST /api/api-tokens — create token (session only; plaintext returned once)
+// POST /api/api-tokens — create token (locked browser session only; plaintext returned once)
 export async function POST(request: NextRequest) {
-  const denied = await requireSession(request)
-  if (denied) return denied
+  const locked = await requireLockedBrowserSession(request.headers.get('cookie'))
+  if (!locked) {
+    return NextResponse.json(
+      { error: 'Session required to manage API tokens' },
+      { status: 401 }
+    )
+  }
 
   try {
     const body = await request.json()

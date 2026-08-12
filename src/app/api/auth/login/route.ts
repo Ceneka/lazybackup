@@ -5,6 +5,13 @@ import {
   sessionCookieOptions,
   verifyPassword,
 } from '@/lib/auth'
+import {
+  assertNotRateLimited,
+  clientKeyFromRequest,
+  rateLimitKey,
+  recordAuthFailure,
+  recordAuthSuccess,
+} from '@/lib/auth/rate-limit'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 
@@ -12,8 +19,19 @@ const loginSchema = z.object({
   password: z.string().min(1, 'Password is required'),
 })
 
+function tooManyAttempts(retryAfterSec: number) {
+  return NextResponse.json(
+    { error: 'Too many attempts. Try again shortly.' },
+    { status: 429, headers: { 'Retry-After': String(retryAfterSec) } }
+  )
+}
+
 // POST /api/auth/login
 export async function POST(request: NextRequest) {
+  const limitKey = rateLimitKey('login', clientKeyFromRequest(request))
+  const limited = assertNotRateLimited(limitKey)
+  if (!limited.ok) return tooManyAttempts(limited.retryAfterSec)
+
   try {
     const passwordHash = await getPasswordHash()
     if (!passwordHash) {
@@ -28,12 +46,14 @@ export async function POST(request: NextRequest) {
 
     const valid = await verifyPassword(password, passwordHash)
     if (!valid) {
+      recordAuthFailure(limitKey)
       return NextResponse.json(
         { error: 'Invalid password' },
         { status: 401 }
       )
     }
 
+    recordAuthSuccess(limitKey)
     const token = await createSessionCookieValue()
     const response = NextResponse.json({ ok: true })
     response.cookies.set(SESSION_COOKIE_NAME, token, sessionCookieOptions())

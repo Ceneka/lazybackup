@@ -5,6 +5,7 @@ import { ModeToggle } from "@/components/mode-toggle"
 import { LoadingButton } from "@/components/ui/loading-button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { safeInternalPath } from "@/lib/auth/redirect"
 import { useAuth } from "@/lib/hooks/useAuth"
 import { useRouter, useSearchParams } from "next/navigation"
 import { FormEvent, Suspense, useEffect, useState } from "react"
@@ -22,13 +23,12 @@ function LoginForm() {
       return
     }
     if (auth.data.authenticated) {
-      router.replace(searchParams.get("from") || "/")
+      router.replace(safeInternalPath(searchParams.get("from")))
     }
   }, [auth.data, router, searchParams])
 
   const goAfterLogin = () => {
-    const from = searchParams.get("from") || "/"
-    window.location.assign(from.startsWith("/") ? from : "/")
+    window.location.assign(safeInternalPath(searchParams.get("from")))
   }
 
   const handleSubmit = async (e: FormEvent) => {

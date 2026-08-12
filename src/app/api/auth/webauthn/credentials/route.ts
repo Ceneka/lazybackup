@@ -1,5 +1,9 @@
 import { isSessionAuthorized } from '@/lib/auth'
-import { countPasskeys, deletePasskey, listPasskeys } from '@/lib/auth/webauthn'
+import {
+  canDeletePasskey,
+  deletePasskey,
+  listPasskeys,
+} from '@/lib/auth/webauthn'
 import { getPasswordHash } from '@/lib/auth/settings'
 import { NextRequest, NextResponse } from 'next/server'
 
@@ -37,10 +41,18 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'id is required' }, { status: 400 })
     }
 
-    const remaining = (await countPasskeys()) - 1
+    const passkeys = await listPasskeys()
+    const target = passkeys.find((p) => p.id === id)
+    if (!target) {
+      return NextResponse.json({ error: 'Passkey not found' }, { status: 404 })
+    }
+
     const hasPassword = Boolean(await getPasswordHash())
-    if (remaining <= 0 && !hasPassword) {
-      // Deleting last passkey with no password unlocks the instance — allow it
+    if (!canDeletePasskey(passkeys.length, hasPassword)) {
+      return NextResponse.json(
+        { error: 'Add a password before removing the last passkey' },
+        { status: 400 }
+      )
     }
 
     await deletePasskey(id)

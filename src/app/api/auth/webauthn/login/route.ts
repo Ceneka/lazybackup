@@ -4,12 +4,26 @@ import {
   sessionCookieOptions,
 } from '@/lib/auth'
 import {
+  assertNotRateLimited,
+  clientKeyFromRequest,
+  rateLimitKey,
+  recordAuthFailure,
+  recordAuthSuccess,
+} from '@/lib/auth/rate-limit'
+import {
   getAuthenticationOptions,
   verifyAuthentication,
   webauthnRpFromRequest,
 } from '@/lib/auth/webauthn'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
+
+function tooManyAttempts(retryAfterSec: number) {
+  return NextResponse.json(
+    { error: 'Too many attempts. Try again shortly.' },
+    { status: 429, headers: { 'Retry-After': String(retryAfterSec) } }
+  )
+}
 
 /** GET /api/auth/webauthn/login — authentication options (public) */
 export async function GET(request: NextRequest) {
@@ -32,6 +46,10 @@ const verifySchema = z.object({
 
 /** POST /api/auth/webauthn/login — verify assertion + set session */
 export async function POST(request: NextRequest) {
+  const limitKey = rateLimitKey('webauthn-login', clientKeyFromRequest(request))
+  const limited = assertNotRateLimited(limitKey)
+  if (!limited.ok) return tooManyAttempts(limited.retryAfterSec)
+
   try {
     const body = verifySchema.parse(await request.json())
     const { rpID, origin } = webauthnRpFromRequest(request)
@@ -41,6 +59,7 @@ export async function POST(request: NextRequest) {
       expectedRPID: rpID,
     })
 
+    recordAuthSuccess(limitKey)
     const token = await createSessionCookieValue()
     const response = NextResponse.json({ ok: true })
     response.cookies.set(SESSION_COOKIE_NAME, token, sessionCookieOptions())
@@ -52,6 +71,7 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       )
     }
+    recordAuthFailure(limitKey)
     console.error('WebAuthn login verify failed:', error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Passkey login failed' },

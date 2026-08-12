@@ -1,10 +1,17 @@
 import {
   createSessionCookieValue,
-  isSessionAuthorized,
+  requireLockedBrowserSession,
   markAuthSetupCompleted,
   SESSION_COOKIE_NAME,
   sessionCookieOptions,
 } from '@/lib/auth'
+import {
+  assertNotRateLimited,
+  clientKeyFromRequest,
+  rateLimitKey,
+  recordAuthFailure,
+  recordAuthSuccess,
+} from '@/lib/auth/rate-limit'
 import {
   getRegistrationOptions,
   verifyAndStoreRegistration,
@@ -13,8 +20,15 @@ import {
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 
+function tooManyAttempts(retryAfterSec: number) {
+  return NextResponse.json(
+    { error: 'Too many attempts. Try again shortly.' },
+    { status: 429, headers: { 'Retry-After': String(retryAfterSec) } }
+  )
+}
+
 async function requireSession(request: NextRequest) {
-  const ok = await isSessionAuthorized(request.headers.get('cookie'))
+  const ok = await requireLockedBrowserSession(request.headers.get('cookie'))
   if (!ok) {
     return NextResponse.json(
       { error: 'Session required to register passkeys' },
@@ -24,7 +38,7 @@ async function requireSession(request: NextRequest) {
   return null
 }
 
-/** GET /api/auth/webauthn/register — registration options (session required) */
+/** GET /api/auth/webauthn/register — registration options (locked session required) */
 export async function GET(request: NextRequest) {
   const denied = await requireSession(request)
   if (denied) return denied
@@ -50,6 +64,11 @@ const verifySchema = z.object({
 export async function POST(request: NextRequest) {
   const denied = await requireSession(request)
   if (denied) return denied
+
+  const limitKey = rateLimitKey('webauthn-register', clientKeyFromRequest(request))
+  const limited = assertNotRateLimited(limitKey)
+  if (!limited.ok) return tooManyAttempts(limited.retryAfterSec)
+
   try {
     const body = verifySchema.parse(await request.json())
     const { rpID, origin } = webauthnRpFromRequest(request)
@@ -60,6 +79,7 @@ export async function POST(request: NextRequest) {
       name: body.name,
     })
     await markAuthSetupCompleted()
+    recordAuthSuccess(limitKey)
     const token = await createSessionCookieValue()
     const response = NextResponse.json({ passkey }, { status: 201 })
     response.cookies.set(SESSION_COOKIE_NAME, token, sessionCookieOptions())
@@ -71,6 +91,7 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       )
     }
+    recordAuthFailure(limitKey)
     console.error('WebAuthn register verify failed:', error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Registration failed' },
