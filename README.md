@@ -195,6 +195,8 @@ POST/PUT with an empty body sends `{"event":"backup.succeeded",…}`.
 | `SSH_KEYS_PATH` | `~/.ssh` | System SSH keys (Docker mount, read-only) |
 | `AUTH_SECRET` | (auto in settings) | HMAC secret for session cookies; auto-generated in SQLite if unset |
 | `AUTH_COOKIE_SECURE` | unset (`false`) | Set `true` only behind HTTPS; Secure cookies are dropped on plain HTTP |
+| `ALLOW_PRIVATE_PEER_URLS` | unset (`false`) | Allow Bro Space pairing/sync to RFC1918 and loopback URLs. Default allows public http(s) and Tailscale only. IMDS/link-local are always blocked. |
+| `ALLOW_LAN_WEBHOOKS` | unset (`true`) | Allow HTTP webhooks/pings to localhost and RFC1918 (LAN ntfy/Kuma). IMDS/link-local are always blocked. Set `false` for public HTTPS only. |
 
 See [`.env.example`](./.env.example) for a copy-paste template.
 

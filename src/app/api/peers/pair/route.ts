@@ -1,4 +1,5 @@
-import { completePairFromAcceptor } from '@/lib/peer/pairing';
+import { completePairFromAcceptor, PAIRING_FAILED_MESSAGE } from '@/lib/peer/pairing';
+import { consumeIpRateLimit } from '@/lib/net/ip-throttle';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 
@@ -16,11 +17,24 @@ const pairSchema = z.object({
   }),
 });
 
+function requestIp(request: NextRequest): string {
+  const forwarded = request.headers.get('x-forwarded-for');
+  if (forwarded) {
+    const first = forwarded.split(',')[0]?.trim();
+    if (first) return first;
+  }
+  return request.headers.get('x-real-ip')?.trim() || 'unknown';
+}
+
 /**
  * POST /api/peers/pair — called by accepting bro / LazyBro (no session).
  * Authenticated by invite code + secret.
  */
 export async function POST(request: NextRequest) {
+  if (!consumeIpRateLimit(`pair:${requestIp(request)}`)) {
+    return NextResponse.json({ error: PAIRING_FAILED_MESSAGE }, { status: 429 });
+  }
+
   try {
     const body = pairSchema.parse(await request.json());
     const result = await completePairFromAcceptor({
@@ -45,7 +59,7 @@ export async function POST(request: NextRequest) {
     }
     console.error('Peer pair failed:', error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Pairing failed' },
+      { error: error instanceof Error ? error.message : PAIRING_FAILED_MESSAGE },
       { status: 400 }
     );
   }

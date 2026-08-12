@@ -4,6 +4,7 @@ import os from 'os';
 import path from 'path';
 import { db } from '@/lib/db';
 import { peers } from '@/lib/db/schema';
+import { assertPeerBaseUrl } from '@/lib/net/url-guard';
 import { writePeerObject } from './storage';
 import type { PeerRow } from './types';
 
@@ -26,8 +27,10 @@ async function peerFetch(
   if (!peer.outboundToken || !peer.remoteBaseUrl) {
     throw new Error('Peer missing outbound credentials');
   }
+  assertPeerBaseUrl(peer.remoteBaseUrl);
   return fetch(peerApi(peer.remoteBaseUrl, apiPath), {
     ...init,
+    redirect: 'error',
     headers: {
       ...(init?.headers || {}),
       Authorization: `Bearer ${peer.outboundToken}`,

@@ -153,8 +153,9 @@ describe('postSuccessPing', () => {
     expect(result.ok).toBe(false);
   });
 
-  test('reuses webhook URL rules (https required)', () => {
+  test('reuses webhook URL rules (https required, IMDS blocked)', () => {
     expect(validateFailureWebhookUrl('https://hc-ping.com/x').ok).toBe(true);
     expect(validateFailureWebhookUrl('http://example.com/x').ok).toBe(false);
+    expect(validateFailureWebhookUrl('https://169.254.169.254/').ok).toBe(false);
   });
 });

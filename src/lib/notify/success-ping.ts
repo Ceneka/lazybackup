@@ -6,6 +6,11 @@ import {
   validateFailureWebhookUrl,
   type WebhookHttpMethod,
 } from '@/lib/notify/failure-webhook';
+import {
+  validateHttpUrlResolved,
+  validateRedirectTarget,
+  webhookUrlPolicy,
+} from '@/lib/net/url-guard';
 
 export const SUCCESS_PING_URL_KEY = 'successPingUrl';
 export const SUCCESS_PING_METHOD_KEY = 'successPingMethod';
@@ -174,10 +179,18 @@ export async function postSuccessPing(
     }
   }
 
+  if (!options?.fetchImpl) {
+    const resolved = await validateHttpUrlResolved(validation.url, webhookUrlPolicy());
+    if (!resolved.ok) {
+      return { ok: false, error: resolved.error };
+    }
+  }
+
   const fetchImpl = options?.fetchImpl ?? fetch;
   const timeoutMs = options?.timeoutMs ?? WEBHOOK_TIMEOUT_MS;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const policy = webhookUrlPolicy();
 
   try {
     const response = await fetchImpl(validation.url, {
@@ -185,7 +198,31 @@ export async function postSuccessPing(
       headers,
       body,
       signal: controller.signal,
+      redirect: 'manual',
     });
+
+    if (response.status >= 300 && response.status < 400) {
+      const next = validateRedirectTarget(
+        validation.url,
+        response.headers.get('location'),
+        policy
+      );
+      if (!next.ok) {
+        return { ok: false, error: next.error };
+      }
+      const followed = await fetchImpl(next.url, {
+        method,
+        headers,
+        body,
+        signal: controller.signal,
+        redirect: 'error',
+      });
+      if (!followed.ok) {
+        return { ok: false, error: `Success ping responded with HTTP ${followed.status}` };
+      }
+      return { ok: true };
+    }
+
     if (!response.ok) {
       return { ok: false, error: `Success ping responded with HTTP ${response.status}` };
     }

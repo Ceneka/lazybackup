@@ -10,6 +10,11 @@ import {
 } from './failure-webhook';
 
 describe('validateFailureWebhookUrl', () => {
+  test('rejects https to IMDS / link-local', () => {
+    expect(validateFailureWebhookUrl('https://169.254.169.254/').ok).toBe(false);
+    expect(validateFailureWebhookUrl('http://169.254.169.254/').ok).toBe(false);
+  });
+
   test('rejects empty', () => {
     expect(validateFailureWebhookUrl('').ok).toBe(false);
     expect(validateFailureWebhookUrl(null).ok).toBe(false);
@@ -80,6 +85,12 @@ describe('applyWebhookTemplate', () => {
 });
 
 describe('parseWebhookHeaders', () => {
+  test('rejects Host and hop-by-hop overrides', () => {
+    expect(parseWebhookHeaders('Host: 169.254.169.254').ok).toBe(false);
+    expect(parseWebhookHeaders('Connection: keep-alive').ok).toBe(false);
+    expect(parseWebhookHeaders('{"Host":"evil"}').ok).toBe(false);
+  });
+
   test('parses line format', () => {
     const result = parseWebhookHeaders('Authorization: Bearer x\nX-Custom: 1');
     expect(result).toEqual({
@@ -187,6 +198,27 @@ describe('postFailureWebhook', () => {
     expect(calls[0].init?.method).toBe('GET');
     expect(calls[0].init?.body).toBeUndefined();
     expect(calls[0].url).toContain('msg=x%20y');
+  });
+
+  test('does not follow a redirect to IMDS', async () => {
+    const urls: string[] = [];
+    const fetchImpl: typeof fetch = async (input, init) => {
+      urls.push(String(input));
+      expect(init?.redirect).toBe('manual');
+      return new Response(null, {
+        status: 302,
+        headers: { Location: 'http://169.254.169.254/latest/meta-data' },
+      });
+    };
+
+    const result = await postFailureWebhook(
+      'https://hooks.example.com/x',
+      buildBackupFailedPayload({ historyId: 'h1', errorMessage: 'x' }),
+      { fetchImpl }
+    );
+    expect(result.ok).toBe(false);
+    expect(result.error?.toLowerCase()).toContain('redirect');
+    expect(urls).toEqual(['https://hooks.example.com/x']);
   });
 
   test('returns not ok on HTTP error without throwing', async () => {

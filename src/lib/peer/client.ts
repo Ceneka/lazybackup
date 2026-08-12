@@ -1,5 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
+import { assertPeerBaseUrl } from '@/lib/net/url-guard';
 import type { PeerRow } from './types';
 
 function peerApi(baseUrl: string, apiPath: string): string {
@@ -19,8 +20,10 @@ async function peerFetch(
   if (peer.status !== 'active') {
     throw new Error(`Peer "${peer.name}" is not active`);
   }
+  assertPeerBaseUrl(peer.remoteBaseUrl);
   const res = await fetch(peerApi(peer.remoteBaseUrl, apiPath), {
     ...init,
+    redirect: 'error',
     headers: {
       ...(init?.headers || {}),
       Authorization: `Bearer ${peer.outboundToken}`,

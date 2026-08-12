@@ -2,6 +2,7 @@ import { and, eq } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { db } from '@/lib/db';
 import { peerInvites, peers, settings } from '@/lib/db/schema';
+import { validatePeerUrl, validatePeerUrlResolved } from '@/lib/net/url-guard';
 import {
   decodeInvitePayload,
   encodeInvitePayload,
@@ -17,6 +18,17 @@ import fs from 'fs/promises';
 import { peerDataDir } from './storage';
 import { listStagedObjects } from './staging';
 
+/** Uniform public error for invite not found / bad secret / quota / already used. */
+export const PAIRING_FAILED_MESSAGE = 'Pairing failed';
+
+function assertPeerUrlOrThrow(raw: string, message?: string): string {
+  const result = validatePeerUrl(raw);
+  if (!result.ok) {
+    throw new Error(message || result.error);
+  }
+  return result.url.replace(/\/+$/, '');
+}
+
 export async function getInstanceBaseUrl(): Promise<string | null> {
   const row = await db.query.settings.findFirst({
     where: eq(settings.key, INSTANCE_BASE_URL_KEY),
@@ -25,10 +37,10 @@ export async function getInstanceBaseUrl(): Promise<string | null> {
 }
 
 export async function setInstanceBaseUrl(url: string): Promise<void> {
-  const trimmed = url.trim().replace(/\/+$/, '');
-  if (!/^https?:\/\//i.test(trimmed)) {
-    throw new Error('Instance URL must start with http:// or https://');
-  }
+  const trimmed = assertPeerUrlOrThrow(
+    url.trim().replace(/\/+$/, ''),
+    'Instance URL must be a public http(s) address (or Tailscale). Set ALLOW_PRIVATE_PEER_URLS=true for LAN.'
+  );
   const existing = await db.query.settings.findFirst({
     where: eq(settings.key, INSTANCE_BASE_URL_KEY),
   });
@@ -71,12 +83,13 @@ export async function createInvite(options: {
   localBaseUrl?: string;
   ttlHours?: number;
 }): Promise<{ inviteCode: string; payload: InvitePayload; expiresAt: Date }> {
-  const baseUrl = (options.localBaseUrl || (await getInstanceBaseUrl()) || '').replace(/\/+$/, '');
-  if (!baseUrl) {
+  const rawBase = (options.localBaseUrl || (await getInstanceBaseUrl()) || '').replace(/\/+$/, '');
+  if (!rawBase) {
     throw new Error(
       'Set your Instance URL in Settings → Bro Space so your bro can reach you.'
     );
   }
+  const baseUrl = assertPeerUrlOrThrow(rawBase);
   if (options.quotaGb < 1 || options.quotaGb > 100000) {
     throw new Error('Quota must be between 1 and 100000 GB');
   }
@@ -134,6 +147,12 @@ export async function acceptInvite(options: {
   mode?: 'client' | 'host';
 }): Promise<PeerPublic> {
   const payload = decodeInvitePayload(options.inviteCode);
+  const remoteBase = (payload.u || '').replace(/\/+$/, '');
+  const remoteCheck = await validatePeerUrlResolved(remoteBase);
+  if (!remoteCheck.ok) {
+    throw new Error(remoteCheck.error);
+  }
+
   const mode = options.mode || 'host';
   const ourBaseUrl =
     mode === 'client'
@@ -142,14 +161,18 @@ export async function acceptInvite(options: {
   if (mode === 'host' && !ourBaseUrl) {
     throw new Error('Set your Instance URL in Settings → Bro Space before accepting.');
   }
+  if (mode === 'host') {
+    assertPeerUrlOrThrow(ourBaseUrl);
+  }
 
   const ourInbound = generatePeerToken();
   const ourPeerId = nanoid();
 
-  const pairUrl = `${payload.u.replace(/\/+$/, '')}/api/peers/pair`;
+  const pairUrl = `${remoteCheck.url.replace(/\/+$/, '')}/api/peers/pair`;
   const res = await fetch(pairUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    redirect: 'error',
     body: JSON.stringify({
       code: payload.c,
       secret: payload.s,
@@ -179,10 +202,15 @@ export async function acceptInvite(options: {
     quotaBytes: number;
   };
 
+  const storedRemoteUrl = (remote.baseUrl || payload.u).replace(/\/+$/, '');
+  if (storedRemoteUrl) {
+    assertPeerUrlOrThrow(storedRemoteUrl);
+  }
+
   await db.insert(peers).values({
     id: ourPeerId,
     name: remote.label || payload.n || 'Bro',
-    remoteBaseUrl: remote.baseUrl || payload.u,
+    remoteBaseUrl: storedRemoteUrl,
     remotePeerId: remote.peerId,
     outboundToken: remote.inboundToken,
     inboundTokenHash: ourInbound.hash,
@@ -200,6 +228,21 @@ export async function acceptInvite(options: {
   const row = await db.query.peers.findFirst({ where: eq(peers.id, ourPeerId) });
   if (!row) throw new Error('Failed to create peer');
   return redactPeer(row);
+}
+
+/**
+ * Atomically mark a pending invite accepted. Returns false if it was already consumed.
+ */
+export async function consumePendingInvite(
+  inviteId: string,
+  executor: Pick<typeof db, 'update'> = db
+): Promise<boolean> {
+  const claimed = await executor
+    .update(peerInvites)
+    .set({ status: 'accepted' })
+    .where(and(eq(peerInvites.id, inviteId), eq(peerInvites.status, 'pending')))
+    .returning({ id: peerInvites.id });
+  return claimed.length > 0;
 }
 
 /**
@@ -227,7 +270,7 @@ export async function completePairFromAcceptor(body: {
     where: and(eq(peerInvites.code, body.code), eq(peerInvites.status, 'pending')),
   });
   if (!invite) {
-    throw new Error('Invite not found or already used');
+    throw new Error(PAIRING_FAILED_MESSAGE);
   }
   if (invite.expiresAt.getTime() < Date.now()) {
     await db
@@ -237,10 +280,10 @@ export async function completePairFromAcceptor(body: {
     throw new Error('Invite has expired. Ask your bro for a new one.');
   }
   if (hashInviteSecret(body.secret) !== invite.secretHash) {
-    throw new Error('Invalid invite secret');
+    throw new Error(PAIRING_FAILED_MESSAGE);
   }
   if (body.acceptor.quotaBytes !== invite.quotaBytes) {
-    throw new Error('Quota mismatch');
+    throw new Error(PAIRING_FAILED_MESSAGE);
   }
 
   const mode = body.acceptor.mode || 'host';
@@ -248,33 +291,47 @@ export async function completePairFromAcceptor(body: {
   if (mode === 'host' && !acceptorUrl) {
     throw new Error('Acceptor baseUrl is required for host mode');
   }
+  if (mode === 'host') {
+    const urlCheck = await validatePeerUrlResolved(acceptorUrl);
+    if (!urlCheck.ok) {
+      throw new Error(urlCheck.error);
+    }
+  }
 
   const ourInbound = generatePeerToken();
   const ourPeerId = nanoid();
   const ourBase = invite.localBaseUrl;
+  const storedAcceptorUrl = mode === 'client' ? '' : acceptorUrl;
 
-  await db.insert(peers).values({
-    id: ourPeerId,
-    name: body.acceptor.label || 'Bro',
-    remoteBaseUrl: mode === 'client' ? '' : acceptorUrl,
-    remotePeerId: body.acceptor.peerId,
-    outboundToken: body.acceptor.inboundToken,
-    inboundTokenHash: ourInbound.hash,
-    inboundTokenPrefix: ourInbound.prefix,
-    quotaBytes: invite.quotaBytes,
-    usedBytes: 0,
-    transport: 'mailbox',
-    status: 'active',
-    createdAt: new Date(),
-    updatedAt: new Date(),
+  await db.transaction(async (tx) => {
+    const claimed = await consumePendingInvite(invite.id, tx);
+    if (!claimed) {
+      throw new Error(PAIRING_FAILED_MESSAGE);
+    }
+
+    await tx.insert(peers).values({
+      id: ourPeerId,
+      name: body.acceptor.label || 'Bro',
+      remoteBaseUrl: storedAcceptorUrl,
+      remotePeerId: body.acceptor.peerId,
+      outboundToken: body.acceptor.inboundToken,
+      inboundTokenHash: ourInbound.hash,
+      inboundTokenPrefix: ourInbound.prefix,
+      quotaBytes: invite.quotaBytes,
+      usedBytes: 0,
+      transport: 'mailbox',
+      status: 'active',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    await tx
+      .update(peerInvites)
+      .set({ peerId: ourPeerId })
+      .where(eq(peerInvites.id, invite.id));
   });
 
   await fs.mkdir(peerDataDir(ourPeerId), { recursive: true });
-
-  await db
-    .update(peerInvites)
-    .set({ status: 'accepted', peerId: ourPeerId })
-    .where(eq(peerInvites.id, invite.id));
 
   return {
     peerId: ourPeerId,
