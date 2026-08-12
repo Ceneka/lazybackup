@@ -80,16 +80,3 @@ export async function downloadPeerObject(
   await fs.mkdir(path.dirname(localFilePath), { recursive: true });
   await fs.writeFile(localFilePath, buf);
 }
-
-export async function deletePeerObject(peer: PeerRow, objectKey: string): Promise<void> {
-  const res = await peerFetch(peer, storeUrl(objectKey), {
-    method: 'DELETE',
-  });
-  if (!res.ok && res.status !== 404) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(
-      (err as { error?: string }).error ||
-        `Peer delete failed (${res.status}) for ${peer.name}`
-    );
-  }
-}

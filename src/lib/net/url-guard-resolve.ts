@@ -9,9 +9,9 @@ import {
   type UrlGuardResult,
 } from './url-guard';
 
-export type LookupFn = (hostname: string) => Promise<string[]>;
+type LookupFn = (hostname: string) => Promise<string[]>;
 
-export async function defaultLookup(hostname: string): Promise<string[]> {
+async function defaultLookup(hostname: string): Promise<string[]> {
   const results = await dnsLookup(normalizeHostname(hostname), { all: true, verbatim: true });
   return results.map((row) => row.address);
 }

@@ -1,5 +1,4 @@
 import {
-  findNestedOverlapsInList,
   findExactConflictInList,
   type DestinationConflict,
   type EndpointKind,
@@ -32,18 +31,4 @@ export async function findExactDestinationConflict(
 ): Promise<DestinationConflict | null> {
   const configs = await listDestinationConfigs();
   return findExactConflictInList(configs, destinationPath, excludeConfigId, options);
-}
-
-export async function findNestedDestinationOverlaps(
-  destinationPath: string,
-  excludeConfigId?: string,
-  options?: {
-    destinationKind?: EndpointKind | null;
-    destinationServerId?: string | null;
-    destinationS3ProfileId?: string | null;
-    destinationPeerId?: string | null;
-  }
-): Promise<DestinationConflict[]> {
-  const configs = await listDestinationConfigs();
-  return findNestedOverlapsInList(configs, destinationPath, excludeConfigId, options);
 }

@@ -149,48 +149,4 @@ export async function updateBackupHistoryFailure(
     });
   
   return updatedEntry[0];
-}
-
-/**
- * Get recent backup history for a specific config
- */
-export async function getRecentBackupHistory(configId: string, limit = 5) {
-  const history = await db.query.backupHistory.findMany({
-    where: eq(backupHistory.configId, configId),
-    orderBy: [backupHistory.startTime],
-    limit,
-  });
-  
-  return history;
-}
-
-/**
- * Get the most recent backup for a specific config
- */
-export async function getLatestBackup(configId: string) {
-  const history = await db.query.backupHistory.findFirst({
-    where: eq(backupHistory.configId, configId),
-    orderBy: [backupHistory.startTime],
-  });
-  
-  return history;
-}
-
-/**
- * Calculate backup success rate for a specific config
- */
-export async function getBackupSuccessRate(configId: string) {
-  const history = await db.query.backupHistory.findMany({
-    where: eq(backupHistory.configId, configId),
-    columns: {
-      status: true,
-    },
-  });
-  
-  if (history.length === 0) {
-    return 100; // No backups yet, return perfect rate
-  }
-  
-  const successCount = history.filter(entry => entry.status === 'success').length;
-  return Math.round((successCount / history.length) * 100);
 } 

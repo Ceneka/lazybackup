@@ -363,5 +363,3 @@ export function summarizeStatusChecks(checks: StatusCheck[]): StatusSummary {
 
   return { overall, criticalCount, warnCount, okCount, infoCount, headline }
 }
-
-export { INSTANCE_STALE_DAYS }

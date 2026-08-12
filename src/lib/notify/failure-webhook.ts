@@ -6,20 +6,9 @@ import {
   webhookUrlPolicy,
 } from '@/lib/net/url-guard';
 import {
-  WEBHOOK_PRESETS,
-  WEBHOOK_TAG_KEYS,
   type WebhookHttpMethod,
-  type WebhookPreset,
   type WebhookTagKey,
 } from '@/lib/notify/presets';
-
-export {
-  WEBHOOK_PRESETS,
-  WEBHOOK_TAG_KEYS,
-  type WebhookHttpMethod,
-  type WebhookPreset,
-  type WebhookTagKey,
-};
 
 export const FAILURE_WEBHOOK_URL_KEY = 'failureWebhookUrl';
 export const FAILURE_WEBHOOK_METHOD_KEY = 'failureWebhookMethod';

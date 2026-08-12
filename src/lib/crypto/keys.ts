@@ -103,38 +103,6 @@ export async function getEncryptionKeyStatus(): Promise<EncryptionKeyStatus> {
   };
 }
 
-/** @deprecated prefer requireEncryptRecipients — kept for callers expecting a single recipient */
-export async function getAgeRecipient(): Promise<string | null> {
-  const active = await getActiveAgeKey();
-  return active?.recipient ?? null;
-}
-
-/** @deprecated prefer requireDecryptIdentities */
-export async function getAgeIdentity(): Promise<string | null> {
-  const active = await getActiveAgeKey();
-  return active?.identity ?? null;
-}
-
-export async function requireAgeRecipient(): Promise<string> {
-  const recipient = await getAgeRecipient();
-  if (!recipient) {
-    throw new Error(
-      'Encryption is enabled but no age key is configured. Generate a key in Settings → Encryption.'
-    );
-  }
-  return recipient;
-}
-
-export async function requireAgeIdentity(): Promise<string> {
-  const identity = await getAgeIdentity();
-  if (!identity) {
-    throw new Error(
-      'Cannot decrypt: age private key is missing. Restore the key from Settings → Encryption.'
-    );
-  }
-  return identity;
-}
-
 /** Active recipient plus all recovery recipients for encrypt. */
 export async function requireEncryptRecipients(): Promise<string[]> {
   const active = await getActiveAgeKey();
@@ -192,12 +160,6 @@ export async function createAgeKey(options?: {
   return { ...pair, id, label };
 }
 
-/** @deprecated use createAgeKey */
-export async function createEncryptionKeys(): Promise<AgeKeyPair> {
-  const created = await createAgeKey();
-  return { identity: created.identity, recipient: created.recipient };
-}
-
 /** Import an existing age identity as the new active key (previous active → retired). */
 export async function importAgeKey(
   identity: string,
@@ -230,12 +192,6 @@ export async function importAgeKey(
     updatedAt: new Date(),
   });
   return { identity: trimmed, recipient, id, label };
-}
-
-/** @deprecated use importAgeKey */
-export async function importEncryptionIdentity(identity: string): Promise<AgeKeyPair> {
-  const imported = await importAgeKey(identity);
-  return { identity: imported.identity, recipient: imported.recipient };
 }
 
 export async function getAgeKeyById(id: string) {

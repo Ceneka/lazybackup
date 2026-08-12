@@ -6,23 +6,12 @@ import {
   applyWebhookUrlTemplate,
   parseWebhookHeaders,
   validateFailureWebhookUrl,
-  type WebhookHttpMethod,
 } from '@/lib/notify/failure-webhook';
 import {
-  SUCCESS_PING_PRESETS,
-  SUCCESS_PING_TAG_KEYS,
   parseSuccessPingMethod,
-  type SuccessPingPreset,
   type SuccessPingTagKey,
+  type WebhookHttpMethod,
 } from '@/lib/notify/presets';
-
-export {
-  SUCCESS_PING_PRESETS,
-  SUCCESS_PING_TAG_KEYS,
-  parseSuccessPingMethod,
-  type SuccessPingPreset,
-  type SuccessPingTagKey,
-};
 
 export const SUCCESS_PING_URL_KEY = 'successPingUrl';
 export const SUCCESS_PING_METHOD_KEY = 'successPingMethod';

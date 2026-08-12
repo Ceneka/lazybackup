@@ -124,24 +124,32 @@ export function useDeleteHistory() {
   })
 }
 
-/** Restore a successful Docker volume or database dump backup */
+/** Restore a successful path, Docker volume, or database dump backup */
 export function useRestoreBackupHistory() {
   return useMutation({
     mutationFn: async ({
       id,
       volumeName,
       databaseName,
+      targetPath,
       allowRetarget,
     }: {
       id: string
       volumeName?: string
       databaseName?: string
+      targetPath?: string
       allowRetarget?: boolean
     }) => {
       const res = await fetch(`/api/history/${id}/restore`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ confirm: true, volumeName, databaseName, allowRetarget }),
+        body: JSON.stringify({
+          confirm: true,
+          volumeName,
+          databaseName,
+          targetPath,
+          allowRetarget,
+        }),
       })
 
       const data = await res.json()
@@ -153,51 +161,21 @@ export function useRestoreBackupHistory() {
         success: boolean
         volumeName?: string
         database?: string
+        targetPath?: string
         log: string
       }
     },
     onSuccess: (data) => {
       if (data.database) {
         toast.success(`Restored database "${data.database}" successfully`)
+      } else if (data.targetPath) {
+        toast.success(`Restored path "${data.targetPath}" successfully`)
       } else {
         toast.success(`Restored volume "${data.volumeName}" successfully`)
       }
     },
     onError: (error) => {
       toast.error(error instanceof Error ? error.message : "Failed to restore backup")
-      console.error(error)
-    },
-  })
-}
-
-// Start a backup
-export function useStartBackup() {
-  const queryClient = useQueryClient()
-
-  return useMutation({
-    mutationFn: async (configId: string) => {
-      const res = await fetch("/api/backups/start", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ configId }),
-      })
-
-      if (!res.ok) {
-        const data = await res.json()
-        throw new Error(data.error || "Failed to start backup")
-      }
-
-      const data = await res.json()
-      return data
-    },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["history"] })
-      toast.success("Backup started successfully")
-    },
-    onError: (error) => {
-      toast.error(error instanceof Error ? error.message : "Failed to start backup")
       console.error(error)
     },
   })

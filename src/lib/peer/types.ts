@@ -45,22 +45,10 @@ export function redactPeer(
 export const INSTANCE_BASE_URL_KEY = 'instanceBaseUrl';
 export const PEER_TOKEN_PREFIX = 'lbpeer_';
 
-export function formatBytes(n: number): string {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-}
-
 export function gbToBytes(gb: number): number {
   return Math.round(gb * 1024 * 1024 * 1024);
 }
 
 export function bytesToGb(bytes: number): number {
   return bytes / (1024 * 1024 * 1024);
-}
-
-/** True when we can dial this peer's mailbox API (LB↔LB). */
-export function peerIsDialable(peer: PeerRow): boolean {
-  return Boolean(peer.remoteBaseUrl?.trim() && peer.outboundToken);
 }

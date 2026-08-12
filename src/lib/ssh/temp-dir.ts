@@ -39,8 +39,3 @@ export async function ensureSshTempDir(): Promise<string> {
     }`
   );
 }
-
-export async function mkdtempSsh(prefix: string): Promise<string> {
-  const base = await ensureSshTempDir();
-  return fs.mkdtemp(path.join(base, prefix), { encoding: 'utf8' });
-}

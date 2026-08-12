@@ -20,7 +20,7 @@ import type { NodeSSH } from 'node-ssh';
 import path from 'path';
 
 type ServerRow = typeof servers.$inferSelect;
-export type PeerRow = typeof peers.$inferSelect;
+type PeerRow = typeof peers.$inferSelect;
 
 function normalizeServer(server: ServerRow): Server {
   return {

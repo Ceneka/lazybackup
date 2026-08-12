@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'bun:test';
 import {
   buildBackupSucceededPayload,
-  parseSuccessPingMethod,
   postSuccessPing,
 } from './success-ping';
+import { parseSuccessPingMethod } from './presets';
 import { validateFailureWebhookUrl } from './failure-webhook';
 
 describe('parseSuccessPingMethod', () => {

@@ -2,19 +2,21 @@ import { isSessionAuthorized } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { settings } from '@/lib/db/schema';
 import {
+  parseSuccessPingMethod,
+  type WebhookHttpMethod,
+} from '@/lib/notify/presets';
+import {
   SUCCESS_PING_BODY_KEY,
   SUCCESS_PING_HEADERS_KEY,
   SUCCESS_PING_METHOD_KEY,
   SUCCESS_PING_URL_KEY,
   buildBackupSucceededPayload,
-  parseSuccessPingMethod,
   postSuccessPing,
   type SuccessPingConfig,
 } from '@/lib/notify/success-ping';
 import {
   parseWebhookHeaders,
   validateFailureWebhookUrl,
-  type WebhookHttpMethod,
 } from '@/lib/notify/failure-webhook';
 import { eq } from 'drizzle-orm';
 import { NextRequest, NextResponse } from 'next/server';

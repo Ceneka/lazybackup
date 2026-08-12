@@ -5,24 +5,12 @@ import { Readable } from 'stream';
 import { pipeline } from 'stream/promises';
 import * as age from 'age-encryption';
 import {
-  ageEncryptedFileName,
   decryptFileToPath,
   encryptFileToPath,
-  generateAgeKeyPair,
-  isAgeEncryptedPath,
   stripAgeExtension,
-  type AgeKeyPair,
 } from './age';
 
-export {
-  ageEncryptedFileName,
-  decryptFileToPath,
-  encryptFileToPath,
-  generateAgeKeyPair,
-  isAgeEncryptedPath,
-  stripAgeExtension,
-  type AgeKeyPair,
-};
+export { ageEncryptedFileName, isAgeEncryptedPath, stripAgeExtension } from './age';
 
 const STREAM_THRESHOLD = 16 * 1024 * 1024; // 16 MiB
 

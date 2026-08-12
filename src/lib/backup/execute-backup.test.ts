@@ -20,9 +20,6 @@ mock.module('@/lib/backup/history', () => ({
   })),
   updateBackupHistorySuccess: updateSuccess,
   updateBackupHistoryFailure: updateFailure,
-  getRecentBackupHistory: mock(async () => []),
-  getLatestBackup: mock(async () => null),
-  getBackupSuccessRate: mock(async () => 100),
 }));
 
 mock.module('./history', () => ({
@@ -33,9 +30,6 @@ mock.module('./history', () => ({
   })),
   updateBackupHistorySuccess: updateSuccess,
   updateBackupHistoryFailure: updateFailure,
-  getRecentBackupHistory: mock(async () => []),
-  getLatestBackup: mock(async () => null),
-  getBackupSuccessRate: mock(async () => 100),
 }));
 
 const { executeBackup } = await import('./index');

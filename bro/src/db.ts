@@ -9,10 +9,6 @@ export function getDb(cfg: BroConfig): Database {
   if (db) return db;
   db = new Database(dbPath(cfg));
   db.exec(`
-    CREATE TABLE IF NOT EXISTS meta (
-      key TEXT PRIMARY KEY NOT NULL,
-      value TEXT NOT NULL
-    );
     CREATE TABLE IF NOT EXISTS objects (
       key TEXT PRIMARY KEY NOT NULL,
       size INTEGER NOT NULL,
@@ -20,22 +16,6 @@ export function getDb(cfg: BroConfig): Database {
     );
   `);
   return db;
-}
-
-export function setMeta(cfg: BroConfig, key: string, value: string): void {
-  getDb(cfg)
-    .query(
-      `INSERT INTO meta (key, value) VALUES (?, ?)
-       ON CONFLICT(key) DO UPDATE SET value = excluded.value`
-    )
-    .run(key, value);
-}
-
-export function getMeta(cfg: BroConfig, key: string): string | null {
-  const row = getDb(cfg).query(`SELECT value FROM meta WHERE key = ?`).get(key) as
-    | { value: string }
-    | null;
-  return row?.value ?? null;
 }
 
 export function upsertObject(

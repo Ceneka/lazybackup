@@ -12,8 +12,8 @@ import {
   postFailureWebhook,
   validateFailureWebhookUrl,
   type FailureWebhookConfig,
-  type WebhookHttpMethod,
 } from '@/lib/notify/failure-webhook';
+import { type WebhookHttpMethod } from '@/lib/notify/presets';
 import { eq } from 'drizzle-orm';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';

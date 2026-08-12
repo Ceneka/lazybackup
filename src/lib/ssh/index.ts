@@ -10,7 +10,6 @@ import { servers, sshKeys } from '../db/schema';
 import { createHostVerifier } from './known-hosts';
 import {
   buildRsyncArgv,
-  buildRsyncCommand,
   buildScpArgv,
   formatRshArgument,
   runRsync,
@@ -23,7 +22,6 @@ import { ensureSshTempDir } from './temp-dir';
 const execFileAsync = promisify(execFile);
 
 export type Server = typeof servers.$inferSelect;
-export type SSHKey = typeof sshKeys.$inferSelect;
 
 /** Same key material used by node-ssh; required for host-side rsync/scp which cannot use the DB directly. */
 export async function resolvePrivateKeyForServer(server: Server): Promise<string> {
@@ -194,19 +192,6 @@ export async function connectToServer(server: Server): Promise<NodeSSH> {
     console.error(`Failed to connect to server ${server.name}:`, error);
     throw error;
   }
-}
-
-export async function executeRsyncCommand(
-  ssh: NodeSSH,
-  sourcePath: string,
-  destinationPath: string,
-  excludePatterns: string[] = []
-): Promise<{ stdout: string; stderr: string }> {
-  // Build the rsync command using the utility function
-  const rsyncCommand = buildRsyncCommand(sourcePath, destinationPath, excludePatterns);
-
-  // Execute the command
-  return ssh.execCommand(rsyncCommand);
 }
 
 /**

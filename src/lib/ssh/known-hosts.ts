@@ -1,4 +1,3 @@
-import { createHash } from 'crypto';
 import { promises as fs } from 'fs';
 import { mkdirSync, readFileSync, writeFileSync } from 'fs';
 import path from 'path';
@@ -28,10 +27,6 @@ export function parseSshPublicKeyBuffer(key: Buffer): { type: string; base64: st
     throw new Error('Invalid SSH host key type');
   }
   return { type, base64: key.toString('base64') };
-}
-
-export function fingerprintSha256(key: Buffer): string {
-  return createHash('sha256').update(key).digest('base64');
 }
 
 export function formatKnownHostsLine(host: string, port: number, key: Buffer): string {

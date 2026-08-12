@@ -1,8 +1,6 @@
 import { and, eq, ne } from 'drizzle-orm';
 import { createHash } from 'crypto';
 import fs from 'fs/promises';
-import os from 'os';
-import path from 'path';
 import { db } from '@/lib/db';
 import { peers } from '@/lib/db/schema';
 import { assertPeerBaseUrl } from '@/lib/net/url-guard';
@@ -147,24 +145,4 @@ export function startPeerSyncWorker(intervalMs = DEFAULT_INTERVAL_MS): void {
   if (typeof timer === 'object' && 'unref' in timer) {
     (timer as NodeJS.Timeout).unref();
   }
-}
-
-export function stopPeerSyncWorker(): void {
-  if (timer) {
-    clearInterval(timer);
-    timer = null;
-  }
-}
-
-/** Fulfill a local recall by reading from peer storage (used by LazyBro path tests). */
-export async function readLocalPeerObjectToTemp(
-  peerId: string,
-  objectKey: string
-): Promise<string> {
-  const { peerObjectPath } = await import('./storage');
-  const src = peerObjectPath(peerId, objectKey);
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'lb-peer-'));
-  const dest = path.join(dir, path.basename(objectKey));
-  await fs.copyFile(src, dest);
-  return dest;
 }

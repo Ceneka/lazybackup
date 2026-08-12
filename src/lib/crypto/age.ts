@@ -1,8 +1,5 @@
 import * as age from 'age-encryption';
-import { createReadStream, createWriteStream } from 'fs';
 import fs from 'fs/promises';
-import { Readable, Writable } from 'stream';
-import { pipeline } from 'stream/promises';
 
 export type AgeKeyPair = {
   identity: string;
@@ -96,29 +93,6 @@ export async function encryptFileToPath(
 }
 
 /**
- * Stream-encrypt a potentially large file without loading the whole payload when possible.
- */
-export async function encryptFileStreaming(
-  inputPath: string,
-  outPath: string,
-  recipients: string | string[]
-): Promise<{ bytesIn: number; bytesOut: number }> {
-  const stat = await fs.stat(inputPath);
-  const recipientList = normalizeRecipients(recipients);
-  if (stat.size > 32 * 1024 * 1024) {
-    const encrypter = makeEncrypter(recipientList);
-    const nodeIn = createReadStream(inputPath);
-    const webIn = Readable.toWeb(nodeIn) as ReadableStream<Uint8Array>;
-    const encryptedStream = await encrypter.encrypt(webIn);
-    const nodeOut = createWriteStream(outPath);
-    await pipeline(Readable.fromWeb(encryptedStream as never), nodeOut);
-    const outStat = await fs.stat(outPath);
-    return { bytesIn: stat.size, bytesOut: outStat.size };
-  }
-  return encryptFileToPath(inputPath, outPath, recipientList);
-}
-
-/**
  * Decrypt a local `.age` file to `outPath` using one or more identities.
  */
 export async function decryptFileToPath(
@@ -133,26 +107,6 @@ export async function decryptFileToPath(
     typeof plain === 'string' ? Buffer.from(plain, 'utf8') : Buffer.from(plain as Uint8Array);
   await fs.writeFile(outPath, bytes);
   return { bytesOut: bytes.byteLength };
-}
-
-export async function encryptBytes(
-  data: Uint8Array | string,
-  recipients: string | string[]
-): Promise<Uint8Array> {
-  const encrypter = makeEncrypter(normalizeRecipients(recipients));
-  return encrypter.encrypt(data);
-}
-
-export async function decryptBytes(
-  ciphertext: Uint8Array,
-  identities: string | string[]
-): Promise<Uint8Array> {
-  const decrypter = makeDecrypter(normalizeIdentities(identities));
-  const plain = await decrypter.decrypt(ciphertext);
-  if (typeof plain === 'string') {
-    return new TextEncoder().encode(plain);
-  }
-  return plain as Uint8Array;
 }
 
 /** Encrypt UTF-8 text with an age passphrase; returns armored ciphertext. */
@@ -191,6 +145,3 @@ export async function encryptFileWithPassphrase(
   await fs.writeFile(outPath, ciphertext);
   return { bytesIn: input.byteLength, bytesOut: ciphertext.byteLength };
 }
-
-/** Ensure Writable is not tree-shaken unused in some bundlers. */
-void Writable;

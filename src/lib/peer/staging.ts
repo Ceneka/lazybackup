@@ -132,11 +132,3 @@ export async function listStagedObjects(
   await walk(root, '');
   return out;
 }
-
-export function parsePeerArtifactPath(
-  artifactPath: string
-): { peerId: string; objectKey: string } | null {
-  const m = artifactPath.match(/^peer:\/\/([^/]+)\/(.+)$/);
-  if (!m?.[1] || !m[2]) return null;
-  return { peerId: m[1], objectKey: m[2] };
-}

@@ -32,24 +32,6 @@ export function IconBackup(props: { className?: string }) {
   );
 }
 
-export function IconMonitor(props: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" className={props.className} aria-hidden>
-      <path
-        d="M4 5a2 2 0 012-2h12a2 2 0 012 2v10a2 2 0 01-2 2H6a2 2 0 01-2-2V5z"
-        stroke="currentColor"
-        strokeWidth="1.5"
-      />
-      <path
-        d="M8 21h8M12 17v4"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
-
 export function IconClock(props: { className?: string }) {
   return (
     <svg viewBox="0 0 24 24" fill="none" className={props.className} aria-hidden>
@@ -73,43 +55,6 @@ export function IconLayers(props: { className?: string }) {
         stroke="currentColor"
         strokeWidth="1.5"
         strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-export function IconRetention(props: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" className={props.className} aria-hidden>
-      <path
-        d="M9 3h6l1 2h4v2H4V5h4l1-2zM6 9h12v10a2 2 0 01-2 2H8a2 2 0 01-2-2V9z"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M10 13h4M10 17h4"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
-
-export function IconLock(props: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" className={props.className} aria-hidden>
-      <path
-        d="M8 11V8a4 4 0 118 0v3"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-      />
-      <path
-        d="M7 11h10a2 2 0 012 2v6a2 2 0 01-2 2H7a2 2 0 01-2-2v-6a2 2 0 012-2z"
-        stroke="currentColor"
-        strokeWidth="1.5"
       />
     </svg>
   );

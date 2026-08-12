@@ -52,7 +52,7 @@ const METADATA_HOSTS = new Set([
   'instance-data',
 ]);
 
-export const FORBIDDEN_REQUEST_HEADERS = new Set([
+const FORBIDDEN_REQUEST_HEADERS = new Set([
   'host',
   'connection',
   'keep-alive',
