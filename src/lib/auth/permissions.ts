@@ -80,6 +80,11 @@ export function authAllowsRemoteExec(auth: AuthPermissionView): boolean {
   return authHasPermission(auth, 'remote_exec')
 }
 
+/** Who may set an app password: browser session or unlocked first-run. */
+export function allowsPasswordSet(via: AuthPermissionView['via']): boolean {
+  return via === 'session' || via === 'unlocked'
+}
+
 /**
  * Setting or changing non-empty pre-backup commands is remote execution.
  * Clearing commands, or leaving them unchanged, does not require remote_exec.

@@ -79,6 +79,7 @@ export {
   API_TOKEN_PERMISSIONS,
   REMOTE_EXEC_DENIED,
   RemoteExecPermissionError,
+  allowsPasswordSet,
   assertCanSetPreBackupCommands,
   authAllowsRemoteExec,
   authHasPermission,
@@ -144,14 +145,6 @@ export type AuthResolution = {
   /** Present when authenticated via API token */
   apiToken?: VerifiedApiToken
   via: 'unlocked' | 'session' | 'bearer' | 'none'
-}
-
-/**
- * Who may set an app password: browser session or unlocked first-run.
- * API Bearer is never enough (passkey-only operators use Settings).
- */
-export function allowsPasswordSet(via: AuthResolution['via']): boolean {
-  return via === 'session' || via === 'unlocked'
 }
 
 /**

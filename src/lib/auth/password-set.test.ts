@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { allowsPasswordSet } from './index'
+import { allowsPasswordSet } from './permissions'
 import { assertPasswordStrength } from './password'
 import { MIN_PASSWORD_LENGTH } from './constants'
 
