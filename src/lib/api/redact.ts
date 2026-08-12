@@ -1,7 +1,14 @@
+import { BEARER_REDACTED_SETTING_KEYS } from '@/lib/auth/constants';
+
 /**
  * Strip secrets from API / MCP responses. Flags tell the UI a secret is stored
  * so edit forms can leave fields blank ("keep existing").
  */
+
+/** True when the caller is a Bearer token (not a cookie session / unlocked). */
+export function isBearerAudience(via: string): boolean {
+  return via === 'bearer';
+}
 
 export function redactServer<T extends Record<string, unknown>>(server: T) {
   const { password: _p, privateKey: _k, ...rest } = server as T & {
@@ -66,4 +73,59 @@ export function redactBackup<T extends Record<string, unknown>>(config: T) {
     );
   }
   return copy as T & Record<string, unknown>;
+}
+
+/** Redact nested backupConfig on a history row (list or detail). */
+export function redactHistoryEntry<T extends Record<string, unknown>>(entry: T) {
+  const copy = { ...entry } as Record<string, unknown>;
+  if (copy.backupConfig && typeof copy.backupConfig === 'object') {
+    copy.backupConfig = redactBackup(
+      copy.backupConfig as Record<string, unknown>
+    );
+  }
+  return copy as T & Record<string, unknown>;
+}
+
+export function redactSshKey<T extends Record<string, unknown>>(
+  key: T,
+  options?: { includePrivateKeyContent?: boolean }
+) {
+  const { privateKeyContent: pem, ...rest } = key as T & {
+    privateKeyContent?: string | null;
+  };
+  const hasPrivateKeyContent = Boolean(pem);
+  if (options?.includePrivateKeyContent) {
+    return {
+      ...rest,
+      privateKeyContent: pem ?? undefined,
+      hasPrivateKeyContent,
+    };
+  }
+  return {
+    ...rest,
+    hasPrivateKeyContent,
+  };
+}
+
+export function redactDbHints<T extends Record<string, unknown>>(
+  hints: T,
+  options?: { includePassword?: boolean }
+) {
+  const { password, ...rest } = hints as T & { password?: string };
+  const hasPassword = Boolean(password);
+  if (options?.includePassword) {
+    return { ...hints, hasPassword };
+  }
+  return { ...rest, hasPassword };
+}
+
+/** Drop webhook/ping secret settings from a key-value settings map. */
+export function redactSettingsForBearer<T extends Record<string, unknown>>(
+  settings: T
+) {
+  const copy = { ...settings } as Record<string, unknown>;
+  for (const key of BEARER_REDACTED_SETTING_KEYS) {
+    delete copy[key];
+  }
+  return copy as T;
 }

@@ -137,7 +137,7 @@ export function useRestoreBackupHistory() {
       const res = await fetch(`/api/history/${id}/restore`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ volumeName, databaseName }),
+        body: JSON.stringify({ confirm: true, volumeName, databaseName }),
       })
 
       const data = await res.json()

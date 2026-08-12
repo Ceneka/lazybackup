@@ -9,6 +9,7 @@ export interface SSHKey {
   privateKeyPath?: string
   publicKeyPath?: string
   privateKeyContent?: string
+  hasPrivateKeyContent?: boolean
   createdAt: string
   updatedAt: string
   isSystemKey?: boolean // Flag to indicate if this is a system key reference

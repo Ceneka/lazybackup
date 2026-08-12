@@ -1,4 +1,5 @@
-import { SENSITIVE_SETTING_KEYS } from '@/lib/auth';
+import { isBearerAudience, redactSettingsForBearer } from '@/lib/api/redact';
+import { resolveAuth, SENSITIVE_SETTING_KEYS } from '@/lib/auth';
 import { isValidTimezone } from '@/lib/cron/format';
 import { db } from '@/lib/db';
 import { settings } from '@/lib/db/schema';
@@ -24,7 +25,7 @@ function isSensitiveKey(key: string): boolean {
 }
 
 // GET /api/settings - List all settings (secrets stripped)
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     const allSettings = await db.select().from(settings);
     
@@ -36,8 +37,16 @@ export async function GET() {
       acc[setting.key] = setting.value;
       return acc;
     }, {} as Record<string, string | null>);
+
+    const auth = await resolveAuth(
+      request.headers.get('cookie'),
+      request.headers.get('authorization')
+    );
+    const payload = isBearerAudience(auth.via)
+      ? redactSettingsForBearer(settingsObject)
+      : settingsObject;
     
-    return NextResponse.json(settingsObject);
+    return NextResponse.json(payload);
   } catch (error) {
     console.error('Failed to fetch settings:', error);
     return NextResponse.json(

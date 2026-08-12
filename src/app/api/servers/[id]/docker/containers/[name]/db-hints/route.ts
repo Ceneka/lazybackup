@@ -1,3 +1,5 @@
+import { isBearerAudience, redactDbHints } from '@/lib/api/redact';
+import { resolveAuth } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { servers } from '@/lib/db/schema';
 import { inspectContainerDatabaseHints } from '@/lib/docker/containers';
@@ -7,7 +9,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 // GET /api/servers/[id]/docker/containers/[name]/db-hints — infer DB creds from inspect
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string; name: string }> }
 ) {
   const { id, name } = await params;
@@ -29,10 +31,20 @@ export async function GET(
       return NextResponse.json({ error: 'Server not found' }, { status: 404 });
     }
 
+    const auth = await resolveAuth(
+      request.headers.get('cookie'),
+      request.headers.get('authorization')
+    );
+    const includePassword = !isBearerAudience(auth.via);
+
     const ssh = await connectToServer(server);
     try {
       const hints = await inspectContainerDatabaseHints(ssh, containerName);
-      return NextResponse.json({ hints });
+      return NextResponse.json({
+        hints: redactDbHints(hints as unknown as Record<string, unknown>, {
+          includePassword,
+        }),
+      });
     } finally {
       ssh.dispose();
     }

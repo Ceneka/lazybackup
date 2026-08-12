@@ -49,6 +49,7 @@ export type ContainerDatabaseHints = {
   port?: number
   image?: string
   found: boolean
+  hasPassword?: boolean
 }
 
 /** List named Docker volumes on a remote server */

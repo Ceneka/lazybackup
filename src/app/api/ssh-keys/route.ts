@@ -1,3 +1,4 @@
+import { redactSshKey } from '@/lib/api/redact';
 import { db } from '@/lib/db';
 import { servers, sshKeys } from '@/lib/db/schema';
 import { findServersUsingSshKey } from '@/lib/ssh/key-usage';
@@ -70,7 +71,7 @@ export async function GET(request: NextRequest) {
       .from(servers);
 
     const storedKeysWithUsage = storedKeys.map((key) => ({
-      ...key,
+      ...redactSshKey(key as unknown as Record<string, unknown>),
       usedByServers: findServersUsingSshKey(allServers, key.id),
     }));
 
@@ -112,7 +113,10 @@ export async function POST(request: NextRequest) {
     // Insert the SSH key into the database
     await db.insert(sshKeys).values(newKey);
 
-    return NextResponse.json(newKey, { status: 201 });
+    return NextResponse.json(
+      redactSshKey(newKey as unknown as Record<string, unknown>),
+      { status: 201 }
+    );
   } catch (error) {
     console.error('Failed to create SSH key:', error);
 
