@@ -1,4 +1,5 @@
 import { isSessionAuthorized } from '@/lib/auth';
+import { MIN_WRAP_PASSPHRASE_LENGTH } from '@/lib/crypto/constants';
 import {
   acknowledgeAgeKeyExport,
   addRecoveryRecipient,
@@ -14,9 +15,11 @@ import {
   updateAgeKeyLabel,
 } from '@/lib/crypto/keys';
 import { encryptWithPassphrase } from '@/lib/crypto/age';
+import { requireVaultStepUp, VaultStepUpError } from '@/lib/crypto/vault-step-up';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 
+/** Cookie session only — API tokens cannot read or mutate the age vault. */
 async function requireSession(request: NextRequest) {
   const ok = await isSessionAuthorized(request.headers.get('cookie'));
   if (!ok) {
@@ -28,7 +31,7 @@ async function requireSession(request: NextRequest) {
   return null;
 }
 
-/** GET /api/encryption — vault status (never returns private keys) */
+/** GET /api/encryption — vault status (never returns private keys / identities) */
 export async function GET(request: NextRequest) {
   const denied = await requireSession(request);
   if (denied) return denied;
@@ -41,24 +44,38 @@ export async function GET(request: NextRequest) {
   }
 }
 
+const vaultStepUpFields = {
+  currentPassword: z.string().optional(),
+  confirm: z.boolean().optional(),
+};
+
 const postSchema = z.discriminatedUnion('action', [
   z.object({
     action: z.literal('generate'),
     label: z.string().optional(),
+    ...vaultStepUpFields,
   }),
   z.object({
     action: z.literal('import'),
     identity: z.string().min(20, 'Identity is required'),
     label: z.string().optional(),
+    ...vaultStepUpFields,
   }),
   z.object({
     action: z.literal('reveal'),
     keyId: z.string().min(1),
+    ...vaultStepUpFields,
   }),
   z.object({
     action: z.literal('exportPassphrase'),
     keyId: z.string().min(1),
-    passphrase: z.string().min(8, 'Passphrase must be at least 8 characters'),
+    passphrase: z
+      .string()
+      .min(
+        MIN_WRAP_PASSPHRASE_LENGTH,
+        `Passphrase must be at least ${MIN_WRAP_PASSPHRASE_LENGTH} characters`
+      ),
+    ...vaultStepUpFields,
   }),
   z.object({
     action: z.literal('acknowledgeExport'),
@@ -86,6 +103,7 @@ const postSchema = z.discriminatedUnion('action', [
     action: z.literal('addRecovery'),
     label: z.string().optional(),
     recipient: z.string().min(10),
+    ...vaultStepUpFields,
   }),
   z.object({
     action: z.literal('deleteRecovery'),
@@ -93,6 +111,18 @@ const postSchema = z.discriminatedUnion('action', [
   }),
   z.object({ action: z.literal('clear') }),
 ]);
+
+function isSensitiveVaultAction(
+  action: z.infer<typeof postSchema>['action']
+): action is 'generate' | 'import' | 'reveal' | 'exportPassphrase' | 'addRecovery' {
+  return (
+    action === 'generate' ||
+    action === 'import' ||
+    action === 'reveal' ||
+    action === 'exportPassphrase' ||
+    action === 'addRecovery'
+  );
+}
 
 /**
  * POST /api/encryption — vault CRUD and export helpers
@@ -103,6 +133,13 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = postSchema.parse(await request.json());
+
+    if (isSensitiveVaultAction(body.action)) {
+      await requireVaultStepUp({
+        currentPassword: body.currentPassword,
+        confirm: body.confirm,
+      });
+    }
 
     if (body.action === 'generate') {
       const created = await createAgeKey({ label: body.label });
@@ -199,6 +236,9 @@ export async function POST(request: NextRequest) {
         { error: 'Validation error', details: error.issues },
         { status: 400 }
       );
+    }
+    if (error instanceof VaultStepUpError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
     }
     console.error('Encryption key action failed:', error);
     return NextResponse.json(

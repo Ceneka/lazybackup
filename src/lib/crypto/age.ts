@@ -9,6 +9,24 @@ export type AgeKeyPair = {
   recipient: string;
 };
 
+/**
+ * Parse and validate an age recipient via the age-encryption library
+ * (Bech32 HRP + checksum, X25519 / hybrid / tag types).
+ */
+export function assertAgeRecipient(recipient: string): string {
+  const trimmed = recipient.trim();
+  if (!trimmed) {
+    throw new Error('Recipient is required');
+  }
+  try {
+    const encrypter = new age.Encrypter();
+    encrypter.addRecipient(trimmed);
+  } catch {
+    throw new Error('Invalid age recipient (expected a Bech32 age1… public key)');
+  }
+  return trimmed;
+}
+
 export async function generateAgeKeyPair(): Promise<AgeKeyPair> {
   const identity = await age.generateIdentity();
   const recipient = await age.identityToRecipient(identity);

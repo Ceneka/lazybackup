@@ -2,8 +2,10 @@ import { describe, expect, test } from 'bun:test';
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
+import { MIN_WRAP_PASSPHRASE_LENGTH } from './constants';
 import {
   ageEncryptedFileName,
+  assertAgeRecipient,
   decryptFileToPath,
   encryptFileToPath,
   generateAgeKeyPair,
@@ -78,5 +80,31 @@ describe('age crypto', () => {
     expect(ageEncryptedFileName('a.sql.gz.age')).toBe('a.sql.gz.age');
     expect(stripAgeExtension('a.sql.gz.age')).toBe('a.sql.gz');
     expect(isAgeEncryptedPath('/x/y.age')).toBe(true);
+  });
+
+  test('passphrase wrap minimum is 12', () => {
+    expect(MIN_WRAP_PASSPHRASE_LENGTH).toBe(12);
+  });
+
+  test('assertAgeRecipient accepts a real age1 recipient', async () => {
+    const { recipient } = await generateAgeKeyPair();
+    expect(assertAgeRecipient(recipient)).toBe(recipient);
+    expect(assertAgeRecipient(`  ${recipient}  `)).toBe(recipient);
+  });
+
+  test('assertAgeRecipient rejects non-age and invalid Bech32', async () => {
+    const { identity } = await generateAgeKeyPair();
+    expect(() => assertAgeRecipient('age1not-a-valid-key')).toThrow(/Invalid age recipient/);
+    expect(() => assertAgeRecipient('age1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq')).toThrow(
+      /Invalid age recipient/
+    );
+    expect(() => assertAgeRecipient('ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI')).toThrow(
+      /Invalid age recipient/
+    );
+    expect(() => assertAgeRecipient('not-age')).toThrow(/Invalid age recipient/);
+    expect(() => assertAgeRecipient('age1')).toThrow(/Invalid age recipient/);
+    expect(() => assertAgeRecipient(identity)).toThrow(/Invalid age recipient/);
+    expect(() => assertAgeRecipient('')).toThrow(/required/);
+    expect(() => assertAgeRecipient('   ')).toThrow(/required/);
   });
 });

@@ -2,7 +2,7 @@ import { desc, eq, ne } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { db } from '@/lib/db';
 import { ageKeys, ageRecoveryRecipients } from '@/lib/db/schema';
-import { generateAgeKeyPair, type AgeKeyPair } from '@/lib/crypto/age';
+import { assertAgeRecipient, generateAgeKeyPair, type AgeKeyPair } from '@/lib/crypto/age';
 
 export type AgeKeyStatus = 'active' | 'retired' | 'compromised';
 
@@ -329,10 +329,7 @@ export async function addRecoveryRecipient(options: {
   label: string;
   recipient: string;
 }): Promise<PublicRecoveryRecipient> {
-  const recipient = options.recipient.trim();
-  if (!recipient.startsWith('age1')) {
-    throw new Error('Recipient must start with age1');
-  }
+  const recipient = assertAgeRecipient(options.recipient);
   const label = options.label.trim() || 'Recovery key';
   const duplicate = await db.query.ageRecoveryRecipients.findFirst({
     where: eq(ageRecoveryRecipients.recipient, recipient),
