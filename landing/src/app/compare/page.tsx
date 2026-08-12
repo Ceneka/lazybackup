@@ -48,7 +48,7 @@ const vsRsyncRows = [
   {
     topic: "S3 / peers",
     rsync: "Not built in (rclone/s3cmd is another stack).",
-    lazy: "S3-compatible profiles as source prefix or destination; Bro Space for 1:1 peer blobs.",
+    lazy: "S3-compatible profiles as source/dest; Bro Space mailbox peers (LazyBro or LB↔LB) with forced age encryption.",
   },
   {
     topic: "Encryption",

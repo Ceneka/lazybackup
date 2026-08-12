@@ -48,6 +48,7 @@ Root directory = `landing` still has the parent repo on disk.)
 - `/blog/easily-backup-docker-database` — Docker DB dump howto
 - `/blog/failure-webhooks-discord-ntfy-kuma` — Discord / ntfy / Uptime Kuma webhooks
 - `/blog/database-dumps-to-s3` — Postgres/MySQL dumps to MinIO/R2/B2/AWS
+- `/blog/bro-space-pairing-lazybro` — Bro Space invite + LazyBro / mailbox walkthrough
 - `/blog/manage-backups-with-mcp` — MCP / API tokens for agents
 
 Posts live in `src/lib/blog/posts.ts` (typed blocks; easy to extend). SEO: `src/app/sitemap.ts`, `src/app/robots.ts`, and `metadataBase` in `layout.tsx` (canonical + Open Graph / Twitter).

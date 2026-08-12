@@ -21,6 +21,151 @@ export type BlogPost = {
 
 export const posts: BlogPost[] = [
   {
+    slug: "bro-space-pairing-lazybro",
+    title: "Share backup space with Bro Space",
+    description:
+      "Invite a friend with LazyBro (or another LazyBackup): mailbox sync, age-encrypted opaque blobs, optional Tailscale on your host—no ports on their side.",
+    date: "2026-08-12",
+    dateLabel: "Aug 12, 2026",
+    readingMinutes: 7,
+    tags: ["howto", "bro-space", "encryption"],
+    cover: {
+      src: "/screenshots/bro-space.png",
+      alt: "LazyBackup Settings Bro Space tab for inviting a friend to share backup space",
+    },
+    body: [
+      {
+        type: "p",
+        text: "Bro Space is 1:1 reciprocal peer storage: you lend encrypted backup space to a friend, and they can lend some back. New pairs use a mailbox—your LazyBackup stages ciphertext locally, their side pulls when online. Backups still succeed if they’re briefly offline; sync catches up later.",
+      },
+      {
+        type: "callout",
+        text: "You need an age key in Settings → Encryption before Bro destinations work. Peer landings always encrypt; your friend only ever sees opaque blobs.",
+      },
+      {
+        type: "h2",
+        text: "Two ways to pair",
+      },
+      {
+        type: "ul",
+        items: [
+          "LazyBro — lightweight outbound agent on their machine. They paste your invite, pick a folder, leave it running. Only your LazyBackup needs a reachable URL.",
+          "Another LazyBackup — same invite; they Accept under Settings → Bro Space. Both instances need a reachable URL and both run the mailbox sync worker.",
+        ],
+      },
+      {
+        type: "img",
+        src: "/screenshots/bro-space.png",
+        alt: "Bro Space settings with LazyBackup address and invite flow",
+        caption: "Settings → Bro Space — save your address, create an invite, send it.",
+      },
+      {
+        type: "h2",
+        text: "Step 1 — Age key + your address",
+      },
+      {
+        type: "ol",
+        items: [
+          "Settings → Encryption → create an age key (export and acknowledge a copy).",
+          "Settings → Bro Space → set Your LazyBackup address (https://… or a Tailscale http://100.x:PORT) and Save.",
+          "Create the invite before you send anything—the invite embeds that address.",
+        ],
+      },
+      {
+        type: "h2",
+        text: "Step 2 — Invite (quota)",
+      },
+      {
+        type: "p",
+        text: "Under Invite a bro, pick how many GB you’ll each share, create the invite, and copy the code. Send it out-of-band (chat, Signal, whatever you trust).",
+      },
+      {
+        type: "code",
+        lang: "text",
+        code: `You (LazyBackup):  Settings → Bro Space → Save address → Create invite
+Friend (LazyBro):   install → paste invite → pick share folder → stay running
+Friend (full LB):   Settings → Bro Space → Accept invite`,
+      },
+      {
+        type: "h2",
+        text: "Step 3 — Friend installs LazyBro",
+      },
+      {
+        type: "p",
+        text: "LazyBro is a small Bun agent (binaries from Releases, or build from the bro/ folder). It opens a local page (http://127.0.0.1:3789). They choose a folder for your encrypted backups, paste the invite, optionally enable start-at-login, and leave it running. They can also push one of their own folders back to your LazyBackup.",
+      },
+      {
+        type: "ul",
+        items: [
+          "No public URL, ports, or Tailscale required on their side",
+          "They phone home to your LazyBackup on an interval",
+          "If you’re briefly down, LazyBro retries quietly",
+        ],
+      },
+      {
+        type: "h2",
+        text: "Optional: Tailscale on your host",
+      },
+      {
+        type: "p",
+        text: "Friends can’t reach a CGNAT home lab without help. Tailscale belongs on the machine running LazyBackup—not inside LazyBro. The image does not bundle Tailscale (~50MB+).",
+      },
+      {
+        type: "ol",
+        items: [
+          "Install Tailscale on the host; mount /var/run/tailscale into Docker if you use compose (see docker-compose.yml comments).",
+          "Or use the compose overlay with TS_AUTHKEY (docker-compose.tailscale.yml).",
+          "In Bro Space, when Tailscale is detected, Use as LazyBackup address fills http://100.x:PORT.",
+        ],
+      },
+      {
+        type: "h2",
+        text: "Step 4 — Backup To → Bro",
+      },
+      {
+        type: "p",
+        text: "New Backup → set To to a paired bro peer (destinationKind=peer). Encryption is forced. On run, LazyBackup age-encrypts, stages under peers-staging, and marks the job successful. Their LazyBro (or peer LB) pulls via /api/peers/agent/*, stores the opaque blob, and acks. Pending sync is soft status—not a failure webhook.",
+      },
+      {
+        type: "code",
+        lang: "text",
+        code: `From:  path / docker volume / database (not instance meta-backup)
+To:    Bro peer (Settings → Bro Space)
+Land:  age ciphertext → local mailbox staging → peer pull → ack`,
+      },
+      {
+        type: "callout",
+        text: "Instance meta-backups (SQLite + vault + SSH keys) cannot use Bro destinations—prefer a trusted path/S3 and optional passphrase wrap.",
+      },
+      {
+        type: "h2",
+        text: "Restore and recalls",
+      },
+      {
+        type: "p",
+        text: "If the object is still in staging, restore can use it immediately. After the bro has pulled it, restore may wait for a recall: LazyBackup asks the peer to upload the blob back. Waiting for Bro is a soft 202—not a critical failure. Keep LazyBro running so recalls can finish.",
+      },
+      {
+        type: "h2",
+        text: "Quick checklist",
+      },
+      {
+        type: "ul",
+        items: [
+          "Active age key exported/acknowledged",
+          "LazyBackup address saved (public HTTPS or Tailscale 100.x)",
+          "Invite created with a quota you’re happy with",
+          "Friend on LazyBro (outbound-only) or Accept on another LB",
+          "Backup To → peer; offline/sync pending is informational",
+        ],
+      },
+      {
+        type: "callout",
+        text: "That’s Bro Space: invite → mailbox → encrypted blobs on a friend’s disk. Details and Tailscale notes also live in the repo README and bro/README.md.",
+      },
+    ],
+  },
+  {
     slug: "manage-backups-with-mcp",
     title: "Manage LazyBackup with MCP",
     description:
@@ -196,6 +341,7 @@ If anything failed in the last day, summarize the error from history.`,
           "Paths — rsync/scp between filesystems or object prefixes",
           "Docker volumes — pack a named volume on a source server to .tar.gz",
           "Databases — Postgres / MySQL / MariaDB logical dumps to .sql.gz",
+          "Bro Space — land age-encrypted blobs on a friend’s LazyBro or another LazyBackup (mailbox sync)",
         ],
       },
       {
@@ -266,7 +412,7 @@ If anything failed in the last day, summarize the error from history.`,
       },
       {
         type: "p",
-        text: "For a hands-on dump walkthrough, see Easily back up a Docker database—logical dumps for Postgres/MySQL/MariaDB, not volume tarballs. Land those dumps on S3/MinIO/R2 in the sequel: Database dumps to S3.",
+        text: "For a hands-on dump walkthrough, see Easily back up a Docker database—logical dumps for Postgres/MySQL/MariaDB, not volume tarballs. Land those dumps on S3/MinIO/R2 in the sequel: Database dumps to S3. To lend encrypted space to a friend, see Share backup space with Bro Space.",
       },
     ],
   },

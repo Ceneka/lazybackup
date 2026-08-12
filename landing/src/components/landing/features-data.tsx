@@ -497,13 +497,14 @@ export const detailedFeatures: readonly DetailedFeature[] = [
   {
     id: "bro",
     title: "Bro Space",
-    tags: ["destinationKind=peer", "lbpeer_", "/api/peers"],
+    tags: ["destinationKind=peer", "mailbox", "LazyBro", "/api/peers"],
     summary:
-      "1:1 reciprocal peer storage. Mailbox sync + LazyBro outbound agent; invite-code pairing.",
+      "1:1 reciprocal peer storage. Mailbox sync + LazyBro outbound agent; invite-code pairing. Encryption forced; offline sync is soft status.",
     points: [
-      "Artifacts are age-encrypted before upload; the peer never sees plaintext.",
-      "Only the LazyBackup host needs inbound reachability for LazyBro; LB↔LB both need URLs.",
-      "Pairing uses /api/peers/pair; mailbox via /api/peers/agent/*; store Bearer lbpeer_.",
+      "Land stages age ciphertext locally; peer pulls via /api/peers/agent/* then acks (new pairs = mailbox).",
+      "LazyBro is outbound-only (mode=client, empty remote URL)—only your LazyBackup needs inbound reachability; LB↔LB both need URLs and both run the sync worker.",
+      "Invite + Accept (or paste in LazyBro); hard quotas; opaque blobs; Bro offline / sync pending does not fire failure webhooks.",
+      "Optional Tailscale on the LazyBackup host (not bundled in the image) so friends can dial a 100.x address.",
     ],
     Icon: IconUsers,
   },
