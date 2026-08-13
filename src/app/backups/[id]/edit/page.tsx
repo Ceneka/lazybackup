@@ -6,12 +6,11 @@ import {
   formDataToPayload,
   type BackupFormData,
 } from "@/components/backup-config-form"
+import { ResourceEditLayout } from "@/components/resource-detail-layout"
 import { QueryState } from "@/components/ui/query-state"
 import { useBackup, backupKeys } from "@/lib/hooks/useBackups"
 import { Server } from "@/lib/hooks/useServers"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { ArrowLeftIcon } from "lucide-react"
-import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
 import { useState } from "react"
 import { toast } from "sonner"
@@ -61,23 +60,12 @@ export default function EditBackupPage() {
   const ready = backupQuery.data && serversQuery.data
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center gap-2">
-        <Link
-          href={`/backups/${backupId}`}
-          className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground"
-        >
-          <ArrowLeftIcon className="mr-1 h-4 w-4" />
-          Back
-        </Link>
-      </div>
-
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Edit backup</h1>
-        <p className="text-muted-foreground">Update the From → To transfer and schedule.</p>
-      </div>
-
-      <div className="rounded-lg border bg-card p-6">
+    <ResourceEditLayout
+      backHref={`/backups/${backupId}`}
+      backLabel="Back to backup"
+      title="Edit backup"
+      description="Update the From → To transfer and schedule."
+    >
         <QueryState
           query={backupQuery}
           dataLabel="backup"
@@ -100,7 +88,6 @@ export default function EditBackupPage() {
             ) : null}
           </QueryState>
         </QueryState>
-      </div>
-    </div>
+    </ResourceEditLayout>
   )
 }

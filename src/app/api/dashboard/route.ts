@@ -42,6 +42,35 @@ export async function GET(request: NextRequest) {
       .from(backupConfigs)
       .where(sql`${backupConfigs.enabled} = 1`)
 
+    const serverList = await db
+      .select({
+        id: servers.id,
+        name: servers.name,
+        host: servers.host,
+        port: servers.port,
+      })
+      .from(servers)
+      .orderBy(servers.name)
+    const s3ProfileList = (
+      await db
+        .select({
+          id: s3Profiles.id,
+          name: s3Profiles.name,
+          bucket: s3Profiles.bucket,
+          endpoint: s3Profiles.endpoint,
+        })
+        .from(s3Profiles)
+        .orderBy(s3Profiles.name)
+    ).map((row) => ({ ...row, bucket: row.bucket.trim() }))
+    const backupList = await db
+      .select({
+        id: backupConfigs.id,
+        name: backupConfigs.name,
+        enabled: backupConfigs.enabled,
+      })
+      .from(backupConfigs)
+      .orderBy(backupConfigs.name)
+
     const windowWhere = gte(backupHistory.startTime, since)
 
     const statusCountsQuery = await db
@@ -143,6 +172,9 @@ export async function GET(request: NextRequest) {
       s3Profiles: Number(s3CountRow?.count || 0),
       backups: Number(backupCountRow?.count || 0),
       enabledBackups: Number(enabledCountRow?.count || 0),
+      serverList,
+      s3ProfileList,
+      backupList,
       statusCounts,
       totalRuns: totalInWindow,
       successRate,

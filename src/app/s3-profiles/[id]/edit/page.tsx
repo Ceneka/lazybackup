@@ -1,15 +1,10 @@
 "use client"
 
+import { ResourceEditLayout } from "@/components/resource-detail-layout"
 import { S3ProfileForm } from "@/components/s3-profile-form"
-import { DeleteConfirmationDialog } from "@/components/ui/delete-confirmation-dialog"
-import {
-  s3ProfileKeys,
-  useDeleteS3Profile,
-  useS3Profile,
-  type S3ProfileInput,
-} from "@/lib/hooks/useS3Profiles"
+import { s3ProfileKeys, useS3Profile, type S3ProfileInput } from "@/lib/hooks/useS3Profiles"
 import { useQueryClient } from "@tanstack/react-query"
-import { ArrowLeftIcon, Loader2Icon } from "lucide-react"
+import { Loader2Icon } from "lucide-react"
 import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
 import { useState } from "react"
@@ -21,7 +16,6 @@ export default function EditS3ProfilePage() {
   const router = useRouter()
   const queryClient = useQueryClient()
   const profileQuery = useS3Profile(id)
-  const deleteMutation = useDeleteS3Profile()
   const [submitting, setSubmitting] = useState(false)
 
   async function handleSubmit(data: S3ProfileInput) {
@@ -39,7 +33,7 @@ export default function EditS3ProfilePage() {
       await queryClient.invalidateQueries({ queryKey: s3ProfileKeys.lists() })
       await queryClient.invalidateQueries({ queryKey: s3ProfileKeys.detail(id) })
       toast.success("S3 profile updated")
-      router.push("/s3-profiles")
+      router.push(`/s3-profiles/${id}`)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to update profile")
     } finally {
@@ -85,39 +79,16 @@ export default function EditS3ProfilePage() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center space-x-2">
-          <Link
-            href="/s3-profiles"
-            className="inline-flex h-10 w-10 items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50"
-          >
-            <ArrowLeftIcon className="h-4 w-4" />
-            <span className="sr-only">Back to S3 profiles</span>
-          </Link>
-          <h1 className="text-3xl font-bold">Edit S3 Profile</h1>
-        </div>
-        <DeleteConfirmationDialog
-          title="Delete S3 profile?"
-          description="This cannot be undone. Profiles used by backups cannot be deleted."
-          isDeleting={deleteMutation.isPending}
-          onDelete={() => {
-            void deleteMutation.mutateAsync(id).then(() => {
-              router.push("/s3-profiles")
-            })
-          }}
-        />
-      </div>
-      {profile.usedByBackups && profile.usedByBackups.length > 0 && (
-        <p className="text-sm text-muted-foreground">
-          Used by {profile.usedByBackups.length} backup
-          {profile.usedByBackups.length === 1 ? "" : "s"}.
-        </p>
-      )}
+    <ResourceEditLayout
+      backHref={`/s3-profiles/${id}`}
+      backLabel="Back to S3 profile"
+      title="Edit S3 Profile"
+    >
       <S3ProfileForm
         initial={initial}
         submitting={submitting}
         submitLabel="Save Changes"
+        cancelHref={`/s3-profiles/${id}`}
         hasSecretAccessKey={Boolean(profile.hasSecretAccessKey)}
         testStoredProfile={async () => {
           const response = await fetch(`/api/s3-profiles/${id}/test`)
@@ -128,6 +99,6 @@ export default function EditS3ProfilePage() {
         }}
         onSubmit={handleSubmit}
       />
-    </div>
+    </ResourceEditLayout>
   )
 }

@@ -24,6 +24,11 @@ interface DeleteConfirmationDialogProps {
   /** Override trigger styles (e.g. detailActionDestructiveClassName in action tile grids). */
   triggerButtonClassName?: string
   children?: React.ReactNode
+  /** Controlled open (e.g. overflow menus). */
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
+  /** Skip the default trigger — pair with controlled `open`. */
+  hideTrigger?: boolean
 }
 
 export function DeleteConfirmationDialog({
@@ -34,12 +39,18 @@ export function DeleteConfirmationDialog({
   buttonText = "Delete",
   triggerButtonClassName,
   children,
+  open: openProp,
+  onOpenChange,
+  hideTrigger = false,
 }: DeleteConfirmationDialogProps) {
-  const [open, setOpen] = useState(false)
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false)
+  const isControlled = openProp !== undefined
+  const open = isControlled ? openProp : uncontrolledOpen
   const deleteAfterClose = useRef(false)
 
   const handleOpenChange = (next: boolean) => {
-    setOpen(next)
+    if (!isControlled) setUncontrolledOpen(next)
+    onOpenChange?.(next)
     if (!next && deleteAfterClose.current) {
       deleteAfterClose.current = false
       // Run after close so Radix can unlock pointer-events before route changes.
@@ -56,18 +67,20 @@ export function DeleteConfirmationDialog({
 
   return (
     <AlertDialog open={open} onOpenChange={handleOpenChange}>
-      <AlertDialogTrigger asChild>
-        {children || (
-          <Button
-            variant="destructive"
-            className={triggerButtonClassName}
-            disabled={isDeleting}
-          >
-            <TrashIcon className="h-4 w-4" />
-            <span>{isDeleting ? "Deleting..." : buttonText}</span>
-          </Button>
-        )}
-      </AlertDialogTrigger>
+      {hideTrigger ? null : (
+        <AlertDialogTrigger asChild>
+          {children || (
+            <Button
+              variant="destructive"
+              className={triggerButtonClassName}
+              disabled={isDeleting}
+            >
+              <TrashIcon className="h-4 w-4" />
+              <span>{isDeleting ? "Deleting..." : buttonText}</span>
+            </Button>
+          )}
+        </AlertDialogTrigger>
+      )}
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>{title}</AlertDialogTitle>

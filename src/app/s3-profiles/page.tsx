@@ -1,13 +1,18 @@
 "use client"
 
 import { PageHeader, PageLayout } from "@/components/page-layout"
+import { ResourceListCard } from "@/components/resource-list-card"
+import { s3OverflowItems } from "@/components/resource-overflow"
 import { QueryState } from "@/components/ui/query-state"
-import { useS3Profiles } from "@/lib/hooks/useS3Profiles"
+import { useDeleteS3Profile, useS3Profiles } from "@/lib/hooks/useS3Profiles"
+import { useResourceQuickActions } from "@/lib/resource-actions"
 import { CloudIcon, PlusIcon } from "lucide-react"
 import Link from "next/link"
 
 export default function S3ProfilesPage() {
   const query = useS3Profiles()
+  const actions = useResourceQuickActions()
+  const deleteProfile = useDeleteS3Profile()
 
   return (
     <PageLayout>
@@ -34,25 +39,25 @@ export default function S3ProfilesPage() {
         {query.data && query.data.length > 0 && (
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
             {query.data.map((profile) => (
-              <Link
+              <ResourceListCard
                 key={profile.id}
-                href={`/s3-profiles/${profile.id}/edit`}
-                className="group block rounded-lg border bg-card p-6 text-card-foreground shadow-sm transition-shadow hover:shadow-md"
+                href={`/s3-profiles/${profile.id}`}
+                editHref={`/s3-profiles/${profile.id}/edit`}
+                icon={CloudIcon}
+                title={profile.name}
+                overflow={s3OverflowItems({
+                  id: profile.id,
+                  name: profile.name,
+                  actions,
+                  onDelete: () => deleteProfile.mutate(profile.id),
+                  isDeleting: deleteProfile.isPending && deleteProfile.variables === profile.id,
+                })}
+                flash={actions.flashFor(`s3:${profile.id}`)}
               >
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center">
-                    <CloudIcon className="mr-2 h-5 w-5 text-muted-foreground" />
-                    <h3 className="font-medium">{profile.name}</h3>
-                  </div>
-                </div>
-                <div className="mt-2 space-y-1 text-sm text-muted-foreground">
-                  <p className="truncate">{profile.endpoint}</p>
-                  <p>
-                    Bucket: {profile.bucket}
-                  </p>
-                  <p>Region: {profile.region}</p>
-                </div>
-              </Link>
+                <p className="truncate">{profile.endpoint}</p>
+                <p>Bucket: {profile.bucket}</p>
+                <p>Region: {profile.region}</p>
+              </ResourceListCard>
             ))}
           </div>
         )}

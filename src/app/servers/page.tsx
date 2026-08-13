@@ -1,13 +1,18 @@
 "use client"
 
 import { PageHeader, PageLayout } from "@/components/page-layout"
+import { ResourceListCard } from "@/components/resource-list-card"
+import { serverOverflowItems } from "@/components/resource-overflow"
 import { QueryState } from "@/components/ui/query-state"
-import { useServers } from "@/lib/hooks/useServers"
+import { useDeleteServer, useServers } from "@/lib/hooks/useServers"
+import { useResourceQuickActions } from "@/lib/resource-actions"
 import { PlusIcon, ServerIcon } from "lucide-react"
 import Link from "next/link"
 
 export default function ServersPage() {
   const query = useServers()
+  const actions = useResourceQuickActions()
+  const deleteServer = useDeleteServer()
 
   return (
     <PageLayout>
@@ -24,37 +29,41 @@ export default function ServersPage() {
         }
       />
 
-      <QueryState 
-        query={query} 
+      <QueryState
+        query={query}
         dataLabel="servers"
         errorIcon={<ServerIcon className="h-12 w-12 text-red-500" />}
         emptyIcon={<ServerIcon className="h-12 w-12 text-muted-foreground" />}
         emptyMessage="No servers found"
       >
         {query.data && query.data.length > 0 && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
             {query.data.map((server) => (
-              <Link 
-                key={server.id} 
+              <ResourceListCard
+                key={server.id}
                 href={`/servers/${server.id}`}
-                className="group block p-6 bg-card text-card-foreground rounded-lg border shadow-sm hover:shadow-md transition-shadow"
+                editHref={`/servers/${server.id}/edit`}
+                icon={ServerIcon}
+                title={server.name}
+                overflow={serverOverflowItems({
+                  id: server.id,
+                  name: server.name,
+                  actions,
+                  onDelete: () => deleteServer.mutate(server.id),
+                  isDeleting: deleteServer.isPending && deleteServer.variables === server.id,
+                })}
+                flash={actions.flashFor(`server:${server.id}`)}
               >
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center">
-                    <ServerIcon className="h-5 w-5 mr-2 text-muted-foreground" />
-                    <h3 className="font-medium">{server.name}</h3>
-                  </div>
-                </div>
-                <div className="mt-2 text-sm text-muted-foreground">
-                  <p>{server.host}:{server.port}</p>
-                  <p>Username: {server.username}</p>
-                  <p>Auth: {server.authType}</p>
-                </div>
-              </Link>
+                <p>
+                  {server.host}:{server.port}
+                </p>
+                <p>Username: {server.username}</p>
+                <p>Auth: {server.authType}</p>
+              </ResourceListCard>
             ))}
           </div>
         )}
       </QueryState>
     </PageLayout>
   )
-} 
+}

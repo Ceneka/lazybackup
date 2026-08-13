@@ -1,10 +1,9 @@
 "use client"
 
+import { ResourceEditLayout } from "@/components/resource-detail-layout"
 import { S3ProfileForm } from "@/components/s3-profile-form"
 import { s3ProfileKeys, type S3ProfileInput } from "@/lib/hooks/useS3Profiles"
 import { useQueryClient } from "@tanstack/react-query"
-import { ArrowLeftIcon } from "lucide-react"
-import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useState } from "react"
 import { toast } from "sonner"
@@ -47,23 +46,18 @@ export default function NewS3ProfilePage() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center space-x-2">
-        <Link
-          href="/s3-profiles"
-          className="inline-flex h-10 w-10 items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50"
-        >
-          <ArrowLeftIcon className="h-4 w-4" />
-          <span className="sr-only">Back to S3 profiles</span>
-        </Link>
-        <h1 className="text-3xl font-bold">Add S3 Profile</h1>
-      </div>
+    <ResourceEditLayout
+      backHref="/s3-profiles"
+      backLabel="Back to S3 profiles"
+      title="Add S3 Profile"
+    >
       <S3ProfileForm
         initial={empty}
         submitting={submitting}
-        submitLabel="Create Profile"
+        submitLabel="Add Profile"
+        cancelHref="/s3-profiles"
         onSubmit={handleSubmit}
       />
-    </div>
+    </ResourceEditLayout>
   )
 }

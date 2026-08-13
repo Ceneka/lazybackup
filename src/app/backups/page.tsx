@@ -1,44 +1,34 @@
 "use client"
 
-import { PageHeader, PageLayout } from "@/components/page-layout"
 import { BackupRecipesEmpty } from "@/components/backup-recipes-empty"
+import { PageHeader, PageLayout } from "@/components/page-layout"
+import { ResourceListCard } from "@/components/resource-list-card"
+import { backupOverflowItems } from "@/components/resource-overflow"
 import { QueryState } from "@/components/ui/query-state"
 import { destinationEndpointKey } from "@/lib/backup/destination"
+import {
+  destinationEndpointName,
+  sourceEndpointName,
+  sourcePathLabel,
+} from "@/lib/backup/endpoint-display"
 import { formatCronExpression } from "@/lib/cron/format"
-import { useBackups, type Backup } from "@/lib/hooks/useBackups"
+import { useBackups, useDeleteBackup, type Backup } from "@/lib/hooks/useBackups"
+import { useResourceQuickActions } from "@/lib/resource-actions"
 import { ArrowRightIcon, CalendarIcon, FolderIcon, PlusIcon } from "lucide-react"
 import Link from "next/link"
 import { useMemo } from "react"
 
 function endpointShort(backup: Backup, side: "from" | "to"): string {
   if (side === "from") {
-    const kind = backup.sourceKind || "server"
-    const label =
-      kind === "local"
-        ? "this host"
-        : kind === "s3"
-          ? backup.sourceS3Profile?.name || "s3"
-          : backup.server?.name || "server"
-    const path =
-      backup.sourceType === "docker_volume"
-        ? `volume:${backup.sourcePath}`
-        : backup.sourceType === "database"
-          ? `db:${backup.sourcePath}`
-          : backup.sourcePath
-    return `${label}:${path}`
+    return `${sourceEndpointName(backup)}:${sourcePathLabel(backup)}`
   }
-  const kind = backup.destinationKind || "local"
-  const label =
-    kind === "local"
-      ? "this host"
-      : kind === "s3"
-        ? backup.destinationS3Profile?.name || "s3"
-        : backup.destinationServer?.name || "server"
-  return `${label}:${backup.destinationPath}`
+  return `${destinationEndpointName(backup)}:${backup.destinationPath}`
 }
 
 export default function BackupsPage() {
   const query = useBackups()
+  const actions = useResourceQuickActions()
+  const deleteBackup = useDeleteBackup()
 
   const duplicateDestinationIds = useMemo(() => {
     const ids = new Set<string>()
@@ -93,21 +83,18 @@ export default function BackupsPage() {
       >
         {query.data && query.data.length === 0 && <BackupRecipesEmpty />}
         {query.data && query.data.length > 0 && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
             {query.data.map((backup) => (
-              <Link
+              <ResourceListCard
                 key={backup.id}
                 href={`/backups/${backup.id}`}
-                className="group block p-6 bg-card text-card-foreground rounded-lg border shadow-sm hover:shadow-md transition-shadow"
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex items-center min-w-0">
-                    <FolderIcon className="h-5 w-5 mr-2 text-muted-foreground shrink-0" />
-                    <h3 className="font-medium truncate">{backup.name}</h3>
-                  </div>
-                  <div className="flex flex-col items-end gap-1 shrink-0">
+                editHref={`/backups/${backup.id}/edit`}
+                icon={FolderIcon}
+                title={backup.name}
+                badges={
+                  <div className="mr-1 flex flex-col items-end gap-1">
                     <div
-                      className={`text-xs px-2 py-1 rounded-full ${
+                      className={`rounded-full px-2 py-1 text-xs ${
                         backup.enabled
                           ? "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300"
                           : "bg-muted text-muted-foreground"
@@ -116,30 +103,37 @@ export default function BackupsPage() {
                       {backup.enabled ? "Active" : "Disabled"}
                     </div>
                     {duplicateDestinationIds.has(backup.id) && (
-                      <div className="text-xs px-2 py-1 rounded-full bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-200">
+                      <div className="rounded-full bg-amber-100 px-2 py-1 text-xs text-amber-900 dark:bg-amber-900/40 dark:text-amber-200">
                         Shared destination
                       </div>
                     )}
                   </div>
+                }
+                overflow={backupOverflowItems({
+                  id: backup.id,
+                  name: backup.name,
+                  actions,
+                  onDelete: () => deleteBackup.mutate(backup.id),
+                  isDeleting: deleteBackup.isPending && deleteBackup.variables === backup.id,
+                })}
+                flash={actions.flashFor(`backup:${backup.id}`)}
+              >
+                <p className="flex min-w-0 items-start gap-1.5">
+                  <span className="truncate" title={endpointShort(backup, "from")}>
+                    {endpointShort(backup, "from")}
+                  </span>
+                  <ArrowRightIcon className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  <span className="truncate" title={endpointShort(backup, "to")}>
+                    {endpointShort(backup, "to")}
+                  </span>
+                </p>
+                <div className="mt-1 flex items-center">
+                  <CalendarIcon className="mr-1 h-3 w-3" />
+                  <span className="text-xs">
+                    {formatCronExpression(backup.schedule)} ({backup.schedule})
+                  </span>
                 </div>
-                <div className="mt-2 text-sm text-muted-foreground space-y-1">
-                  <p className="flex items-start gap-1.5 min-w-0">
-                    <span className="truncate" title={endpointShort(backup, "from")}>
-                      {endpointShort(backup, "from")}
-                    </span>
-                    <ArrowRightIcon className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                    <span className="truncate" title={endpointShort(backup, "to")}>
-                      {endpointShort(backup, "to")}
-                    </span>
-                  </p>
-                  <div className="flex items-center mt-1">
-                    <CalendarIcon className="h-3 w-3 mr-1" />
-                    <span className="text-xs">
-                      {formatCronExpression(backup.schedule)} ({backup.schedule})
-                    </span>
-                  </div>
-                </div>
-              </Link>
+              </ResourceListCard>
             ))}
           </div>
         )}

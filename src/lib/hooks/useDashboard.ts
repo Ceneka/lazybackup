@@ -9,6 +9,26 @@ export type DashboardDaily = {
   total: number
 }
 
+export type DashboardServerItem = {
+  id: string
+  name: string
+  host: string
+  port: number
+}
+
+export type DashboardS3Item = {
+  id: string
+  name: string
+  bucket: string
+  endpoint: string
+}
+
+export type DashboardBackupItem = {
+  id: string
+  name: string
+  enabled: boolean
+}
+
 export type DashboardData = {
   days: number
   since: string
@@ -16,6 +36,9 @@ export type DashboardData = {
   s3Profiles: number
   backups: number
   enabledBackups: number
+  serverList: DashboardServerItem[]
+  s3ProfileList: DashboardS3Item[]
+  backupList: DashboardBackupItem[]
   statusCounts: { running: number; success: number; failed: number }
   totalRuns: number
   successRate: number

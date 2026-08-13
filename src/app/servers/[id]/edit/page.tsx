@@ -1,11 +1,12 @@
 "use client"
 
 import { SSHKeyBootstrap } from "@/components/ssh-key-bootstrap"
+import { ResourceEditLayout } from "@/components/resource-detail-layout"
 import { Button } from '@/components/ui/button'
 import { useTestServer } from '@/lib/hooks/useServers'
 import { SSHKey, getSystemKeyPathFromId, isSystemKeyId, useSSHKeys } from "@/lib/hooks/useSSHKeys"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { ArrowLeftIcon, KeyIcon, Loader2Icon } from "lucide-react"
+import { KeyIcon, Loader2Icon } from "lucide-react"
 import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
@@ -215,17 +216,11 @@ export default function EditServerPage() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center space-x-2">
-        <Link href={`/servers/${serverId}`} className="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground h-10 w-10">
-          <ArrowLeftIcon className="h-4 w-4" />
-          <span className="sr-only">Back to server details</span>
-        </Link>
-        <h1 className="text-3xl font-bold">Edit Server</h1>
-      </div>
-
-      <div className="rounded-lg border bg-card text-card-foreground shadow">
-        <div className="p-6">
+    <ResourceEditLayout
+      backHref={`/servers/${serverId}`}
+      backLabel="Back to server details"
+      title="Edit Server"
+    >
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="space-y-4">
               <div>
@@ -474,8 +469,6 @@ export default function EditServerPage() {
               </button>
             </div>
           </form>
-        </div>
-      </div>
-    </div>
+    </ResourceEditLayout>
   )
 } 

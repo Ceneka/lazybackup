@@ -23,6 +23,7 @@ import {
   assertS3EndpointHostSync,
   type S3EndpointPolicy,
 } from '@/lib/s3/endpoint';
+import { formatS3ConnectionError, normalizeS3ProfileFields } from '@/lib/s3/normalize';
 
 export type S3ProfileConfig = {
   endpoint: string;
@@ -39,14 +40,14 @@ function endpointPolicy(profile: S3ProfileConfig): S3EndpointPolicy {
 }
 
 export function createS3Client(profile: S3ProfileConfig): S3Client {
-  const endpoint = profile.endpoint.trim().replace(/\/+$/, '');
-  assertS3EndpointHostSync(endpoint, endpointPolicy(profile));
+  const normalized = normalizeS3ProfileFields(profile);
+  assertS3EndpointHostSync(normalized.endpoint, endpointPolicy(profile));
   return new S3Client({
-    endpoint,
-    region: profile.region.trim() || 'us-east-1',
+    endpoint: normalized.endpoint,
+    region: normalized.region || 'us-east-1',
     credentials: {
-      accessKeyId: profile.accessKeyId,
-      secretAccessKey: profile.secretAccessKey,
+      accessKeyId: normalized.accessKeyId,
+      secretAccessKey: normalized.secretAccessKey ?? profile.secretAccessKey,
     },
     forcePathStyle: profile.forcePathStyle !== false,
   });
@@ -60,27 +61,22 @@ export function joinS3Key(...parts: string[]): string {
 }
 
 export async function testS3Connection(profile: S3ProfileConfig): Promise<void> {
-  await assertS3EndpointAllowed(profile.endpoint, endpointPolicy(profile));
-  const client = createS3Client(profile);
+  const normalized = normalizeS3ProfileFields(profile);
+  await assertS3EndpointAllowed(normalized.endpoint, endpointPolicy(profile));
+  const client = createS3Client(normalized);
   try {
-    await client.send(new HeadBucketCommand({ Bucket: profile.bucket }));
+    await client.send(new HeadBucketCommand({ Bucket: normalized.bucket }));
   } catch (error) {
     // Some providers reject HeadBucket; fall back to a cheap list.
     try {
       await client.send(
         new ListObjectsV2Command({
-          Bucket: profile.bucket,
+          Bucket: normalized.bucket,
           MaxKeys: 1,
         })
       );
     } catch (listError) {
-      const detail =
-        listError instanceof Error
-          ? listError.message
-          : error instanceof Error
-            ? error.message
-            : 'S3 connection failed';
-      throw new Error(detail);
+      throw new Error(formatS3ConnectionError(listError ?? error));
     }
   } finally {
     client.destroy();
@@ -97,6 +93,7 @@ export async function listObjectsUnderPrefix(
   profile: S3ProfileConfig,
   prefix: string
 ): Promise<S3ObjectInfo[]> {
+  profile = normalizeS3ProfileFields(profile);
   await assertS3EndpointAllowed(profile.endpoint, endpointPolicy(profile));
   const client = createS3Client(profile);
   const normalized = normalizeS3Prefix(prefix);
@@ -135,6 +132,7 @@ export async function listVersionPrefixes(
   profile: S3ProfileConfig,
   basePrefix: string
 ): Promise<Array<{ name: string; prefix: string; lastModifiedMs: number }>> {
+  profile = normalizeS3ProfileFields(profile);
   await assertS3EndpointAllowed(profile.endpoint, endpointPolicy(profile));
   const client = createS3Client(profile);
   const normalized = normalizeS3Prefix(basePrefix);
@@ -185,6 +183,7 @@ export async function deleteObjectsByKeys(
   keys: string[]
 ): Promise<number> {
   if (keys.length === 0) return 0;
+  profile = normalizeS3ProfileFields(profile);
   await assertS3EndpointAllowed(profile.endpoint, endpointPolicy(profile));
   const client = createS3Client(profile);
   let deleted = 0;
@@ -224,6 +223,7 @@ export async function uploadFile(
   localFilePath: string,
   key: string
 ): Promise<{ key: string; size: number }> {
+  profile = normalizeS3ProfileFields(profile);
   await assertS3EndpointAllowed(profile.endpoint, endpointPolicy(profile));
   const client = createS3Client(profile);
   const stat = await fs.stat(localFilePath);
@@ -294,6 +294,7 @@ export async function downloadFile(
   key: string,
   localFilePath: string
 ): Promise<{ size: number }> {
+  profile = normalizeS3ProfileFields(profile);
   await assertS3EndpointAllowed(profile.endpoint, endpointPolicy(profile));
   const client = createS3Client(profile);
   try {

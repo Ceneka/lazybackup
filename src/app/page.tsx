@@ -1,5 +1,6 @@
 "use client"
 
+import { DashboardQuickActions } from "@/components/dashboard-quick-actions"
 import { PageHeader, PageLayout } from "@/components/page-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
@@ -7,16 +8,15 @@ import { QueryState } from "@/components/ui/query-state"
 import { useDashboard } from "@/lib/hooks/useDashboard"
 import { formatBytes } from "@/lib/utils"
 import {
-  CheckCircleIcon,
-  CalendarClockIcon,
-  CloudIcon,
-  FolderIcon,
-  HardDriveIcon,
-  HistoryIcon,
-  PlayIcon,
-  PlusIcon,
-  ServerIcon,
-  XCircleIcon,
+    CheckCircleIcon,
+    CalendarClockIcon,
+    CloudIcon,
+    FolderIcon,
+    HardDriveIcon,
+    HistoryIcon,
+    PlayIcon,
+    ServerIcon,
+    XCircleIcon,
 } from "lucide-react"
 import Link from "next/link"
 import { useEffect, useState } from "react"
@@ -255,34 +255,13 @@ export default function Dashboard() {
               </Card>
             </div>
 
-            <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
-              <div className="rounded-lg border bg-card p-6 text-card-foreground shadow">
-                <h2 className="mb-4 text-xl font-semibold">Quick Actions</h2>
-                <div className="space-y-4">
-                  <Link
-                    href="/servers/new"
-                    className="flex items-center space-x-2 rounded-md p-3 transition-colors hover:bg-accent"
-                  >
-                    <PlusIcon className="h-5 w-5" />
-                    <span>Add New Server</span>
-                  </Link>
-                  <Link
-                    href="/s3-profiles/new"
-                    className="flex items-center space-x-2 rounded-md p-3 transition-colors hover:bg-accent"
-                  >
-                    <PlusIcon className="h-5 w-5" />
-                    <span>Add S3 Profile</span>
-                  </Link>
-                  <Link
-                    href="/backups/new"
-                    className="flex items-center space-x-2 rounded-md p-3 transition-colors hover:bg-accent"
-                  >
-                    <PlusIcon className="h-5 w-5" />
-                    <span>Create New Backup</span>
-                  </Link>
-                </div>
-              </div>
+            <DashboardQuickActions
+              servers={query.data.serverList ?? []}
+              s3Profiles={query.data.s3ProfileList ?? []}
+              backups={query.data.backupList ?? []}
+            />
 
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
               <div className="rounded-lg border bg-card p-6 text-card-foreground shadow">
                 <h2 className="mb-4 text-xl font-semibold">Recent Activity</h2>
                 {query.data.recentHistory.length > 0 ? (
@@ -333,7 +312,7 @@ export default function Dashboard() {
                 )}
               </div>
 
-              <div className="rounded-lg border bg-card p-6 text-card-foreground shadow md:col-span-2 lg:col-span-1">
+              <div className="rounded-lg border bg-card p-6 text-card-foreground shadow">
                 <h2 className="mb-1 text-xl font-semibold">Upcoming Backups</h2>
                 <p className="mb-4 text-xs text-muted-foreground">
                   Times in {query.data.timezone || "UTC"}
