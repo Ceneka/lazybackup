@@ -28,6 +28,7 @@ export type BackupHistory = {
   artifactPath?: string | null
   artifactSha256?: string | null
   mailboxPending?: boolean
+  artifactRemoved?: boolean
   backupConfig: {
     id: string
     name: string

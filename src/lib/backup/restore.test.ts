@@ -13,6 +13,7 @@ type HistoryRow = {
   id: string;
   status: string;
   artifactPath: string | null;
+  artifactRemoved?: boolean;
   backupConfig: Record<string, unknown> | null;
 };
 
@@ -23,6 +24,9 @@ mock.module('@/lib/db', () => ({
     query: {
       backupHistory: {
         findFirst: async () => historyFixture,
+      },
+      peerDeletes: {
+        findFirst: async () => null,
       },
     },
   },
@@ -145,6 +149,26 @@ describe('resolveLocalRestoreArtifact', () => {
       expect((error as Error).message).toBe(PEER_RECALL_WAITING_MESSAGE);
       expect(waited).toBe(false);
     }
+  });
+
+  test('mailbox peer restore fails clearly when retention already removed the blob', async () => {
+    historyFixture = {
+      id: 'h-removed',
+      status: 'success',
+      artifactPath: 'peer://peer1/foo.tar.gz.age',
+      artifactRemoved: true,
+      backupConfig: null,
+    };
+
+    await expect(
+      resolveLocalRestoreArtifact({
+        artifactPath: 'peer://peer1/foo.tar.gz.age',
+        destinationKind: 'peer',
+        destinationPeer: { id: 'peer1', transport: 'mailbox' } as never,
+        historyId: 'h-removed',
+        decrypt: false,
+      })
+    ).rejects.toThrow(/artifact removed by retention/i);
   });
 });
 

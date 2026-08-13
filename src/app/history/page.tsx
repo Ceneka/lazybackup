@@ -251,6 +251,7 @@ function HistoryPageContent() {
                     sourceType: item.backupConfig?.sourceType,
                     destinationKind: item.backupConfig?.destinationKind,
                     artifactPath: item.artifactPath,
+                    artifactRemoved: item.artifactRemoved,
                   })
                   return (
                   <TableRow key={item.id}>

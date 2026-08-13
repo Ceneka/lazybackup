@@ -80,6 +80,7 @@ import { assertTransferServersHaveKeys } from './assert-transfer-keys';
 import { createBackupHistoryEntry, updateBackupHistoryFailure, updateBackupHistorySuccess } from './history';
 import {
   buildFileRetentionLog,
+  buildPeerRetentionLog,
   buildPreBackupLog,
   combineBackupLog,
   formatPreBackupCommandLog,
@@ -1561,6 +1562,30 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
         });
         fileRetentionLog = buildFileRetentionLog(cleaned.names);
       }
+    } else if (destinationKind === 'peer' && config.destinationPeer) {
+      try {
+        const parsedCurrent = artifactPath.match(/^peer:\/\/([^/]+)\/(.+)$/);
+        const extraObjects =
+          parsedCurrent?.[2] && !parsedCurrent[2].includes('..')
+            ? [{ key: parsedCurrent[2], mtimeMs: Date.now() }]
+            : [];
+        const { applyPeerDestinationRetention } = await import('@/lib/peer/retention');
+        const cleaned = await applyPeerDestinationRetention({
+          configId: config.id,
+          peer: config.destinationPeer,
+          destinationPath: config.destinationPath,
+          enableVersioning: Boolean(config.enableVersioning),
+          versionsToKeep: config.versionsToKeep,
+          enableFileRetention: config.enableFileRetention,
+          retentionMaxAge: config.retentionMaxAge,
+          retentionMaxAgeUnit: config.retentionMaxAgeUnit || 'days',
+          retentionMinKeep: config.retentionMinKeep,
+          extraObjects,
+        });
+        fileRetentionLog = buildPeerRetentionLog(cleaned.keys);
+      } catch (error) {
+        console.error(`Peer retention failed: ${error}`);
+      }
     }
 
     const isArchiveTransfer =
@@ -1676,6 +1701,8 @@ export async function resolveLocalRestoreArtifact(options: {
     }
     const peerId = m[1];
     const objectKey = m[2];
+    const { assertPeerArtifactRestorable } = await import('@/lib/peer/retention');
+    await assertPeerArtifactRestorable(options.artifactPath, options.historyId ?? null);
     const peer = options.destinationPeer;
     const transport = peer.transport === 'direct' ? 'direct' : 'mailbox';
     const openPeerTemp = async () => {

@@ -89,6 +89,18 @@ export async function listOpenRecallsForPeer(
   return rows.map((r) => ({ id: r.id, objectKey: r.objectKey }));
 }
 
+/** Keys with a recall still in flight (including ready-but-unconsumed). */
+export async function listObjectKeysWithOpenRecalls(peerId: string): Promise<Set<string>> {
+  await expireStaleRecalls();
+  const rows = await db.query.peerRecalls.findMany({
+    where: and(
+      eq(peerRecalls.peerId, peerId),
+      inArray(peerRecalls.status, ['pending', 'uploading', 'ready'])
+    ),
+  });
+  return new Set(rows.map((r) => r.objectKey));
+}
+
 export async function getRecall(
   recallId: string
 ): Promise<typeof peerRecalls.$inferSelect | null> {

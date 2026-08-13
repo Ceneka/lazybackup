@@ -49,3 +49,87 @@ export function selectFilesToDelete(
     .filter((file) => !protectedNames.has(file.name) && file.mtimeMs < cutoff)
     .map((file) => file.name);
 }
+
+export type PeerObjectCandidate = {
+  key: string;
+  mtimeMs: number;
+};
+
+/** Timestamp version folder names: YYYY-MM-DD_HH-mm-ss */
+export const PEER_VERSION_DIR_RE = /^\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}$/;
+
+export function relativeKeyUnderPrefix(key: string, prefix: string): string | null {
+  const normalizedKey = key.replace(/^\/+/, '');
+  const base = prefix.replace(/^\/+|\/+$/g, '');
+  if (!base) return normalizedKey;
+  if (normalizedKey === base) return '';
+  if (normalizedKey.startsWith(`${base}/`)) return normalizedKey.slice(base.length + 1);
+  return null;
+}
+
+/**
+ * Age + min-keep retention for peer objects directly under a prefix
+ * (same semantics as S3 dump-folder cleanup).
+ */
+export function selectPeerKeysForFileRetention(
+  objects: PeerObjectCandidate[],
+  prefix: string,
+  options: {
+    maxAge: number;
+    unit: RetentionAgeUnit;
+    minKeep: number;
+    nowMs?: number;
+  }
+): string[] {
+  const topLevel: Array<{ key: string; name: string; mtimeMs: number }> = [];
+  for (const obj of objects) {
+    const rel = relativeKeyUnderPrefix(obj.key, prefix);
+    if (rel == null || rel.length === 0 || rel.includes('/')) continue;
+    if (!isBackupArtifactFileName(rel)) continue;
+    topLevel.push({ key: obj.key, name: rel, mtimeMs: obj.mtimeMs });
+  }
+
+  const toDeleteNames = new Set(
+    selectFilesToDelete(
+      topLevel.map((file) => ({ name: file.name, mtimeMs: file.mtimeMs })),
+      options
+    )
+  );
+  return topLevel.filter((file) => toDeleteNames.has(file.name)).map((file) => file.key);
+}
+
+/**
+ * Keep newest N timestamp prefixes under `prefix`; return object keys in older versions
+ * (same semantics as S3 version-prefix cleanup).
+ */
+export function selectPeerKeysForVersionRetention(
+  objects: PeerObjectCandidate[],
+  prefix: string,
+  versionsToKeep: number
+): string[] {
+  const byVersion = new Map<string, { keys: string[]; lastModifiedMs: number }>();
+  for (const obj of objects) {
+    const rel = relativeKeyUnderPrefix(obj.key, prefix);
+    if (rel == null || !rel.includes('/')) continue;
+    const versionName = rel.slice(0, rel.indexOf('/'));
+    if (!PEER_VERSION_DIR_RE.test(versionName)) continue;
+    const group = byVersion.get(versionName) ?? { keys: [], lastModifiedMs: 0 };
+    group.keys.push(obj.key);
+    group.lastModifiedMs = Math.max(group.lastModifiedMs, obj.mtimeMs);
+    byVersion.set(versionName, group);
+  }
+
+  const versions = [...byVersion.entries()].map(([name, group]) => ({
+    name,
+    keys: group.keys,
+    lastModifiedMs: group.lastModifiedMs,
+  }));
+  if (versions.length <= versionsToKeep) return [];
+
+  versions.sort((a, b) => {
+    if (a.name !== b.name) return a.name.localeCompare(b.name);
+    return a.lastModifiedMs - b.lastModifiedMs;
+  });
+  const toRemove = versions.slice(0, Math.max(0, versions.length - versionsToKeep));
+  return toRemove.flatMap((version) => version.keys);
+}

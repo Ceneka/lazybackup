@@ -88,6 +88,19 @@ export function buildFileRetentionLog(deletedFiles: string[]): string {
   ].join('\n');
 }
 
+export function buildPeerRetentionLog(objectKeys: string[]): string {
+  if (objectKeys.length === 0) {
+    return '';
+  }
+
+  return [
+    LOG_SECTION.fileRetention,
+    '',
+    `Queued ${objectKeys.length} object(s) for bro deletion:`,
+    ...objectKeys.map((key) => `- ${key}`),
+  ].join('\n');
+}
+
 export function splitBackupLog(logOutput: string): {
   preBackup?: string;
   transfer: string;

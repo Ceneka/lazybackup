@@ -11,15 +11,20 @@ export function getPeerStorageRoot(): string {
   return path.resolve(root, 'peers');
 }
 
+export function assertSafePeerObjectKey(objectKey: string): string {
+  const safe = objectKey.replace(/\\/g, '/').replace(/^\/+/, '');
+  if (!safe || safe.includes('..')) {
+    throw new Error('Invalid object key');
+  }
+  return safe;
+}
+
 export function peerDataDir(peerId: string): string {
   return path.join(getPeerStorageRoot(), peerId);
 }
 
 export function peerObjectPath(peerId: string, objectKey: string): string {
-  const safe = objectKey.replace(/\\/g, '/').replace(/^\/+/, '');
-  if (!safe || safe.includes('..')) {
-    throw new Error('Invalid object key');
-  }
+  const safe = assertSafePeerObjectKey(objectKey);
   return path.join(peerDataDir(peerId), safe);
 }
 

@@ -4,7 +4,12 @@ export type MailboxAckInput = {
   key: string;
   size?: number;
   sha256?: string;
+  exists?: boolean;
 };
+
+export type MailboxDeleteAckDecision =
+  | { action: 'accept' }
+  | { action: 'keep'; reason: 'missing_proof' | 'still_exists' };
 
 export type MailboxAckDecision =
   | { action: 'accept' }
@@ -28,6 +33,19 @@ export function decideMailboxAck(options: {
   }
   if (options.claimed.size != null && options.claimed.size !== options.stagedSize) {
     return { action: 'keep', reason: 'mismatch' };
+  }
+  return { action: 'accept' };
+}
+
+/**
+ * Delete ACK is trusted only when the bro proves the object is gone (exists=false, size 0).
+ */
+export function decideMailboxDeleteAck(claimed: MailboxAckInput): MailboxDeleteAckDecision {
+  if (claimed.exists !== false) {
+    return { action: 'keep', reason: 'missing_proof' };
+  }
+  if (claimed.size != null && claimed.size !== 0) {
+    return { action: 'keep', reason: 'still_exists' };
   }
   return { action: 'accept' };
 }

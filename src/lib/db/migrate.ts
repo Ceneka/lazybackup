@@ -265,6 +265,11 @@ export async function runMigration() {
         sql`ALTER TABLE backup_history ADD COLUMN mailbox_pending INTEGER NOT NULL DEFAULT 0`
       );
     }
+    if (!historyColumns.includes('artifact_removed')) {
+      await db.run(
+        sql`ALTER TABLE backup_history ADD COLUMN artifact_removed INTEGER NOT NULL DEFAULT 0`
+      );
+    }
 
     // S3-compatible profiles + backup_configs FKs
     await db.run(sql`
@@ -451,6 +456,17 @@ export async function runMigration() {
         created_at INTEGER NOT NULL DEFAULT (unixepoch()),
         ready_at INTEGER,
         consumed_at INTEGER
+      );
+    `);
+
+    await db.run(sql`
+      CREATE TABLE IF NOT EXISTS peer_deletes (
+        id TEXT PRIMARY KEY NOT NULL,
+        peer_id TEXT NOT NULL REFERENCES peers(id) ON DELETE CASCADE,
+        object_key TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        acked_at INTEGER
       );
     `);
 

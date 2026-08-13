@@ -3,6 +3,7 @@ export type RestoreEligibilityInput = {
   sourceType?: string | null;
   destinationKind?: string | null;
   artifactPath?: string | null;
+  artifactRemoved?: boolean | null;
 };
 
 function isRestorableSourceType(sourceType: string | null | undefined): boolean {
@@ -27,7 +28,8 @@ export function canRestoreDockerVolumeBackup(
     input.status === 'success' &&
     isRestorableSourceType(input.sourceType) &&
     isRestorableDestination(input.destinationKind) &&
-    Boolean(input.artifactPath)
+    Boolean(input.artifactPath) &&
+    !input.artifactRemoved
   );
 }
 
@@ -91,6 +93,9 @@ export function restoreBlockedReason(
   }
   if (!input.artifactPath) {
     return 'This run has no stored artifact path.';
+  }
+  if (input.artifactRemoved) {
+    return 'artifact removed by retention';
   }
   return null;
 }

@@ -76,6 +76,7 @@ export default function HistoryDetailPage() {
     sourceType: query.data?.backupConfig?.sourceType,
     destinationKind: query.data?.backupConfig?.destinationKind,
     artifactPath: query.data?.artifactPath,
+    artifactRemoved: query.data?.artifactRemoved,
   })
 
   const restoreBlockReason = restoreBlockedReason({
@@ -83,6 +84,7 @@ export default function HistoryDetailPage() {
     sourceType: query.data?.backupConfig?.sourceType,
     destinationKind: query.data?.backupConfig?.destinationKind,
     artifactPath: query.data?.artifactPath,
+    artifactRemoved: query.data?.artifactRemoved,
   })
 
   const restoreSourceType = query.data?.backupConfig?.sourceType || "path"

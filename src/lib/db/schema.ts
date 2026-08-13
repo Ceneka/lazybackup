@@ -146,6 +146,11 @@ export const backupHistory = sqliteTable('backup_history', {
    * status stays `success` so existing UI/filters keep working.
    */
   mailboxPending: integer('mailbox_pending', { mode: 'boolean' }).notNull().default(false),
+  /**
+   * Bro retention: object was deleted on the peer after a verified delete ACK.
+   * Restore must fail clearly instead of hanging on recall.
+   */
+  artifactRemoved: integer('artifact_removed', { mode: 'boolean' }).notNull().default(false),
 });
 
 /** Machine API tokens for MCP / Bearer auth (hash only; plaintext shown once) */
@@ -237,6 +242,22 @@ export const peerRecalls = sqliteTable('peer_recalls', {
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
   readyAt: integer('ready_at', { mode: 'timestamp' }),
   consumedAt: integer('consumed_at', { mode: 'timestamp' }),
+});
+
+/**
+ * Mailbox retention deletes: host decides keys, Bro unlinks, host forgets after ACK.
+ */
+export const peerDeletes = sqliteTable('peer_deletes', {
+  id: text('id').primaryKey().notNull(),
+  peerId: text('peer_id')
+    .notNull()
+    .references(() => peers.id, { onDelete: 'cascade' }),
+  objectKey: text('object_key').notNull(),
+  status: text('status', { enum: ['pending', 'acked'] })
+    .notNull()
+    .default('pending'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+  ackedAt: integer('acked_at', { mode: 'timestamp' }),
 });
 
 /** Age encryption key vault (multiple identities; one active for new encrypts) */
@@ -351,6 +372,14 @@ export const backupConfigsRelations = relations(backupConfigs, ({ one, many }) =
 export const peersRelations = relations(peers, ({ many }) => ({
   destinationBackupConfigs: many(backupConfigs, { relationName: 'backupDestinationPeer' }),
   recalls: many(peerRecalls),
+  deletes: many(peerDeletes),
+}));
+
+export const peerDeletesRelations = relations(peerDeletes, ({ one }) => ({
+  peer: one(peers, {
+    fields: [peerDeletes.peerId],
+    references: [peers.id],
+  }),
 }));
 
 export const peerRecallsRelations = relations(peerRecalls, ({ one }) => ({

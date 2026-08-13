@@ -91,6 +91,7 @@ export async function GET(
       sourceType: config?.sourceType,
       destinationKind: config?.destinationKind,
       artifactPath: historyEntry.artifactPath,
+      artifactRemoved: historyEntry.artifactRemoved,
     };
 
     if (!canDownloadBackup(eligibility)) {

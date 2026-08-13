@@ -61,6 +61,21 @@ export async function uploadPeerObject(
   return { size: json.size };
 }
 
+export async function deletePeerObject(
+  peer: PeerRow,
+  objectKey: string
+): Promise<void> {
+  const res = await peerFetch(peer, storeUrl(objectKey), {
+    method: 'DELETE',
+  });
+  if (res.ok || res.status === 404) return;
+  const err = await res.json().catch(() => ({}));
+  throw new Error(
+    (err as { error?: string }).error ||
+      `Peer delete failed (${res.status}) for ${peer.name}`
+  );
+}
+
 export async function downloadPeerObject(
   peer: PeerRow,
   objectKey: string,

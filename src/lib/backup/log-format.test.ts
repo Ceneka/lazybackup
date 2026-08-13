@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import {
   LOG_SECTION,
   buildFileRetentionLog,
+  buildPeerRetentionLog,
   buildPreBackupLog,
   combineBackupLog,
   formatPreBackupCommandLog,
@@ -145,6 +146,19 @@ describe('buildFileRetentionLog', () => {
     expect(log).toContain('Deleted 2 file(s):');
     expect(log).toContain('- a.dump');
     expect(log).toContain('- b.dump');
+  });
+});
+
+describe('buildPeerRetentionLog', () => {
+  test('returns empty string when nothing was queued', () => {
+    expect(buildPeerRetentionLog([])).toBe('');
+  });
+
+  test('lists queued bro object keys under the retention header', () => {
+    const log = buildPeerRetentionLog(['old.sql.gz.age']);
+    expect(log.startsWith(LOG_SECTION.fileRetention)).toBe(true);
+    expect(log).toContain('Queued 1 object(s) for bro deletion:');
+    expect(log).toContain('- old.sql.gz.age');
   });
 });
 

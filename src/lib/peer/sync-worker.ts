@@ -58,6 +58,7 @@ export async function syncPeerOnce(peer: PeerRow): Promise<void> {
   const work = (await workRes.json()) as {
     pulls: Array<{ key: string; size: number }>;
     recalls: Array<{ id: string; objectKey: string }>;
+    deletes?: Array<{ key: string }>;
   };
 
   for (const pull of work.pulls || []) {
@@ -105,6 +106,32 @@ export async function syncPeerOnce(peer: PeerRow): Promise<void> {
     } catch (err) {
       console.warn(
         `[peer-sync] recall ${recall.id} missing locally:`,
+        err instanceof Error ? err.message : err
+      );
+    }
+  }
+
+  const recallKeys = new Set((work.recalls || []).map((r) => r.objectKey));
+  for (const del of work.deletes || []) {
+    if (recallKeys.has(del.key)) continue;
+    try {
+      const { deletePeerObjectFile } = await import('./storage');
+      await deletePeerObjectFile(peer.id, del.key);
+      const ackRes = await peerFetch(peer, '/api/peers/agent/ack', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          key: del.key,
+          exists: false,
+          size: 0,
+        }),
+      });
+      if (!ackRes.ok) {
+        console.warn(`[peer-sync] delete ack failed ${del.key}: ${ackRes.status}`);
+      }
+    } catch (err) {
+      console.warn(
+        `[peer-sync] delete ${del.key}:`,
         err instanceof Error ? err.message : err
       );
     }

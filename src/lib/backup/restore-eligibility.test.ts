@@ -170,6 +170,27 @@ describe('restoreBlockedReason', () => {
       })
     ).toMatch(/path/);
   });
+
+  test('blocks restore when the peer artifact was removed by retention', () => {
+    expect(
+      canRestoreBackup({
+        status: 'success',
+        sourceType: 'path',
+        destinationKind: 'peer',
+        artifactPath: 'peer://p1/obj.tar.gz.age',
+        artifactRemoved: true,
+      })
+    ).toBe(false);
+    expect(
+      restoreBlockedReason({
+        status: 'success',
+        sourceType: 'path',
+        destinationKind: 'peer',
+        artifactPath: 'peer://p1/obj.tar.gz.age',
+        artifactRemoved: true,
+      })
+    ).toBe('artifact removed by retention');
+  });
 });
 
 describe('download filename helpers', () => {

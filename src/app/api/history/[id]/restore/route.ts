@@ -124,7 +124,8 @@ export async function POST(
       message.includes('not found') ||
       message.includes('Only successful') ||
       message.includes('only supported') ||
-      message.includes('only for path')
+      message.includes('only for path') ||
+      message.includes('artifact removed by retention')
         ? 400
         : 500;
 

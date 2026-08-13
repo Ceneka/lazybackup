@@ -22,6 +22,7 @@ export type HistoryRestoreEntry = {
   id: string
   status?: string | null
   artifactPath?: string | null
+  artifactRemoved?: boolean | null
   backupConfig?: {
     sourceType?: string | null
     sourcePath?: string | null
@@ -64,6 +65,7 @@ export function HistoryRestoreButton({
     sourceType: entry.backupConfig?.sourceType,
     destinationKind: entry.backupConfig?.destinationKind,
     artifactPath: entry.artifactPath,
+    artifactRemoved: entry.artifactRemoved,
   })
 
   useEffect(() => {
