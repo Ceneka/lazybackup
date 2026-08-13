@@ -2,7 +2,6 @@
 
 import Image from "next/image";
 import { useState } from "react";
-import { ScrollReveal } from "./scroll-reveal";
 
 const screenshots = [
   {
@@ -67,20 +66,17 @@ export function ScreenshotsGallery() {
       className="relative border-y border-white/[0.06] bg-white/[0.02] py-24 md:py-32"
     >
       <div className="container mx-auto px-5 md:px-8">
-        <ScrollReveal>
-          <div className="mx-auto max-w-2xl text-center">
-            <h2 className="text-3xl font-semibold tracking-tight text-slate-100 md:text-4xl">
-              See it in action
-            </h2>
-            <p className="mt-4 text-lg text-slate-400">
-              Status posture, age vault, S3, Bro Space, MCP tokens, From→To
-              jobs, and history—on your own host.
-            </p>
-          </div>
-        </ScrollReveal>
+        <div className="mx-auto max-w-2xl text-center">
+          <h2 className="text-3xl font-semibold tracking-tight text-slate-100 md:text-4xl">
+            See it in action
+          </h2>
+          <p className="mt-4 text-lg text-slate-400">
+            Status posture, age vault, S3, Bro Space, MCP tokens, From→To
+            jobs, and history—on your own host.
+          </p>
+        </div>
 
-        <ScrollReveal delay={0.1}>
-          <div className="relative mx-auto mt-14 max-w-5xl">
+        <div className="relative mx-auto mt-14 max-w-5xl">
             <div
               className="absolute -inset-px rounded-2xl bg-gradient-to-br from-emerald-500/30 via-cyan-500/15 to-transparent opacity-50 blur-sm"
               aria-hidden
@@ -106,15 +102,13 @@ export function ScreenshotsGallery() {
                 />
               </div>
             </div>
-          </div>
-        </ScrollReveal>
+        </div>
 
-        <ScrollReveal delay={0.15}>
-          <div
-            className="mx-auto mt-8 flex max-w-5xl flex-wrap justify-center gap-2"
-            role="tablist"
-            aria-label="App screenshots"
-          >
+        <div
+          className="mx-auto mt-8 flex max-w-5xl flex-wrap justify-center gap-2"
+          role="tablist"
+          aria-label="App screenshots"
+        >
             {screenshots.map((shot, i) => (
               <button
                 key={shot.src}
@@ -132,11 +126,9 @@ export function ScreenshotsGallery() {
                 {shot.title}
               </button>
             ))}
-          </div>
-        </ScrollReveal>
+        </div>
 
-        <ScrollReveal delay={0.2}>
-          <div className="mx-auto mt-10 max-w-5xl -mx-1">
+        <div className="mx-auto mt-10 max-w-5xl -mx-1">
             <div className="flex gap-2 overflow-x-auto px-1 pb-1 sm:grid sm:grid-cols-3 sm:gap-3 sm:overflow-visible sm:pb-0 lg:grid-cols-5">
               {screenshots.map((shot, i) => (
                 <button
@@ -164,8 +156,7 @@ export function ScreenshotsGallery() {
                 </button>
               ))}
             </div>
-          </div>
-        </ScrollReveal>
+        </div>
       </div>
     </section>
   );

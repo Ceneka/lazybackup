@@ -3,25 +3,26 @@
 import { motion } from "motion/react";
 
 const lines = [
-  { text: "$ docker run -d --name lazybackup \\", dim: false },
-  { text: "    -p 3000:3000 -v ./backups:/backups \\", dim: false },
-  { text: "    -v ~/.ssh:/root/.ssh:ro \\", dim: false },
-  { text: "    ghcr.io/ceneka/lazybackup:latest", dim: false },
-  { text: "✓ Dashboard ready at http://localhost:3000", dim: true },
-  { text: "→ From: vps.prod  ·  To: this host", dim: true },
-  { text: "→ docker volume · postgres_data → /backups/…", dim: true },
-  { text: "→ Also: server → server (ephemeral SSH / relay)", dim: true },
-  { text: "✓ transfer complete · restore available", dim: true },
+  { text: "========== Docker Volume Backup ==========", dim: true },
+  { text: "", dim: true },
+  { text: "Volume: postgres_data", dim: false },
+  { text: "Archive: postgres_data.tar.gz", dim: false },
+  {
+    text: "Local path: /backups/vps/postgres/2026-08-13_03-00-00/postgres_data.tar.gz",
+    dim: false,
+  },
+  { text: "Size: 184291328 bytes", dim: false },
+  { text: "Transfer: rsync", dim: false },
+  { text: "--- transfer stdout ---", dim: true },
+  { text: "receiving incremental file list", dim: true },
+  { text: "postgres_data.tar.gz", dim: true },
+  { text: "sent 43 bytes  received 182,104,512 bytes", dim: true },
+  { text: "total size is 184,291,328  speedup is 1.01", dim: true },
 ];
 
 export function TerminalDemo() {
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20, rotateX: 8 }}
-      animate={{ opacity: 1, y: 0, rotateX: 0 }}
-      transition={{ duration: 0.8, delay: 0.2, ease: [0.22, 1, 0.36, 1] }}
-      className="relative perspective-[1200px]"
-    >
+    <div className="relative">
       <div
         className="absolute -inset-px rounded-2xl bg-gradient-to-br from-emerald-500/40 via-cyan-500/20 to-transparent opacity-60 blur-sm"
         aria-hidden
@@ -32,23 +33,23 @@ export function TerminalDemo() {
           <span className="h-3 w-3 rounded-full bg-amber-500/80" />
           <span className="h-3 w-3 rounded-full bg-emerald-500/80" />
           <span className="ml-3 font-mono text-xs text-slate-500">
-            lazybackup — from → to
+            history · postgres-prod
           </span>
         </div>
-        <div className="space-y-2 p-5 font-mono text-sm leading-relaxed">
+        <div className="space-y-1.5 p-5 font-mono text-[13px] leading-relaxed sm:text-sm">
           {lines.map((line, i) => (
             <motion.p
               key={i}
               initial={{ opacity: 0, x: -8 }}
               animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: 0.35 + i * 0.12, duration: 0.35 }}
+              transition={{ delay: 0.2 + i * 0.1, duration: 0.35 }}
               className={
                 line.dim
                   ? "text-slate-500"
                   : "text-emerald-300/95 [text-shadow:0_0_20px_rgba(52,211,153,0.25)]"
               }
             >
-              {line.text}
+              {line.text || "\u00a0"}
             </motion.p>
           ))}
           <motion.span
@@ -59,6 +60,6 @@ export function TerminalDemo() {
           />
         </div>
       </div>
-    </motion.div>
+    </div>
   );
 }

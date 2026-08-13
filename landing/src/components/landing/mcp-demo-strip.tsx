@@ -2,24 +2,29 @@
 
 import { motion } from "motion/react";
 import Link from "next/link";
-import { ScrollReveal } from "./scroll-reveal";
 
 const toolLines = [
   { role: "user", text: "list_backups" },
-  {
-    role: "tool",
-    text: '→ 3 jobs · "vps-postgres" enabled · cron 0 3 * * *',
-  },
-  { role: "user", text: "run_backup id=vps-postgres" },
-  {
-    role: "tool",
-    text: "→ started · history id … · status=running",
-  },
-  { role: "user", text: "get_dashboard" },
-  {
-    role: "tool",
-    text: "→ successRate 97% · next runs · recent failures: 0",
-  },
+  { role: "tool", text: "[" },
+  { role: "tool", text: "  {" },
+  { role: "tool", text: '    "id": "nY7kQp2mLx9sRw4eT1vHc",' },
+  { role: "tool", text: '    "name": "postgres-prod",' },
+  { role: "tool", text: '    "sourceKind": "server",' },
+  { role: "tool", text: '    "destinationKind": "local",' },
+  { role: "tool", text: '    "sourceType": "docker_volume",' },
+  { role: "tool", text: '    "sourcePath": "postgres_data",' },
+  { role: "tool", text: '    "destinationPath": "/backups/vps/postgres",' },
+  { role: "tool", text: '    "schedule": "0 3 * * *",' },
+  { role: "tool", text: '    "enabled": true' },
+  { role: "tool", text: "  }" },
+  { role: "tool", text: "]" },
+  { role: "user", text: 'run_backup { "id": "nY7kQp2mLx9sRw4eT1vHc" }' },
+  { role: "tool", text: "{" },
+  { role: "tool", text: '  "success": true,' },
+  { role: "tool", text: '  "message": "Backup started",' },
+  { role: "tool", text: '  "historyId": "aB3dEf8hJk2nPq5tUv9Wx",' },
+  { role: "tool", text: '  "backupName": "postgres-prod"' },
+  { role: "tool", text: "}" },
 ] as const;
 
 export function McpDemoStrip() {
@@ -30,7 +35,7 @@ export function McpDemoStrip() {
     >
       <div className="container mx-auto px-5 md:px-8">
         <div className="grid items-center gap-12 lg:grid-cols-2 lg:gap-16">
-          <ScrollReveal>
+          <div>
             <p className="font-mono text-xs uppercase tracking-wider text-emerald-400/80">
               MCP
             </p>
@@ -63,57 +68,55 @@ export function McpDemoStrip() {
                 Feature reference
               </Link>
             </div>
-          </ScrollReveal>
+          </div>
 
-          <ScrollReveal delay={0.1}>
-            <div className="relative">
-              <div
-                className="absolute -inset-px rounded-2xl bg-gradient-to-br from-emerald-500/35 via-cyan-500/15 to-transparent opacity-50 blur-sm"
-                aria-hidden
-              />
-              <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-slate-950/85 shadow-2xl shadow-emerald-950/30 backdrop-blur-xl">
-                <div className="flex items-center gap-2 border-b border-white/10 px-4 py-3">
-                  <span className="h-3 w-3 rounded-full bg-red-500/80" />
-                  <span className="h-3 w-3 rounded-full bg-amber-500/80" />
-                  <span className="h-3 w-3 rounded-full bg-emerald-500/80" />
-                  <span className="ml-3 font-mono text-xs text-slate-500">
-                    mcp · lazybackup:/mcp
-                  </span>
-                </div>
-                <div className="space-y-2.5 p-5 font-mono text-[13px] leading-relaxed sm:text-sm">
-                  {toolLines.map((line, i) => (
-                    <motion.p
-                      key={`${line.role}-${i}`}
-                      initial={{ opacity: 0, x: -6 }}
-                      whileInView={{ opacity: 1, x: 0 }}
-                      viewport={{ once: true, margin: "-40px" }}
-                      transition={{ delay: 0.15 + i * 0.1, duration: 0.35 }}
-                      className={
-                        line.role === "user"
-                          ? "text-emerald-300/95 [text-shadow:0_0_20px_rgba(52,211,153,0.2)]"
-                          : "text-slate-500"
-                      }
-                    >
-                      {line.role === "user" ? (
-                        <>
-                          <span className="text-slate-600">tool </span>
-                          {line.text}
-                        </>
-                      ) : (
-                        line.text
-                      )}
-                    </motion.p>
-                  ))}
-                  <motion.span
-                    className="inline-block h-4 w-2 translate-y-0.5 bg-emerald-400"
-                    animate={{ opacity: [1, 0, 1] }}
-                    transition={{ duration: 1, repeat: Infinity }}
-                    aria-hidden
-                  />
-                </div>
+          <div className="relative">
+            <div
+              className="absolute -inset-px rounded-2xl bg-gradient-to-br from-emerald-500/35 via-cyan-500/15 to-transparent opacity-50 blur-sm"
+              aria-hidden
+            />
+            <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-slate-950/85 shadow-2xl shadow-emerald-950/30 backdrop-blur-xl">
+              <div className="flex items-center gap-2 border-b border-white/10 px-4 py-3">
+                <span className="h-3 w-3 rounded-full bg-red-500/80" />
+                <span className="h-3 w-3 rounded-full bg-amber-500/80" />
+                <span className="h-3 w-3 rounded-full bg-emerald-500/80" />
+                <span className="ml-3 font-mono text-xs text-slate-500">
+                  mcp · POST /mcp
+                </span>
+              </div>
+              <div className="max-h-[28rem] space-y-1 overflow-hidden p-5 font-mono text-[12px] leading-relaxed sm:text-[13px]">
+                {toolLines.map((line, i) => (
+                  <motion.p
+                    key={`${line.role}-${i}`}
+                    initial={{ opacity: 0, x: -6 }}
+                    whileInView={{ opacity: 1, x: 0 }}
+                    viewport={{ once: true, margin: "-40px" }}
+                    transition={{ delay: 0.08 + i * 0.06, duration: 0.28 }}
+                    className={
+                      line.role === "user"
+                        ? "pt-1 text-emerald-300/95 first:pt-0 [text-shadow:0_0_20px_rgba(52,211,153,0.2)]"
+                        : "text-slate-500"
+                    }
+                  >
+                    {line.role === "user" ? (
+                      <>
+                        <span className="text-slate-600">tool </span>
+                        {line.text}
+                      </>
+                    ) : (
+                      line.text
+                    )}
+                  </motion.p>
+                ))}
+                <motion.span
+                  className="inline-block h-4 w-2 translate-y-0.5 bg-emerald-400"
+                  animate={{ opacity: [1, 0, 1] }}
+                  transition={{ duration: 1, repeat: Infinity }}
+                  aria-hidden
+                />
               </div>
             </div>
-          </ScrollReveal>
+          </div>
         </div>
       </div>
     </section>

@@ -53,10 +53,13 @@ optional `remote_exec`.
 
 ## Tagging practice
 
-1. Update this file under **Unreleased**, then move bullets into a new
-   `## [X.Y.Z] - YYYY-MM-DD` section when cutting a release.
-2. Tag `vX.Y.Z` and push the tag; CI publishes `ghcr.io/ceneka/lazybackup`
-   for `main` and `v*` (docs/`LICENSE`/`landing`-only paths are ignored).
-3. Optionally create a GitHub Release whose body matches the changelog section.
+1. Optional: jot highlights under **Unreleased**. You do not have to list every
+   commit — `bun run release -- X.Y.Z` promotes Unreleased and appends git
+   subjects since the last `v*` tag (or since this file last changed).
+2. Review the new `## [X.Y.Z] - YYYY-MM-DD` section, commit, tag `vX.Y.Z`, and
+   `git push origin main --tags`. CI publishes `ghcr.io/ceneka/lazybackup:vX.Y.Z`
+   (docs/`LICENSE`/`landing`-only paths are ignored) and opens a GitHub Release
+   from that changelog section. Landing `/changelog` syncs on the next landing
+   build.
 
 [Unreleased]: https://github.com/Ceneka/lazybackup/compare/main...HEAD
