@@ -1,7 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import type { BroConfig } from './config';
-import { objectFilePath, upsertObject, usedBytes } from './db';
+import { objectFilePath, unlinkObject, upsertObject, usedBytes } from './db';
 import { createHash } from 'crypto';
 
 export type SyncStatus = {
@@ -32,6 +32,14 @@ export function getSyncStatus(cfg: BroConfig): SyncStatus {
     usedBytes: usedBytes(cfg),
     quotaBytes: cfg.quotaBytes,
   };
+}
+
+export function mailboxDeletesToApply(
+  deletes: Array<{ key: string }> | undefined,
+  recallObjectKeys: Iterable<string>
+): Array<{ key: string }> {
+  const blocked = new Set(recallObjectKeys);
+  return (deletes || []).filter((del) => !blocked.has(del.key));
 }
 
 function hostApi(cfg: BroConfig, apiPath: string): string {
@@ -95,6 +103,7 @@ export async function syncOnce(cfg: BroConfig): Promise<SyncStatus> {
     const work = (await workRes.json()) as {
       pulls: Array<{ key: string; size: number }>;
       recalls: Array<{ id: string; objectKey: string }>;
+      deletes?: Array<{ key: string }>;
     };
 
     status.pendingPulls = work.pulls?.length || 0;
@@ -141,6 +150,27 @@ export async function syncOnce(cfg: BroConfig): Promise<SyncStatus> {
       } catch (err) {
         console.warn(
           `[lazybro] recall ${recall.id}:`,
+          err instanceof Error ? err.message : err
+        );
+      }
+    }
+
+    const recallKeys = new Set((work.recalls || []).map((r) => r.objectKey));
+    for (const del of mailboxDeletesToApply(work.deletes, recallKeys)) {
+      try {
+        await unlinkObject(cfg, del.key);
+        await hostFetch(cfg, '/api/peers/agent/ack', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            key: del.key,
+            exists: false,
+            size: 0,
+          }),
+        });
+      } catch (err) {
+        console.warn(
+          `[lazybro] delete ${del.key}:`,
           err instanceof Error ? err.message : err
         );
       }

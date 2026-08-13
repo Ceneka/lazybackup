@@ -1,5 +1,6 @@
-import { Database } from 'bun:sqlite';
+import fs from 'fs/promises';
 import path from 'path';
+import { Database } from 'bun:sqlite';
 import type { BroConfig } from './config';
 import { dbPath, objectsDir } from './config';
 
@@ -18,6 +19,11 @@ export function getDb(cfg: BroConfig): Database {
   return db;
 }
 
+export function closeDb(): void {
+  db?.close();
+  db = null;
+}
+
 export function upsertObject(
   cfg: BroConfig,
   key: string,
@@ -30,6 +36,20 @@ export function upsertObject(
        ON CONFLICT(key) DO UPDATE SET size = excluded.size, mtime = excluded.mtime`
     )
     .run(key, size, mtime);
+}
+
+export function removeObject(cfg: BroConfig, key: string): void {
+  getDb(cfg).query(`DELETE FROM objects WHERE key = ?`).run(key);
+}
+
+export function getObject(
+  cfg: BroConfig,
+  key: string
+): { key: string; size: number; mtime: string } | null {
+  const row = getDb(cfg)
+    .query(`SELECT key, size, mtime FROM objects WHERE key = ?`)
+    .get(key) as { key: string; size: number; mtime: string } | null;
+  return row ?? null;
 }
 
 export function listObjects(
@@ -50,5 +70,16 @@ export function usedBytes(cfg: BroConfig): number {
 export function objectFilePath(cfg: BroConfig, key: string): string {
   const safe = key.replace(/\\/g, '/').replace(/^\/+/, '');
   if (!safe || safe.includes('..')) throw new Error('Invalid object key');
-  return path.join(objectsDir(cfg), safe);
+  const root = path.resolve(objectsDir(cfg));
+  const dest = path.resolve(root, safe);
+  if (dest !== root && !dest.startsWith(root + path.sep)) {
+    throw new Error('Invalid object key');
+  }
+  return dest;
+}
+
+export async function unlinkObject(cfg: BroConfig, key: string): Promise<void> {
+  const dest = objectFilePath(cfg, key);
+  await fs.unlink(dest).catch(() => {});
+  removeObject(cfg, key);
 }
