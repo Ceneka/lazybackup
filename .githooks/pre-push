@@ -1,0 +1,10 @@
+#!/bin/sh
+# Match the host CI test job: randomized unit tests, then Next typecheck/build.
+set -e
+cd "$(git rev-parse --show-toplevel)"
+
+echo "pre-push: bun test --randomize"
+bun test --randomize
+
+echo "pre-push: bun run build"
+DATABASE_URL="${DATABASE_URL:-file:/tmp/lazybackup-pre-push.db}" bun run build

@@ -12,6 +12,7 @@ bun run dev
 ```
 
 Tests: `bun test`. Build: `bun run build`.
+`bun install` wires a pre-push hook that runs `bun test --randomize` and `bun run build`.
 
 See [README.md](./README.md) and [AGENTS.md](./AGENTS.md) for architecture notes.
 

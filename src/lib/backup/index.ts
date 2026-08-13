@@ -1830,7 +1830,7 @@ export async function resolveLocalRestoreArtifact(options: {
     const transport = peer.transport === 'direct' ? 'direct' : 'mailbox';
     const openPeerTemp = async () => {
       tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'lazybackup-restore-'));
-      localPath = path.join(tempDir, path.posix.basename(objectKey) || 'artifact');
+      return path.join(tempDir, path.posix.basename(objectKey) || 'artifact');
     };
 
     if (transport === 'mailbox') {
@@ -1838,7 +1838,7 @@ export async function resolveLocalRestoreArtifact(options: {
         '@/lib/peer/staging'
       );
       if (await stagedObjectExists(peerId, objectKey)) {
-        await openPeerTemp();
+        localPath = await openPeerTemp();
         await fs.copyFile(peerStagingObjectPath(peerId, objectKey), localPath);
       } else {
         // Ask bro to upload back; wait softly (not a critical failure / no webhook)
@@ -1853,14 +1853,14 @@ export async function resolveLocalRestoreArtifact(options: {
           historyId: options.historyId ?? null,
         });
         if (recall.status === 'ready') {
-          await openPeerTemp();
+          localPath = await openPeerTemp();
           await consumeRecallArtifact(recall.id, peerId, localPath);
         } else {
           throw new PeerRecallPendingError(recall.id);
         }
       }
     } else {
-      await openPeerTemp();
+      localPath = await openPeerTemp();
       await downloadPeerObject(peer, objectKey, localPath);
     }
   } else if (kind === 'server') {
