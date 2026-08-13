@@ -186,6 +186,69 @@ export async function validateBackup(id: string): Promise<ValidateBackupResult> 
   return body as ValidateBackupResult
 }
 
+export type BackupRunOutcome = {
+  historyId: string
+  status: "success" | "failed"
+  errorMessage?: string | null
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+/** Start a backup and wait until the history row is success or failed. */
+export async function runBackupUntilDone(id: string): Promise<BackupRunOutcome> {
+  const response = await fetch(`/api/backups/${id}/run`, { method: "POST" })
+  const body = (await response.json().catch(() => ({}))) as {
+    error?: string
+    historyId?: string
+  }
+  const historyId = typeof body.historyId === "string" ? body.historyId : undefined
+
+  if (!historyId) {
+    throw new Error(
+      body.error ||
+        (response.ok
+          ? "Backup started but no history id was returned"
+          : "Failed to start backup")
+    )
+  }
+
+  if (!response.ok && response.status !== 409) {
+    throw new Error(body.error || "Failed to start backup")
+  }
+
+  let delayMs = 700
+  let consecutiveErrors = 0
+
+  for (;;) {
+    const histRes = await fetch(`/api/history/${historyId}`)
+    if (!histRes.ok) {
+      consecutiveErrors += 1
+      if (consecutiveErrors > 8) {
+        throw new Error("Lost track of backup run status")
+      }
+      await sleep(delayMs)
+      delayMs = Math.min(4000, Math.round(delayMs * 1.35))
+      continue
+    }
+    consecutiveErrors = 0
+    const entry = (await histRes.json()) as {
+      status?: string
+      errorMessage?: string | null
+    }
+    if (entry.status === "success" || entry.status === "failed") {
+      return {
+        historyId,
+        status: entry.status,
+        errorMessage: entry.errorMessage ?? null,
+      }
+    }
+    await sleep(delayMs)
+    delayMs = Math.min(4000, Math.round(delayMs * 1.35))
+  }
+}
+
 // Summarize on-disk files at the backup destination
 export function useBackupStorage(id: string) {
   return useQuery({

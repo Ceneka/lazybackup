@@ -1,5 +1,6 @@
 "use client"
 
+import { ResourceDetailLayout } from "@/components/resource-detail-layout"
 import { DeleteConfirmationDialog } from "@/components/ui/delete-confirmation-dialog"
 import {
   DetailActionLink,
@@ -11,9 +12,18 @@ import {
 } from "@/components/ui/detail-actions"
 import { LoadingButton } from "@/components/ui/loading-button"
 import { QueryState } from "@/components/ui/query-state"
+import {
+  destinationEndpointName,
+  destinationKindOf,
+  sourceEndpointName,
+  sourceKindOf,
+  sourcePathLabel,
+  sourceTypeLabel,
+} from "@/lib/backup/endpoint-display"
 import { formatCronExpression } from "@/lib/cron/format"
 import {
   backupKeys,
+  runBackupUntilDone,
   useBackup,
   useBackupStorage,
   useDeleteBackup,
@@ -21,12 +31,14 @@ import {
   type BackupDestinationEntry,
   type ValidateBackupResult,
 } from "@/lib/hooks/useBackups"
+import { flashClassName } from "@/lib/resource-actions"
+import { cn } from "@/lib/utils"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import {
-  ArrowLeftIcon,
   CalendarIcon,
   CheckCircle2Icon,
   ClockIcon,
+  CloudIcon,
   CopyIcon,
   FileIcon,
   FolderIcon,
@@ -37,13 +49,21 @@ import {
   RefreshCwIcon,
   ServerIcon,
   ShieldCheckIcon,
+  UsersIcon,
   XCircleIcon,
   AlertTriangleIcon,
 } from "lucide-react"
-import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
 import { toast } from "sonner"
+
+function EndpointGlyph({ kind }: { kind: string }) {
+  const className = "h-4 w-4"
+  if (kind === "local") return <HardDriveIcon className={className} />
+  if (kind === "s3") return <CloudIcon className={className} />
+  if (kind === "peer") return <UsersIcon className={className} />
+  return <ServerIcon className={className} />
+}
 
 function formatMtime(value: string | null | undefined) {
   if (!value) return "—"
@@ -126,6 +146,7 @@ export default function BackupDetailPage() {
   const deleteBackup = useDeleteBackup()
   const [validateResult, setValidateResult] = useState<ValidateBackupResult | null>(null)
   const [checksExpanded, setChecksExpanded] = useState(false)
+  const [runFlash, setRunFlash] = useState<"success" | "failed" | null>(null)
 
   const displayedValidation: ValidateBackupResult | null =
     validateResult ??
@@ -137,27 +158,29 @@ export default function BackupDetailPage() {
         }
       : null)
 
+  useEffect(() => {
+    if (!runFlash) return
+    const timer = window.setTimeout(() => setRunFlash(null), 1400)
+    return () => window.clearTimeout(timer)
+  }, [runFlash])
+
   const runBackupMutation = useMutation({
-    mutationFn: async () => {
-      const response = await fetch(`/api/backups/${backupId}/run`, {
-        method: "POST",
-      })
-
-      const body = await response.json().catch(() => ({}))
-      if (!response.ok) {
-        throw new Error(body.error || "Failed to start backup")
-      }
-
-      return backupId
-    },
-    onSuccess: () => {
+    mutationFn: () => runBackupUntilDone(backupId),
+    onSuccess: (outcome) => {
       queryClient.invalidateQueries({ queryKey: ["history"] })
       queryClient.invalidateQueries({ queryKey: backupKeys.storage(backupId) })
-      toast.success("Backup started successfully")
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] })
+      setRunFlash(outcome.status === "success" ? "success" : "failed")
+      if (outcome.status === "success") {
+        toast.success("Backup completed")
+      } else {
+        toast.error(outcome.errorMessage || "Backup failed")
+      }
     },
     onError: (error) => {
-      console.error("Error starting backup:", error)
-      toast.error(error instanceof Error ? error.message : "Failed to start backup")
+      console.error("Error running backup:", error)
+      setRunFlash("failed")
+      toast.error(error instanceof Error ? error.message : "Failed to run backup")
     },
   })
 
@@ -212,91 +235,45 @@ export default function BackupDetailPage() {
       : storage?.topLevel ?? []
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center space-x-2">
-          <Link
-            href="/backups"
-            className="inline-flex h-10 w-10 items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50"
-          >
-            <ArrowLeftIcon className="h-4 w-4" />
-            <span className="sr-only">Back to backups</span>
-          </Link>
-          <h1 className="text-3xl font-bold">
-            <QueryState
-              query={query}
-              dataLabel="backup configuration"
-              errorIcon={<FolderIcon className="h-12 w-12 text-red-500" />}
-              emptyIcon={<FolderIcon className="h-12 w-12 text-muted-foreground" />}
-              emptyMessage="Backup configuration not found"
-              isDataEmpty={(data) => !data}
-              loadingComponent={<span className="text-muted-foreground">Loading backup...</span>}
-            >
-              {query.data?.name}
-            </QueryState>
-          </h1>
-        </div>
-      </div>
-
-      <QueryState
-        query={query}
-        dataLabel="backup configuration"
-        errorIcon={<FolderIcon className="h-12 w-12 text-red-500" />}
-        emptyIcon={<FolderIcon className="h-12 w-12 text-muted-foreground" />}
-        emptyMessage="Backup configuration not found"
-        isDataEmpty={(data) => !data}
-      >
-        {query.data && (
-          <div className="space-y-6">
-            <div className="grid grid-cols-1 items-start gap-6 md:grid-cols-2">
-              <div className="rounded-lg border bg-card p-6 text-card-foreground shadow">
-                <h2 className="mb-4 text-xl font-semibold">Backup Details</h2>
+    <QueryState
+      query={query}
+      dataLabel="backup configuration"
+      errorIcon={<FolderIcon className="h-12 w-12 text-red-500" />}
+      emptyIcon={<FolderIcon className="h-12 w-12 text-muted-foreground" />}
+      emptyMessage="Backup configuration not found"
+      isDataEmpty={(data) => !data}
+    >
+      {query.data ? (
+        <ResourceDetailLayout
+          backHref="/backups"
+          backLabel="Back to backups"
+          title={query.data.name}
+          detailsTitle="Backup Details"
+          details={
                 <dl className="space-y-4">
                   <div>
                     <dt className="text-sm font-medium text-muted-foreground">From</dt>
                     <dd className="flex items-center space-x-2 text-lg">
-                      {(query.data.sourceKind || "server") === "local" ? (
-                        <HardDriveIcon className="h-4 w-4" />
-                      ) : (
-                        <ServerIcon className="h-4 w-4" />
-                      )}
+                      <EndpointGlyph kind={sourceKindOf(query.data)} />
                       <span>
-                        {(query.data.sourceKind || "server") === "local"
-                          ? "This host"
-                          : query.data.server?.name || "Unknown server"}
-                        {query.data.sourceType === "docker_volume"
-                          ? ` · volume ${query.data.sourcePath}`
-                          : query.data.sourceType === "database"
-                            ? ` · ${query.data.dbEngine || "db"} ${query.data.sourcePath}`
-                            : ` · ${query.data.sourcePath}`}
+                        {sourceEndpointName(query.data)}
+                        {` · ${sourcePathLabel(query.data)}`}
                       </span>
                     </dd>
                   </div>
                   <div>
                     <dt className="text-sm font-medium text-muted-foreground">To</dt>
                     <dd className="flex items-center space-x-2 text-lg">
-                      {(query.data.destinationKind || "local") === "local" ? (
-                        <HardDriveIcon className="h-4 w-4" />
-                      ) : (
-                        <ServerIcon className="h-4 w-4" />
-                      )}
+                      <EndpointGlyph kind={destinationKindOf(query.data)} />
                       <span>
-                        {(query.data.destinationKind || "local") === "local"
-                          ? "This host"
-                          : query.data.destinationServer?.name || "Unknown server"}
+                        {destinationEndpointName(query.data)}
                         {` · ${query.data.destinationPath}`}
                       </span>
                     </dd>
                   </div>
                   <div>
                     <dt className="text-sm font-medium text-muted-foreground">Source Type</dt>
-                    <dd className="text-lg">
-                      {query.data.sourceType === "docker_volume"
-                        ? "Docker volume"
-                        : query.data.sourceType === "database"
-                          ? `Database dump (${query.data.dbEngine || "unknown"})`
-                          : "Filesystem path"}
-                    </dd>
+                    <dd className="text-lg">{sourceTypeLabel(query.data)}</dd>
                   </div>
                   <div>
                     <dt className="text-sm font-medium text-muted-foreground">Schedule</dt>
@@ -366,16 +343,17 @@ export default function BackupDetailPage() {
                     </div>
                   )}
                 </dl>
-              </div>
-
-              <div className="w-full self-start rounded-lg border bg-card p-6 text-card-foreground shadow">
-                <h2 className="mb-4 text-xl font-semibold">Actions</h2>
+          }
+          actions={
                 <DetailActions>
                   <LoadingButton
                     onClick={handleRunBackup}
                     isLoading={runBackupMutation.isPending}
-                    loadingText="Starting…"
-                    className={detailActionPrimaryClassName}
+                    loadingText="Running"
+                    className={cn(
+                      detailActionPrimaryClassName,
+                      flashClassName(runFlash)
+                    )}
                   >
                     <PlayIcon />
                     Run now
@@ -419,6 +397,18 @@ export default function BackupDetailPage() {
                       Dest. server
                     </DetailActionLink>
                   )}
+                  {query.data.sourceS3ProfileId && (
+                    <DetailActionLink href={`/s3-profiles/${query.data.sourceS3ProfileId}`}>
+                      <CloudIcon />
+                      Source S3
+                    </DetailActionLink>
+                  )}
+                  {query.data.destinationS3ProfileId && (
+                    <DetailActionLink href={`/s3-profiles/${query.data.destinationS3ProfileId}`}>
+                      <CloudIcon />
+                      Dest. S3
+                    </DetailActionLink>
+                  )}
 
                   <DetailActionsDivider />
 
@@ -431,8 +421,9 @@ export default function BackupDetailPage() {
                     triggerButtonClassName={detailActionDestructiveClassName}
                   />
                 </DetailActions>
-
-                {displayedValidation ? (
+          }
+          actionsExtra={
+                displayedValidation ? (
                   <div className="mt-3 space-y-2 border-t pt-3">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
@@ -489,21 +480,26 @@ export default function BackupDetailPage() {
                   <p className="mt-3 border-t pt-3 text-xs text-muted-foreground">
                     Not validated yet — run Validate to probe endpoints without transferring data.
                   </p>
-                )}
-              </div>
-            </div>
-
+                )
+          }
+        >
             <div className="rounded-lg border bg-card p-6 text-card-foreground shadow">
               <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <h2 className="flex items-center gap-2 text-xl font-semibold">
                     <HardDriveIcon className="h-5 w-5" />
-                    On-disk backups
+                    {destinationKindOf(query.data) === "local"
+                      ? "On-disk backups"
+                      : "Destination storage"}
                   </h2>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    {(query.data.destinationKind || "local") === "server"
+                    {destinationKindOf(query.data) === "server"
                       ? "Destination is on a remote server — local disk listing is unavailable."
-                      : "Resume of files stored at this destination on the LazyBackup host."}
+                      : destinationKindOf(query.data) === "s3"
+                        ? "Destination is an S3 prefix — object listing is not shown here."
+                        : destinationKindOf(query.data) === "peer"
+                          ? "Destination is a Bro peer — local disk listing is unavailable."
+                          : "Resume of files stored at this destination on the LazyBackup host."}
                   </p>
                 </div>
                 <button
@@ -603,9 +599,8 @@ export default function BackupDetailPage() {
                 )}
               </QueryState>
             </div>
-          </div>
-        )}
-      </QueryState>
-    </div>
+        </ResourceDetailLayout>
+      ) : null}
+    </QueryState>
   )
 }
