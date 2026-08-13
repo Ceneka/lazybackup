@@ -9,11 +9,8 @@ import { getEncryptionKeyStatus } from '@/lib/crypto/keys'
 import { db } from '@/lib/db'
 import { backupHistory, settings } from '@/lib/db/schema'
 import { FAILURE_WEBHOOK_URL_KEY } from '@/lib/notify/failure-webhook'
-import {
-  buildStatusChecks,
-  summarizeStatusChecks,
-  type StatusSnapshot,
-} from '@/lib/status/build-status'
+import { isScheduleOverdue } from '@/lib/cron/overdue'
+import { getAppTimezone } from '@/lib/settings/timezone'
 import { and, desc, eq, gte, inArray } from 'drizzle-orm'
 import { NextRequest, NextResponse } from 'next/server'
 
@@ -41,6 +38,7 @@ export async function GET(request: NextRequest) {
       tokens,
       webhookRow,
       failedRecent,
+      timeZone,
     ] = await Promise.all([
       getPasswordHash(),
       countPasskeys(),
@@ -54,6 +52,8 @@ export async function GET(request: NextRequest) {
           enableEncryption: true,
           destinationKind: true,
           instanceBackupPassphrase: true,
+          schedule: true,
+          createdAt: true,
         },
       }),
       db.query.servers.findMany({
@@ -76,6 +76,7 @@ export async function GET(request: NextRequest) {
         ),
         columns: { id: true },
       }),
+      getAppTimezone(),
     ])
 
     const hasPassword = Boolean(passwordHash)
@@ -138,6 +139,34 @@ export async function GET(request: NextRequest) {
       (c) => c.enableEncryption || c.destinationKind === 'peer'
     ).length
 
+    const enabledConfigs = allConfigs.filter((c) => c.enabled)
+    const enabledIds = enabledConfigs.map((c) => c.id)
+    const lastEndedByConfig = new Map<string, Date>()
+    if (enabledIds.length > 0) {
+      const historyRows = await db.query.backupHistory.findMany({
+        where: inArray(backupHistory.configId, enabledIds),
+        columns: { configId: true, endTime: true, status: true },
+        orderBy: [desc(backupHistory.endTime)],
+      })
+      for (const row of historyRows) {
+        if (lastEndedByConfig.has(row.configId)) continue
+        if (row.status === 'running' || !row.endTime) continue
+        lastEndedByConfig.set(row.configId, new Date(row.endTime))
+      }
+    }
+    const now = new Date()
+    const overdueSchedules = enabledConfigs
+      .filter((c) =>
+        isScheduleOverdue(
+          c.schedule,
+          lastEndedByConfig.get(c.id) ?? null,
+          now,
+          timeZone,
+          c.createdAt
+        )
+      )
+      .map((c) => ({ id: c.id, name: c.name }))
+
     const activeKey = encryption.keys.find((k) => k.status === 'active')
     const compromisedKeyCount = encryption.keys.filter(
       (k) => k.status === 'compromised'
@@ -179,6 +208,7 @@ export async function GET(request: NextRequest) {
         enabled: allConfigs.filter((c) => c.enabled).length,
         encryptedOrPeerCount,
         failedLast24h: failedRecent.length,
+        overdueSchedules,
       },
       servers: {
         total: allServers.length,

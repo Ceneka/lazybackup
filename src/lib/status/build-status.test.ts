@@ -45,6 +45,7 @@ function baseSnapshot(over: Partial<StatusSnapshot> = {}): StatusSnapshot {
       enabled: 0,
       encryptedOrPeerCount: 0,
       failedLast24h: 0,
+      overdueSchedules: [],
       ...over.backups,
     },
     servers: {
@@ -120,5 +121,31 @@ describe('buildStatusChecks', () => {
       })
     );
     expect(checks.some((c) => c.id === 'servers-password-only')).toBe(true);
+  });
+
+  test('warns overdue schedules and caps names', () => {
+    const checks = buildStatusChecks(
+      baseSnapshot({
+        backups: {
+          total: 6,
+          enabled: 6,
+          encryptedOrPeerCount: 0,
+          failedLast24h: 0,
+          overdueSchedules: [
+            { id: '1', name: 'Daily DB' },
+            { id: '2', name: 'Path' },
+            { id: '3', name: 'Vol' },
+            { id: '4', name: 'S3' },
+            { id: '5', name: 'Inst' },
+            { id: '6', name: 'Extra' },
+          ],
+        },
+      })
+    );
+    const row = checks.find((c) => c.id === 'schedules-overdue');
+    expect(row?.severity).toBe('warn');
+    expect(row?.detail).toContain('Daily DB');
+    expect(row?.detail).toContain('and 1 more');
+    expect(row?.href).toBe('/history');
   });
 });

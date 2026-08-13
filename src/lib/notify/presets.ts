@@ -141,6 +141,48 @@ export const SUCCESS_PING_PRESETS: SuccessPingPreset[] = [
     body: '',
   },
   {
+    id: 'discord',
+    name: 'Discord',
+    description: 'Incoming webhook — paste your Discord webhook URL.',
+    method: 'POST',
+    url: 'https://discord.com/api/webhooks/ID/TOKEN',
+    headers: 'Content-Type: application/json',
+    body: JSON.stringify(
+      {
+        content:
+          '**Backup succeeded:** {{backupName}}\n_History:_ `{{historyId}}` · {{endedAt}}',
+      },
+      null,
+      2
+    ),
+  },
+  {
+    id: 'telegram',
+    name: 'Telegram',
+    description: 'Bot API sendMessage — replace BOT_TOKEN and CHAT_ID.',
+    method: 'POST',
+    url: 'https://api.telegram.org/botBOT_TOKEN/sendMessage',
+    headers: 'Content-Type: application/json',
+    body: JSON.stringify(
+      {
+        chat_id: 'CHAT_ID',
+        text: 'Backup succeeded: {{backupName}}\n({{endedAt}})',
+        disable_web_page_preview: true,
+      },
+      null,
+      2
+    ),
+  },
+  {
+    id: 'ntfy',
+    name: 'ntfy',
+    description: 'Simple topic publish (optional auth header).',
+    method: 'POST',
+    url: 'https://ntfy.sh/your-topic',
+    headers: 'Title: LazyBackup success\nPriority: default\nTags: white_check_mark,backup',
+    body: '{{backupName}} succeeded at {{endedAt}}',
+  },
+  {
     id: 'default',
     name: 'Default JSON',
     description: 'POST the built-in backup.succeeded object (empty body template).',

@@ -42,6 +42,7 @@ export type StatusSnapshot = {
     enabled: number
     encryptedOrPeerCount: number
     failedLast24h: number
+    overdueSchedules: Array<{ id: string; name: string }>
   }
   servers: {
     total: number
@@ -276,6 +277,26 @@ export function buildStatusChecks(s: StatusSnapshot): StatusCheck[] {
       title: 'Failure webhook configured',
       detail: 'Failed backups can notify Discord, Telegram, ntfy, or any HTTP endpoint.',
       href: '/settings',
+    })
+  }
+
+  // --- Missed schedules ---
+  if (s.backups.overdueSchedules.length > 0) {
+    const listed = s.backups.overdueSchedules.slice(0, 5)
+    const extra = s.backups.overdueSchedules.length - listed.length
+    const names = listed.map((j) => j.name).join(', ')
+    checks.push({
+      id: 'schedules-overdue',
+      severity: 'warn',
+      title:
+        s.backups.overdueSchedules.length === 1
+          ? 'Scheduled backup is overdue'
+          : 'Scheduled backups are overdue',
+      detail:
+        extra > 0
+          ? `${names}, and ${extra} more — last run is older than one schedule interval.`
+          : `${names} — last run is older than one schedule interval.`,
+      href: '/history',
     })
   }
 

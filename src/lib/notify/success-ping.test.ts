@@ -3,7 +3,7 @@ import {
   buildBackupSucceededPayload,
   postSuccessPing,
 } from './success-ping';
-import { parseSuccessPingMethod } from './presets';
+import { parseSuccessPingMethod, SUCCESS_PING_PRESETS } from './presets';
 import { validateFailureWebhookUrl } from './failure-webhook';
 
 describe('parseSuccessPingMethod', () => {
@@ -13,6 +13,20 @@ describe('parseSuccessPingMethod', () => {
     expect(parseSuccessPingMethod('get')).toBe('GET');
     expect(parseSuccessPingMethod('POST')).toBe('POST');
     expect(parseSuccessPingMethod('PUT')).toBe('PUT');
+  });
+});
+
+describe('SUCCESS_PING_PRESETS', () => {
+  test('includes Discord, ntfy, and Telegram success copies', () => {
+    const ids = SUCCESS_PING_PRESETS.map((p) => p.id);
+    expect(ids).toContain('discord');
+    expect(ids).toContain('ntfy');
+    expect(ids).toContain('telegram');
+    const discord = SUCCESS_PING_PRESETS.find((p) => p.id === 'discord');
+    expect(discord?.body).toContain('succeeded');
+    expect(discord?.body).not.toContain('errorMessage');
+    const ntfy = SUCCESS_PING_PRESETS.find((p) => p.id === 'ntfy');
+    expect(ntfy?.body).toContain('{{backupName}}');
   });
 });
 
