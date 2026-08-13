@@ -60,6 +60,8 @@ docker run -d \
   ghcr.io/ceneka/lazybackup:latest
 ```
 
+The image is multi-arch (`linux/amd64` and `linux/arm64`).
+
 Or with Docker Compose (reads `.env`, persists the database volume):
 
 ```bash

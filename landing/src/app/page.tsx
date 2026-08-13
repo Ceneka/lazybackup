@@ -368,7 +368,8 @@ export default function Home() {
               </h2>
               <p className="mx-auto mt-4 max-w-xl text-lg text-slate-400">
                 Docker is recommended—mount SSH keys read-only and volumes for
-                the database and backup storage. Compose and Bun are one tab
+                the database and backup storage. The GHCR image is multi-arch
+                (linux/amd64 and linux/arm64). Compose and Bun are one tab
                 away. On plain HTTP (typical LAN), leave AUTH_COOKIE_SECURE
                 unset so the app password session works.
               </p>

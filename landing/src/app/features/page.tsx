@@ -123,7 +123,8 @@ export default function FeaturesPage() {
               Docker image{" "}
               <code className="font-mono text-slate-400">
                 ghcr.io/ceneka/lazybackup:latest
-              </code>
+              </code>{" "}
+              (linux/amd64 and linux/arm64).
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
