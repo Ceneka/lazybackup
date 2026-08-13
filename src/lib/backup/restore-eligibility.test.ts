@@ -1,7 +1,11 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  canDownloadBackup,
   canRestoreBackup,
   canRestoreDockerVolumeBackup,
+  contentDispositionAttachment,
+  downloadFilenameForLocalPath,
+  downloadFilenameFromArtifactPath,
   restoreBlockedReason,
 } from './restore-eligibility';
 
@@ -165,5 +169,60 @@ describe('restoreBlockedReason', () => {
         artifactPath: '/x',
       })
     ).toMatch(/path/);
+  });
+});
+
+describe('download filename helpers', () => {
+  test('takes basename from local, s3, and peer paths', () => {
+    expect(downloadFilenameFromArtifactPath('/backups/app.sql.gz')).toBe(
+      'app.sql.gz'
+    );
+    expect(
+      downloadFilenameFromArtifactPath('s3://bucket/prefix/vol.tar.gz.age')
+    ).toBe('vol.tar.gz.age');
+    expect(
+      downloadFilenameFromArtifactPath('peer://abc/obj.tar.gz.age')
+    ).toBe('obj.tar.gz.age');
+  });
+
+  test('strips trailing slashes on directory artifacts', () => {
+    expect(downloadFilenameFromArtifactPath('/backups/tree/')).toBe('tree');
+  });
+
+  test('adds tar.gz for directories', () => {
+    expect(downloadFilenameForLocalPath('/backups/tree', true)).toBe(
+      'tree.tar.gz'
+    );
+    expect(downloadFilenameForLocalPath('/backups/app.tar.gz', false)).toBe(
+      'app.tar.gz'
+    );
+  });
+
+  test('builds Content-Disposition and strips quotes', () => {
+    expect(contentDispositionAttachment('app.sql.gz')).toBe(
+      'attachment; filename="app.sql.gz"'
+    );
+    expect(contentDispositionAttachment('weird"name.sql.gz')).toBe(
+      'attachment; filename="weirdname.sql.gz"'
+    );
+  });
+
+  test('canDownloadBackup matches restore eligibility', () => {
+    expect(
+      canDownloadBackup({
+        status: 'success',
+        sourceType: 'path',
+        destinationKind: 'local',
+        artifactPath: '/backups/tree',
+      })
+    ).toBe(true);
+    expect(
+      canDownloadBackup({
+        status: 'success',
+        sourceType: 'path',
+        destinationKind: 'server',
+        artifactPath: '/remote/tree',
+      })
+    ).toBe(false);
   });
 });

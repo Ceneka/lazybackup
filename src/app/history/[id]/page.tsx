@@ -23,6 +23,7 @@ import {
   DetailActionsDivider,
   detailActionDestructiveClassName,
 } from "@/components/ui/detail-actions"
+import { HistoryDownloadButton } from "@/components/history-download-button"
 import { HistoryRestoreButton } from "@/components/history-restore-button"
 import { QueryState } from "@/components/ui/query-state"
 import { splitBackupLog } from "@/lib/backup/log-format"
@@ -317,6 +318,10 @@ export default function HistoryDetailPage() {
                           {restoreLabel}
                         </DetailActionButton>
                       </HistoryRestoreButton>
+                    )}
+
+                    {canRestore && query.data && (
+                      <HistoryDownloadButton entry={query.data} />
                     )}
 
                     {!canRestore && restoreBlockReason && (

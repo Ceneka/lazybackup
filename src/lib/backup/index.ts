@@ -1569,6 +1569,11 @@ export async function resolveLocalRestoreArtifact(options: {
   decrypt?: boolean;
   expectedSha256?: string | null;
   historyId?: string | null;
+  /**
+   * Mailbox peer: wait up to 15 minutes for a recall (restore default).
+   * Download passes false and maps PeerRecallPendingError to HTTP 202.
+   */
+  waitForPeerRecall?: boolean;
 }): Promise<{ localPath: string; tempDir: string | null }> {
   const kind = options.destinationKind || 'local';
   let localPath: string;
@@ -1606,17 +1611,19 @@ export async function resolveLocalRestoreArtifact(options: {
     }
     const peerId = m[1];
     const objectKey = m[2];
-    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'lazybackup-restore-'));
-    localPath = path.join(tempDir, path.posix.basename(objectKey));
-
     const peer = options.destinationPeer;
     const transport = peer.transport === 'direct' ? 'direct' : 'mailbox';
+    const openPeerTemp = async () => {
+      tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'lazybackup-restore-'));
+      localPath = path.join(tempDir, path.posix.basename(objectKey) || 'artifact');
+    };
 
     if (transport === 'mailbox') {
       const { stagedObjectExists, peerStagingObjectPath } = await import(
         '@/lib/peer/staging'
       );
       if (await stagedObjectExists(peerId, objectKey)) {
+        await openPeerTemp();
         await fs.copyFile(peerStagingObjectPath(peerId, objectKey), localPath);
       } else {
         // Ask bro to upload back; wait softly (not a critical failure / no webhook)
@@ -1624,6 +1631,7 @@ export async function resolveLocalRestoreArtifact(options: {
           ensureRecall,
           waitForRecall,
           consumeRecallArtifact,
+          PeerRecallPendingError,
         } = await import('@/lib/peer/recall');
         const recall = await ensureRecall({
           peerId,
@@ -1631,7 +1639,10 @@ export async function resolveLocalRestoreArtifact(options: {
           historyId: options.historyId ?? null,
         });
         if (recall.status === 'ready') {
+          await openPeerTemp();
           await consumeRecallArtifact(recall.id, peerId, localPath);
+        } else if (options.waitForPeerRecall === false) {
+          throw new PeerRecallPendingError(recall.id);
         } else {
           const waited = await waitForRecall(recall.id);
           if (waited.status !== 'ready') {
@@ -1639,10 +1650,12 @@ export async function resolveLocalRestoreArtifact(options: {
               `Waiting for Bro to connect and return the backup (recall ${recall.id}). This is not a failure — retry when your bro is online.`
             );
           }
+          await openPeerTemp();
           await consumeRecallArtifact(recall.id, peerId, localPath);
         }
       }
     } else {
+      await openPeerTemp();
       await downloadPeerObject(peer, objectKey, localPath);
     }
   } else {

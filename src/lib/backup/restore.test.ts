@@ -94,6 +94,23 @@ describe('resolveLocalRestoreArtifact', () => {
       })
     ).rejects.toThrow(/LazyBackup host/i);
   });
+
+  test('local file still resolves when waitForPeerRecall is false', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'lazybackup-restore-'));
+    const file = path.join(dir, 'dump.sql.gz');
+    await fs.writeFile(file, 'sql');
+    try {
+      const result = await resolveLocalRestoreArtifact({
+        artifactPath: file,
+        destinationKind: 'local',
+        decrypt: false,
+        waitForPeerRecall: false,
+      });
+      expect(result.localPath).toBe(file);
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('restoreDockerVolumeBackup guards', () => {
