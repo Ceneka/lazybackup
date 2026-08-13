@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
+import { stagedObjectExists, writeStagedObject } from './staging';
 
 const updates: Array<Record<string, unknown>> = [];
 
@@ -18,7 +19,6 @@ mock.module('@/lib/db', () => ({
 }));
 
 const { completePeerDeleteAck } = await import('./retention');
-const { stagedObjectExists, writeStagedObject } = await import('./staging');
 
 describe('completePeerDeleteAck', () => {
   let tmp: string;

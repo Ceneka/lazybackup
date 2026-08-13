@@ -14,29 +14,14 @@ import { listObjectKeysWithOpenRecalls } from './recall';
 import { deleteStagedObject } from './staging';
 import { assertSafePeerObjectKey } from './storage';
 import type { PeerRow } from './types';
+import {
+  advertiseMailboxDeletes,
+  parsePeerArtifactPath,
+} from './retention-helpers';
+
+export { advertiseMailboxDeletes, parsePeerArtifactPath };
 
 export const ARTIFACT_REMOVED_BY_RETENTION = 'artifact removed by retention';
-
-export function parsePeerArtifactPath(
-  artifactPath: string
-): { peerId: string; objectKey: string } | null {
-  const match = /^peer:\/\/([^/]+)\/(.+)$/.exec(artifactPath.trim());
-  if (!match?.[1] || !match[2]) return null;
-  try {
-    return { peerId: match[1], objectKey: assertSafePeerObjectKey(match[2]) };
-  } catch {
-    return null;
-  }
-}
-
-/** Omit pending deletes from /work while a recall for that key is still open. */
-export function advertiseMailboxDeletes(
-  pendingKeys: string[],
-  openRecallKeys: Iterable<string>
-): Array<{ key: string }> {
-  const blocked = new Set(openRecallKeys);
-  return pendingKeys.filter((key) => !blocked.has(key)).map((key) => ({ key }));
-}
 
 export async function assertPeerArtifactRestorable(
   artifactPath: string,

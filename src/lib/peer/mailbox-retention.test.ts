@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { advertiseMailboxDeletes, parsePeerArtifactPath } from './retention';
+import { advertiseMailboxDeletes, parsePeerArtifactPath } from './retention-helpers';
 
 describe('advertiseMailboxDeletes', () => {
   test('skips keys with an open recall', () => {
