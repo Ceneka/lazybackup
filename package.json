@@ -9,7 +9,7 @@
     "start": "next start --port ${PORT:-3000}",
     "lint": "next lint",
     "test": "bun test",
-    "prepare": "sh scripts/install-git-hooks.sh",
+    "prepare": "if [ -f scripts/install-git-hooks.sh ]; then sh scripts/install-git-hooks.sh; fi",
     "release": "bun run scripts/cut-release.ts",
     "test:docker": "bash scripts/docker-test.sh",
     "bro:dev": "bun run --cwd bro dev",
