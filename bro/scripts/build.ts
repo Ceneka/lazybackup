@@ -8,6 +8,9 @@ const entry = path.join(import.meta.dir, '..', 'src', 'main.ts');
 
 const targets = [
   { target: 'bun-linux-x64', outfile: path.join(outDir, 'lazybro-linux-x64') },
+  { target: 'bun-linux-arm64', outfile: path.join(outDir, 'lazybro-linux-arm64') },
+  { target: 'bun-darwin-arm64', outfile: path.join(outDir, 'lazybro-darwin-arm64') },
+  { target: 'bun-darwin-x64', outfile: path.join(outDir, 'lazybro-darwin-x64') },
   { target: 'bun-windows-x64', outfile: path.join(outDir, 'lazybro-windows-x64.exe') },
 ] as const;
 

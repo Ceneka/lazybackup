@@ -30,12 +30,18 @@ jobs:
           tag_name: lazybro
           name: LazyBro
           body: |
-            Current LazyBro agent (linux-x64 and windows-x64). Replaced on each publish.
+            Current LazyBro agent. Replaced on each publish.
 
-            - Linux: https://github.com/Ceneka/lazybackup/releases/download/lazybro/lazybro-linux-x64
+            - Linux x64: https://github.com/Ceneka/lazybackup/releases/download/lazybro/lazybro-linux-x64
+            - Linux ARM64: https://github.com/Ceneka/lazybackup/releases/download/lazybro/lazybro-linux-arm64
+            - macOS Apple Silicon: https://github.com/Ceneka/lazybackup/releases/download/lazybro/lazybro-darwin-arm64
+            - macOS Intel: https://github.com/Ceneka/lazybackup/releases/download/lazybro/lazybro-darwin-x64
             - Windows: https://github.com/Ceneka/lazybackup/releases/download/lazybro/lazybro-windows-x64.exe
           files: |
             bro/dist/lazybro-linux-x64
+            bro/dist/lazybro-linux-arm64
+            bro/dist/lazybro-darwin-arm64
+            bro/dist/lazybro-darwin-x64
             bro/dist/lazybro-windows-x64.exe
           fail_on_unmatched_files: true
           make_latest: false
@@ -47,6 +53,9 @@ jobs:
         with:
           files: |
             bro/dist/lazybro-linux-x64
+            bro/dist/lazybro-linux-arm64
+            bro/dist/lazybro-darwin-arm64
+            bro/dist/lazybro-darwin-x64
             bro/dist/lazybro-windows-x64.exe
           fail_on_unmatched_files: true
           make_latest: ${{ startsWith(github.ref, 'refs/tags/v') }}

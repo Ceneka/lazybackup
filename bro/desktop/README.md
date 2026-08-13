@@ -1,6 +1,6 @@
 # LazyBro desktop (Tauri follow-up)
 
-v1 ships as a Bun-compiled binary with a localhost UI and OS autostart helpers.
+v1 ships as a Bun-compiled binary with a localhost UI and OS autostart helpers (systemd --user, launchd, Windows Startup).
 
 ## Planned Tauri 2 shell
 

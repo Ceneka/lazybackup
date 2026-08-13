@@ -449,7 +449,7 @@ export const detailedFeatures: readonly DetailedFeature[] = [
       "Land stages age ciphertext locally; peer pulls via /api/peers/agent/* then acks (new pairs = mailbox).",
       "LazyBro is outbound-only (mode=client, empty remote URL)—only your LazyBackup needs inbound reachability; LB↔LB both need URLs and both run the sync worker.",
       "Invite + Accept (or paste in LazyBro); hard quotas; opaque blobs; Bro offline / sync pending does not fire failure webhooks.",
-      "Download LazyBro: https://github.com/Ceneka/lazybackup/releases/tag/lazybro (linux-x64 and windows-x64.exe).",
+      "Download LazyBro: https://github.com/Ceneka/lazybackup/releases/tag/lazybro (linux-x64, linux-arm64, darwin-arm64, darwin-x64, windows-x64).",
       "Optional Tailscale on the LazyBackup host (not bundled in the image) so friends can dial a 100.x address.",
     ],
     Icon: IconUsers,
@@ -583,6 +583,9 @@ export const DOCKER_IMAGE = "ghcr.io/ceneka/lazybackup:latest";
 /** Floating GitHub Release updated by Publish LazyBro (not the repo “latest”). */
 export const LAZYBRO_RELEASE_URL = `${GITHUB_URL}/releases/tag/lazybro`;
 export const LAZYBRO_LINUX_URL = `${GITHUB_URL}/releases/download/lazybro/lazybro-linux-x64`;
+export const LAZYBRO_LINUX_ARM64_URL = `${GITHUB_URL}/releases/download/lazybro/lazybro-linux-arm64`;
+export const LAZYBRO_MACOS_ARM64_URL = `${GITHUB_URL}/releases/download/lazybro/lazybro-darwin-arm64`;
+export const LAZYBRO_MACOS_X64_URL = `${GITHUB_URL}/releases/download/lazybro/lazybro-darwin-x64`;
 export const LAZYBRO_WINDOWS_URL = `${GITHUB_URL}/releases/download/lazybro/lazybro-windows-x64.exe`;
 
 /** Default Open Graph / Twitter share image (landing public/). */

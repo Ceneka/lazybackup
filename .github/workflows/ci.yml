@@ -11,7 +11,6 @@ on:
       - "**.md"
       - "LICENSE"
       - "landing/**"
-      - "bro/**"
   workflow_dispatch:
 
 permissions:
@@ -45,6 +44,25 @@ jobs:
         env:
           DATABASE_URL: file:/tmp/lazybackup-ci.db
 
+  bro-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.13"
+
+      - name: Install LazyBro dependencies
+        working-directory: bro
+        run: bun install --frozen-lockfile
+
+      - name: Run LazyBro tests
+        working-directory: bro
+        run: bun test
+
   # Production image is Alpine/musl — catch native addon / NFT gaps host glibc misses.
   # Keep this job on the runner's linux/amd64; multi-arch is the publish job only.
   docker-alpine:
@@ -61,7 +79,7 @@ jobs:
 
   # PRs stop after tests. main / v* / manual dispatch publish once those pass.
   publish-ghcr:
-    needs: [test, docker-alpine]
+    needs: [test, docker-alpine, bro-test]
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')))
     runs-on: ubuntu-latest
     permissions:

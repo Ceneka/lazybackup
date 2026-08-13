@@ -8,12 +8,17 @@ import {
 import { pushFolderBackup } from './backup/push';
 import { ensureAgeKeys } from './backup/pack';
 import type { BroConfig } from './config';
-import { loadConfig, saveConfig } from './config';
+import { loadConfig, saveConfig, shouldOpenUiOnStart } from './config';
 import { getDb, listObjects } from './db';
+import { alreadyRunningMessage, isAddressInUseError, isPortInUse } from './listen';
 import { acceptInvite } from './pair';
 import { getSyncStatus, startSyncLoop, syncOnce } from './sync';
 
 let cfg: BroConfig = loadConfig();
+if (await isPortInUse(cfg.port)) {
+  console.log(alreadyRunningMessage(cfg.port));
+  process.exit(0);
+}
 getDb(cfg);
 void ensureAgeKeys(cfg).then((c) => {
   cfg = c;
@@ -32,7 +37,9 @@ function getCfg(): BroConfig {
   return cfg;
 }
 
-const server = Bun.serve({
+const server = (() => {
+  try {
+    return Bun.serve({
   hostname: '127.0.0.1',
   port: cfg.port,
   async fetch(req) {
@@ -136,13 +143,21 @@ const server = Bun.serve({
 
     return json({ error: 'Not found' }, 404);
   },
-});
+  });
+  } catch (error) {
+    if (isAddressInUseError(error)) {
+      console.log(alreadyRunningMessage(cfg.port));
+      process.exit(0);
+    }
+    throw error;
+  }
+})();
 
 startSyncLoop(cfg, getCfg);
 
 const url = `http://127.0.0.1:${server.port}`;
 console.log(`LazyBro listening on ${url}`);
-if (cfg.openUiOnStart) {
+if (shouldOpenUiOnStart(cfg.openUiOnStart)) {
   try {
     if (process.platform === 'linux') {
       Bun.spawn(['xdg-open', url], { stdout: 'ignore', stderr: 'ignore' });

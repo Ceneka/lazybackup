@@ -3,7 +3,10 @@ import Link from "next/link";
 import {
   DOCKER_IMAGE,
   GITHUB_URL,
+  LAZYBRO_LINUX_ARM64_URL,
   LAZYBRO_LINUX_URL,
+  LAZYBRO_MACOS_ARM64_URL,
+  LAZYBRO_MACOS_X64_URL,
   LAZYBRO_WINDOWS_URL,
   OG_IMAGE,
   SITE_URL,
@@ -223,7 +226,31 @@ export default function Home() {
                         rel="noopener noreferrer"
                         className="font-medium text-emerald-300/90 hover:text-emerald-200"
                       >
-                        Download Linux
+                        Linux x64
+                      </a>
+                      <a
+                        href={LAZYBRO_LINUX_ARM64_URL}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-medium text-emerald-300/90 hover:text-emerald-200"
+                      >
+                        Linux ARM64
+                      </a>
+                      <a
+                        href={LAZYBRO_MACOS_ARM64_URL}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-medium text-emerald-300/90 hover:text-emerald-200"
+                      >
+                        macOS ARM
+                      </a>
+                      <a
+                        href={LAZYBRO_MACOS_X64_URL}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-medium text-emerald-300/90 hover:text-emerald-200"
+                      >
+                        macOS Intel
                       </a>
                       <a
                         href={LAZYBRO_WINDOWS_URL}
@@ -231,7 +258,7 @@ export default function Home() {
                         rel="noopener noreferrer"
                         className="font-medium text-emerald-300/90 hover:text-emerald-200"
                       >
-                        Download Windows
+                        Windows
                       </a>
                     </p>
                   ) : null}

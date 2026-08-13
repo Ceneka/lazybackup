@@ -14,10 +14,13 @@ bun run dev
 
 Or download a binary from the [LazyBro release](https://github.com/Ceneka/lazybackup/releases/tag/lazybro):
 
-- Linux: https://github.com/Ceneka/lazybackup/releases/download/lazybro/lazybro-linux-x64
+- Linux x64: https://github.com/Ceneka/lazybackup/releases/download/lazybro/lazybro-linux-x64
+- Linux ARM64: https://github.com/Ceneka/lazybackup/releases/download/lazybro/lazybro-linux-arm64
+- macOS Apple Silicon: https://github.com/Ceneka/lazybackup/releases/download/lazybro/lazybro-darwin-arm64
+- macOS Intel: https://github.com/Ceneka/lazybackup/releases/download/lazybro/lazybro-darwin-x64
 - Windows: https://github.com/Ceneka/lazybackup/releases/download/lazybro/lazybro-windows-x64.exe
 
-A small page opens on your computer (`http://127.0.0.1:3789`).
+A small page opens on your computer (`http://127.0.0.1:3789`). If LazyBro is already running, a second launch prints that URL and exits.
 
 ## Setup
 
@@ -26,7 +29,7 @@ A small page opens on your computer (`http://127.0.0.1:3789`).
 3. Turn on **Start when I log in** when asked
 4. Leave LazyBro open (or running in the background)
 
-You can also pick one of your own folders to back up to their LazyBackup.
+Data lives in `~/.local/share/lazybro` (Linux), `~/Library/Application Support/LazyBro` (macOS), or `%APPDATA%\LazyBro` (Windows).
 
 ## Tips
 

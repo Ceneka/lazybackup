@@ -46,12 +46,35 @@ const DEFAULTS: BroConfig = {
   openUiOnStart: true,
 };
 
-function defaultDataDir(): string {
-  const home = os.homedir();
-  if (process.platform === 'win32') {
-    return path.join(process.env.APPDATA || path.join(home, 'AppData', 'Roaming'), 'LazyBro');
+export function defaultDataDirFor(
+  platform: NodeJS.Platform | string,
+  home: string,
+  env: { APPDATA?: string } = {},
+  exists: (p: string) => boolean = fs.existsSync
+): string {
+  if (platform === 'win32') {
+    return path.join(env.APPDATA || path.join(home, 'AppData', 'Roaming'), 'LazyBro');
+  }
+  if (platform === 'darwin') {
+    const next = path.join(home, 'Library', 'Application Support', 'LazyBro');
+    const legacy = path.join(home, '.local', 'share', 'lazybro');
+    if (!exists(next) && exists(legacy)) return legacy;
+    return next;
   }
   return path.join(home, '.local', 'share', 'lazybro');
+}
+
+function defaultDataDir(): string {
+  return defaultDataDirFor(process.platform, os.homedir(), process.env, fs.existsSync);
+}
+
+/** Autostart wrappers set LAZYBRO_AUTOSTART=1 so login launch stays headless. */
+export function shouldOpenUiOnStart(
+  openUiOnStart: boolean,
+  env: { LAZYBRO_AUTOSTART?: string } = process.env
+): boolean {
+  if (env.LAZYBRO_AUTOSTART === '1') return false;
+  return openUiOnStart;
 }
 
 export function configPath(dataDir: string): string {
