@@ -115,7 +115,7 @@ export type BackupConfigWithEndpoints = {
   schedule: string;
   excludePatterns?: string | null;
   preBackupCommands?: string | null;
-  dbEngine?: 'postgres' | 'mysql' | 'mariadb' | null;
+  dbEngine?: 'postgres' | 'mysql' | 'mariadb' | 'sqlite' | null;
   dbClient?: 'native' | 'docker' | null;
   dbContainer?: string | null;
   dbHost?: string | null;
@@ -679,7 +679,7 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
       };
     } else if (sourceType === 'database') {
       const dbConn = connectionFromConfig(config);
-      const archiveName = archiveFileNameForDatabase(dbConn.database);
+      const archiveName = archiveFileNameForDatabase(dbConn.database, dbConn.engine);
       console.log(`Dumping database: ${dbConn.engine}/${dbConn.database}`);
 
       let packedArchivePath: string;

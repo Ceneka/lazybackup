@@ -13,7 +13,7 @@ Marketing site (static): [`landing/`](./landing) → [lazy.zic.ar](https://lazy.
 - **Server management** — Add, edit, and test VPS connections (password or SSH key auth)
 - **Backup jobs** — Paths, Docker volumes, or database dumps; cron schedules; exclude patterns; pre-backup shell commands
 - **Docker volumes** — Discover named volumes on this host or a source server, pack as `.tar.gz` to a destination path/prefix, restore from History
-- **Database dumps** — Postgres / MySQL / MariaDB → `.sql.gz` (native client or `docker exec`); restore from History
+- **Database dumps** — Postgres / MySQL / MariaDB → `.sql.gz` (native client or `docker exec`); SQLite → `.sqlite.gz` (native file copy / `.backup`); restore from History
 - **S3 profiles** — Source prefixes and destination prefixes for path trees and archives
 - **Versioned backups** — Optional timestamped snapshots with automatic count-based retention
 - **File retention** — Optional age-based cleanup for dump-style destinations (keep a minimum number of files)

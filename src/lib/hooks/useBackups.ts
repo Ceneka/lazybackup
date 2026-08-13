@@ -35,7 +35,7 @@ export interface Backup {
   nextRunFormatted?: string | null
   excludePatterns?: string
   preBackupCommands?: string
-  dbEngine?: 'postgres' | 'mysql' | 'mariadb' | null
+  dbEngine?: 'postgres' | 'mysql' | 'mariadb' | 'sqlite' | null
   dbClient?: 'native' | 'docker' | null
   dbContainer?: string | null
   dbHost?: string | null

@@ -92,7 +92,7 @@ export const backupConfigs = sqliteTable('backup_configs', {
   excludePatterns: text('exclude_patterns'), // JSON string of patterns to exclude
   preBackupCommands: text('pre_backup_commands'), // Commands to run before backup starts
   /** Database dump settings when sourceType === 'database' */
-  dbEngine: text('db_engine', { enum: ['postgres', 'mysql', 'mariadb'] }),
+  dbEngine: text('db_engine', { enum: ['postgres', 'mysql', 'mariadb', 'sqlite'] }),
   dbClient: text('db_client', { enum: ['native', 'docker'] }),
   dbContainer: text('db_container'),
   dbHost: text('db_host'),

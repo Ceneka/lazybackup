@@ -52,7 +52,7 @@ export type BackupFormData = {
   schedule: string
   excludePatterns: string
   preBackupCommands: string
-  dbEngine: "postgres" | "mysql" | "mariadb"
+  dbEngine: "postgres" | "mysql" | "mariadb" | "sqlite"
   dbClient: "native" | "docker"
   dbContainer: string
   dbHost: string
@@ -392,6 +392,10 @@ export function BackupConfigForm({
         if (!next.dbHost) next.dbHost = "127.0.0.1"
         if (!next.dbEngine) next.dbEngine = "postgres"
         if (!next.dbClient) next.dbClient = "native"
+      }
+      if (key === "dbEngine" && value === "sqlite") {
+        next.dbClient = "native"
+        next.dbContainer = ""
       }
       if (key === "sourceType" && value === "lazybackup_instance") {
         next.sourceKind = "local"
@@ -789,8 +793,15 @@ export function BackupConfigForm({
       toast.error("Select a source server first")
       return
     }
-    if (!formData.sourcePath.trim() || !formData.dbUser.trim()) {
-      toast.error("Database name and user are required")
+    if (
+      !formData.sourcePath.trim() ||
+      (formData.dbEngine !== "sqlite" && !formData.dbUser.trim())
+    ) {
+      toast.error(
+        formData.dbEngine === "sqlite"
+          ? "SQLite file path is required"
+          : "Database name and user are required"
+      )
       return
     }
     if (formData.dbClient === "docker" && !formData.dbContainer.trim()) {
@@ -955,15 +966,17 @@ export function BackupConfigForm({
                   onChange={(e) =>
                     updateField(
                       "dbEngine",
-                      e.target.value as "postgres" | "mysql" | "mariadb"
+                      e.target.value as "postgres" | "mysql" | "mariadb" | "sqlite"
                     )
                   }
                 >
                   <option value="postgres">PostgreSQL</option>
                   <option value="mysql">MySQL</option>
                   <option value="mariadb">MariaDB</option>
+                  <option value="sqlite">SQLite</option>
                 </select>
               </div>
+              {formData.dbEngine !== "sqlite" && (
               <div className="space-y-1">
                 <label className="text-xs text-muted-foreground" htmlFor="db-client">
                   Client
@@ -1089,7 +1102,8 @@ export function BackupConfigForm({
                   )}
                 </div>
               )}
-              {formData.dbClient === "native" && (
+              )}
+              {formData.dbEngine !== "sqlite" && formData.dbClient === "native" && (
                 <>
                   <div className="space-y-1">
                     <label className="text-xs text-muted-foreground" htmlFor="db-host">
@@ -1121,7 +1135,7 @@ export function BackupConfigForm({
               )}
               <div className="space-y-1 sm:col-span-2">
                 <label className="text-xs text-muted-foreground" htmlFor="db-name">
-                  Database name
+                  {formData.dbEngine === "sqlite" ? "SQLite file path" : "Database name"}
                 </label>
                 <input
                   id="db-name"
@@ -1129,10 +1143,12 @@ export function BackupConfigForm({
                   className={inputClass}
                   value={formData.sourcePath}
                   onChange={(e) => updateField("sourcePath", e.target.value)}
-                  placeholder="app"
+                  placeholder={formData.dbEngine === "sqlite" ? "/var/lib/app/data.db" : "app"}
                   required
                 />
               </div>
+              {formData.dbEngine !== "sqlite" && (
+              <>
               <div className="space-y-1">
                 <label className="text-xs text-muted-foreground" htmlFor="db-user">
                   User
@@ -1167,12 +1183,19 @@ export function BackupConfigForm({
                   </p>
                 )}
               </div>
+              </>
+              )}
             </div>
             <p className="text-xs text-muted-foreground">
-              Dumps a logical <code className="text-xs">.sql.gz</code> via{" "}
-              {formData.dbEngine === "postgres" ? "pg_dump" : "mysqldump"}
-              {formData.dbClient === "docker" ? " inside the container" : " on the source host"}.
-              Prefer this over Docker volume backups for live databases.
+              {formData.dbEngine === "sqlite"
+                ? "Copies the SQLite file (sqlite3 .backup when available) and gzips it to .sqlite.gz. Native only."
+                : `Dumps a logical .sql.gz via ${
+                    formData.dbEngine === "postgres" ? "pg_dump" : "mysqldump"
+                  }${
+                    formData.dbClient === "docker"
+                      ? " inside the container"
+                      : " on the source host"
+                  }. Prefer this over Docker volume backups for live databases.`}
             </p>
           </div>
         )}

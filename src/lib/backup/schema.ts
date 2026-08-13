@@ -1,10 +1,11 @@
 import { DOCKER_VOLUME_NAME_RE } from '@/lib/docker/volumes';
+import { assertValidSqlitePath } from '@/lib/database';
 import { z } from 'zod';
 
 /** Database name: alphanumeric start, then alnum / _ $ - */
 export const DB_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9_$-]*$/;
 
-export const dbEngineSchema = z.enum(['postgres', 'mysql', 'mariadb']);
+export const dbEngineSchema = z.enum(['postgres', 'mysql', 'mariadb', 'sqlite']);
 export const dbClientSchema = z.enum(['native', 'docker']);
 export const endpointKindSchema = z.enum(['local', 'server', 's3', 'peer']);
 
@@ -166,6 +167,25 @@ export const backupConfigSchema = z
           path: ['dbEngine'],
         });
       }
+      const isSqlite = data.dbEngine === 'sqlite';
+      if (isSqlite) {
+        if (data.dbClient === 'docker') {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: 'SQLite dumps are native-only (no docker client)',
+            path: ['dbClient'],
+          });
+        }
+        try {
+          assertValidSqlitePath(data.sourcePath);
+        } catch (error) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: error instanceof Error ? error.message : 'Invalid SQLite path',
+            path: ['sourcePath'],
+          });
+        }
+      } else {
       if (!data.dbClient) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
@@ -203,6 +223,7 @@ export const backupConfigSchema = z
             path: ['dbContainer'],
           });
         }
+      }
       }
     }
 
@@ -272,12 +293,20 @@ export const backupConfigSchema = z
         ? data.instanceBackupPassphrase ?? null
         : null,
       dbEngine: isDatabase ? data.dbEngine ?? null : null,
-      dbClient: isDatabase ? data.dbClient ?? null : null,
-      dbContainer: isDatabase && data.dbClient === 'docker' ? data.dbContainer?.trim() || null : null,
-      dbHost: isDatabase ? data.dbHost?.trim() || '127.0.0.1' : null,
-      dbPort: isDatabase ? data.dbPort ?? null : null,
-      dbUser: isDatabase ? data.dbUser?.trim() || null : null,
-      dbPassword: isDatabase ? data.dbPassword ?? '' : null,
+      dbClient: isDatabase
+        ? data.dbEngine === 'sqlite'
+          ? ('native' as const)
+          : data.dbClient ?? null
+        : null,
+      dbContainer:
+        isDatabase && data.dbEngine !== 'sqlite' && data.dbClient === 'docker'
+          ? data.dbContainer?.trim() || null
+          : null,
+      dbHost:
+        isDatabase && data.dbEngine !== 'sqlite' ? data.dbHost?.trim() || '127.0.0.1' : null,
+      dbPort: isDatabase && data.dbEngine !== 'sqlite' ? data.dbPort ?? null : null,
+      dbUser: isDatabase && data.dbEngine !== 'sqlite' ? data.dbUser?.trim() || null : null,
+      dbPassword: isDatabase && data.dbEngine !== 'sqlite' ? data.dbPassword ?? '' : null,
       preBackupCommands: isInstance ? undefined : data.preBackupCommands,
       excludePatterns: isInstance || isDatabase ? undefined : data.excludePatterns,
     };
@@ -298,9 +327,9 @@ export const databaseConnectionTestSchema = z
         z.coerce.number().int().min(1).max(65535).nullable()
       )
       .optional(),
-    dbUser: z.string().min(1, 'Database user is required'),
+    dbUser: z.string().optional(),
     dbPassword: z.string().nullable().optional(),
-    /** Database name */
+    /** Database name, or filesystem path when dbEngine=sqlite */
     sourcePath: z.string().min(1, 'Database name is required'),
   })
   .superRefine((data, ctx) => {
@@ -309,6 +338,32 @@ export const databaseConnectionTestSchema = z
         code: z.ZodIssueCode.custom,
         message: 'Source server is required',
         path: ['serverId'],
+      });
+    }
+    if (data.dbEngine === 'sqlite') {
+      if (data.dbClient === 'docker') {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'SQLite dumps are native-only (no docker client)',
+          path: ['dbClient'],
+        });
+      }
+      try {
+        assertValidSqlitePath(data.sourcePath);
+      } catch (error) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: error instanceof Error ? error.message : 'Invalid SQLite path',
+          path: ['sourcePath'],
+        });
+      }
+      return;
+    }
+    if (!data.dbUser || !data.dbUser.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Database user is required',
+        path: ['dbUser'],
       });
     }
     if (!DB_NAME_RE.test(data.sourcePath)) {

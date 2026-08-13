@@ -5,7 +5,7 @@ import * as discovery from './discovery'
 import * as ops from './operations'
 
 const BACKUP_GUIDE = `LazyBackup From→To: sourceKind/destinationKind are local|server|s3.
-sourceType: path | docker_volume (server or this host’s Docker) | database (local or server) | lazybackup_instance (local only; packs SQLite + keys).
+sourceType: path | docker_volume (server or this host’s Docker) | database (postgres/mysql/mariadb/sqlite; local or server) | lazybackup_instance (local only; packs SQLite + keys).
 S3 sources only support sourceType=path. Destinations are paths or S3 prefixes.
 lazybackup_instance cannot use Bro destinations; optional instanceBackupPassphrase wraps the archive.
 SSH key required on every server endpoint used in a transfer.`
@@ -116,14 +116,14 @@ export function registerLazyBackupTools(
       inputSchema: z.object({
         sourceKind: z.enum(['local', 'server']).default('server'),
         serverId: z.string().optional(),
-        dbEngine: z.enum(['postgres', 'mysql', 'mariadb']),
+        dbEngine: z.enum(['postgres', 'mysql', 'mariadb', 'sqlite']),
         dbClient: z.enum(['native', 'docker']),
         dbContainer: z.string().optional(),
         dbHost: z.string().optional(),
         dbPort: z.number().int().optional(),
-        dbUser: z.string(),
+        dbUser: z.string().optional(),
         dbPassword: z.string().optional(),
-        sourcePath: z.string().describe('Database name'),
+        sourcePath: z.string().describe('Database name, or filesystem path when dbEngine=sqlite'),
       }),
     },
     async (args) => discovery.testDatabaseOp(c, args)

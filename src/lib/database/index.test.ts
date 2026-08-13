@@ -1,11 +1,20 @@
 import { describe, expect, test } from 'bun:test';
+import { execFile } from 'child_process';
+import { promises as fs } from 'fs';
+import os from 'os';
+import path from 'path';
+import { promisify } from 'util';
 import {
   archiveFileNameForDatabase,
   buildDatabaseTestCommand,
   buildDumpArgs,
   buildPackDatabaseCommand,
+  buildPackSqliteCommand,
   buildRestoreDatabaseCommand,
+  buildRestoreSqliteCommand,
   defaultPortForEngine,
+  packDatabaseDumpLocal,
+  restoreDatabaseLocal,
   type DatabaseConnection,
 } from './index';
 
@@ -37,6 +46,9 @@ describe('database command builders', () => {
 
   test('archive file name', () => {
     expect(archiveFileNameForDatabase('appdb')).toBe('appdb.sql.gz');
+    expect(archiveFileNameForDatabase('/var/lib/app/data.db', 'sqlite')).toBe(
+      'data.sqlite.gz'
+    );
   });
 
   test('native postgres dump args include quoting and flags', () => {
@@ -120,5 +132,85 @@ describe('database command builders', () => {
     expect(() =>
       buildPackDatabaseCommand({ ...basePostgres, database: '../evil' }, '/tmp/x.sql.gz')
     ).toThrow();
+  });
+});
+
+const baseSqlite: DatabaseConnection = {
+  engine: 'sqlite',
+  client: 'native',
+  user: 'sqlite',
+  database: '/var/lib/app/data.db',
+};
+
+describe('sqlite dump engine', () => {
+  test('pack uses sqlite3 .backup or cp then gzip', () => {
+    const cmd = buildPackSqliteCommand('/var/lib/app/data.db', '/tmp/out/data.sqlite.gz');
+    expect(cmd).toContain('sqlite3');
+    expect(cmd).toContain('.backup');
+    expect(cmd).toContain('gzip -c');
+    expect(cmd).toContain('/var/lib/app/data.db');
+    expect(cmd).toContain('/tmp/out/data.sqlite.gz');
+    expect(buildPackDatabaseCommand(baseSqlite, '/tmp/out/data.sqlite.gz')).toContain(
+      'sqlite3'
+    );
+  });
+
+  test('restore gunzips onto the file path', () => {
+    const cmd = buildRestoreSqliteCommand('/var/lib/app/data.db', '/tmp/data.sqlite.gz');
+    expect(cmd).toContain('gzip -dc');
+    expect(cmd).toContain('/var/lib/app/data.db');
+    expect(buildRestoreDatabaseCommand(baseSqlite, '/tmp/data.sqlite.gz')).toContain(
+      'gzip -dc'
+    );
+  });
+
+  test('test checks the file and optional sqlite3 SELECT 1', () => {
+    const cmd = buildDatabaseTestCommand(baseSqlite);
+    expect(cmd).toContain('test -r');
+    expect(cmd).toContain('SELECT 1');
+  });
+
+  test('rejects path traversal', () => {
+    expect(() => buildPackSqliteCommand('../evil.db', '/tmp/x.sqlite.gz')).toThrow(/\.\./);
+  });
+});
+
+const execFileAsync = promisify(execFile);
+
+async function sqlite3Available(): Promise<boolean> {
+  try {
+    await execFileAsync('sqlite3', ['-version']);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const hasSqlite3 = await sqlite3Available();
+
+describe.skipIf(!hasSqlite3)('sqlite live dump', () => {
+  test('packs and restores a file', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'lazybackup-sqlite-'));
+    const dbPath = path.join(dir, 'app.db');
+    const restored = path.join(dir, 'restored.db');
+    await execFileAsync('sqlite3', [dbPath, 'CREATE TABLE t(x); INSERT INTO t VALUES (1);']);
+    try {
+      const packed = await packDatabaseDumpLocal({
+        engine: 'sqlite',
+        client: 'native',
+        user: 'sqlite',
+        database: dbPath,
+      });
+      expect(packed.archivePath.endsWith('.sqlite.gz')).toBe(true);
+      await restoreDatabaseLocal(
+        { engine: 'sqlite', client: 'native', user: 'sqlite', database: restored },
+        packed.archivePath
+      );
+      const { stdout } = await execFileAsync('sqlite3', [restored, 'SELECT x FROM t;']);
+      expect(stdout.trim()).toBe('1');
+      await fs.rm(packed.tmpDir, { recursive: true, force: true });
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
   });
 });

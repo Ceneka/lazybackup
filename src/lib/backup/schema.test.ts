@@ -135,6 +135,40 @@ describe('backupConfigSchema', () => {
     expect(parsed.serverId).toBeNull();
   });
 
+  test('accepts sqlite dump with file path and no user', () => {
+    const parsed = backupConfigSchema.parse({
+      sourceKind: 'local',
+      destinationKind: 'local',
+      name: 'SQLite dump',
+      sourceType: 'database',
+      sourcePath: '/var/lib/app/data.db',
+      destinationPath: '/backups/sqlite',
+      schedule: '0 0 * * *',
+      dbEngine: 'sqlite',
+      dbClient: 'native',
+    });
+    expect(parsed.dbEngine).toBe('sqlite');
+    expect(parsed.dbClient).toBe('native');
+    expect(parsed.dbUser).toBeNull();
+    expect(parsed.sourcePath).toBe('/var/lib/app/data.db');
+  });
+
+  test('rejects sqlite with docker client', () => {
+    const result = backupConfigSchema.safeParse({
+      sourceKind: 'local',
+      destinationKind: 'local',
+      name: 'SQLite dump',
+      sourceType: 'database',
+      sourcePath: '/var/lib/app/data.db',
+      destinationPath: '/backups/sqlite',
+      schedule: '0 0 * * *',
+      dbEngine: 'sqlite',
+      dbClient: 'docker',
+      dbContainer: 'sqlite_1',
+    });
+    expect(result.success).toBe(false);
+  });
+
   test('requires container for docker database client', () => {
     const result = backupConfigSchema.safeParse({
       ...base,

@@ -394,7 +394,7 @@ export const detailedFeatures: readonly DetailedFeature[] = [
     points: [
       "path — filesystem tree or S3 prefix; rsync preferred, scp fallback.",
       "docker_volume — named volume on a source server or this host’s Docker socket; alpine packs .tar.gz (not a consistent live-DB backup).",
-      "database — Postgres / MySQL / MariaDB logical dump → .sql.gz via native client or docker exec (local or server).",
+      "database — Postgres / MySQL / MariaDB logical dump → .sql.gz via native client or docker exec (local or server). SQLite → .sqlite.gz (native file / sqlite3 .backup only).",
       "lazybackup_instance — packs SQLite + age vault + SSH keys; optional age passphrase wrap (not the instance age key).",
     ],
     Icon: IconBackup,

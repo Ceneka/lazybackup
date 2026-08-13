@@ -10,7 +10,7 @@ import type { NodeSSH } from 'node-ssh';
 const REMOTE_STANDARD_PATH =
   'PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"';
 
-export type DbEngine = 'postgres' | 'mysql' | 'mariadb';
+export type DbEngine = 'postgres' | 'mysql' | 'mariadb' | 'sqlite';
 export type DbClient = 'native' | 'docker';
 
 export type DatabaseConnection = {
@@ -27,7 +27,9 @@ export type DatabaseConnection = {
 export const DB_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9_$-]*$/;
 
 export function defaultPortForEngine(engine: DbEngine): number {
-  return engine === 'postgres' ? 5432 : 3306;
+  if (engine === 'postgres') return 5432;
+  if (engine === 'sqlite') return 0;
+  return 3306;
 }
 
 export function resolveDbPort(conn: DatabaseConnection): number {
@@ -38,6 +40,24 @@ export function assertValidDatabaseName(name: string): void {
   if (!DB_NAME_RE.test(name)) {
     throw new Error(`Invalid database name: ${name}. Names must match ${DB_NAME_RE}`);
   }
+}
+
+export function assertValidSqlitePath(dbPath: string): void {
+  const t = dbPath.trim();
+  if (!t) {
+    throw new Error('SQLite database path is required');
+  }
+  if (/[\r\n\0]/.test(t)) {
+    throw new Error('Invalid SQLite database path');
+  }
+  const parts = t.split(/[/\\]/);
+  if (parts.includes('..')) {
+    throw new Error('SQLite database path must not contain ..');
+  }
+}
+
+export function isSqliteEngine(engine: string | null | undefined): boolean {
+  return engine === 'sqlite';
 }
 
 export function assertValidContainerName(name: string): void {
@@ -102,6 +122,9 @@ function effectiveHost(conn: DatabaseConnection): string {
 
 /** pg_dump / mysqldump argv (no env, no gzip). */
 export function buildDumpArgv(conn: DatabaseConnection): string[] {
+  if (conn.engine === 'sqlite') {
+    throw new Error('SQLite dumps use buildPackSqliteCommand, not pg_dump argv');
+  }
   assertValidDatabaseName(conn.database);
   const host = effectiveHost(conn);
   const port = resolveDbPort(conn);
@@ -265,6 +288,9 @@ export function buildPackDatabaseCommand(
   archiveFilePath: string,
   options?: { passwordFile?: string }
 ): string {
+  if (conn.engine === 'sqlite') {
+    return buildPackSqliteCommand(conn.database, archiveFilePath);
+  }
   assertValidDatabaseName(conn.database);
   const quotedOut = shellSingleQuote(archiveFilePath);
   let dumpArgs = buildDumpArgs(conn);
@@ -294,6 +320,9 @@ export function buildRestoreDatabaseCommand(
   archiveFilePath: string,
   options?: { passwordFile?: string }
 ): string {
+  if (conn.engine === 'sqlite') {
+    return buildRestoreSqliteCommand(conn.database, archiveFilePath);
+  }
   assertValidDatabaseName(conn.database);
   const quotedIn = shellSingleQuote(archiveFilePath);
   let clientArgs = buildRestoreClientArgs(conn);
@@ -327,6 +356,9 @@ export function buildDatabaseTestCommand(
   conn: DatabaseConnection,
   options?: { passwordFile?: string }
 ): string {
+  if (conn.engine === 'sqlite') {
+    return buildSqliteTestCommand(conn.database);
+  }
   assertValidDatabaseName(conn.database);
   let testArgs = buildTestClientArgs(conn);
   const passwordFile = options?.passwordFile;
@@ -358,9 +390,49 @@ export function buildDatabaseTestCommand(
   return `${REMOTE_STANDARD_PATH} ${testArgs}`;
 }
 
-export function archiveFileNameForDatabase(database: string): string {
+export function archiveFileNameForDatabase(
+  database: string,
+  engine?: DbEngine | null
+): string {
+  if (engine === 'sqlite') {
+    assertValidSqlitePath(database);
+    const base = path.basename(database.trim()) || 'database';
+    const stem = base.replace(/\.(sqlite3?|db|sqlite\.gz)$/i, '');
+    return `${stem || 'database'}.sqlite.gz`;
+  }
   assertValidDatabaseName(database);
   return `${database}.sql.gz`;
+}
+
+/** Copy or sqlite3 .backup, then gzip to .sqlite.gz. Native only. */
+export function buildPackSqliteCommand(dbPath: string, archiveFilePath: string): string {
+  assertValidSqlitePath(dbPath);
+  const quotedDb = shellSingleQuote(dbPath.trim());
+  const quotedOut = shellSingleQuote(archiveFilePath);
+  return [
+    REMOTE_STANDARD_PATH,
+    'tmp=$(mktemp /tmp/lazybackup-sqlite-XXXXXX)',
+    `; if command -v sqlite3 >/dev/null 2>&1; then sqlite3 ${quotedDb} ".backup $tmp"; else cp ${quotedDb} "$tmp"; fi`,
+    `&& gzip -c "$tmp" > ${quotedOut}`,
+    '; ec=$?; rm -f "$tmp"; exit $ec',
+  ].join(' ');
+}
+
+export function buildRestoreSqliteCommand(dbPath: string, archiveFilePath: string): string {
+  assertValidSqlitePath(dbPath);
+  const quotedDb = shellSingleQuote(dbPath.trim());
+  const quotedIn = shellSingleQuote(archiveFilePath);
+  return `${REMOTE_STANDARD_PATH} mkdir -p "$(dirname -- ${quotedDb})" && gzip -dc ${quotedIn} > ${quotedDb}`;
+}
+
+export function buildSqliteTestCommand(dbPath: string): string {
+  assertValidSqlitePath(dbPath);
+  const quotedDb = shellSingleQuote(dbPath.trim());
+  return [
+    REMOTE_STANDARD_PATH,
+    `test -r ${quotedDb}`,
+    `&& if command -v sqlite3 >/dev/null 2>&1; then sqlite3 ${quotedDb} 'SELECT 1'; fi`,
+  ].join(' ');
 }
 
 export function connectionFromConfig(config: {
@@ -373,7 +445,26 @@ export function connectionFromConfig(config: {
   dbPassword?: string | null;
   sourcePath: string;
 }): DatabaseConnection {
-  if (!config.dbEngine || !config.dbClient || !config.dbUser) {
+  if (!config.dbEngine || !config.dbClient) {
+    throw new Error('Database backup is missing engine or client');
+  }
+  if (config.dbEngine === 'sqlite') {
+    assertValidSqlitePath(config.sourcePath);
+    if (config.dbClient === 'docker') {
+      throw new Error('SQLite dumps are native-only (no docker client)');
+    }
+    return {
+      engine: 'sqlite',
+      client: 'native',
+      container: null,
+      host: null,
+      port: null,
+      user: config.dbUser?.trim() || 'sqlite',
+      password: null,
+      database: config.sourcePath.trim(),
+    };
+  }
+  if (!config.dbUser) {
     throw new Error('Database backup is missing engine, client, or user');
   }
   return {
@@ -575,11 +666,14 @@ export async function packDatabaseDumpLocal(
   conn: DatabaseConnection
 ): Promise<PackDatabaseResult> {
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'lazybackup-db-'));
-  const archiveName = archiveFileNameForDatabase(conn.database);
+  const archiveName = archiveFileNameForDatabase(conn.database, conn.engine);
   const archivePath = path.join(tmpDir, archiveName);
   try {
     let result: { stdout: string; stderr: string; code: number };
-    if (conn.client === 'docker') {
+    if (conn.engine === 'sqlite') {
+      const cmd = buildPackDatabaseCommand(conn, archivePath);
+      result = await runArgv(['/bin/sh', '-c', cmd], { ...process.env });
+    } else if (conn.client === 'docker') {
       result = await withLocalPasswordFile(conn, async (passwordFile) => {
         const cmd = buildPackDatabaseCommand(conn, archivePath, { passwordFile });
         return runArgv(['/bin/sh', '-c', cmd], { ...process.env });
@@ -618,13 +712,16 @@ export async function packDatabaseDumpRemote(
     throw new Error(`Failed to create remote temp directory: ${mktemp.stderr || mktemp.stdout}`);
   }
   const tmpDir = mktemp.stdout.trim();
-  const archiveName = archiveFileNameForDatabase(conn.database);
+  const archiveName = archiveFileNameForDatabase(conn.database, conn.engine);
   const archivePath = `${tmpDir}/${archiveName}`;
   try {
-    const packResult = await withRemotePasswordFile(ssh, conn, async (passwordFile) => {
-      const cmd = buildPackDatabaseCommand(conn, archivePath, { passwordFile });
-      return ssh.execCommand(cmd);
-    });
+    const packResult =
+      conn.engine === 'sqlite'
+        ? await ssh.execCommand(buildPackDatabaseCommand(conn, archivePath))
+        : await withRemotePasswordFile(ssh, conn, async (passwordFile) => {
+            const cmd = buildPackDatabaseCommand(conn, archivePath, { passwordFile });
+            return ssh.execCommand(cmd);
+          });
     if (isFailedExit(packResult.code)) {
       throw new Error((packResult.stderr || packResult.stdout).trim() || 'dump failed');
     }
@@ -648,6 +745,16 @@ export async function restoreDatabaseLocal(
   conn: DatabaseConnection,
   archiveFilePath: string
 ): Promise<{ stdout: string; stderr: string }> {
+  if (conn.engine === 'sqlite') {
+    const cmd = buildRestoreDatabaseCommand(conn, archiveFilePath);
+    const result = await runArgv(['/bin/sh', '-c', cmd], { ...process.env });
+    if (result.code !== 0) {
+      throw new Error(
+        `Failed to restore database ${conn.database}: ${(result.stderr || result.stdout).trim()}`
+      );
+    }
+    return { stdout: result.stdout, stderr: result.stderr };
+  }
   if (conn.client === 'docker') {
     const result = await withLocalPasswordFile(conn, async (passwordFile) => {
       const cmd = buildRestoreDatabaseCommand(conn, archiveFilePath, { passwordFile });
@@ -683,10 +790,13 @@ export async function restoreDatabaseRemote(
   conn: DatabaseConnection,
   remoteArchivePath: string
 ): Promise<{ stdout: string; stderr: string }> {
-  const result = await withRemotePasswordFile(ssh, conn, async (passwordFile) => {
-    const cmd = buildRestoreDatabaseCommand(conn, remoteArchivePath, { passwordFile });
-    return ssh.execCommand(cmd);
-  });
+  const result =
+    conn.engine === 'sqlite'
+      ? await ssh.execCommand(buildRestoreDatabaseCommand(conn, remoteArchivePath))
+      : await withRemotePasswordFile(ssh, conn, async (passwordFile) => {
+          const cmd = buildRestoreDatabaseCommand(conn, remoteArchivePath, { passwordFile });
+          return ssh.execCommand(cmd);
+        });
   if (isFailedExit(result.code)) {
     throw new Error(
       `Failed to restore database ${conn.database}: ${(result.stderr || result.stdout).trim()}`
@@ -699,7 +809,10 @@ export async function testDatabaseConnectionLocal(
   conn: DatabaseConnection
 ): Promise<{ ok: true; stdout: string }> {
   let result: { stdout: string; stderr: string; code: number };
-  if (conn.client === 'docker') {
+  if (conn.engine === 'sqlite') {
+    const cmd = buildDatabaseTestCommand(conn);
+    result = await runArgv(['/bin/sh', '-c', cmd], { ...process.env });
+  } else if (conn.client === 'docker') {
     result = await withLocalPasswordFile(conn, async (passwordFile) => {
       const cmd = buildDatabaseTestCommand(conn, { passwordFile });
       return runArgv(['/bin/sh', '-c', cmd], { ...process.env });
@@ -717,10 +830,13 @@ export async function testDatabaseConnectionRemote(
   ssh: NodeSSH,
   conn: DatabaseConnection
 ): Promise<{ ok: true; stdout: string }> {
-  const result = await withRemotePasswordFile(ssh, conn, async (passwordFile) => {
-    const cmd = buildDatabaseTestCommand(conn, { passwordFile });
-    return ssh.execCommand(cmd);
-  });
+  const result =
+    conn.engine === 'sqlite'
+      ? await ssh.execCommand(buildDatabaseTestCommand(conn))
+      : await withRemotePasswordFile(ssh, conn, async (passwordFile) => {
+          const cmd = buildDatabaseTestCommand(conn, { passwordFile });
+          return ssh.execCommand(cmd);
+        });
   if (isFailedExit(result.code)) {
     throw new Error(`Database connection failed: ${(result.stderr || result.stdout).trim()}`);
   }
