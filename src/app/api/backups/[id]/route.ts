@@ -6,10 +6,8 @@ import {
 } from '@/lib/auth';
 import { findExactDestinationConflict } from '@/lib/backup/destination-guard';
 import { backupConfigSchema } from '@/lib/backup/schema';
-import {
-  TransferKeyRequiredError,
-  assertTransferServersHaveKeys,
-} from '@/lib/backup/transfer-keys';
+import { assertTransferServersHaveKeys } from '@/lib/backup/assert-transfer-keys';
+import { TransferKeyRequiredError } from '@/lib/backup/transfer-keys';
 import { attachLastValidation } from '@/lib/backup/validate';
 import { formatCronExpression } from '@/lib/cron/format';
 import { buildUpcomingEntry } from '@/lib/cron/next';

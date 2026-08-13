@@ -977,6 +977,7 @@ export function BackupConfigForm({
                 </select>
               </div>
               {formData.dbEngine !== "sqlite" && (
+              <>
               <div className="space-y-1">
                 <label className="text-xs text-muted-foreground" htmlFor="db-client">
                   Client
@@ -1102,6 +1103,7 @@ export function BackupConfigForm({
                   )}
                 </div>
               )}
+              </>
               )}
               {formData.dbEngine !== "sqlite" && formData.dbClient === "native" && (
                 <>

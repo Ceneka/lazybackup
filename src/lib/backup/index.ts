@@ -76,7 +76,7 @@ import {
 } from '@/lib/backup/local-paths';
 import { isBackupArtifactFileName, selectFilesToDelete, type RetentionAgeUnit } from './file-retention';
 import { assertCanStartBackup } from './concurrent-run';
-import { assertTransferServersHaveKeys } from './transfer-keys';
+import { assertTransferServersHaveKeys } from './assert-transfer-keys';
 import { createBackupHistoryEntry, updateBackupHistoryFailure, updateBackupHistorySuccess } from './history';
 import {
   buildFileRetentionLog,

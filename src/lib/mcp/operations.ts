@@ -1,6 +1,6 @@
 import { findExactDestinationConflict } from '@/lib/backup/destination-guard'
 import { backupConfigSchema } from '@/lib/backup/schema'
-import { assertTransferServersHaveKeys } from '@/lib/backup/transfer-keys'
+import { assertTransferServersHaveKeys } from '@/lib/backup/assert-transfer-keys'
 import { restoreDatabaseBackup, restoreDockerVolumeBackup, restorePathBackup, executeBackup } from '@/lib/backup'
 import {
   READ_ONLY_DENIED,
