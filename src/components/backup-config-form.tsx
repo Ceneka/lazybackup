@@ -13,6 +13,8 @@ import { useBackups, type Backup } from "@/lib/hooks/useBackups"
 import {
   fetchContainerDbHints,
   Server,
+  useLocalDockerContainers,
+  useLocalDockerVolumes,
   useServerDockerContainers,
   useServerDockerVolumes,
 } from "@/lib/hooks/useServers"
@@ -198,16 +200,26 @@ export function BackupConfigForm({
       ? formData.serverId
       : ""
   )
+  const localVolumesQuery = useLocalDockerVolumes(
+    formData.sourceKind === "local" && formData.sourceType === "docker_volume"
+  )
+  const activeVolumesQuery =
+    formData.sourceKind === "local" ? localVolumesQuery : volumesQuery
 
   const showDbContainerPicker =
-    formData.sourceKind === "server" &&
+    (formData.sourceKind === "server" || formData.sourceKind === "local") &&
     formData.sourceType === "database" &&
     formData.dbClient === "docker"
 
   const containersQuery = useServerDockerContainers(
     formData.serverId,
-    showDbContainerPicker
+    showDbContainerPicker && formData.sourceKind === "server"
   )
+  const localContainersQuery = useLocalDockerContainers(
+    showDbContainerPicker && formData.sourceKind === "local"
+  )
+  const activeContainersQuery =
+    formData.sourceKind === "local" ? localContainersQuery : containersQuery
 
   const sourceServer = servers.find((s) => s.id === formData.serverId)
   const destServer = servers.find((s) => s.id === formData.destinationServerId)
@@ -324,10 +336,13 @@ export function BackupConfigForm({
     setFormData((prev) => {
       const next = { ...prev, [key]: value }
       if (key === "sourceKind") {
-        if (value === "local" || value === "s3") {
+        if (value === "s3") {
           if (next.sourceType === "docker_volume") {
             next.sourceType = "path"
           }
+          next.serverId = ""
+        }
+        if (value === "local" || value === "s3") {
           next.serverId = ""
         }
         if (value === "s3") {
@@ -653,7 +668,7 @@ export function BackupConfigForm({
               <option value="path">
                 {kind === "s3" ? "Object prefix" : "Filesystem path"}
               </option>
-              {kind === "server" && <option value="docker_volume">Docker volume</option>}
+              {kind !== "s3" && <option value="docker_volume">Docker volume</option>}
               {kind !== "s3" && <option value="database">Database dump</option>}
               {kind === "local" && (
                 <option value="lazybackup_instance">LazyBackup instance data</option>
@@ -662,7 +677,7 @@ export function BackupConfigForm({
           </div>
         )}
 
-        {isSource && formData.sourceType === "docker_volume" && kind === "server" ? (
+        {isSource && formData.sourceType === "docker_volume" && kind !== "s3" ? (
           <div className="space-y-2">
             <div className="flex items-center justify-between gap-2">
               <label className="text-xs text-muted-foreground" htmlFor={`${idPrefix}-volume`}>
@@ -673,10 +688,12 @@ export function BackupConfigForm({
                 variant="ghost"
                 size="sm"
                 className="h-7 px-2"
-                disabled={!serverId || volumesQuery.isFetching}
-                onClick={() => volumesQuery.refetch()}
+                disabled={
+                  (kind === "server" && !serverId) || activeVolumesQuery.isFetching
+                }
+                onClick={() => activeVolumesQuery.refetch()}
               >
-                {volumesQuery.isFetching ? (
+                {activeVolumesQuery.isFetching ? (
                   <Loader2Icon className="h-3.5 w-3.5 animate-spin" />
                 ) : (
                   <RefreshCwIcon className="h-3.5 w-3.5" />
@@ -690,33 +707,35 @@ export function BackupConfigForm({
               value={path}
               onChange={(e) => onPathChange(e.target.value)}
               required
-              disabled={!serverId || volumesQuery.isLoading}
+              disabled={
+                (kind === "server" && !serverId) || activeVolumesQuery.isLoading
+              }
             >
               <option value="">
-                {!serverId
+                {kind === "server" && !serverId
                   ? "Select a server first"
-                  : volumesQuery.isLoading
+                  : activeVolumesQuery.isLoading
                     ? "Loading volumes…"
                     : "Select a volume"}
               </option>
               {path &&
-                volumesQuery.data &&
-                !volumesQuery.data.includes(path) && (
+                activeVolumesQuery.data &&
+                !activeVolumesQuery.data.includes(path) && (
                   <option value={path}>{path} (current)</option>
                 )}
-              {(volumesQuery.data || []).map((volume) => (
+              {(activeVolumesQuery.data || []).map((volume) => (
                 <option key={volume} value={volume}>
                   {volume}
                 </option>
               ))}
             </select>
-            {volumesQuery.isError && (
+            {activeVolumesQuery.isError && (
               <Alert variant="destructive">
                 <AlertTriangleIcon className="h-4 w-4" />
                 <AlertTitle>Could not list volumes</AlertTitle>
                 <AlertDescription>
-                  {volumesQuery.error instanceof Error
-                    ? volumesQuery.error.message
+                  {activeVolumesQuery.error instanceof Error
+                    ? activeVolumesQuery.error.message
                     : "Failed to load Docker volumes"}
                 </AlertDescription>
               </Alert>
@@ -809,10 +828,12 @@ export function BackupConfigForm({
   }
 
   async function applyContainerDbHints(containerName: string) {
-    if (!formData.serverId || !containerName) return
+    const hintSource =
+      formData.sourceKind === "local" ? "local" : formData.serverId
+    if (!hintSource || !containerName) return
     setFillingContainerHints(true)
     try {
-      const hints = await fetchContainerDbHints(formData.serverId, containerName)
+      const hints = await fetchContainerDbHints(hintSource, containerName)
       setFormData((prev) => ({
         ...prev,
         dbContainer: containerName,
@@ -976,13 +997,13 @@ export function BackupConfigForm({
                           size="sm"
                           className="h-7 px-2"
                           disabled={
-                            !formData.serverId ||
-                            containersQuery.isFetching ||
+                            (formData.sourceKind === "server" && !formData.serverId) ||
+                            activeContainersQuery.isFetching ||
                             fillingContainerHints
                           }
-                          onClick={() => containersQuery.refetch()}
+                          onClick={() => activeContainersQuery.refetch()}
                         >
-                          {containersQuery.isFetching ? (
+                          {activeContainersQuery.isFetching ? (
                             <Loader2Icon className="h-3.5 w-3.5 animate-spin" />
                           ) : (
                             <RefreshCwIcon className="h-3.5 w-3.5" />
@@ -1004,40 +1025,40 @@ export function BackupConfigForm({
                         }}
                         required
                         disabled={
-                          !formData.serverId ||
-                          containersQuery.isLoading ||
+                          (formData.sourceKind === "server" && !formData.serverId) ||
+                          activeContainersQuery.isLoading ||
                           fillingContainerHints
                         }
                       >
                         <option value="">
-                          {!formData.serverId
+                          {formData.sourceKind === "server" && !formData.serverId
                             ? "Select a server first"
-                            : containersQuery.isLoading
+                            : activeContainersQuery.isLoading
                               ? "Loading containers…"
                               : fillingContainerHints
                                 ? "Reading container…"
                                 : "Select a container"}
                         </option>
                         {formData.dbContainer &&
-                          containersQuery.data &&
-                          !containersQuery.data.includes(formData.dbContainer) && (
+                          activeContainersQuery.data &&
+                          !activeContainersQuery.data.includes(formData.dbContainer) && (
                             <option value={formData.dbContainer}>
                               {formData.dbContainer} (current)
                             </option>
                           )}
-                        {(containersQuery.data || []).map((name) => (
+                        {(activeContainersQuery.data || []).map((name) => (
                           <option key={name} value={name}>
                             {name}
                           </option>
                         ))}
                       </select>
-                      {containersQuery.isError && (
+                      {activeContainersQuery.isError && (
                         <Alert variant="destructive">
                           <AlertTriangleIcon className="h-4 w-4" />
                           <AlertTitle>Could not list containers</AlertTitle>
                           <AlertDescription>
-                            {containersQuery.error instanceof Error
-                              ? containersQuery.error.message
+                            {activeContainersQuery.error instanceof Error
+                              ? activeContainersQuery.error.message
                               : "Failed to load Docker containers"}
                           </AlertDescription>
                         </Alert>

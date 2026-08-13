@@ -116,10 +116,10 @@ export const backupConfigSchema = z
       }
     }
 
-    if (data.sourceType === 'docker_volume' && data.sourceKind !== 'server') {
+    if (data.sourceType === 'docker_volume' && data.sourceKind !== 'server' && data.sourceKind !== 'local') {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: 'Docker volume sources require a source server',
+        message: 'Docker volume sources require this host or a source server',
         path: ['sourceType'],
       });
     }

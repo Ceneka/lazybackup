@@ -18,6 +18,8 @@ services:
       - "${BACKUP_STORAGE_PATH:-./backups}:/backups"
       - "${BACKUP_STORAGE_PATH:-./backups}:/app/backups"
       - "${SSH_KEYS_PATH:-~/.ssh}:/root/.ssh:ro"
+      # Optional docker.sock — same permission risk as the root compose file.
+      # - /var/run/docker.sock:/var/run/docker.sock
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:3000/api/health || exit 1"]
       interval: 30s

@@ -90,14 +90,54 @@ export function useServerDockerContainers(serverId: string, enabled = true) {
   })
 }
 
+/** List named Docker volumes on this LazyBackup host */
+export function useLocalDockerVolumes(enabled = true) {
+  return useQuery({
+    queryKey: ['docker', 'volumes'] as const,
+    queryFn: async () => {
+      const response = await fetch('/api/docker/volumes')
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to list Docker volumes')
+      }
+
+      return data.volumes as string[]
+    },
+    enabled,
+    retry: false,
+  })
+}
+
+/** List running Docker container names on this LazyBackup host */
+export function useLocalDockerContainers(enabled = true) {
+  return useQuery({
+    queryKey: ['docker', 'containers'] as const,
+    queryFn: async () => {
+      const response = await fetch('/api/docker/containers')
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to list Docker containers')
+      }
+
+      return data.containers as string[]
+    },
+    enabled,
+    retry: false,
+  })
+}
+
 /** Fetch DB connection hints from docker inspect for a container */
 export async function fetchContainerDbHints(
-  serverId: string,
+  serverId: string | 'local',
   containerName: string
 ): Promise<ContainerDatabaseHints> {
-  const response = await fetch(
-    `/api/servers/${serverId}/docker/containers/${encodeURIComponent(containerName)}/db-hints`
-  )
+  const url =
+    serverId === 'local'
+      ? `/api/docker/containers/${encodeURIComponent(containerName)}/db-hints`
+      : `/api/servers/${serverId}/docker/containers/${encodeURIComponent(containerName)}/db-hints`
+  const response = await fetch(url)
   const data = await response.json()
 
   if (!response.ok) {

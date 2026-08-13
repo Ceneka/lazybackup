@@ -7,7 +7,10 @@ import {
   testDatabaseConnectionRemote,
 } from '@/lib/database';
 import { testS3Connection, type S3ProfileConfig } from '@/lib/s3';
-import { connectToServer, testServerBackupCapabilities } from '@/lib/ssh';
+import {
+  checkLocalDockerAvailable,
+  listLocalDockerVolumes,
+} from '@/lib/docker/volumes';
 import { CronJob } from 'cron';
 import * as fs from 'fs/promises';
 
@@ -211,13 +214,13 @@ export async function validateBackupConfig(
           );
         }
       }
-    } else if (sourceType === 'docker_volume' && sourceKind !== 'server') {
+    } else if (sourceType === 'docker_volume' && sourceKind !== 'server' && sourceKind !== 'local') {
       push(
         checks,
         'config-source-type',
         'Source type',
         'fail',
-        'Docker volume backups require a source server'
+        'Docker volume backups require this host or a source server'
       );
     } else if (sourceKind === 's3' && sourceType !== 'path') {
       push(
@@ -262,6 +265,49 @@ export async function validateBackupConfig(
       push(checks, 'source-path', 'Source path', 'pass', `Readable: ${sourcePath}`);
     } catch {
       push(checks, 'source-path', 'Source path', 'fail', `Not accessible: ${sourcePath}`);
+    }
+  }
+
+  if (sourceKind === 'local' && sourceType === 'docker_volume') {
+    const dockerOk = await checkLocalDockerAvailable();
+    if (!dockerOk) {
+      push(
+        checks,
+        'source-docker',
+        'Docker on this host',
+        'fail',
+        'Docker was not detected on this host (daemon, socket mount, or permissions)'
+      );
+    } else {
+      push(checks, 'source-docker', 'Docker on this host', 'pass', 'Docker is available');
+      try {
+        const volumes = await listLocalDockerVolumes();
+        if (volumes.includes(config.sourcePath)) {
+          push(
+            checks,
+            'source-volume',
+            'Docker volume',
+            'pass',
+            `Volume exists: ${config.sourcePath}`
+          );
+        } else {
+          push(
+            checks,
+            'source-volume',
+            'Docker volume',
+            'fail',
+            `Volume not found: ${config.sourcePath}`
+          );
+        }
+      } catch (error) {
+        push(
+          checks,
+          'source-volume',
+          'Docker volume',
+          'fail',
+          error instanceof Error ? error.message : 'Could not list volumes'
+        );
+      }
     }
   }
 

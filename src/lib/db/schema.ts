@@ -78,7 +78,7 @@ export const backupConfigs = sqliteTable('backup_configs', {
   destinationPeerId: text('destination_peer_id'),
   name: text('name').notNull(),
   /**
-   * 'path' | 'docker_volume' (server only) | 'database' (local or server; sourcePath = DB name)
+   * 'path' | 'docker_volume' (server or local Docker) | 'database' (local or server; sourcePath = DB name)
    * | 'lazybackup_instance' (local only; packs SQLite + keys)
    */
   sourceType: text('source_type', {

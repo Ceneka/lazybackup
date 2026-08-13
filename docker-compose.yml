@@ -24,6 +24,10 @@ services:
       - "${BACKUP_STORAGE_PATH:-./backups}:/backups"
       - "${BACKUP_STORAGE_PATH:-./backups}:/app/backups"
       - "${SSH_KEYS_PATH:-~/.ssh}:/root/.ssh:ro"
+      # Optional: pack Docker volumes / docker-exec DB dumps on this host.
+      # Mounting the socket grants the container root-equivalent control of the
+      # host Docker daemon — only do this if you trust this instance.
+      # - /var/run/docker.sock:/var/run/docker.sock
       # Optional: if Tailscale is installed on the host, uncomment to auto-detect
       # 100.x URL in Settings → Bro Space (adds 0 bytes to the LazyBackup image):
       # - /var/run/tailscale:/var/run/tailscale:ro

@@ -1,5 +1,12 @@
+import { execFile } from 'child_process';
+import fs from 'fs/promises';
+import os from 'os';
+import path from 'path';
+import { promisify } from 'util';
 import { shellSingleQuote } from '@/lib/ssh/rsync';
 import type { NodeSSH } from 'node-ssh';
+
+const execFileAsync = promisify(execFile);
 
 /** Docker volume names: start with alphanumeric, then alnum / _ . - */
 export const DOCKER_VOLUME_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/;
@@ -230,4 +237,142 @@ export async function checkRemoteDockerAvailable(ssh: NodeSSH): Promise<boolean>
   } catch {
     return false;
   }
+}
+
+export async function execLocalSh(command: string): Promise<{
+  stdout: string;
+  stderr: string;
+  code: number;
+}> {
+  try {
+    const { stdout, stderr } = await execFileAsync('sh', ['-c', command], {
+      maxBuffer: 20 * 1024 * 1024,
+    });
+    return { stdout: String(stdout), stderr: String(stderr), code: 0 };
+  } catch (err: unknown) {
+    const e = err as { stdout?: string; stderr?: string; message?: string; code?: number };
+    return {
+      stdout: String(e.stdout || ''),
+      stderr: String(e.stderr || e.message || 'command failed'),
+      code: typeof e.code === 'number' ? e.code : 1,
+    };
+  }
+}
+
+export async function assertLocalDockerAvailable(): Promise<void> {
+  const result = await execLocalSh(`${REMOTE_STANDARD_PATH} docker info`);
+  if (result.code !== 0) {
+    const detail = (result.stderr || result.stdout || 'docker info failed').trim();
+    throw new Error(
+      `Docker is not available on this host (is the daemon running and is this process allowed to use the socket?). ${detail}`
+    );
+  }
+}
+
+export async function checkLocalDockerAvailable(): Promise<boolean> {
+  try {
+    await assertLocalDockerAvailable();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function parseDockerNameList(stdout: string): string[] {
+  return stdout
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b));
+}
+
+export async function listLocalDockerVolumes(): Promise<string[]> {
+  await assertLocalDockerAvailable();
+  const result = await execLocalSh(
+    `${REMOTE_STANDARD_PATH} docker volume ls --format '{{.Name}}'`
+  );
+  if (result.code !== 0) {
+    const detail = (result.stderr || result.stdout || 'docker volume ls failed').trim();
+    throw new Error(`Failed to list Docker volumes: ${detail}`);
+  }
+  return parseDockerNameList(result.stdout);
+}
+
+export type PackLocalDockerVolumeResult = {
+  localArchivePath: string;
+  localTmpDir: string;
+  stdout: string;
+  stderr: string;
+};
+
+/** Pack a named volume on this host via alpine helper (`sh -c` of the remote command). */
+export async function packDockerVolumeLocal(
+  volumeName: string,
+  excludePatterns: string[] = []
+): Promise<PackLocalDockerVolumeResult> {
+  assertValidDockerVolumeName(volumeName);
+  await assertLocalDockerAvailable();
+
+  const localTmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'lazybackup-docker-'));
+  const archiveFileName = `${volumeName}.tar.gz`;
+  const packCmd = buildPackDockerVolumeCommand(
+    volumeName,
+    localTmpDir,
+    archiveFileName,
+    excludePatterns
+  );
+  const packResult = await execLocalSh(packCmd);
+  if (packResult.code !== 0) {
+    await fs.rm(localTmpDir, { recursive: true, force: true }).catch(() => {});
+    throw new Error(
+      `Failed to pack Docker volume ${volumeName}: ${(packResult.stderr || packResult.stdout).trim()}`
+    );
+  }
+
+  return {
+    localArchivePath: path.join(localTmpDir, archiveFileName),
+    localTmpDir,
+    stdout: packResult.stdout,
+    stderr: packResult.stderr,
+  };
+}
+
+export async function restoreDockerVolumeLocal(
+  volumeName: string,
+  localTarPath: string
+): Promise<{ stdout: string; stderr: string; localTmpDir: string }> {
+  assertValidDockerVolumeName(volumeName);
+  await assertLocalDockerAvailable();
+
+  const localTmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'lazybackup-docker-'));
+  const archiveName = path.basename(localTarPath);
+  const destTar = path.join(localTmpDir, archiveName);
+  await fs.copyFile(localTarPath, destTar);
+
+  const restoreCmd = buildRestoreDockerVolumeCommand(volumeName, destTar, localTmpDir);
+  const result = await execLocalSh(restoreCmd);
+  if (result.code !== 0) {
+    await fs.rm(localTmpDir, { recursive: true, force: true }).catch(() => {});
+    throw new Error(
+      `Failed to restore Docker volume ${volumeName}: ${(result.stderr || result.stdout).trim()}`
+    );
+  }
+
+  return {
+    stdout: result.stdout,
+    stderr: result.stderr,
+    localTmpDir,
+  };
+}
+
+export async function cleanupLocalDockerTmpDir(localDir: string): Promise<void> {
+  const resolved = path.resolve(localDir);
+  const tmpRoot = path.resolve(os.tmpdir());
+  if (
+    !resolved.startsWith(tmpRoot + path.sep) ||
+    !path.basename(resolved).startsWith('lazybackup-docker-')
+  ) {
+    throw new Error(`Refusing to delete unexpected local path: ${localDir}`);
+  }
+  await fs.rm(resolved, { recursive: true, force: true });
 }

@@ -393,7 +393,7 @@ export const detailedFeatures: readonly DetailedFeature[] = [
       "Four source types. Destinations are always paths or object prefixes—never “to a volume.”",
     points: [
       "path — filesystem tree or S3 prefix; rsync preferred, scp fallback.",
-      "docker_volume — named volume on a source server only; alpine packs .tar.gz (not a consistent live-DB backup).",
+      "docker_volume — named volume on a source server or this host’s Docker socket; alpine packs .tar.gz (not a consistent live-DB backup).",
       "database — Postgres / MySQL / MariaDB logical dump → .sql.gz via native client or docker exec (local or server).",
       "lazybackup_instance — packs SQLite + age vault + SSH keys; optional age passphrase wrap (not the instance age key).",
     ],
@@ -488,7 +488,7 @@ export const detailedFeatures: readonly DetailedFeature[] = [
       "Path, volume, and database restore from History when the artifact is local or downloadable from S3 (or Bro).",
     points: [
       "Path: rsync/push the backed-up tree back to the local path, SSH host, or S3 source prefix (optional retarget).",
-      "Docker volume: push/extract into a named volume on the source server.",
+      "Docker volume: push/extract into a named volume on the source (SSH server or this host).",
       "Database: pipe into psql/mysql (native or docker exec).",
       ".age path archives decrypt and unpack automatically; remote SSH destinations are not one-click restorable.",
     ],

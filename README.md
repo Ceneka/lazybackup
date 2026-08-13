@@ -12,7 +12,7 @@ Marketing site (static): [`landing/`](./landing) → [lazy.zic.ar](https://lazy.
 - **Server → Server** — Ephemeral SSH key for direct rsync, or relay via the LazyBackup host when peers can’t reach each other
 - **Server management** — Add, edit, and test VPS connections (password or SSH key auth)
 - **Backup jobs** — Paths, Docker volumes, or database dumps; cron schedules; exclude patterns; pre-backup shell commands
-- **Docker volumes** — Discover named volumes on a source server, pack as `.tar.gz` to a destination path/prefix, restore from History
+- **Docker volumes** — Discover named volumes on this host or a source server, pack as `.tar.gz` to a destination path/prefix, restore from History
 - **Database dumps** — Postgres / MySQL / MariaDB → `.sql.gz` (native client or `docker exec`); restore from History
 - **S3 profiles** — Source prefixes and destination prefixes for path trees and archives
 - **Versioned backups** — Optional timestamped snapshots with automatic count-based retention
@@ -98,7 +98,7 @@ Set `DATABASE_URL` if you want a custom SQLite path (default: `file:./data.db`).
 1. **Optional password** — On first visit, set an app password or skip. Change or remove it later under Settings.
 2. **Add a server** — Servers → add host, user, and SSH credentials. Use **Test connection** to verify rsync/scp (and Docker) availability. Prefer an SSH key for any server you will back up from or to.
 3. **(Optional) S3 profile** — S3 Profiles → endpoint, bucket, and keys (path-style for MinIO/R2/B2 as needed).
-4. **Create a backup** — Backups → pick **From** and **To** (local, server, or S3), then **filesystem path**, **Docker volume** (volume sources need a source server), or **database**. Default dest is still `/backups/<server>/<name>` on this host when To is local. Optionally enable versioning and/or age-based file retention.
+4. **Create a backup** — Backups → pick **From** and **To** (local, server, or S3), then **filesystem path**, **Docker volume** (this host’s Docker socket or a source server), or **database**. Default dest is still `/backups/<server>/<name>` on this host when To is local. Optionally enable versioning and/or age-based file retention.
 5. **Timezone** — Settings → choose the timezone used for cron schedules and “next run” times.
 6. **Encryption (optional)** — Settings → Encryption → generate an age key (export and acknowledge a copy), optionally add recovery recipients, then enable “Encrypt before storing” on a backup (or use a Bro destination). Create new keys instead of overwriting; old keys stay for decrypt.
 7. **Backup this instance** — Settings → Encryption → “Backup LazyBackup data”, or New Backup → local source → LazyBackup instance data. Restore is manual (replace DB / import keys).
@@ -190,8 +190,9 @@ POST/PUT with an empty body sends `{"event":"backup.succeeded",…}`.
 
 ### Docker volume notes
 
-- The SSH user needs permission to run `docker` (typically membership in the `docker` group).
-- Packing uses a temporary `alpine` helper container; the remote host must be able to pull/run that image.
+- Volume sources are a **source server** (SSH) **or this host** (optional `/var/run/docker.sock` mount — that is root-equivalent on the daemon).
+- The Docker user needs permission to run `docker` (typically membership in the `docker` group, or the socket mount).
+- Packing uses a temporary `alpine` helper container; the host must be able to pull/run that image.
 - Live database volumes can be inconsistent if written during backup — prefer the **database** source type for logical dumps, or stop the service first via pre-backup commands when you need a consistent filesystem snapshot.
 
 ### Environment variables

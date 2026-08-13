@@ -4,7 +4,9 @@ import {
   buildPackDockerVolumeCommand,
   buildRestoreDockerVolumeCommand,
   buildTarExcludeArgs,
+  checkLocalDockerAvailable,
   isValidDockerVolumeName,
+  listLocalDockerVolumes,
 } from './volumes';
 
 describe('isValidDockerVolumeName', () => {
@@ -73,5 +75,14 @@ describe('buildRestoreDockerVolumeCommand', () => {
     expect(cmd).toContain('sh -c');
     expect(cmd).toContain('*/../*');
     expect(cmd).toContain('Refusing absolute tar member');
+  });
+});
+
+const hasLocalDocker = await checkLocalDockerAvailable();
+
+describe.skipIf(!hasLocalDocker)('local docker daemon', () => {
+  test('listLocalDockerVolumes returns names', async () => {
+    const volumes = await listLocalDockerVolumes();
+    expect(Array.isArray(volumes)).toBe(true);
   });
 });

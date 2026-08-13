@@ -31,10 +31,24 @@ describe('backupConfigSchema', () => {
     expect(parsed.sourcePath).toBe('app_data');
   });
 
-  test('rejects docker volume without source server', () => {
-    const result = backupConfigSchema.safeParse({
+  test('accepts docker volume on local source', () => {
+    const parsed = backupConfigSchema.parse({
       ...base,
       sourceKind: 'local',
+      serverId: null,
+      sourceType: 'docker_volume',
+      sourcePath: 'app_data',
+    });
+    expect(parsed.sourceType).toBe('docker_volume');
+    expect(parsed.sourceKind).toBe('local');
+    expect(parsed.serverId).toBeNull();
+  });
+
+  test('rejects docker volume on S3 source', () => {
+    const result = backupConfigSchema.safeParse({
+      ...base,
+      sourceKind: 's3',
+      sourceS3ProfileId: 's3p1',
       serverId: null,
       sourceType: 'docker_volume',
       sourcePath: 'app_data',

@@ -15,9 +15,12 @@ import {
   restoreDatabaseRemote,
 } from '@/lib/database';
 import {
+  cleanupLocalDockerTmpDir,
   cleanupRemoteDir,
   packDockerVolume,
+  packDockerVolumeLocal,
   restoreDockerVolume,
+  restoreDockerVolumeLocal,
 } from '@/lib/docker/volumes';
 import { decryptLocalFile, isAgeEncryptedPath, stripAgeExtension } from '@/lib/crypto/files';
 import { requireDecryptIdentities } from '@/lib/crypto/keys';
@@ -480,6 +483,7 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
   let preBackupLog = '';
   let remoteTmpDir: string | null = null;
   let localDbTmpDir: string | null = null;
+  let localDockerTmpDir: string | null = null;
   /** 'docker' | 'database' — how to clean remoteTmpDir */
   let remoteTmpKind: 'docker' | 'database' | null = null;
   const encryptTmpPaths: string[] = [];
@@ -515,8 +519,8 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
     if (destinationKind === 'peer' && !config.destinationPeer) {
       throw new Error('Destination bro peer is missing from backup configuration');
     }
-    if (sourceType === 'docker_volume' && sourceKind !== 'server') {
-      throw new Error('Docker volume backups require a source server');
+    if (sourceType === 'docker_volume' && sourceKind !== 'server' && sourceKind !== 'local') {
+      throw new Error('Docker volume backups require this host or a source server');
     }
     if (sourceKind === 's3' && sourceType !== 'path') {
       throw new Error('S3 sources only support path (object prefix) backups');
@@ -945,7 +949,59 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
         throw new Error('Invalid destination for database backup');
       }
     } else if (sourceType === 'docker_volume') {
-      // --- Docker volume source ---
+      const archiveName = `${config.sourcePath}.tar.gz`;
+
+      if (sourceKind === 'local') {
+        console.log(`Packing local Docker volume: ${config.sourcePath}`);
+        const packed = await packDockerVolumeLocal(config.sourcePath, excludePatterns);
+        localDockerTmpDir = packed.localTmpDir;
+        let landPath = packed.localArchivePath;
+        let landName = archiveName;
+        let encrypted = false;
+        if (useEncryptedLand) {
+          const materialized = await materializeLocalArtifact({
+            enableEncryption: true,
+            archiveName,
+            localPath: packed.localArchivePath,
+          });
+          encryptTmpPaths.push(...materialized.tmpPaths);
+          landPath = materialized.localPath;
+          landName = materialized.archiveName;
+          encrypted = materialized.encrypted;
+        }
+        const landed = await landLocalFileArtifact({
+          localFilePath: landPath,
+          archiveName: landName,
+          destinationKind: destinationKind as 'local' | 'server' | 's3' | 'peer',
+          localDestination,
+          remoteDestination,
+          destinationServer: config.destinationServer,
+          destSsh,
+          s3DestProfile,
+          s3DestinationPrefix,
+          destinationPeer: config.destinationPeer,
+          peerPrefix: peerPrefix || '',
+        });
+        if (landed.cleanupDestIdentity) {
+          cleanupDestIdentity = landed.cleanupDestIdentity;
+        }
+        destSsh = landed.destSsh;
+        usedMethod = `docker-${landed.usedMethod}${encrypted ? '-age' : ''}`;
+        artifactPath = landed.artifactPath;
+        mailboxPending = Boolean(landed.mailboxPending);
+        artifactSha256 = landed.artifactSha256;
+        backupResult = {
+          stdout: [
+            `Volume: ${config.sourcePath}`,
+            encrypted ? 'Encryption: age' : '',
+            landed.stdout,
+            packed.stdout?.trim() ? `--- pack stdout ---\n${packed.stdout.trim()}` : '',
+          ]
+            .filter(Boolean)
+            .join('\n'),
+          stderr: '',
+        };
+      } else {
       if (!config.server) {
         throw new Error('Source server required for docker volume backup');
       }
@@ -1129,6 +1185,7 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
         }
       } else {
         throw new Error('Invalid destination for docker volume backup');
+      }
       }
     } else if (useEncryptedLand) {
       // Path (or any remaining) source → single encrypted archive → land
@@ -1426,6 +1483,12 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
       );
       localDbTmpDir = null;
     }
+    if (localDockerTmpDir) {
+      await cleanupLocalDockerTmpDir(localDockerTmpDir).catch((err) =>
+        console.warn(`Failed to clean local docker temp dir: ${err}`)
+      );
+      localDockerTmpDir = null;
+    }
 
     console.log(`Backup completed for ${config.name} using ${usedMethod}`);
 
@@ -1537,6 +1600,9 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
     }
     if (localDbTmpDir) {
       await cleanupLocalDbTmpDir(localDbTmpDir).catch(() => {});
+    }
+    if (localDockerTmpDir) {
+      await cleanupLocalDockerTmpDir(localDockerTmpDir).catch(() => {});
     }
     await updateBackupHistoryFailure(
       historyId,
@@ -1878,7 +1944,8 @@ export async function restoreDockerVolumeBackup(
     throw new Error('This backup has no stored artifact path and cannot be restored');
   }
 
-  if (!config.server) {
+  const sourceKind = config.sourceKind || 'server';
+  if (sourceKind !== 'local' && !config.server) {
     throw new Error('Source server is missing; cannot restore Docker volume');
   }
 
@@ -1902,7 +1969,35 @@ export async function restoreDockerVolumeBackup(
       historyId: historyEntry.id,
     });
 
-  const serverConfig = normalizeServer(config.server);
+  if (sourceKind === 'local') {
+    let localTmpDir: string | null = null;
+    try {
+      const restored = await restoreDockerVolumeLocal(targetVolume, artifactPath);
+      localTmpDir = restored.localTmpDir;
+      const log = [
+        LOG_SECTION.restore,
+        '',
+        `Volume: ${targetVolume}`,
+        `Artifact: ${historyEntry.artifactPath}`,
+        downloadTempDir ? 'Downloaded artifact from S3 for restore' : '',
+        restored.stdout?.trim() ? `--- extract stdout ---\n${restored.stdout.trim()}` : '',
+        restored.stderr?.trim() ? `--- extract stderr ---\n${restored.stderr.trim()}` : '',
+        'Restore completed successfully.',
+      ]
+        .filter(Boolean)
+        .join('\n');
+      return { log, volumeName: targetVolume };
+    } finally {
+      if (localTmpDir) {
+        await cleanupLocalDockerTmpDir(localTmpDir).catch(() => {});
+      }
+      if (downloadTempDir) {
+        await fs.rm(downloadTempDir, { recursive: true, force: true }).catch(() => {});
+      }
+    }
+  }
+
+  const serverConfig = normalizeServer(config.server!);
 
   let ssh: Awaited<ReturnType<typeof connectToServer>> | null = null;
   let cleanupIdentity: (() => Promise<void>) | undefined;

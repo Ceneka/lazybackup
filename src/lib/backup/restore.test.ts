@@ -155,6 +155,24 @@ describe('restoreDockerVolumeBackup guards', () => {
     );
   });
 
+  test('local docker volume restore does not require a source server', async () => {
+    historyFixture = {
+      id: 'h-local-vol',
+      status: 'success',
+      artifactPath: '/tmp/lazybackup-does-not-exist-vol.tar.gz',
+      backupConfig: {
+        sourceType: 'docker_volume',
+        sourceKind: 'local',
+        sourcePath: 'vol',
+        destinationKind: 'local',
+        server: null,
+      },
+    };
+    await expect(
+      restoreDockerVolumeBackup('h-local-vol', { confirm: true })
+    ).rejects.toThrow(/not found on disk/i);
+  });
+
   test('throws when artifactPath is missing', async () => {
     historyFixture = {
       id: 'h1',

@@ -1,6 +1,8 @@
 import {
   assertDockerAvailable,
+  assertLocalDockerAvailable,
   DOCKER_VOLUME_NAME_RE,
+  execLocalSh,
   isValidDockerVolumeName,
 } from '@/lib/docker/volumes';
 import { shellSingleQuote } from '@/lib/ssh/rsync';
@@ -156,6 +158,43 @@ export async function listDockerContainers(ssh: NodeSSH): Promise<string[]> {
     .sort((a, b) => a.localeCompare(b));
 }
 
+export async function listLocalDockerContainers(): Promise<string[]> {
+  await assertLocalDockerAvailable();
+  const result = await execLocalSh(
+    `${REMOTE_STANDARD_PATH} docker ps --format '{{.Names}}'`
+  );
+  if (result.code !== 0) {
+    const detail = (result.stderr || result.stdout || 'docker ps failed').trim();
+    throw new Error(`Failed to list Docker containers: ${detail}`);
+  }
+  return result.stdout
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b));
+}
+
+function hintsFromInspectStdout(
+  containerName: string,
+  stdout: string
+): ContainerDatabaseHints {
+  let parsed: {
+    Config?: { Env?: string[]; Image?: string };
+    Image?: string;
+  };
+  try {
+    parsed = JSON.parse(stdout.trim()) as typeof parsed;
+  } catch {
+    throw new Error(`Failed to parse docker inspect output for ${containerName}`);
+  }
+
+  const envLines = parsed.Config?.Env || [];
+  const env = parseDockerEnvArray(envLines);
+  const image = parsed.Config?.Image || parsed.Image || '';
+
+  return mapContainerEnvToDatabaseHints(containerName, env, image);
+}
+
 /**
  * Inspect a running/existing container and infer DB connection hints from env + image.
  */
@@ -178,19 +217,24 @@ export async function inspectContainerDatabaseHints(
     throw new Error(`Failed to inspect container ${containerName}: ${detail}`);
   }
 
-  let parsed: {
-    Config?: { Env?: string[]; Image?: string };
-    Image?: string;
-  };
-  try {
-    parsed = JSON.parse(result.stdout.trim()) as typeof parsed;
-  } catch {
-    throw new Error(`Failed to parse docker inspect output for ${containerName}`);
+  return hintsFromInspectStdout(containerName, result.stdout);
+}
+
+export async function inspectLocalContainerDatabaseHints(
+  containerName: string
+): Promise<ContainerDatabaseHints> {
+  if (!isValidDockerVolumeName(containerName)) {
+    throw new Error(
+      `Invalid Docker container name: ${containerName}. Names must match ${DOCKER_VOLUME_NAME_RE}`
+    );
   }
-
-  const envLines = parsed.Config?.Env || [];
-  const env = parseDockerEnvArray(envLines);
-  const image = parsed.Config?.Image || parsed.Image || '';
-
-  return mapContainerEnvToDatabaseHints(containerName, env, image);
+  await assertLocalDockerAvailable();
+  const result = await execLocalSh(
+    `${REMOTE_STANDARD_PATH} docker inspect ${shellSingleQuote(containerName)} --format '{{json .}}'`
+  );
+  if (result.code !== 0) {
+    const detail = (result.stderr || result.stdout || 'docker inspect failed').trim();
+    throw new Error(`Failed to inspect container ${containerName}: ${detail}`);
+  }
+  return hintsFromInspectStdout(containerName, result.stdout);
 }

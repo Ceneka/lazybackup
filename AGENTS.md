@@ -7,7 +7,7 @@ Guide for AI coding agents. User-facing setup lives in [README.md](./README.md) 
 - Backups are **From → To** transfers between endpoints: **this host (local)**, any configured **Server**, or an **S3-compatible** profile. Directions include local↔local, local↔server, server↔server, and any side with S3 (S3 path sources; archives and path trees can land on S3).
 - Default for new configs remains **Server → Local** (`/backups/<server-slug>/<backup-slug>`). Destination uniqueness is per endpoint (local path, `(destinationServerId, path)`, or `(destinationS3ProfileId, prefix)`).
 - **Server → Server** prefers an **ephemeral SSH key** installed on the destination so the source can rsync directly; if the source cannot reach the dest, LazyBackup **relays** (pull then push via the host). S3 transfers always relay via the LazyBackup host.
-- Source types: `path` (filesystem or S3 object prefix), `docker_volume` (named volume on a **source server** only → alpine tar → `.tar.gz`), `database` (Postgres/MySQL/MariaDB logical dump → `.sql.gz` via native client or `docker exec`; local or server source), or **`lazybackup_instance`** (local only; packs SQLite + age vault + SSH keys; optional passphrase wrap). Destinations are paths or S3 prefixes. Volume tar is **not** a consistent live-DB backup — use `database` for that. Restore (path + volume + database) needs a **local** artifact or downloads from **S3**/Bro first; remote SSH destinations are not one-click restorable.
+- Source types: `path` (filesystem or S3 object prefix), `docker_volume` (named volume on a **source server** or **this host’s Docker socket** → alpine tar → `.tar.gz`), `database` (Postgres/MySQL/MariaDB logical dump → `.sql.gz` via native client or `docker exec`; local or server source), or **`lazybackup_instance`** (local only; packs SQLite + age vault + SSH keys; optional passphrase wrap). Destinations are paths or S3 prefixes. Volume tar is **not** a consistent live-DB backup — use `database` for that. Restore (path + volume + database) needs a **local** artifact or downloads from **S3**/Bro first; remote SSH destinations are not one-click restorable.
 - For **database + docker client** on a server source, the form can list running containers and auto-fill credentials from `docker inspect` env (`POSTGRES_*` / `MYSQL_*` / `MARIADB_*`).
 - **SSH key required** for any server endpoint involved in a **transfer** (host-side rsync/scp). Password auth works for Test connection and other `node-ssh` operations (list volumes/containers, remote shell cmds); it is not enough alone to pull/push path backups.
 - **Optional app password** (single operator, no users table): first-run set/skip; manage in Settings. Hash in settings → middleware gates pages + `/api/*` (public: `/login`, `/api/auth/*`, `/api/health`). Session cookie `lb_session`, 30-day sliding expiry. **Passkeys** (WebAuthn) can lock the instance alone or alongside the password (`webauthn_credentials`).
@@ -102,7 +102,7 @@ Pattern: Zod → Drizzle → `NextResponse.json`; errors `{ error, details? }`.
 1. Resolve From/To endpoints; optional pre-backup commands on source (SSH or local shell; skipped for S3 sources).
 2. Prepare destination (local mkdir, remote mkdir, or S3 prefix). Versioning → `YYYY-MM-DD_HH-mm-ss` subfolder/prefix.
 3. **Path:** local→local rsync; server→local pull; local→server push; server→server ephemeral direct or relay; any side with S3 via host upload/download.
-4. **Docker volume (source server only):** pack with alpine on source → land `.tar.gz` at destination path/prefix.
+4. **Docker volume (source server or local Docker):** pack with alpine on the source → land `.tar.gz` at destination path/prefix.
 5. **Database dump (local or server):** `pg_dump` / `mysqldump` (native or `docker exec`) → `.sql.gz` temp file → land at destination.
 5b. **LazyBackup instance:** pack SQLite + age vault + SSH keys → optional passphrase wrap → land (not Bro; not instance age-key encrypt).
 6. Temp SSH identity + `-F /dev/null` (ignore host ssh config); ephemeral keys cleaned in `finally`.
@@ -150,7 +150,7 @@ CI publishes GHCR on `main` / `v*` tags (skips docs/`LICENSE`/`landing` via `pat
 6. App password ≠ SSH password; keep `/api/health` public.
 7. `/api/seed` is dev-only. Licensed under MIT (`LICENSE`).
 8. Auth middleware must run on the Node.js runtime and check the session in-process — no self-fetch.
-9. Docker volume sources need remote `docker` + `alpine`; destinations are always paths/prefixes (never “to volume”). Restore for path/volume/database requires a **local** artifact or an **S3**/Bro download (not SSH-only destinations).
+9. Docker volume sources need `docker` + `alpine` on the source (SSH server **or** this host’s socket). Destinations are always paths/prefixes (never “to volume”). Restore for path/volume/database requires a **local** artifact or an **S3**/Bro download (not SSH-only destinations).
 10. Server→server ephemeral transfer needs source→dest network reachability; otherwise relay is used.
 11. Database dumps need client tools on the source (`pg_dump`/`mysqldump` or inside the DB container). Do not stream dump SQL through `execCommand` stdout — always write a temp `.sql.gz` then transfer.
 12. S3 sources only support `sourceType=path` (object prefix). Use `@aws-sdk/client-s3` with custom endpoint + path-style for MinIO/R2/B2.
@@ -167,7 +167,7 @@ CI publishes GHCR on `main` / `v*` tags (skips docs/`LICENSE`/`landing` via `pat
 |------|--------|
 | Backup / retention / storage | `lib/backup/{index,file-retention,storage-stats,log-format,destination}.ts`, `lib/ssh/` (incl. `ephemeral.ts`) |
 | From→To form UI | `components/backup-config-form.tsx`, `app/backups/new`, `app/backups/[id]/edit` |
-| Docker volumes / DB containers | `lib/docker/{volumes,containers}.ts`, `GET …/docker/volumes`, `GET …/docker/containers`, `GET …/db-hints`, `POST …/history/[id]/restore` |
+| Docker volumes / DB containers | `lib/docker/{volumes,containers}.ts`, `GET /api/docker/volumes` (local) + `GET …/servers/:id/docker/volumes`, same for containers/`db-hints`, `POST …/history/[id]/restore` |
 | S3 profiles | `lib/s3/`, `/api/s3-profiles`, `app/s3-profiles` |
 | Database dumps | `lib/database/`, `POST /api/backups/database/test`, restore via `POST …/history/[id]/restore` |
 | Scheduling / timezone | `lib/scheduler/`, `instrumentation.ts` |
