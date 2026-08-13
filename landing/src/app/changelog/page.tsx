@@ -54,7 +54,12 @@ export default function ChangelogPage() {
       <main className="relative">
         <div className="container mx-auto max-w-3xl px-5 py-12 md:px-8 md:py-16">
           <div className="space-y-14">
-            {changelogEntries.map((entry) => (
+            {changelogEntries
+              .filter(
+                (entry) =>
+                  Boolean(entry.intro) || entry.sections.length > 0,
+              )
+              .map((entry) => (
               <article key={entry.id} id={entry.id} className="scroll-mt-24">
                 <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                   <h2 className="text-xl font-semibold tracking-tight text-slate-100">

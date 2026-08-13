@@ -320,7 +320,7 @@ export const homeFeatures: readonly FeatureHighlight[] = [
   },
   {
     title: "Bro Space",
-    desc: "Lend backup space to a friend. They install LazyBro, paste your invite, and share a folder — encrypted end to end.",
+    desc: "Lend backup space to a friend. They install LazyBro, paste your invite, and share a folder — encrypted end to end. Mailbox retention uses the same version/age rules as S3.",
     Icon: IconUsers,
   },
   {
@@ -330,12 +330,12 @@ export const homeFeatures: readonly FeatureHighlight[] = [
   },
   {
     title: "Failure webhooks",
-    desc: "HTTPS notify on backup.failed—method, headers, and {{tag}} templates. Presets for Discord, ntfy, Uptime Kuma, Telegram, and Slack.",
+    desc: "HTTPS notify on backup.failed—method, headers, and {{tag}} templates. Presets for Discord, ntfy, Uptime Kuma, Telegram, and Slack. Optional success pings (same channel presets) when a run succeeds.",
     Icon: IconWebhook,
   },
   {
     title: "Status posture",
-    desc: "A Status page scores what you already configured—auth, key export, instance backup, password-only SSH, webhooks—and links to fix each gap.",
+    desc: "A Status page scores what you already configured—auth, key export, instance backup, missed schedules, password-only SSH, webhooks—and links to fix each gap.",
     Icon: IconShield,
   },
   {
@@ -345,17 +345,17 @@ export const homeFeatures: readonly FeatureHighlight[] = [
   },
   {
     title: "Database dumps",
-    desc: "Postgres / MySQL / MariaDB logical dumps to .sql.gz—native client or docker exec, with container env hints from docker inspect.",
+    desc: "Postgres / MySQL / MariaDB / SQLite logical dumps—.sql.gz or .sqlite.gz—native client or docker exec, with container env hints from docker inspect.",
     Icon: IconDatabase,
   },
   {
     title: "Paths & Docker volumes",
-    desc: "rsync/scp paths, or alpine-pack named volumes to .tar.gz. Restore path trees, volumes, and database jobs from History (local, S3, or Bro artifact).",
+    desc: "rsync/scp paths, or alpine-pack named volumes on a source server or this host’s Docker socket. Restore from History (local, S3, Bro, or SSH dest with a key)—or download the artifact without restoring in place.",
     Icon: IconDocker,
   },
   {
     title: "MCP for agents",
-    desc: "Streamable HTTP MCP at /mcp with Bearer API tokens. Opt-in remote_exec for shell. Destructive tools need confirm=true.",
+    desc: "Streamable HTTP MCP at /mcp with Bearer API tokens. validate_backup and get_status; opt-in remote_exec for shell or read_only for inspect-only. Destructive tools need confirm=true.",
     Icon: IconMcp,
   },
 ] as const;
@@ -449,6 +449,8 @@ export const detailedFeatures: readonly DetailedFeature[] = [
       "Land stages age ciphertext locally; peer pulls via /api/peers/agent/* then acks (new pairs = mailbox).",
       "LazyBro is outbound-only (mode=client, empty remote URL)—only your LazyBackup needs inbound reachability; LB↔LB both need URLs and both run the sync worker.",
       "Invite + Accept (or paste in LazyBro); hard quotas; opaque blobs; Bro offline / sync pending does not fire failure webhooks.",
+      "Mailbox retention uses the same version-count and age/min-keep rules as S3. LazyBackup advertises deletes[]; LazyBro unlinks and acks. Open recalls are skipped until they finish.",
+      "Restore/download while the blob is still on the peer returns HTTP 202 (waiting)—keep LazyBro running so the recall can finish. Not a backup failure.",
       "Download LazyBro: https://github.com/Ceneka/lazybackup/releases/tag/lazybro (linux-x64, linux-arm64, darwin-arm64, darwin-x64, windows-x64).",
       "Optional Tailscale on the LazyBackup host (not bundled in the image) so friends can dial a 100.x address.",
     ],
@@ -474,7 +476,7 @@ export const detailedFeatures: readonly DetailedFeature[] = [
     summary:
       "Operator checklist derived from stored config—not a separate monitoring agent.",
     points: [
-      "Critical / warn / info / ok checks for unlocked UI, missing age key, unexported keys, no recovery recipients, missing or stale instance backup, password-only SSH servers, recent failures, webhooks, remote_exec tokens.",
+      "Critical / warn / info / ok checks for unlocked UI, missing age key, unexported keys, no recovery recipients, missing or stale instance backup, missed (overdue) schedules, password-only SSH servers, recent failures, webhooks, remote_exec tokens.",
       "Each row deep-links to Settings, Backups, or History.",
       "Refreshes about every minute from a single session-authenticated API.",
     ],
@@ -483,14 +485,14 @@ export const detailedFeatures: readonly DetailedFeature[] = [
   {
     id: "restore",
     title: "Restore",
-    tags: ["POST /api/history/:id/restore"],
+    tags: ["POST /api/history/:id/restore", "GET /api/history/:id/download"],
     summary:
-      "Path, volume, and database restore from History when the artifact is local or downloadable from S3 (or Bro).",
+      "Path, volume, and database restore from History. Artifacts can be local, on S3, on Bro, or on an SSH destination with key auth (pulled onto this host first).",
     points: [
-      "Path: rsync/push the backed-up tree back to the local path, SSH host, or S3 source prefix (optional retarget).",
-      "Docker volume: push/extract into a named volume on the source (SSH server or this host).",
-      "Database: pipe into psql/mysql (native or docker exec).",
-      ".age path archives decrypt and unpack automatically; remote SSH destinations are not one-click restorable.",
+      "Path: rsync/push the backed-up tree back to the local path, SSH host, or S3 source prefix. History offers a host picker to restore onto a different server (key auth required).",
+      "Docker volume: push/extract into a named volume on the original source or a retargeted host (SSH server or this host’s Docker socket).",
+      "Database: pipe into psql/mysql/sqlite (native or docker exec) on the original or a retargeted host.",
+      ".age archives decrypt automatically. Download the artifact from History without restoring in place. Password-only SSH destinations cannot pull for restore or download.",
     ],
     Icon: IconRestore,
   },
@@ -514,9 +516,9 @@ export const detailedFeatures: readonly DetailedFeature[] = [
     summary:
       "Cron in the app timezone, excludes, pre-backup commands, versioned subfolders, and age-based file retention.",
     points: [
-      "5-field cron; invalid expressions fail at schedule time.",
+      "5-field cron; invalid expressions fail at schedule time. New Backup offers preset chips and VPS path / volume recipes for a first job.",
       "Versioning: YYYY-MM-DD_HH-mm-ss subfolders with count-based keep.",
-      "File retention: age + min-keep for dump-style destinations (not with versioning).",
+      "File retention: age + min-keep for dump-style destinations (not with versioning)—local, remote SSH, S3, and Bro mailbox.",
       "Pre-backup commands: SSH or local shell; Bearer tokens need remote_exec to set/change them.",
     ],
     Icon: IconClock,
@@ -537,12 +539,13 @@ export const detailedFeatures: readonly DetailedFeature[] = [
   {
     id: "webhooks",
     title: "Failure webhooks",
-    tags: ["failureWebhookUrl", "{{backupName}}", "backup.failed"],
+    tags: ["failureWebhookUrl", "successPingUrl", "backup.failed"],
     summary:
-      "Optional HTTPS notification when a backup fails. Configure once under Settings → General; empty URL disables.",
+      "Optional HTTPS notification when a backup fails, plus optional success pings. Configure once under Settings → General; empty URL disables.",
     points: [
       "Method GET / POST / PUT; URL, headers, and body support {{event}}, {{backupName}}, {{configId}}, {{historyId}}, {{errorMessage}}, {{endedAt}}.",
-      "Presets: Default JSON, Discord, Telegram, Uptime Kuma push, ntfy, Slack—paste your URL and tweak the template.",
+      "Failure presets: Default JSON, Discord, Telegram, Uptime Kuma push, ntfy, Slack—paste your URL and tweak the template.",
+      "Success pings: Healthchecks-style GET (or POST) on backup.succeeded; Discord, ntfy, and Telegram presets share the same channel templates.",
       "Empty POST/PUT body sends the built-in backup.failed JSON. HTTPS required (http only for localhost/LAN). Send test notification to verify.",
     ],
     Icon: IconWebhook,
@@ -564,13 +567,14 @@ export const detailedFeatures: readonly DetailedFeature[] = [
   {
     id: "mcp",
     title: "MCP & API tokens",
-    tags: ["/mcp", "Authorization: Bearer", "remote_exec"],
+    tags: ["/mcp", "Authorization: Bearer", "remote_exec", "read_only"],
     summary:
       "Streamable HTTP MCP on the same instance so coding agents manage backups without a local bridge.",
     points: [
       "Create tokens under Settings → API / MCP (shown once; hashed at rest; revoke anytime).",
       "Tokens cannot mint tokens—CRUD requires a browser session.",
-      "remote_exec gates exec_command and changing preBackupCommands; sessions always allowed.",
+      "validate_backup probes endpoints without transferring (persists lastValidation). get_status returns the Status posture snapshot. Both are allowed for read_only tokens.",
+      "remote_exec gates exec_command and changing preBackupCommands; sessions always allowed. read_only (mutually exclusive with remote_exec) may list/get, validate, and test_*; it cannot mutate. Existing tokens without it still write.",
       "Destructive tools (delete_*, restore_history, exec_command) require confirm=true. Audit log without secrets.",
     ],
     Icon: IconMcp,

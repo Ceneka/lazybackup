@@ -277,7 +277,7 @@ Land:  age ciphertext → local mailbox staging → peer pull → ack`,
       },
       {
         type: "p",
-        text: "If the object is still in staging, restore can use it immediately. After the bro has pulled it, restore may wait for a recall: LazyBackup asks the peer to upload the blob back. Waiting for Bro is a soft 202—not a critical failure. Keep LazyBro running so recalls can finish.",
+        text: "If the object is still in staging, restore can use it immediately. After the bro has pulled it, restore may wait for a recall: LazyBackup asks the peer to upload the blob back. Waiting for Bro is a soft 202—not a critical failure. Keep LazyBro running so recalls can finish. Mailbox destinations honor the same version-count and age-based file retention as S3: LazyBackup advertises deletes; LazyBro unlinks and acks. Open recalls are not deleted until they finish.",
       },
       {
         type: "h2",
@@ -340,7 +340,7 @@ Land:  age ciphertext → local mailbox staging → peer pull → ack`,
       },
       {
         type: "p",
-        text: "Tokens are full operator access (same gate as a logged-in session). Treat them like the app password. Prefer HTTPS, or keep the instance on a trusted LAN.",
+        text: "Tokens default to write access (same gate as a logged-in session), minus remote shell unless you opt in to remote_exec. A read_only token may inspect, validate_backup, and test_*—it cannot mutate. Treat write tokens like the app password. Prefer HTTPS, or keep the instance on a trusted LAN.",
       },
       {
         type: "h2",
@@ -385,7 +385,8 @@ Land:  age ciphertext → local mailbox staging → peer pull → ack`,
       {
         type: "ul",
         items: [
-          "Inspect: list_backups, get_backup, list_history, get_dashboard, list_servers, list_s3_profiles",
+          "Inspect: list_backups, get_backup, list_history, get_dashboard, get_status, list_servers, list_s3_profiles",
+          "Probe: validate_backup, test_server, test_database (allowed for read_only tokens)",
           "Operate: run_backup, toggle_backup",
           "Manage: create_backup, update_backup, create_server, update_server",
           "Destructive (need confirm=true): delete_backup, delete_server, restore_history",
@@ -473,8 +474,8 @@ If anything failed in the last day, summarize the error from history.`,
         type: "ul",
         items: [
           "Paths — rsync/scp between filesystems or object prefixes",
-          "Docker volumes — pack a named volume on a source server to .tar.gz",
-          "Databases — Postgres / MySQL / MariaDB logical dumps to .sql.gz",
+          "Docker volumes — pack a named volume on a source server or this host’s Docker socket to .tar.gz",
+          "Databases — Postgres / MySQL / MariaDB / SQLite logical dumps to .sql.gz or .sqlite.gz",
           "Bro Space — land age-encrypted blobs on a friend’s LazyBro or another LazyBackup (mailbox sync)",
         ],
       },
@@ -504,7 +505,7 @@ If anything failed in the last day, summarize the error from history.`,
       },
       {
         type: "p",
-        text: "Cron runs in your app timezone. Optional versioning creates timestamped folders; file retention cleans dump-style destinations by age. History keeps run status, sizes, and logs. Volume and database restores work from a local artifact—or download from S3 first.",
+        text: "Cron runs in your app timezone. Optional versioning creates timestamped folders; file retention cleans dump-style destinations by age (local, S3, or Bro mailbox). History keeps run status, sizes, and logs. Path, volume, and database restores work from History when the artifact is local, on S3 or Bro, or on an SSH destination with a key—or download the file without restoring in place.",
       },
       {
         type: "img",
@@ -662,7 +663,7 @@ Out:   something like app_2026-08-11_….sql.gz`,
       },
       {
         type: "p",
-        text: "From History, restore loads the .sql.gz into the target engine (local artifact, or download from S3 first). Same idea as the dump: native client or docker exec on the destination side of the restore flow.",
+        text: "From History, restore loads the dump into the target engine (local artifact, or pull from S3, Bro, or an SSH destination with a key first). Same idea as the dump: native client or docker exec on the destination side of the restore flow. You can restore onto a different host from the History server picker.",
       },
       {
         type: "h2",

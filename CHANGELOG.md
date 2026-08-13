@@ -15,10 +15,29 @@ Versions before a formal `v*` tag are dated unreleased / pre-release notes.
 
 ### Added
 
-- **Path-tree one-click restore** — History → Restore for `sourceType=path` when the
-  artifact is on this host, S3, or Bro; rsync/push back to the local/SSH/S3 source
-  (optional retarget). Encrypted `.tar.gz.age` path archives are decrypted and
-  extracted first. Remote SSH destinations remain out of scope for one-click restore.
+- **Restore from History** — Path, volume, and database restore when the artifact
+  is local, on S3, on Bro, or on an SSH destination with key auth (pulled onto this
+  host first). History can restore onto a different host (server picker). Encrypted
+  `.age` archives decrypt automatically. Password-only SSH destinations cannot pull
+  for restore. Download the artifact without restoring in place
+  (`GET /api/history/:id/download`).
+- **Bro mailbox retention** — Version-count and age/min-keep cleanup use the same
+  rules as S3. LazyBackup advertises `deletes[]`; LazyBro unlinks and acks. Open
+  recalls are skipped until they finish. Restore/download while the peer still
+  holds the blob returns HTTP 202 (waiting)—not a backup failure.
+- **Local Docker socket** — Volume packs and docker-exec dumps from this host’s
+  Docker, not only a remote SSH server.
+- **SQLite dumps** — First-class database engine → `.sqlite.gz` (native file /
+  sqlite3 `.backup` only).
+- **Multi-arch GHCR** — `linux/amd64` and `linux/arm64`.
+- **LazyBro binaries** — linux-x64, linux-arm64, darwin-arm64, darwin-x64,
+  windows-x64 ([release tag `lazybro`](https://github.com/Ceneka/lazybackup/releases/tag/lazybro)).
+- **MCP** — `validate_backup`, `get_status`, and opt-in `read_only` API tokens
+  (mutually exclusive with `remote_exec`).
+- **Status missed schedules** — warn when enabled crons are overdue. Success-ping
+  presets for Discord, ntfy, and Telegram (plus Healthchecks-style GET).
+- **Install catalogs** — Unraid Community Applications XML and TrueNAS SCALE
+  compose under `deploy/`.
 - **Landing changelog sync** — `/changelog` is generated from this file at
   landing build time (`landing/scripts/sync-changelog.ts`); no hand mirror.
 - **Landing compare page** (`/compare`) — LazyBackup vs rsync/cron, with short
@@ -31,6 +50,7 @@ Versions before a formal `v*` tag are dated unreleased / pre-release notes.
   guide.
 - **Screenshot gallery** entries for Status, Encryption (age vault), API/MCP
   settings, S3 profiles, and Bro Space (capture when a seeded UI is available).
+- **Age vault blog** — [keys, export, and recovery](https://lazy.zic.ar/blog/age-vault-recovery).
 
 ### Reliability (recent main)
 
@@ -56,28 +76,10 @@ optional `remote_exec`.
 ### Changes
 
 - Cut GitHub Releases from CHANGELOG on v* tags, and simplify the landing page.
-- Restore from SSH destinations and onto a new host.
-- Have LazyBro unlink retained objects from mailbox /work.
-- Apply backup retention to Bro mailbox destinations.
+- Unify resource cards and S3 pages; show S3 and Bro endpoints on backup details.
+- New Backup first-hour UX: VPS path/volume recipes, cron preset chips, and SSH
+  key gate for path transfers.
 - Self-host Inter so next dev does not fetch Google Fonts.
-- Unify resource cards and S3 pages with shared detail layout and overflow actions.
-- Show S3 and Bro endpoints on backup details, and wait for Run now to finish.
-- Fix the backup form in the browser: wrap sibling SQLite fields so JSX parses, and split transfer-key helpers so the client never loads libsql.
-- Return 202 when Bro still has the artifact instead of blocking restore.
-- Ship LazyBro on more platforms and keep it running at login.
-- Add read_only API tokens plus MCP validate_backup and get_status.
-- Add native SQLite dumps as a first-class database engine.
-- Allow Docker volume backups from this host’s socket.
-- Let operators download a history artifact without restoring it.
-- Add Unraid, TrueNAS, and awesome-selfhosted install catalog copy.
-- Publish the GHCR image for linux/amd64 and linux/arm64.
-- Document age vault setup, export, and recovery on the landing blog.
-- Surface missed schedules on Status and add Discord/ntfy/Telegram success-ping presets.
-- Make the first backup the default job: VPS path recipes, cron chips, and SSH key gate.
-- fix: unblock Next typecheck on vault step-up and related unions.
-- fix: keep Next typecheck off LazyBro and bump checkout to v5.
-- fix: keep passkey unit tests off the SimpleWebAuthn module graph.
-- fix: stop auth unit tests from loading the Next.js auth barrel.
 
 ## Tagging practice
 

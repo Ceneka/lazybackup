@@ -122,7 +122,7 @@ docker compose -f docker-compose.yml -f docker-compose.tailscale.yml up -d
 
    The app shares the Tailscale network namespace (`http://100.x.x.x:3000`). Host port publish is disabled in that mode.
 6. **Run or schedule** — Trigger a manual run or rely on the cron schedule. View results, logs, and storage under History and each backup’s detail page.
-7. **Restore** — On a successful **path**, volume, or database backup in History, restore back to the source (local path, SSH path, S3 prefix, named volume, or DB). Artifacts on S3 or Bro are downloaded first. Backups that landed only on a **remote SSH destination** are not one-click restorable from History (the files are on that host already).
+7. **Restore** — On a successful **path**, volume, or database backup in History, restore back to the source (local path, SSH path, S3 prefix, named volume, or DB), or onto a different host (History server picker). Artifacts on S3, Bro, or an SSH destination (key auth) are pulled onto this host first. Password-only SSH destinations cannot pull for restore. Download the artifact from History without restoring in place.
 
 ### MCP (agent access)
 

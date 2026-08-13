@@ -124,7 +124,9 @@ export default function FeaturesPage() {
               <code className="font-mono text-slate-400">
                 ghcr.io/ceneka/lazybackup:latest
               </code>{" "}
-              (linux/amd64 and linux/arm64).
+              (linux/amd64 and linux/arm64). Unraid and TrueNAS SCALE
+              templates are in{" "}
+              <code className="font-mono text-slate-400">deploy/</code>.
             </p>
           </div>
           <div className="flex flex-wrap gap-3">

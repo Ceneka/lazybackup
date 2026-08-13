@@ -385,7 +385,12 @@ export default function Home() {
                 Docker is recommended—mount SSH keys read-only and volumes for
                 the database and backup storage. The GHCR image is multi-arch
                 (linux/amd64 and linux/arm64). Compose and Bun are one tab
-                away. On plain HTTP (typical LAN), leave AUTH_COOKIE_SECURE
+                away. Unraid Community Applications and TrueNAS SCALE compose
+                templates live in{" "}
+                <code className="rounded bg-white/5 px-1 py-0.5 font-mono text-sm text-slate-400">
+                  deploy/
+                </code>
+                . On plain HTTP (typical LAN), leave AUTH_COOKIE_SECURE
                 unset so the app password session works.
               </p>
             </div>

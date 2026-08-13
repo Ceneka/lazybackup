@@ -21,15 +21,31 @@ export const changelogEntries: readonly ChangelogEntry[] = [
     "id": "unreleased",
     "title": "Unreleased",
     "date": "main",
+    "sections": []
+  },
+  {
+    "id": "0-2-0",
+    "title": "0.2.0",
+    "date": "2026-08-13",
     "sections": [
       {
         "heading": "Added",
         "items": [
+          "Restore from History — Path, volume, and database restore when the artifact is local, on S3, on Bro, or on an SSH destination with key auth (pulled onto this host first). History can restore onto a different host (server picker). Encrypted .age archives decrypt automatically. Password-only SSH destinations cannot pull for restore. Download the artifact without restoring in place (GET /api/history/:id/download).",
+          "Bro mailbox retention — Version-count and age/min-keep cleanup use the same rules as S3. LazyBackup advertises deletes[]; LazyBro unlinks and acks. Open recalls are skipped until they finish. Restore/download while the peer still holds the blob returns HTTP 202 (waiting)—not a backup failure.",
+          "Local Docker socket — Volume packs and docker-exec dumps from this host’s Docker, not only a remote SSH server.",
+          "SQLite dumps — First-class database engine → .sqlite.gz (native file / sqlite3 .backup only).",
+          "Multi-arch GHCR — linux/amd64 and linux/arm64.",
+          "LazyBro binaries — linux-x64, linux-arm64, darwin-arm64, darwin-x64, windows-x64 (release tag lazybro).",
+          "MCP — validate_backup, get_status, and opt-in read_only API tokens (mutually exclusive with remote_exec).",
+          "Status missed schedules — warn when enabled crons are overdue. Success-ping presets for Discord, ntfy, and Telegram (plus Healthchecks-style GET).",
+          "Install catalogs — Unraid Community Applications XML and TrueNAS SCALE compose under deploy/.",
           "Landing changelog sync — /changelog is generated from this file at landing build time (landing/scripts/sync-changelog.ts); no hand mirror.",
           "Landing compare page (/compare) — LazyBackup vs rsync/cron, with short notes on Restic, Borg, and Duplicati. Positions LazyBackup as a From→To control plane (SSH, Docker volumes, DB dumps, MCP), not a dedup archive CLI.",
           "Landing changelog (/changelog) — user-facing release notes on the static site.",
           "MCP demo callout on the marketing home page — links to the manage backups with MCP guide.",
-          "Screenshot gallery entries for Status, Encryption (age vault), API/MCP settings, S3 profiles, and Bro Space (capture when a seeded UI is available)."
+          "Screenshot gallery entries for Status, Encryption (age vault), API/MCP settings, S3 profiles, and Bro Space (capture when a seeded UI is available).",
+          "Age vault blog — keys, export, and recovery."
         ]
       },
       {
@@ -46,6 +62,15 @@ export const changelogEntries: readonly ChangelogEntry[] = [
         "heading": "Product surface (context for evaluators)",
         "items": [
           "Also on recent main (see README / Features for detail): age encryption vault, Bro Space peer destinations, instance meta-backup, WebAuthn passkeys, Status posture page, S3-compatible endpoints, database dumps, MCP + API tokens with optional remote_exec."
+        ]
+      },
+      {
+        "heading": "Changes",
+        "items": [
+          "Cut GitHub Releases from CHANGELOG on v* tags, and simplify the landing page.",
+          "Unify resource cards and S3 pages; show S3 and Bro endpoints on backup details.",
+          "New Backup first-hour UX: VPS path/volume recipes, cron preset chips, and SSH key gate for path transfers.",
+          "Self-host Inter so next dev does not fetch Google Fonts."
         ]
       }
     ]

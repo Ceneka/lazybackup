@@ -48,7 +48,8 @@ export function McpDemoStrip() {
                 /mcp
               </code>{" "}
               with Bearer API tokens. List servers, create From→To jobs, run
-              backups—destructive tools need{" "}
+              backups, validate_backup, get_status. Opt-in read_only for
+              inspect-only tokens. Destructive tools need{" "}
               <code className="rounded bg-white/5 px-1 py-0.5 font-mono text-xs text-slate-300">
                 confirm=true
               </code>

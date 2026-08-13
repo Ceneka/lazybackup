@@ -38,12 +38,12 @@ const vsRsyncRows = [
   {
     topic: "Docker volumes",
     rsync: "Mount paths by hand; named volumes need extra docker run / alpine glue.",
-    lazy: "sourceType=docker_volume packs a named volume to .tar.gz on the source server.",
+    lazy: "sourceType=docker_volume packs a named volume to .tar.gz on the source server or this host’s Docker socket.",
   },
   {
     topic: "Databases",
     rsync: "Separate pg_dump/mysqldump scripts, credentials, and cron.",
-    lazy: "Postgres / MySQL / MariaDB → .sql.gz (native client or docker exec + inspect hints).",
+    lazy: "Postgres / MySQL / MariaDB → .sql.gz; SQLite → .sqlite.gz (native client or docker exec + inspect hints).",
   },
   {
     topic: "S3 / peers",
@@ -58,7 +58,7 @@ const vsRsyncRows = [
   {
     topic: "Agents / API",
     rsync: "Shell only.",
-    lazy: "Streamable HTTP MCP at /mcp + Bearer API tokens (opt-in remote_exec).",
+    lazy: "Streamable HTTP MCP at /mcp + Bearer API tokens (opt-in remote_exec or read_only; validate_backup and get_status).",
   },
   {
     topic: "When rsync wins",
@@ -88,12 +88,12 @@ const wedge = [
   },
   {
     title: "Docker volumes + DB dumps",
-    desc: "Named-volume alpine packs and logical dumps with restore from History (local or S3 artifact).",
+    desc: "Named-volume alpine packs (source server or this host’s Docker socket) and logical dumps. Restore from History—local, S3, Bro, or SSH dest with a key; retarget onto a different host.",
     Icon: IconDocker,
   },
   {
     title: "Database sources",
-    desc: "Postgres / MySQL / MariaDB via native client or docker exec—not “rsync the data directory.”",
+    desc: "Postgres / MySQL / MariaDB / SQLite via native client or docker exec—not “rsync the data directory.”",
     Icon: IconDatabase,
   },
   {
@@ -103,7 +103,7 @@ const wedge = [
   },
   {
     title: "MCP for agents",
-    desc: "Point Cursor/Claude at /mcp with a Bearer token. Destructive tools require confirm=true.",
+    desc: "Point Cursor/Claude at /mcp with a Bearer token. validate_backup and get_status; opt-in read_only or remote_exec. Destructive tools require confirm=true.",
     Icon: IconMcp,
   },
   {
