@@ -77,12 +77,16 @@ export {
 
 export {
   API_TOKEN_PERMISSIONS,
+  READ_ONLY_DENIED,
   REMOTE_EXEC_DENIED,
+  ReadOnlyPermissionError,
   RemoteExecPermissionError,
   allowsPasswordSet,
   assertCanSetPreBackupCommands,
   authAllowsRemoteExec,
+  authAllowsWrite,
   authHasPermission,
+  isReadOnlyApiException,
   normalizeApiTokenPermissionsInput,
   parseApiTokenPermissions,
   preBackupChangeRequiresRemoteExec,

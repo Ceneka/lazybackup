@@ -3,13 +3,15 @@ import { backupConfigSchema } from '@/lib/backup/schema'
 import { assertTransferServersHaveKeys } from '@/lib/backup/transfer-keys'
 import { restoreDatabaseBackup, restoreDockerVolumeBackup, restorePathBackup, executeBackup } from '@/lib/backup'
 import {
+  READ_ONLY_DENIED,
   REMOTE_EXEC_DENIED,
   assertCanSetPreBackupCommands,
   writeAuditLog,
   type AuditActor,
 } from '@/lib/auth'
+import { attachLastValidation, validateBackupConfig } from '@/lib/backup/validate'
+import { loadOperatorStatus } from '@/lib/status/load-status'
 import { redactBackup, redactS3, redactServer } from '@/lib/api/redact'
-import { attachLastValidation } from '@/lib/backup/validate'
 import { db } from '@/lib/db'
 import {
   backupConfigs,
@@ -94,8 +96,17 @@ export type McpOpsContext = {
   actor?: AuditActor
   /** Browser session / unlocked = true; Bearer only when token has remote_exec */
   canRemoteExec: boolean
+  /** Session/unlocked always; Bearer false when token has read_only. */
+  canWrite: boolean
   /** Auth audience. Bearer omits live DB passwords from get_container_db_hints. */
   via?: 'unlocked' | 'session' | 'bearer' | 'none'
+}
+
+function denyIfReadOnly(ctx: McpOpsContext) {
+  if (ctx.canWrite === false) {
+    return errorResult(READ_ONLY_DENIED)
+  }
+  return null
 }
 
 function assertMcpCanSetPreBackup(
@@ -131,6 +142,8 @@ export async function getBackupOp(_ctx: McpOpsContext, id: string) {
 }
 
 export async function createBackupOp(ctx: McpOpsContext, input: unknown) {
+  const denied = denyIfReadOnly(ctx)
+  if (denied) return denied
   return audited(ctx.actor, 'create_backup', undefined, async () => {
     const validatedData = backupConfigSchema.parse(input)
     assertMcpCanSetPreBackup(ctx, validatedData.preBackupCommands)
@@ -175,6 +188,8 @@ export async function createBackupOp(ctx: McpOpsContext, input: unknown) {
 }
 
 export async function updateBackupOp(ctx: McpOpsContext, id: string, input: unknown) {
+  const denied = denyIfReadOnly(ctx)
+  if (denied) return denied
   return audited(ctx.actor, 'update_backup', id, async () => {
     const validatedData = backupConfigSchema.parse(input)
     const existing = await db.query.backupConfigs.findFirst({
@@ -235,6 +250,8 @@ export async function deleteBackupOp(
   if (!confirm) {
     return errorResult('Refusing to delete: pass confirm=true to proceed')
   }
+  const denied = denyIfReadOnly(ctx)
+  if (denied) return denied
   return audited(ctx.actor, 'delete_backup', id, async () => {
     const existing = await db.query.backupConfigs.findFirst({
       where: eq(backupConfigs.id, id),
@@ -249,6 +266,8 @@ export async function deleteBackupOp(
 }
 
 export async function runBackupOp(ctx: McpOpsContext, id: string) {
+  const denied = denyIfReadOnly(ctx)
+  if (denied) return denied
   return audited(ctx.actor, 'run_backup', id, async () => {
     const config = await db.query.backupConfigs.findFirst({
       where: eq(backupConfigs.id, id),
@@ -281,6 +300,8 @@ export async function runBackupOp(ctx: McpOpsContext, id: string) {
 }
 
 export async function toggleBackupOp(ctx: McpOpsContext, id: string, enabled?: boolean) {
+  const denied = denyIfReadOnly(ctx)
+  if (denied) return denied
   return audited(ctx.actor, 'toggle_backup', id, async () => {
     const current = await db.query.backupConfigs.findFirst({
       where: eq(backupConfigs.id, id),
@@ -366,6 +387,8 @@ export async function restoreHistoryOp(
   if (!confirm) {
     return errorResult('Refusing to restore: pass confirm=true to proceed')
   }
+  const denied = denyIfReadOnly(ctx)
+  if (denied) return denied
   return audited(ctx.actor, 'restore_history', id, async () => {
     const historyEntry = await db.query.backupHistory.findFirst({
       where: eq(backupHistory.id, id),
@@ -430,6 +453,8 @@ const serverSchema = z.object({
 })
 
 export async function createServerOp(ctx: McpOpsContext, input: unknown) {
+  const denied = denyIfReadOnly(ctx)
+  if (denied) return denied
   return audited(ctx.actor, 'create_server', undefined, async () => {
     const validated = serverSchema.parse(input)
     if (validated.authType === 'key') {
@@ -462,6 +487,8 @@ export async function createServerOp(ctx: McpOpsContext, input: unknown) {
 }
 
 export async function updateServerOp(ctx: McpOpsContext, id: string, input: unknown) {
+  const denied = denyIfReadOnly(ctx)
+  if (denied) return denied
   return audited(ctx.actor, 'update_server', id, async () => {
     const validated = serverSchema.parse(input)
     const existing = await db.query.servers.findFirst({ where: eq(servers.id, id) })
@@ -487,6 +514,8 @@ export async function deleteServerOp(
   if (!confirm) {
     return errorResult('Refusing to delete: pass confirm=true to proceed')
   }
+  const denied = denyIfReadOnly(ctx)
+  if (denied) return denied
   return audited(ctx.actor, 'delete_server', id, async () => {
     const existing = await db.query.servers.findFirst({ where: eq(servers.id, id) })
     if (!existing) throw new Error(`Server not found: ${id}`)
@@ -540,6 +569,38 @@ export async function getDashboardOp(_ctx: McpOpsContext) {
   })
 }
 
+/** Probe endpoints without transferring; allowed for read_only tokens. */
+export async function validateBackupOp(_ctx: McpOpsContext, id: string) {
+  const config = await db.query.backupConfigs.findFirst({
+    where: eq(backupConfigs.id, id),
+    with: backupWithEndpoints,
+  })
+  if (!config) return errorResult(`Backup not found: ${id}`)
+
+  const result = await validateBackupConfig(config)
+  const validatedAt = new Date()
+  await db
+    .update(backupConfigs)
+    .set({
+      lastValidatedAt: validatedAt,
+      lastValidationOk: result.ok,
+      lastValidationChecks: JSON.stringify(result.checks),
+      updatedAt: validatedAt,
+    })
+    .where(eq(backupConfigs.id, id))
+
+  return jsonResult({
+    ...result,
+    at: validatedAt.toISOString(),
+  })
+}
+
+/** Operator safety posture; allowed for read_only tokens. */
+export async function getStatusOp(_ctx: McpOpsContext) {
+  const payload = await loadOperatorStatus()
+  return jsonResult(payload)
+}
+
 /**
  * Direct SSH command on a configured server.
  * Requires remote_exec permission (Bearer) or a browser session.
@@ -551,6 +612,8 @@ export async function execCommandOp(
   confirm: boolean,
   timeoutMs?: number
 ) {
+  const denied = denyIfReadOnly(ctx)
+  if (denied) return denied
   if (!ctx.canRemoteExec) {
     return errorResult(REMOTE_EXEC_DENIED)
   }

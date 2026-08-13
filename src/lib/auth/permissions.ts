@@ -1,5 +1,5 @@
 /** Opt-in API token capabilities (session / unlocked always have all). */
-export const API_TOKEN_PERMISSIONS = ['remote_exec'] as const
+export const API_TOKEN_PERMISSIONS = ['remote_exec', 'read_only'] as const
 
 export type ApiTokenPermission = (typeof API_TOKEN_PERMISSIONS)[number]
 
@@ -57,6 +57,9 @@ export function normalizeApiTokenPermissionsInput(
     }
     if (!out.includes(item)) out.push(item)
   }
+  if (out.includes('read_only') && out.includes('remote_exec')) {
+    throw new Error('read_only cannot be combined with remote_exec')
+  }
   return out
 }
 
@@ -78,6 +81,46 @@ export function authHasPermission(
 
 export function authAllowsRemoteExec(auth: AuthPermissionView): boolean {
   return authHasPermission(auth, 'remote_exec')
+}
+
+/**
+ * Session/unlocked always write. Bearer tokens with read_only cannot mutate
+ * (except allowlisted probes: validate_backup / test_*).
+ */
+export function authAllowsWrite(auth: AuthPermissionView): boolean {
+  if (!auth.authorized) return false
+  if (auth.via === 'session' || auth.via === 'unlocked') return true
+  if (auth.via === 'bearer') {
+    return !auth.apiToken?.permissions.includes('read_only')
+  }
+  return false
+}
+
+export const READ_ONLY_DENIED =
+  'API token is read_only. Use a token without that permission (or a browser session) to make changes.'
+
+export class ReadOnlyPermissionError extends Error {
+  readonly status = 403
+
+  constructor(message = READ_ONLY_DENIED) {
+    super(message)
+    this.name = 'ReadOnlyPermissionError'
+  }
+}
+
+/** GET always; POST probes (validate / test_*) and /mcp for read_only bearers. */
+export function isReadOnlyApiException(method: string, pathname: string): boolean {
+  const m = method.toUpperCase()
+  if (m === 'GET' || m === 'HEAD' || m === 'OPTIONS') return true
+  if (pathname === '/mcp' || pathname.startsWith('/mcp/')) return true
+  if (m !== 'POST') return false
+  if (pathname === '/api/backups/database/test') return true
+  if (pathname === '/api/servers/test') return true
+  if (pathname === '/api/s3-profiles/test') return true
+  if (/^\/api\/backups\/[^/]+\/validate$/.test(pathname)) return true
+  if (/^\/api\/servers\/[^/]+\/test$/.test(pathname)) return true
+  if (/^\/api\/s3-profiles\/[^/]+\/test$/.test(pathname)) return true
+  return false
 }
 
 /** Who may set an app password: browser session or unlocked first-run. */

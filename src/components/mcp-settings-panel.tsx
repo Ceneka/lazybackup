@@ -42,6 +42,7 @@ export function McpSettingsPanel() {
   const tokensQuery = useApiTokens()
   const [newName, setNewName] = useState('MCP agent')
   const [allowRemoteExec, setAllowRemoteExec] = useState(false)
+  const [readOnly, setReadOnly] = useState(false)
   const [created, setCreated] = useState<CreatedApiToken | null>(null)
 
   const origin = typeof window !== 'undefined' ? window.location.origin : ''
@@ -59,7 +60,11 @@ export function McpSettingsPanel() {
 
   const handleCreate = async () => {
     try {
-      const permissions = allowRemoteExec ? (['remote_exec'] as const) : []
+      const permissions = readOnly
+        ? (['read_only'] as const)
+        : allowRemoteExec
+          ? (['remote_exec'] as const)
+          : []
       const result = await tokensQuery.createToken.mutateAsync({
         name: newName.trim() || 'MCP agent',
         permissions: [...permissions],
@@ -67,6 +72,7 @@ export function McpSettingsPanel() {
       setCreated(result)
       setNewName('MCP agent')
       setAllowRemoteExec(false)
+      setReadOnly(false)
     } catch {
       // toast in hook
     }
@@ -81,8 +87,9 @@ export function McpSettingsPanel() {
             Create a token so Cursor, Claude, or other agents can manage this LazyBackup
             instance over MCP at <code className="text-xs">/mcp</code>. Tokens can manage
             backups and servers; remote shell (<code className="text-xs">exec_command</code>)
-            and changing pre-backup commands require an explicit permission. Prefer HTTPS (or
-            a trusted LAN) when exposing the instance.
+            and changing pre-backup commands require an explicit permission. A{' '}
+            <code className="text-xs">read_only</code> token can inspect and validate but
+            cannot mutate. Prefer HTTPS (or a trusted LAN) when exposing the instance.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -108,8 +115,33 @@ export function McpSettingsPanel() {
               <input
                 type="checkbox"
                 className="mt-1"
+                checked={readOnly}
+                onChange={(e) => {
+                  const on = e.target.checked
+                  setReadOnly(on)
+                  if (on) setAllowRemoteExec(false)
+                }}
+              />
+              <span>
+                <span className="font-medium">Read only</span>
+                <span className="block text-muted-foreground">
+                  Grants <code className="text-xs">read_only</code>: list/get,{' '}
+                  <code className="text-xs">validate_backup</code>, and{' '}
+                  <code className="text-xs">test_*</code>. Cannot create, run, or
+                  delete backups. Cannot be combined with remote command execution.
+                </span>
+              </span>
+            </label>
+            <label className="flex items-start gap-2 text-sm max-w-xl cursor-pointer">
+              <input
+                type="checkbox"
+                className="mt-1"
                 checked={allowRemoteExec}
-                onChange={(e) => setAllowRemoteExec(e.target.checked)}
+                onChange={(e) => {
+                  const on = e.target.checked
+                  setAllowRemoteExec(on)
+                  if (on) setReadOnly(false)
+                }}
               />
               <span>
                 <span className="font-medium">Allow remote command execution</span>
@@ -203,7 +235,9 @@ export function McpSettingsPanel() {
                         {formatDate(token.lastUsedAt)}
                         {token.permissions?.includes('remote_exec')
                           ? ' · remote_exec'
-                          : ''}
+                          : token.permissions?.includes('read_only')
+                            ? ' · read_only'
+                            : ''}
                       </p>
                     </div>
                     <Button

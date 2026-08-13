@@ -156,7 +156,7 @@ export const apiTokens = sqliteTable('api_tokens', {
   tokenHash: text('token_hash').notNull(),
   /** First characters for UI display, e.g. lb_xxxx… */
   tokenPrefix: text('token_prefix').notNull(),
-  /** JSON array of ApiTokenPermission, e.g. ["remote_exec"] */
+  /** JSON array of ApiTokenPermission, e.g. ["remote_exec"] or ["read_only"] */
   permissions: text('permissions').notNull().default('[]'),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
   lastUsedAt: integer('last_used_at', { mode: 'timestamp' }),

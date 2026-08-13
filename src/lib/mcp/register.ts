@@ -20,9 +20,10 @@ const REMOTE_EXEC_NOTE =
 function ctx(
   actor: AuditActor | undefined,
   canRemoteExec: boolean,
+  canWrite: boolean,
   via: ops.McpOpsContext['via']
 ): ops.McpOpsContext {
-  return { actor, canRemoteExec, via }
+  return { actor, canRemoteExec, canWrite, via }
 }
 
 export function registerLazyBackupTools(
@@ -30,13 +31,15 @@ export function registerLazyBackupTools(
   options?: {
     actor?: AuditActor
     canRemoteExec?: boolean
+    canWrite?: boolean
     via?: ops.McpOpsContext['via']
   }
 ) {
   const actor = options?.actor
   const canRemoteExec = options?.canRemoteExec ?? false
+  const canWrite = options?.canWrite ?? true
   const via = options?.via ?? 'bearer'
-  const c = ctx(actor, canRemoteExec, via)
+  const c = ctx(actor, canRemoteExec, canWrite, via)
 
   // --- Discovery & verify (call these before create_*) ---
 
@@ -173,6 +176,19 @@ export function registerLazyBackupTools(
       }),
     },
     async ({ id }) => ops.getBackupOp(c, id)
+  )
+
+  server.registerTool(
+    'validate_backup',
+    {
+      title: 'Validate backup',
+      description:
+        'Probe source/destination endpoints without transferring data. Allowed for read_only tokens. Persists the last validation on the config.',
+      inputSchema: z.object({
+        id: z.string().describe('Backup config id'),
+      }),
+    },
+    async ({ id }) => ops.validateBackupOp(c, id)
   )
 
   server.registerTool(
@@ -372,6 +388,17 @@ Setting or changing preBackupCommands requires remote_exec.`,
       inputSchema: z.object({}),
     },
     async () => ops.getDashboardOp(c)
+  )
+
+  server.registerTool(
+    'get_status',
+    {
+      title: 'Operator status',
+      description:
+        'Safety posture checks (auth, encryption, overdue schedules, failed runs). Allowed for read_only tokens.',
+      inputSchema: z.object({}),
+    },
+    async () => ops.getStatusOp(c)
   )
 
   server.registerResource(

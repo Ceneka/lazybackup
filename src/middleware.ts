@@ -72,6 +72,23 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(loginUrl)
     }
 
+    const { resolveAuth, authAllowsWrite, isReadOnlyApiException } = await import('@/lib/auth')
+    const resolved = await resolveAuth(
+      cookieHeader,
+      request.headers.get('authorization')
+    )
+    if (
+      status.authEnabled &&
+      resolved.via === 'bearer' &&
+      !authAllowsWrite(resolved) &&
+      !isReadOnlyApiException(request.method, pathname)
+    ) {
+      return NextResponse.json(
+        { error: 'API token is read_only' },
+        { status: 403 }
+      )
+    }
+
     const response = NextResponse.next()
     const hasBearer = Boolean(request.headers.get('authorization')?.match(/^Bearer\s+/i))
     if (status.authEnabled && status.authenticated && !hasBearer) {

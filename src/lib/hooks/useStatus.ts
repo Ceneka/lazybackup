@@ -49,6 +49,7 @@ export type StatusData = {
     enabled: number
     encryptedOrPeerCount: number
     failedLast24h: number
+    overdueSchedules?: { id: string; name: string }[]
   }
   servers: {
     total: number
