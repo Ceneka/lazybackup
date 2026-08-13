@@ -1,0 +1,30 @@
+# TrueNAS SCALE custom app (or any Compose host).
+# Same container mounts as the repo docker-compose.yml: SQLite volume,
+# backup storage at /backups and /app/backups, SSH keys read-only.
+name: lazybackup
+
+services:
+  lazybackup:
+    image: ghcr.io/ceneka/lazybackup:latest
+    container_name: lazybackup
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      DATABASE_URL: file:/app/data/data.db
+      BACKUP_STORAGE_PATH: /backups
+    volumes:
+      - lazybackup_data:/app/data
+      - "${BACKUP_STORAGE_PATH:-./backups}:/backups"
+      - "${BACKUP_STORAGE_PATH:-./backups}:/app/backups"
+      - "${SSH_KEYS_PATH:-~/.ssh}:/root/.ssh:ro"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  lazybackup_data:
+    driver: local

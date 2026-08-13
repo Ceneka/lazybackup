@@ -1,0 +1,81 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>LazyBackup</Name>
+  <Repository>ghcr.io/ceneka/lazybackup:latest</Repository>
+  <Registry>https://ghcr.io</Registry>
+  <Network>bridge</Network>
+  <MyIP/>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/Ceneka/lazybackup/issues</Support>
+  <Project>https://github.com/Ceneka/lazybackup</Project>
+  <Overview>Self-hosted From→To backup manager for paths, Docker volumes, and database dumps between this host, SSH servers, and S3.</Overview>
+  <Category>Backup:</Category>
+  <WebUI>http://[IP]:[PORT:3000]/</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/Ceneka/lazybackup/main/deploy/unraid/lazybackup.xml</TemplateURL>
+  <Icon>https://lazy.zic.ar/icon.png</Icon>
+  <ExtraParams/>
+  <PostArgs/>
+  <CPUset/>
+  <DateInstalled/>
+  <DonateText/>
+  <DonateLink/>
+  <Requires/>
+  <Screenshot>https://lazy.zic.ar/screenshots/dashboard.png</Screenshot>
+  <Description>
+    LazyBackup schedules From→To transfers: this Unraid host, SSH servers, or S3-compatible storage. Paths, Docker volume tarballs, and Postgres/MySQL/MariaDB dumps. Optional age encryption and Bro Space peer storage.[br][br]
+    Mount SSH keys read-only if you back up remote servers. Leave AUTH_COOKIE_SECURE unset on plain HTTP.
+  </Description>
+  <Networking>
+    <Mode>bridge</Mode>
+    <Publish>
+      <Port>
+        <HostPort>3000</HostPort>
+        <ContainerPort>3000</ContainerPort>
+        <Protocol>tcp</Protocol>
+      </Port>
+    </Publish>
+  </Networking>
+  <Data>
+    <Volume>
+      <HostDir>/mnt/user/appdata/lazybackup</HostDir>
+      <ContainerDir>/app/data</ContainerDir>
+      <Mode>rw</Mode>
+    </Volume>
+    <Volume>
+      <HostDir>/mnt/user/backups/lazybackup</HostDir>
+      <ContainerDir>/backups</ContainerDir>
+      <Mode>rw</Mode>
+    </Volume>
+    <Volume>
+      <HostDir>/mnt/user/backups/lazybackup</HostDir>
+      <ContainerDir>/app/backups</ContainerDir>
+      <Mode>rw</Mode>
+    </Volume>
+    <Volume>
+      <HostDir>/mnt/user/appdata/lazybackup/ssh</HostDir>
+      <ContainerDir>/root/.ssh</ContainerDir>
+      <Mode>ro</Mode>
+    </Volume>
+  </Data>
+  <Environment>
+    <Variable>
+      <Value>file:/app/data/data.db</Value>
+      <Name>DATABASE_URL</Name>
+      <Mode/>
+    </Variable>
+    <Variable>
+      <Value>/backups</Value>
+      <Name>BACKUP_STORAGE_PATH</Name>
+      <Mode/>
+    </Variable>
+  </Environment>
+  <Config Name="WebUI Port" Target="3000" Default="3000" Mode="tcp" Description="LazyBackup web UI." Type="Port" Display="always" Required="true" Mask="false"/>
+  <Config Name="App data" Target="/app/data" Default="/mnt/user/appdata/lazybackup" Mode="rw" Description="SQLite database and instance settings." Type="Path" Display="always" Required="true" Mask="false"/>
+  <Config Name="Backup storage" Target="/backups" Default="/mnt/user/backups/lazybackup" Mode="rw" Description="Local backup destination root (also mounted at /app/backups)." Type="Path" Display="always" Required="true" Mask="false"/>
+  <Config Name="Backup storage (legacy path)" Target="/app/backups" Default="/mnt/user/backups/lazybackup" Mode="rw" Description="Same host directory as Backup storage, for older /app/backups paths." Type="Path" Display="advanced" Required="true" Mask="false"/>
+  <Config Name="SSH keys" Target="/root/.ssh" Default="/mnt/user/appdata/lazybackup/ssh" Mode="ro" Description="Read-only SSH keys for rsync/scp to remote servers." Type="Path" Display="always" Required="false" Mask="false"/>
+  <Config Name="DATABASE_URL" Target="DATABASE_URL" Default="file:/app/data/data.db" Mode="" Description="SQLite URL inside the container." Type="Variable" Display="advanced" Required="true" Mask="false"/>
+  <Config Name="BACKUP_STORAGE_PATH" Target="BACKUP_STORAGE_PATH" Default="/backups" Mode="" Description="In-container backup root." Type="Variable" Display="advanced" Required="true" Mask="false"/>
+  <Config Name="AUTH_COOKIE_SECURE" Target="AUTH_COOKIE_SECURE" Default="" Mode="" Description="Set true only when the UI is served over HTTPS." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+</Container>

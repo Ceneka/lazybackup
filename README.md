@@ -73,6 +73,12 @@ Open [http://localhost:3000](http://localhost:3000) (or `http://<lan-ip>:3000` o
 
 > **HTTP vs HTTPS:** On plain HTTP (typical LAN), leave `AUTH_COOKIE_SECURE` unset so the app password session cookie works. Set `AUTH_COOKIE_SECURE=true` only when the UI is served over HTTPS.
 
+### Install catalogs
+
+- **Unraid** — Community Applications XML: [`deploy/unraid/lazybackup.xml`](./deploy/unraid/lazybackup.xml) (`ghcr.io/ceneka/lazybackup:latest`, port 3000, data / backups / SSH mounts).
+- **TrueNAS SCALE** — Compose: [`deploy/truenas/compose.yml`](./deploy/truenas/compose.yml) (same mounts as the root `docker-compose.yml`).
+- **awesome-selfhosted** — ready-to-paste listing: [`deploy/awesome-selfhosted.md`](./deploy/awesome-selfhosted.md).
+
 ### Manual install
 
 ```bash
