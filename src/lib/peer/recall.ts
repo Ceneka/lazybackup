@@ -9,6 +9,12 @@ import { assertFileSha256, sha256File } from './digest';
 import { withPeerLock } from './peer-lock';
 import { assertPeerQuota } from './storage';
 
+export {
+  PeerRecallPendingError,
+  PEER_RECALL_WAITING_MESSAGE,
+  peerRecallWaitingResponse,
+} from './recall-pending';
+
 const DEFAULT_TTL_MS = 24 * 3600 * 1000;
 const DEFAULT_WAIT_MS = 15 * 60 * 1000;
 const POLL_MS = 1500;
@@ -222,22 +228,9 @@ export type WaitRecallResult =
   | { status: 'waiting'; recallId: string; message: string }
   | { status: 'expired'; recallId: string };
 
-/** Mailbox object is not staged yet; caller should return 202 instead of blocking. */
-export class PeerRecallPendingError extends Error {
-  readonly recallId: string;
-  readonly status = 'waiting' as const;
-
-  constructor(recallId: string) {
-    super(
-      `Waiting for Bro to connect and return the backup (recall ${recallId}). This is not a failure — retry when your bro is online.`
-    );
-    this.name = 'PeerRecallPendingError';
-    this.recallId = recallId;
-  }
-}
-
 /**
  * Poll until recall is ready, or return waiting after timeout (recall stays pending).
+ * Restore/download no longer call this — they throw PeerRecallPendingError for HTTP 202.
  */
 export async function waitForRecall(
   recallId: string,

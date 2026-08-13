@@ -1636,10 +1636,9 @@ export async function resolveLocalRestoreArtifact(options: {
   expectedSha256?: string | null;
   historyId?: string | null;
   /**
-   * Mailbox peer: wait up to 15 minutes for a recall (restore default).
-   * Download passes false and maps PeerRecallPendingError to HTTP 202.
+   * Mailbox peer: never block 15 minutes. If the object is not staged and the
+   * recall is not ready, throw PeerRecallPendingError (HTTP 202).
    */
-  waitForPeerRecall?: boolean;
 }): Promise<{ localPath: string; tempDir: string | null }> {
   const kind = options.destinationKind || 'local';
   let localPath: string;
@@ -1695,7 +1694,6 @@ export async function resolveLocalRestoreArtifact(options: {
         // Ask bro to upload back; wait softly (not a critical failure / no webhook)
         const {
           ensureRecall,
-          waitForRecall,
           consumeRecallArtifact,
           PeerRecallPendingError,
         } = await import('@/lib/peer/recall');
@@ -1707,17 +1705,8 @@ export async function resolveLocalRestoreArtifact(options: {
         if (recall.status === 'ready') {
           await openPeerTemp();
           await consumeRecallArtifact(recall.id, peerId, localPath);
-        } else if (options.waitForPeerRecall === false) {
-          throw new PeerRecallPendingError(recall.id);
         } else {
-          const waited = await waitForRecall(recall.id);
-          if (waited.status !== 'ready') {
-            throw new Error(
-              `Waiting for Bro to connect and return the backup (recall ${recall.id}). This is not a failure — retry when your bro is online.`
-            );
-          }
-          await openPeerTemp();
-          await consumeRecallArtifact(recall.id, peerId, localPath);
+          throw new PeerRecallPendingError(recall.id);
         }
       }
     } else {

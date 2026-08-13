@@ -153,19 +153,31 @@ export function useRestoreBackupHistory() {
       })
 
       const data = await res.json()
+      if (res.status === 202 && data?.status === "waiting") {
+        return {
+          status: "waiting" as const,
+          recallId: String(data.recallId ?? ""),
+          message:
+            typeof data.message === "string"
+              ? data.message
+              : "Waiting for Bro — keep LazyBro running.",
+        }
+      }
       if (!res.ok) {
         throw new Error(data.error || "Failed to restore backup")
       }
 
-      return data as {
-        success: boolean
-        volumeName?: string
-        database?: string
-        targetPath?: string
-        log: string
+      return {
+        status: "ok" as const,
+        success: true as const,
+        volumeName: data.volumeName as string | undefined,
+        database: data.database as string | undefined,
+        targetPath: data.targetPath as string | undefined,
+        log: data.log as string,
       }
     },
     onSuccess: (data) => {
+      if (data.status === "waiting") return
       if (data.database) {
         toast.success(`Restored database "${data.database}" successfully`)
       } else if (data.targetPath) {

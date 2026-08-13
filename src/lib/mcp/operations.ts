@@ -11,6 +11,7 @@ import {
 } from '@/lib/auth'
 import { attachLastValidation, validateBackupConfig } from '@/lib/backup/validate'
 import { loadOperatorStatus } from '@/lib/status/load-status'
+import { PeerRecallPendingError, peerRecallWaitingResponse } from '@/lib/peer/recall'
 import { redactBackup, redactS3, redactServer } from '@/lib/api/redact'
 import { db } from '@/lib/db'
 import {
@@ -430,9 +431,12 @@ export async function restoreHistoryOp(
       })
     }
     throw new Error('Only path, database, and docker_volume backups can be restored via MCP')
-  }).catch((error) =>
-    errorResult(error instanceof Error ? error.message : 'Failed to restore')
-  )
+  }).catch((error) => {
+    if (error instanceof PeerRecallPendingError) {
+      return jsonResult(peerRecallWaitingResponse(error.recallId))
+    }
+    return errorResult(error instanceof Error ? error.message : 'Failed to restore')
+  })
 }
 
 export async function listServersOp(_ctx: McpOpsContext) {

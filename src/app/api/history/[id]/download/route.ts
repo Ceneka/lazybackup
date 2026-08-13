@@ -7,7 +7,7 @@ import {
 } from '@/lib/backup/restore-eligibility';
 import { db } from '@/lib/db';
 import { backupHistory } from '@/lib/db/schema';
-import { PeerRecallPendingError } from '@/lib/peer/recall';
+import { PeerRecallPendingError, peerRecallWaitingResponse } from '@/lib/peer/recall';
 import { execFile } from 'child_process';
 import { eq } from 'drizzle-orm';
 import { createReadStream } from 'fs';
@@ -119,7 +119,6 @@ export async function GET(
       expectedSha256: historyEntry.artifactSha256,
       historyId: historyEntry.id,
       decrypt: false,
-      waitForPeerRecall: false,
     });
     if (resolved.tempDir) cleanupPaths.push(resolved.tempDir);
 
@@ -145,10 +144,9 @@ export async function GET(
   } catch (error) {
     await cleanup();
     if (error instanceof PeerRecallPendingError) {
-      return NextResponse.json(
-        { status: 'waiting', recallId: error.recallId },
-        { status: 202 }
-      );
+      return NextResponse.json(peerRecallWaitingResponse(error.recallId), {
+        status: 202,
+      });
     }
     console.error(`Failed to download backup ${id}:`, error);
     const message =

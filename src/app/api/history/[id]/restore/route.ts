@@ -8,6 +8,7 @@ import { isValidDockerVolumeName } from '@/lib/docker/volumes';
 import { DB_NAME_RE } from '@/lib/database';
 import { db } from '@/lib/db';
 import { backupHistory } from '@/lib/db/schema';
+import { PeerRecallPendingError, peerRecallWaitingResponse } from '@/lib/peer/recall';
 import { eq } from 'drizzle-orm';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
@@ -104,6 +105,11 @@ export async function POST(
       { status: 400 }
     );
   } catch (error) {
+    if (error instanceof PeerRecallPendingError) {
+      return NextResponse.json(peerRecallWaitingResponse(error.recallId), {
+        status: 202,
+      });
+    }
     console.error(`Failed to restore backup ${id}:`, error);
 
     if (error instanceof z.ZodError) {

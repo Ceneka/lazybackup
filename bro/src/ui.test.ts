@@ -10,4 +10,10 @@ describe('LazyBro UI', () => {
     expect(html).toMatch(/<section[^>]*\bhidden\b[\s\S]{0,120}Your folder backup/)
     expect(html).toContain('/api/backup')
   })
+
+  test('shows a stay-online banner when recalls are pending', () => {
+    expect(html).toContain('Your friend is restoring a backup — stay online.')
+    expect(html).toContain('id="recallBanner"')
+    expect(html).toContain('pendingRecalls')
+  })
 })

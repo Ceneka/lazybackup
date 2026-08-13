@@ -124,6 +124,7 @@ export async function syncOnce(cfg: BroConfig): Promise<SyncStatus> {
       });
     }
 
+    let remainingRecalls = work.recalls?.length || 0;
     for (const recall of work.recalls || []) {
       try {
         const src = objectFilePath(cfg, recall.objectKey);
@@ -136,6 +137,7 @@ export async function syncOnce(cfg: BroConfig): Promise<SyncStatus> {
           },
           body: data,
         });
+        remainingRecalls -= 1;
       } catch (err) {
         console.warn(
           `[lazybro] recall ${recall.id}:`,
@@ -146,7 +148,7 @@ export async function syncOnce(cfg: BroConfig): Promise<SyncStatus> {
 
     status.lastSyncAt = new Date().toISOString();
     status.pendingPulls = 0;
-    status.pendingRecalls = 0;
+    status.pendingRecalls = remainingRecalls;
   } catch (err) {
     status.hostReachable = false;
     status.lastError = err instanceof Error ? err.message : String(err);

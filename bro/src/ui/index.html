@@ -158,6 +158,10 @@
         </div>
       </div>
 
+      <div id="recallBanner" class="banner" hidden>
+        Your friend is restoring a backup — stay online.
+      </div>
+
       <section>
         <h2>Status</h2>
         <div class="status" id="status">
@@ -235,6 +239,7 @@
         document.getElementById("label").value = s.config.label || "LazyBro";
         document.getElementById("folderPath").value = s.config.folderBackupPath || "";
         renderAutostart(s.autostart);
+        document.getElementById("recallBanner").hidden = !(s.sync && s.sync.pendingRecalls > 0);
         if (!s.config.autostartPrompted && !s.autostart.enabled && s.autostart.supported) {
           document.getElementById("autostartBanner").hidden = false;
         }

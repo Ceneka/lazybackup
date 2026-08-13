@@ -14,8 +14,9 @@ import { Button } from "@/components/ui/button"
 import { LoadingButton } from "@/components/ui/loading-button"
 import { canRestoreBackup } from "@/lib/backup/restore-eligibility"
 import { useRestoreBackupHistory } from "@/lib/hooks/useHistory"
+import { PEER_RECALL_WAITING_MESSAGE } from "@/lib/peer/recall-pending"
 import { RotateCcwIcon } from "lucide-react"
-import { useEffect, useState, type ReactNode } from "react"
+import { useEffect, useRef, useState, type ReactNode } from "react"
 
 export type HistoryRestoreEntry = {
   id: string
@@ -50,6 +51,9 @@ export function HistoryRestoreButton({
   const restoreMutation = useRestoreBackupHistory()
   const [open, setOpen] = useState(false)
   const [targetName, setTargetName] = useState(entry.backupConfig?.sourcePath || "")
+  const [waitingForBro, setWaitingForBro] = useState(false)
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const inFlightRef = useRef(false)
 
   const sourceType = entry.backupConfig?.sourceType || "path"
   const isDatabase = sourceType === "database"
@@ -68,6 +72,17 @@ export function HistoryRestoreButton({
     }
   }, [entry.backupConfig?.sourcePath])
 
+  const stopPolling = () => {
+    if (pollRef.current) {
+      clearInterval(pollRef.current)
+      pollRef.current = null
+    }
+  }
+
+  useEffect(() => {
+    return () => stopPolling()
+  }, [])
+
   if (!eligible) {
     return null
   }
@@ -78,23 +93,60 @@ export function HistoryRestoreButton({
     const configured = entry.backupConfig?.sourcePath || ""
     const requested = targetName.trim()
     const allowRetarget = Boolean(requested && configured && requested !== configured)
-    restoreMutation.mutate(
-      isDatabase
-        ? { id: entry.id, databaseName: requested || undefined, allowRetarget }
-        : isPath
-          ? { id: entry.id, targetPath: requested || undefined, allowRetarget }
-          : { id: entry.id, volumeName: requested || undefined, allowRetarget },
-      {
-        onSuccess: (data) => {
-          setOpen(false)
-          onRestored?.(data.log)
-        },
-      }
-    )
+    const payload = isDatabase
+      ? { id: entry.id, databaseName: requested || undefined, allowRetarget }
+      : isPath
+        ? { id: entry.id, targetPath: requested || undefined, allowRetarget }
+        : { id: entry.id, volumeName: requested || undefined, allowRetarget }
+
+    const onDoneWaiting = (log: string) => {
+      stopPolling()
+      setWaitingForBro(false)
+      setOpen(false)
+      onRestored?.(log)
+    }
+
+    restoreMutation.mutate(payload, {
+      onSuccess: (data) => {
+        if (data.status === "waiting") {
+          setWaitingForBro(true)
+          if (!pollRef.current) {
+            pollRef.current = setInterval(() => {
+              if (inFlightRef.current) return
+              inFlightRef.current = true
+              restoreMutation.mutate(payload, {
+                onSuccess: (again) => {
+                  if (again.status === "waiting") return
+                  onDoneWaiting(again.log)
+                },
+                onError: () => {
+                  stopPolling()
+                  setWaitingForBro(false)
+                },
+                onSettled: () => {
+                  inFlightRef.current = false
+                },
+              })
+            }, 3000)
+          }
+          return
+        }
+        onDoneWaiting(data.log)
+      },
+    })
   }
 
   return (
-    <AlertDialog open={open} onOpenChange={setOpen}>
+    <AlertDialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next)
+        if (!next) {
+          stopPolling()
+          setWaitingForBro(false)
+        }
+      }}
+    >
       <AlertDialogTrigger asChild>
         {children || (
           <Button type="button" variant={variant} size={size} className={className}>
@@ -120,6 +172,11 @@ export function HistoryRestoreButton({
                 : "This uploads the backup archive to the remote host and extracts it into the target volume. Existing files in that volume will be overwritten. Images, networks, and compose config are not restored."}
           </AlertDialogDescription>
         </AlertDialogHeader>
+        {waitingForBro ? (
+          <p className="text-sm text-amber-700 dark:text-amber-400">
+            {PEER_RECALL_WAITING_MESSAGE}
+          </p>
+        ) : null}
         <div className="space-y-2 py-2">
           <label htmlFor={`restore-target-${entry.id}`} className="text-sm font-medium">
             {isDatabase ? "Target database name" : isPath ? "Target path" : "Target volume name"}
@@ -139,9 +196,9 @@ export function HistoryRestoreButton({
           <AlertDialogCancel disabled={restoreMutation.isPending}>Cancel</AlertDialogCancel>
           <LoadingButton
             onClick={handleRestore}
-            isLoading={restoreMutation.isPending}
-            loadingText="Restoring..."
-            disabled={!targetName.trim() || restoreMutation.isPending}
+            isLoading={restoreMutation.isPending || waitingForBro}
+            loadingText={waitingForBro ? PEER_RECALL_WAITING_MESSAGE : "Restoring..."}
+            disabled={!targetName.trim() || restoreMutation.isPending || waitingForBro}
           >
             Restore
           </LoadingButton>

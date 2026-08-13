@@ -2,6 +2,10 @@ import { describe, expect, mock, test } from 'bun:test';
 import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
+import {
+  PeerRecallPendingError,
+  PEER_RECALL_WAITING_MESSAGE,
+} from '@/lib/peer/recall-pending';
 
 process.env.NEXT_RUNTIME = 'nodejs';
 
@@ -95,7 +99,7 @@ describe('resolveLocalRestoreArtifact', () => {
     ).rejects.toThrow(/LazyBackup host/i);
   });
 
-  test('local file still resolves when waitForPeerRecall is false', async () => {
+  test('local file still resolves without waiting on peer recall', async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'lazybackup-restore-'));
     const file = path.join(dir, 'dump.sql.gz');
     await fs.writeFile(file, 'sql');
@@ -104,11 +108,42 @@ describe('resolveLocalRestoreArtifact', () => {
         artifactPath: file,
         destinationKind: 'local',
         decrypt: false,
-        waitForPeerRecall: false,
       });
       expect(result.localPath).toBe(file);
     } finally {
       await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('mailbox peer throws PeerRecallPendingError instead of waiting', async () => {
+    let waited = false;
+    mock.module('@/lib/peer/staging', () => ({
+      stagedObjectExists: async () => false,
+      peerStagingObjectPath: () => '/tmp/no-staged-object',
+    }));
+    mock.module('@/lib/peer/recall', () => ({
+      ensureRecall: async () => ({ id: 'rec-wait', status: 'pending' }),
+      waitForRecall: async () => {
+        waited = true;
+        throw new Error('waitForRecall should not be called');
+      },
+      consumeRecallArtifact: async () => {},
+      PeerRecallPendingError,
+    }));
+
+    try {
+      await resolveLocalRestoreArtifact({
+        artifactPath: 'peer://peer1/objects/foo.tar.gz',
+        destinationKind: 'peer',
+        destinationPeer: { id: 'peer1', transport: 'mailbox' } as never,
+        decrypt: false,
+      });
+      throw new Error('expected PeerRecallPendingError');
+    } catch (error) {
+      expect(error).toBeInstanceOf(PeerRecallPendingError);
+      expect((error as PeerRecallPendingError).recallId).toBe('rec-wait');
+      expect((error as Error).message).toBe(PEER_RECALL_WAITING_MESSAGE);
+      expect(waited).toBe(false);
     }
   });
 });
