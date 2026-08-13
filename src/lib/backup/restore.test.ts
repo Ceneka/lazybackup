@@ -35,17 +35,7 @@ mock.module('@/lib/db', () => ({
   },
 }));
 
-mock.module('@/lib/peer/retention', () => ({
-  assertPeerArtifactRestorable: async (
-    _artifactPath: string,
-    _historyId?: string | null
-  ) => {
-    if (historyFixture?.artifactRemoved) {
-      throw new Error('artifact removed by retention');
-    }
-  },
-}));
-
+const recall = await import('@/lib/peer/recall');
 const {
   resolveLocalRestoreArtifact,
   resolveLocalPathRestoreTree,
@@ -149,20 +139,14 @@ describe('resolveLocalRestoreArtifact', () => {
 
   test('mailbox peer throws PeerRecallPendingError instead of waiting', async () => {
     let waited = false;
-    mock.module('@/lib/peer/staging', () => ({
-      stagedObjectExists: async () => false,
-      peerStagingObjectPath: () => '/tmp/no-staged-object',
-      deleteStagedObject: async () => {},
-    }));
     mock.module('@/lib/peer/recall', () => ({
+      ...recall,
       ensureRecall: async () => ({ id: 'rec-wait', status: 'pending' }),
       waitForRecall: async () => {
         waited = true;
         throw new Error('waitForRecall should not be called');
       },
       consumeRecallArtifact: async () => {},
-      PeerRecallPendingError,
-      listObjectKeysWithOpenRecalls: async () => [],
     }));
 
     try {
