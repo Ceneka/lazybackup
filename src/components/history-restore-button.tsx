@@ -12,11 +12,17 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { LoadingButton } from "@/components/ui/loading-button"
-import { canRestoreBackup } from "@/lib/backup/restore-eligibility"
+import {
+  canRestoreBackup,
+  restoreEligibilityFromHistory,
+} from "@/lib/backup/restore-eligibility"
 import { useRestoreBackupHistory } from "@/lib/hooks/useHistory"
+import { useServers } from "@/lib/hooks/useServers"
 import { PEER_RECALL_WAITING_MESSAGE } from "@/lib/peer/recall-pending"
 import { RotateCcwIcon } from "lucide-react"
 import { useEffect, useRef, useState, type ReactNode } from "react"
+
+const LOCAL_HOST_VALUE = "local"
 
 export type HistoryRestoreEntry = {
   id: string
@@ -25,8 +31,11 @@ export type HistoryRestoreEntry = {
   artifactRemoved?: boolean | null
   backupConfig?: {
     sourceType?: string | null
+    sourceKind?: string | null
     sourcePath?: string | null
     destinationKind?: string | null
+    server?: { id?: string | null; name?: string | null } | null
+    destinationServer?: { authType?: string | null } | null
   } | null
 }
 
@@ -50,6 +59,7 @@ export function HistoryRestoreButton({
   onRestored,
 }: HistoryRestoreButtonProps) {
   const restoreMutation = useRestoreBackupHistory()
+  const serversQuery = useServers()
   const [open, setOpen] = useState(false)
   const [targetName, setTargetName] = useState(entry.backupConfig?.sourcePath || "")
   const [waitingForBro, setWaitingForBro] = useState(false)
@@ -57,22 +67,26 @@ export function HistoryRestoreButton({
   const inFlightRef = useRef(false)
 
   const sourceType = entry.backupConfig?.sourceType || "path"
+  const sourceKind = entry.backupConfig?.sourceKind || "server"
   const isDatabase = sourceType === "database"
   const isPath = sourceType === "path"
+  const originalServerId = entry.backupConfig?.server?.id || ""
+  const showHostPicker = sourceKind !== "s3"
+  const defaultHostValue =
+    sourceKind === "local" ? LOCAL_HOST_VALUE : originalServerId || LOCAL_HOST_VALUE
+  const [targetHost, setTargetHost] = useState(defaultHostValue)
 
-  const eligible = canRestoreBackup({
-    status: entry.status,
-    sourceType: entry.backupConfig?.sourceType,
-    destinationKind: entry.backupConfig?.destinationKind,
-    artifactPath: entry.artifactPath,
-    artifactRemoved: entry.artifactRemoved,
-  })
+  const eligible = canRestoreBackup(restoreEligibilityFromHistory(entry))
 
   useEffect(() => {
     if (entry.backupConfig?.sourcePath) {
       setTargetName(entry.backupConfig.sourcePath)
     }
   }, [entry.backupConfig?.sourcePath])
+
+  useEffect(() => {
+    setTargetHost(defaultHostValue)
+  }, [defaultHostValue])
 
   const stopPolling = () => {
     if (pollRef.current) {
@@ -90,16 +104,26 @@ export function HistoryRestoreButton({
   }
 
   const label = isDatabase ? "Restore DB" : isPath ? "Restore path" : "Restore volume"
+  const servers = serversQuery.data || []
+  const selectedServerId = targetHost === LOCAL_HOST_VALUE ? null : targetHost || null
+  const originalHostId = sourceKind === "local" ? null : originalServerId || null
+  const hostChanged = selectedServerId !== originalHostId
 
   const handleRestore = () => {
     const configured = entry.backupConfig?.sourcePath || ""
     const requested = targetName.trim()
-    const allowRetarget = Boolean(requested && configured && requested !== configured)
-    const payload = isDatabase
-      ? { id: entry.id, databaseName: requested || undefined, allowRetarget }
-      : isPath
-        ? { id: entry.id, targetPath: requested || undefined, allowRetarget }
-        : { id: entry.id, volumeName: requested || undefined, allowRetarget }
+    const nameChanged = Boolean(requested && configured && requested !== configured)
+    const allowRetarget = Boolean(nameChanged || hostChanged)
+    const payload = {
+      id: entry.id,
+      allowRetarget,
+      targetServerId: selectedServerId || undefined,
+      ...(isDatabase
+        ? { databaseName: requested || undefined }
+        : isPath
+          ? { targetPath: requested || undefined }
+          : { volumeName: requested || undefined }),
+    }
 
     const onDoneWaiting = (log: string) => {
       stopPolling()
@@ -168,10 +192,10 @@ export function HistoryRestoreButton({
           </AlertDialogTitle>
           <AlertDialogDescription>
             {isDatabase
-              ? "This loads the .sql.gz dump into the target database using the backup’s connection settings. Existing objects may be overwritten or conflict depending on the dump contents."
+              ? "This loads the .sql.gz dump into the target database using the backup’s connection settings. Existing objects may be overwritten or conflict depending on the dump contents. Credentials on a new host may not match — restore will fail clearly rather than using the original box."
               : isPath
-                ? "This copies the backed-up files back onto the source (local path, SSH host, or S3 prefix). Existing files at the target may be overwritten. Artifacts on S3 or Bro are downloaded first; backups that landed only on a remote SSH destination cannot be restored from here."
-                : "This uploads the backup archive to the remote host and extracts it into the target volume. Existing files in that volume will be overwritten. Images, networks, and compose config are not restored."}
+                ? "This copies the backed-up files back onto the source (local path, SSH host, or S3 prefix). Existing files at the target may be overwritten. Artifacts on S3, Bro, or an SSH destination are pulled onto this host first."
+                : "This uploads the backup archive to the target host and extracts it into the target volume. Existing files in that volume will be overwritten. Images, networks, and compose config are not restored."}
           </AlertDialogDescription>
         </AlertDialogHeader>
         {waitingForBro ? (
@@ -180,6 +204,41 @@ export function HistoryRestoreButton({
           </p>
         ) : null}
         <div className="space-y-2 py-2">
+          {showHostPicker ? (
+            <div className="space-y-2">
+              <label htmlFor={`restore-host-${entry.id}`} className="text-sm font-medium">
+                Restore onto
+              </label>
+              <select
+                id={`restore-host-${entry.id}`}
+                value={targetHost}
+                onChange={(e) => setTargetHost(e.target.value)}
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              >
+                {sourceKind === "local" ? (
+                  <option value={LOCAL_HOST_VALUE}>This host</option>
+                ) : originalServerId ? (
+                  <option value={originalServerId}>
+                    {entry.backupConfig?.server?.name || "Original server"}
+                  </option>
+                ) : (
+                  <option value={LOCAL_HOST_VALUE}>This host</option>
+                )}
+                {servers
+                  .filter((server) => server.id !== originalServerId)
+                  .map((server) => (
+                    <option
+                      key={server.id}
+                      value={server.id}
+                      disabled={server.authType !== "key"}
+                    >
+                      {server.name} ({server.host})
+                      {server.authType !== "key" ? " — needs SSH key" : ""}
+                    </option>
+                  ))}
+              </select>
+            </div>
+          ) : null}
           <label htmlFor={`restore-target-${entry.id}`} className="text-sm font-medium">
             {isDatabase ? "Target database name" : isPath ? "Target path" : "Target volume name"}
           </label>

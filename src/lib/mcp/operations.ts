@@ -383,7 +383,12 @@ export async function restoreHistoryOp(
   ctx: McpOpsContext,
   id: string,
   confirm: boolean,
-  opts: { volumeName?: string; databaseName?: string; targetPath?: string }
+  opts: {
+    volumeName?: string
+    databaseName?: string
+    targetPath?: string
+    targetServerId?: string
+  }
 ) {
   if (!confirm) {
     return errorResult('Refusing to restore: pass confirm=true to proceed')
@@ -398,11 +403,15 @@ export async function restoreHistoryOp(
     if (!historyEntry) throw new Error(`History entry not found: ${id}`)
 
     const sourceType = historyEntry.backupConfig?.sourceType || 'path'
+    const allowRetarget = Boolean(
+      opts.databaseName || opts.volumeName || opts.targetPath || opts.targetServerId
+    )
     if (sourceType === 'database') {
       const result = await restoreDatabaseBackup(id, {
         databaseName: opts.databaseName,
         confirm: true,
-        allowRetarget: Boolean(opts.databaseName),
+        allowRetarget,
+        targetServerId: opts.targetServerId,
       })
       return jsonResult({ success: true, database: result.database, log: truncateLog(result.log) })
     }
@@ -410,7 +419,8 @@ export async function restoreHistoryOp(
       const result = await restoreDockerVolumeBackup(id, {
         volumeName: opts.volumeName,
         confirm: true,
-        allowRetarget: Boolean(opts.volumeName),
+        allowRetarget,
+        targetServerId: opts.targetServerId,
       })
       return jsonResult({
         success: true,
@@ -422,7 +432,8 @@ export async function restoreHistoryOp(
       const result = await restorePathBackup(id, {
         targetPath: opts.targetPath,
         confirm: true,
-        allowRetarget: Boolean(opts.targetPath),
+        allowRetarget,
+        targetServerId: opts.targetServerId,
       })
       return jsonResult({
         success: true,

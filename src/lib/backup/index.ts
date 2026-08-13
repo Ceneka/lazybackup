@@ -77,6 +77,7 @@ import {
 import { isBackupArtifactFileName, selectFilesToDelete, type RetentionAgeUnit } from './file-retention';
 import { assertCanStartBackup } from './concurrent-run';
 import { assertTransferServersHaveKeys } from './assert-transfer-keys';
+import { resolveRestoreHost, type ResolvedRestoreHost } from './restore-target';
 import { createBackupHistoryEntry, updateBackupHistoryFailure, updateBackupHistorySuccess } from './history';
 import {
   buildFileRetentionLog,
@@ -299,6 +300,127 @@ async function pullPathFromServer(options: {
     stdout: `SCP Backup Summary:\nNumber of files: ${transferredFiles}\nTotal file size: ${totalSize}\nTotal transferred file size: ${totalSize}`,
     stderr: '',
   };
+}
+
+async function probeRemotePathKind(
+  ssh: Awaited<ReturnType<typeof connectToServer>>,
+  remotePath: string
+): Promise<'file' | 'dir' | 'missing'> {
+  const quoted = remotePath.replace(/'/g, `'\\''`);
+  const probe = await ssh.execCommand(
+    `bash -lc 'p='"'"'${quoted}'"'"'; if test -d "$p"; then echo dir; elif test -e "$p"; then echo file; else echo missing; fi'`
+  );
+  const kind = (probe.stdout || '').trim();
+  if (kind === 'dir' || kind === 'file') return kind;
+  return 'missing';
+}
+
+function assertServerDestPullable(
+  server: ServerRow | null | undefined
+): ServerRow {
+  if (!server) {
+    throw new Error('Destination server is missing; cannot pull the restore artifact');
+  }
+  if (server.authType !== 'key') {
+    throw new Error(
+      `Restore from this SSH destination needs an SSH key on ${server.name?.trim() || 'the dest server'} (password-only cannot pull the artifact).`
+    );
+  }
+  return server;
+}
+
+/**
+ * Pull a dest-server artifact (file or directory tree) onto this host.
+ */
+async function pullServerDestinationArtifact(options: {
+  artifactPath: string;
+  destinationServer?: ServerRow | null;
+}): Promise<{ localPath: string; tempDir: string }> {
+  const server = assertServerDestPullable(options.destinationServer);
+  const serverConfig = normalizeServer(server);
+  let ssh: Awaited<ReturnType<typeof connectToServer>> | null = null;
+  let cleanupIdentity: (() => Promise<void>) | undefined;
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'lazybackup-ssh-restore-'));
+
+  try {
+    ssh = await connectToServer(serverConfig);
+    const privateKey = await resolvePrivateKeyForServer(serverConfig);
+    const { path: keyPath, cleanup } = await writeTemporarySshIdentityFile(privateKey);
+    cleanupIdentity = cleanup;
+
+    const kind = await probeRemotePathKind(ssh, options.artifactPath);
+    if (kind === 'missing') {
+      throw new Error(`Backup artifact not found on dest server: ${options.artifactPath}`);
+    }
+
+    if (kind === 'dir') {
+      const localPath = path.join(
+        tempDir,
+        path.basename(options.artifactPath.replace(/\/+$/, '')) || 'tree'
+      );
+      await fs.mkdir(localPath, { recursive: true });
+      await pullPathFromServer({
+        ssh,
+        server,
+        remotePath: options.artifactPath,
+        localDestination: localPath,
+        keyPath,
+        excludePatterns: [],
+      });
+      return { localPath, tempDir };
+    }
+
+    const localPath = path.join(tempDir, path.basename(options.artifactPath) || 'artifact');
+    const { rsyncAvailable, scpAvailable } = await getBackupTransportCapabilities(ssh);
+    await pullFileFromRemote({
+      remotePath: options.artifactPath,
+      localPath,
+      username: server.username,
+      host: server.host,
+      port: server.port,
+      identityKeyPath: keyPath,
+      rsyncAvailable,
+      scpAvailable,
+    });
+    return { localPath, tempDir };
+  } catch (error) {
+    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    throw error;
+  } finally {
+    await cleanupIdentity?.();
+    ssh?.dispose();
+  }
+}
+
+async function resolveRestoreTargetServerRow(
+  host: ResolvedRestoreHost,
+  original: ServerRow | null | undefined
+): Promise<ServerRow> {
+  if (host.kind !== 'server' || !host.serverId) {
+    throw new Error('Source server is missing; cannot restore onto a remote host');
+  }
+  const originalMatch = original && original.id === host.serverId ? original : null;
+  const row =
+    originalMatch ||
+    (await db.query.servers.findFirst({
+      where: eq(servers.id, host.serverId),
+    }));
+  if (!row) {
+    throw new Error(`Target server not found: ${host.serverId}`);
+  }
+  if (row.authType !== 'key') {
+    throw new Error(
+      `Restore onto ${row.name?.trim() || 'the target server'} needs SSH key authentication (password-only cannot push the artifact).`
+    );
+  }
+  return row;
+}
+
+function restoreRetargetHostError(serverName: string, error: unknown): Error {
+  const detail = error instanceof Error ? error.message : String(error);
+  return new Error(
+    `Restore on ${serverName} failed using this job’s connection settings (credentials or docker may not exist on the new host): ${detail}`
+  );
 }
 
 async function pushPathToServer(options: {
@@ -1648,7 +1770,7 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
 
 /**
  * Ensure a restore artifact is available as a local file (decrypted if `.age`).
- * Downloads from S3 or peer when needed; otherwise verifies local path.
+ * Downloads from S3, peer, or SSH dest when needed; otherwise verifies local path.
  * Caller must delete returned tempDir if set.
  */
 export async function resolveLocalRestoreArtifact(options: {
@@ -1656,6 +1778,7 @@ export async function resolveLocalRestoreArtifact(options: {
   destinationKind?: string | null;
   destinationS3Profile?: S3ProfileRow | null;
   destinationPeer?: PeerRow | null;
+  destinationServer?: ServerRow | null;
   /** When true (default), decrypt `.age` artifacts with the instance identity */
   decrypt?: boolean;
   expectedSha256?: string | null;
@@ -1740,15 +1863,29 @@ export async function resolveLocalRestoreArtifact(options: {
       await openPeerTemp();
       await downloadPeerObject(peer, objectKey, localPath);
     }
+  } else if (kind === 'server') {
+    const pulled = await pullServerDestinationArtifact({
+      artifactPath: options.artifactPath,
+      destinationServer: options.destinationServer,
+    });
+    localPath = pulled.localPath;
+    tempDir = pulled.tempDir;
   } else {
     throw new Error(
-      'Restore is only supported when the backup destination is on the LazyBackup host, S3, or a bro peer'
+      'Restore is only supported when the backup destination is on the LazyBackup host, S3, a bro peer, or an SSH server with key auth'
     );
   }
 
-  await assertFileSha256(localPath, options.expectedSha256, 'restore artifact');
+  const localStat = await fs.stat(localPath).catch(() => null);
+  if (localStat?.isFile()) {
+    await assertFileSha256(localPath, options.expectedSha256, 'restore artifact');
+  }
 
-  if (options.decrypt !== false && isAgeEncryptedPath(localPath)) {
+  if (
+    options.decrypt !== false &&
+    localStat?.isFile() &&
+    isAgeEncryptedPath(localPath)
+  ) {
     const identities = await requireDecryptIdentities();
     const decryptDir =
       tempDir || (await fs.mkdtemp(path.join(os.tmpdir(), 'lazybackup-decrypt-')));
@@ -1796,6 +1933,7 @@ export async function resolveLocalPathRestoreTree(options: {
   destinationKind?: string | null;
   destinationS3Profile?: S3ProfileRow | null;
   destinationPeer?: PeerRow | null;
+  destinationServer?: ServerRow | null;
   expectedSha256?: string | null;
   historyId?: string | null;
 }): Promise<{ treePath: string; tempDir: string | null }> {
@@ -1837,7 +1975,7 @@ export async function resolveLocalPathRestoreTree(options: {
       }
       return { treePath: tempDir, tempDir };
     }
-  } else if (kind === 'peer') {
+  } else if (kind === 'peer' || kind === 'server') {
     const resolved = await resolveLocalRestoreArtifact({
       ...options,
       decrypt: false,
@@ -1846,7 +1984,7 @@ export async function resolveLocalPathRestoreTree(options: {
     tempDir = resolved.tempDir;
   } else {
     throw new Error(
-      'Path restore is only supported when the backup destination is on the LazyBackup host, S3, or a bro peer'
+      'Path restore is only supported when the backup destination is on the LazyBackup host, S3, a bro peer, or an SSH server with key auth'
     );
   }
 
@@ -1893,6 +2031,8 @@ export type RestoreTargetOptions = {
   databaseName?: string;
   /** Absolute or ~ path on local / remote source for path restores */
   targetPath?: string;
+  /** Restore onto this server instead of the original source (or onto SSH from a local source). */
+  targetServerId?: string | null;
 };
 
 function resolveRestoreTarget(
@@ -1914,8 +2054,8 @@ function resolveRestoreTarget(
 }
 
 /**
- * Restore a successful Docker volume backup onto the remote server.
- * Artifact must be local or downloadable from S3.
+ * Restore a successful Docker volume backup onto the original source or a retargeted host.
+ * Artifact must be local or downloadable from S3, Bro, or an SSH dest with key auth.
  */
 export async function restoreDockerVolumeBackup(
   historyId: string,
@@ -1960,11 +2100,6 @@ export async function restoreDockerVolumeBackup(
     throw new Error('This backup has no stored artifact path and cannot be restored');
   }
 
-  const sourceKind = config.sourceKind || 'server';
-  if (sourceKind !== 'local' && !config.server) {
-    throw new Error('Source server is missing; cannot restore Docker volume');
-  }
-
   const restoreOpts: RestoreTargetOptions =
     typeof volumeNameOrOptions === 'string'
       ? { volumeName: volumeNameOrOptions }
@@ -1975,17 +2110,25 @@ export async function restoreDockerVolumeBackup(
     restoreOpts,
     'volume'
   );
+  const host = resolveRestoreHost({
+    sourceKind: config.sourceKind,
+    originalServerId: config.serverId || config.server?.id,
+    targetServerId: restoreOpts.targetServerId,
+    allowRetarget: restoreOpts.allowRetarget,
+    confirm: restoreOpts.confirm,
+  });
   const { localPath: artifactPath, tempDir: downloadTempDir } =
     await resolveLocalRestoreArtifact({
       artifactPath: historyEntry.artifactPath,
       destinationKind: config.destinationKind,
       destinationS3Profile: config.destinationS3Profile,
       destinationPeer: config.destinationPeer,
+      destinationServer: config.destinationServer,
       expectedSha256: historyEntry.artifactSha256,
       historyId: historyEntry.id,
     });
 
-  if (sourceKind === 'local') {
+  if (host.kind === 'local') {
     let localTmpDir: string | null = null;
     try {
       const restored = await restoreDockerVolumeLocal(targetVolume, artifactPath);
@@ -1995,7 +2138,7 @@ export async function restoreDockerVolumeBackup(
         '',
         `Volume: ${targetVolume}`,
         `Artifact: ${historyEntry.artifactPath}`,
-        downloadTempDir ? 'Downloaded artifact from S3 for restore' : '',
+        downloadTempDir ? 'Materialized artifact on this host for restore' : '',
         restored.stdout?.trim() ? `--- extract stdout ---\n${restored.stdout.trim()}` : '',
         restored.stderr?.trim() ? `--- extract stderr ---\n${restored.stderr.trim()}` : '',
         'Restore completed successfully.',
@@ -2013,7 +2156,8 @@ export async function restoreDockerVolumeBackup(
     }
   }
 
-  const serverConfig = normalizeServer(config.server!);
+  const targetServer = await resolveRestoreTargetServerRow(host, config.server);
+  const serverConfig = normalizeServer(targetServer);
 
   let ssh: Awaited<ReturnType<typeof connectToServer>> | null = null;
   let cleanupIdentity: (() => Promise<void>) | undefined;
@@ -2042,22 +2186,31 @@ export async function restoreDockerVolumeBackup(
     const push = await pushFileToRemote({
       localPath: artifactPath,
       remotePath: remoteTarPath,
-      username: config.server.username,
-      host: config.server.host,
-      port: config.server.port,
+      username: targetServer.username,
+      host: targetServer.host,
+      port: targetServer.port,
       identityKeyPath: keyPath,
       rsyncAvailable,
       scpAvailable,
     });
 
-    const restored = await restoreDockerVolume(ssh, targetVolume, remoteTarPath, remoteTmpDir);
+    let restored: Awaited<ReturnType<typeof restoreDockerVolume>>;
+    try {
+      restored = await restoreDockerVolume(ssh, targetVolume, remoteTarPath, remoteTmpDir);
+    } catch (error) {
+      if (host.retargeted) {
+        throw restoreRetargetHostError(targetServer.name, error);
+      }
+      throw error;
+    }
 
     const log = [
       LOG_SECTION.restore,
       '',
       `Volume: ${targetVolume}`,
+      `Host: ${targetServer.name} (${targetServer.host})`,
       `Artifact: ${historyEntry.artifactPath}`,
-      downloadTempDir ? 'Downloaded artifact from S3 for restore' : '',
+      downloadTempDir ? 'Materialized artifact on this host for restore' : '',
       `Transfer: ${push.method}`,
       push.stdout?.trim() ? `--- push stdout ---\n${push.stdout.trim()}` : '',
       push.stderr?.trim() ? `--- push stderr ---\n${push.stderr.trim()}` : '',
@@ -2082,8 +2235,9 @@ export async function restoreDockerVolumeBackup(
 }
 
 /**
- * Restore a successful database dump onto the source (local or SSH) using config connection settings.
- * Artifact must be local or downloadable from S3.
+ * Restore a successful database dump onto the original source or a retargeted host
+ * using this job’s connection settings. Artifact must be local or downloadable from
+ * S3, Bro, or an SSH dest with key auth.
  */
 export async function restoreDatabaseBackup(
   historyId: string,
@@ -2138,6 +2292,13 @@ export async function restoreDatabaseBackup(
     restoreOpts,
     'database'
   );
+  const host = resolveRestoreHost({
+    sourceKind: config.sourceKind,
+    originalServerId: config.serverId || config.server?.id,
+    targetServerId: restoreOpts.targetServerId,
+    allowRetarget: restoreOpts.allowRetarget,
+    confirm: restoreOpts.confirm,
+  });
 
   const { localPath: artifactPath, tempDir: downloadTempDir } =
     await resolveLocalRestoreArtifact({
@@ -2145,6 +2306,7 @@ export async function restoreDatabaseBackup(
       destinationKind: config.destinationKind,
       destinationS3Profile: config.destinationS3Profile,
       destinationPeer: config.destinationPeer,
+      destinationServer: config.destinationServer,
       expectedSha256: historyEntry.artifactSha256,
       historyId: historyEntry.id,
     });
@@ -2153,10 +2315,9 @@ export async function restoreDatabaseBackup(
     ...config,
     sourcePath: targetDatabase,
   });
-  const sourceKind = config.sourceKind || 'server';
 
   try {
-    if (sourceKind === 'local') {
+    if (host.kind === 'local') {
       const restored = await restoreDatabaseLocal(dbConn, artifactPath);
       const log = [
         LOG_SECTION.restore,
@@ -2165,7 +2326,7 @@ export async function restoreDatabaseBackup(
         `Database: ${dbConn.database}`,
         `Client: ${dbConn.client}`,
         `Artifact: ${historyEntry.artifactPath}`,
-        downloadTempDir ? 'Downloaded artifact from S3 for restore' : '',
+        downloadTempDir ? 'Materialized artifact on this host for restore' : '',
         restored.stdout?.trim() ? `--- restore stdout ---\n${restored.stdout.trim()}` : '',
         restored.stderr?.trim() ? `--- restore stderr ---\n${restored.stderr.trim()}` : '',
         'Restore completed successfully.',
@@ -2175,11 +2336,8 @@ export async function restoreDatabaseBackup(
       return { log, database: dbConn.database };
     }
 
-    if (!config.server) {
-      throw new Error('Source server is missing; cannot restore database');
-    }
-
-    const serverConfig = normalizeServer(config.server);
+    const targetServer = await resolveRestoreTargetServerRow(host, config.server);
+    const serverConfig = normalizeServer(targetServer);
     let ssh: Awaited<ReturnType<typeof connectToServer>> | null = null;
     let cleanupIdentity: (() => Promise<void>) | undefined;
     let remoteTmpDir: string | null = null;
@@ -2208,15 +2366,23 @@ export async function restoreDatabaseBackup(
       const push = await pushFileToRemote({
         localPath: artifactPath,
         remotePath: remoteArchivePath,
-        username: config.server.username,
-        host: config.server.host,
-        port: config.server.port,
+        username: targetServer.username,
+        host: targetServer.host,
+        port: targetServer.port,
         identityKeyPath: keyPath,
         rsyncAvailable,
         scpAvailable,
       });
 
-      const restored = await restoreDatabaseRemote(ssh, dbConn, remoteArchivePath);
+      let restored: Awaited<ReturnType<typeof restoreDatabaseRemote>>;
+      try {
+        restored = await restoreDatabaseRemote(ssh, dbConn, remoteArchivePath);
+      } catch (error) {
+        if (host.retargeted) {
+          throw restoreRetargetHostError(targetServer.name, error);
+        }
+        throw error;
+      }
 
       const log = [
         LOG_SECTION.restore,
@@ -2224,8 +2390,9 @@ export async function restoreDatabaseBackup(
         `Engine: ${dbConn.engine}`,
         `Database: ${dbConn.database}`,
         `Client: ${dbConn.client}`,
+        `Host: ${targetServer.name} (${targetServer.host})`,
         `Artifact: ${historyEntry.artifactPath}`,
-        downloadTempDir ? 'Downloaded artifact from S3 for restore' : '',
+        downloadTempDir ? 'Materialized artifact on this host for restore' : '',
         `Transfer: ${push.method}`,
         push.stdout?.trim() ? `--- push stdout ---\n${push.stdout.trim()}` : '',
         push.stderr?.trim() ? `--- push stderr ---\n${push.stderr.trim()}` : '',
@@ -2252,8 +2419,9 @@ export async function restoreDatabaseBackup(
 }
 
 /**
- * Restore a successful path backup onto the original source (local path, SSH path, or S3 prefix).
- * Artifact must be on this host, in S3, or on a bro peer (not a remote SSH destination).
+ * Restore a successful path backup onto the original source or a retargeted host
+ * (local path, SSH path, or S3 prefix). Artifact must be on this host, in S3, on a
+ * bro peer, or on an SSH destination with key auth.
  */
 export async function restorePathBackup(
   historyId: string,
@@ -2305,21 +2473,28 @@ export async function restorePathBackup(
     options,
     'path'
   );
+  const host = resolveRestoreHost({
+    sourceKind: config.sourceKind,
+    originalServerId: config.serverId || config.server?.id,
+    targetServerId: options?.targetServerId,
+    allowRetarget: options?.allowRetarget,
+    confirm: options?.confirm,
+  });
 
   const { treePath, tempDir } = await resolveLocalPathRestoreTree({
     artifactPath: historyEntry.artifactPath,
     destinationKind: config.destinationKind,
     destinationS3Profile: config.destinationS3Profile,
     destinationPeer: config.destinationPeer,
+    destinationServer: config.destinationServer,
     expectedSha256: historyEntry.artifactSha256,
     historyId: historyEntry.id,
   });
 
-  const sourceKind = config.sourceKind || 'server';
   const transferLines: string[] = [];
 
   try {
-    if (sourceKind === 'local') {
+    if (host.kind === 'local') {
       const dest = expandLocalPath(targetPath);
       const copied = await localPathCopy(treePath, dest, []);
       transferLines.push(
@@ -2327,11 +2502,9 @@ export async function restorePathBackup(
         copied.stdout?.trim() ? `--- rsync stdout ---\n${copied.stdout.trim()}` : '',
         copied.stderr?.trim() ? `--- rsync stderr ---\n${copied.stderr.trim()}` : ''
       );
-    } else if (sourceKind === 'server') {
-      if (!config.server) {
-        throw new Error('Source server is missing; cannot restore path backup');
-      }
-      const serverConfig = normalizeServer(config.server);
+    } else if (host.kind === 'server') {
+      const targetServer = await resolveRestoreTargetServerRow(host, config.server);
+      const serverConfig = normalizeServer(targetServer);
       let ssh: Awaited<ReturnType<typeof connectToServer>> | null = null;
       let cleanupIdentity: (() => Promise<void>) | undefined;
       try {
@@ -2342,14 +2515,15 @@ export async function restorePathBackup(
         cleanupIdentity = cleanupKeyFile;
         const push = await pushPathToServer({
           ssh,
-          server: config.server,
+          server: targetServer,
           localSource: treePath,
           remoteDestination: targetPath,
           keyPath,
           excludePatterns: [],
         });
         transferLines.push(
-          `Remote restore: ${treePath} → ${config.server.host}:${targetPath}`,
+          `Remote restore: ${treePath} → ${targetServer.host}:${targetPath}`,
+          `Host: ${targetServer.name}`,
           `Transfer: ${push.method}`,
           push.stdout?.trim() ? `--- push stdout ---\n${push.stdout.trim()}` : '',
           push.stderr?.trim() ? `--- push stderr ---\n${push.stderr.trim()}` : ''
@@ -2358,7 +2532,7 @@ export async function restorePathBackup(
         await cleanupIdentity?.();
         ssh?.dispose();
       }
-    } else if (sourceKind === 's3') {
+    } else if (host.kind === 's3') {
       if (!config.sourceS3Profile) {
         throw new Error('Source S3 profile is missing; cannot restore path backup');
       }
@@ -2371,13 +2545,13 @@ export async function restorePathBackup(
         `Total size: ${uploaded.totalSize} bytes`
       );
     } else {
-      throw new Error(`Unsupported source kind for path restore: ${sourceKind}`);
+      throw new Error(`Unsupported restore host kind: ${host.kind}`);
     }
 
     const log = [
       LOG_SECTION.restore,
       '',
-      `Source kind: ${sourceKind}`,
+      `Restore host: ${host.kind}`,
       `Target path: ${targetPath}`,
       `Artifact: ${historyEntry.artifactPath}`,
       tempDir ? 'Materialized artifact on this host for restore' : '',

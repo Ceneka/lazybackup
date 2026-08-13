@@ -4,6 +4,7 @@ import {
   contentDispositionAttachment,
   downloadFilenameForLocalPath,
   restoreBlockedReason,
+  restoreEligibilityFromHistory,
 } from '@/lib/backup/restore-eligibility';
 import { db } from '@/lib/db';
 import { backupHistory } from '@/lib/db/schema';
@@ -73,6 +74,7 @@ export async function GET(
           with: {
             destinationS3Profile: true,
             destinationPeer: true,
+            destinationServer: true,
           },
         },
       },
@@ -86,13 +88,7 @@ export async function GET(
     }
 
     const config = historyEntry.backupConfig;
-    const eligibility = {
-      status: historyEntry.status,
-      sourceType: config?.sourceType,
-      destinationKind: config?.destinationKind,
-      artifactPath: historyEntry.artifactPath,
-      artifactRemoved: historyEntry.artifactRemoved,
-    };
+    const eligibility = restoreEligibilityFromHistory(historyEntry);
 
     if (!canDownloadBackup(eligibility)) {
       return NextResponse.json(
@@ -117,6 +113,7 @@ export async function GET(
       destinationKind: config?.destinationKind,
       destinationS3Profile: config?.destinationS3Profile,
       destinationPeer: config?.destinationPeer,
+      destinationServer: config?.destinationServer,
       expectedSha256: historyEntry.artifactSha256,
       historyId: historyEntry.id,
       decrypt: false,

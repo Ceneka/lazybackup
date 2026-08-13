@@ -30,6 +30,7 @@ import { splitBackupLog } from "@/lib/backup/log-format"
 import {
   canRestoreBackup,
   restoreBlockedReason,
+  restoreEligibilityFromHistory,
 } from "@/lib/backup/restore-eligibility"
 import { useDeleteHistory, useHistoryDetail } from "@/lib/hooks/useHistory"
 import { formatBytes } from "@/lib/utils"
@@ -71,21 +72,9 @@ export default function HistoryDetailPage() {
     })
   }
 
-  const canRestore = canRestoreBackup({
-    status: query.data?.status,
-    sourceType: query.data?.backupConfig?.sourceType,
-    destinationKind: query.data?.backupConfig?.destinationKind,
-    artifactPath: query.data?.artifactPath,
-    artifactRemoved: query.data?.artifactRemoved,
-  })
-
-  const restoreBlockReason = restoreBlockedReason({
-    status: query.data?.status,
-    sourceType: query.data?.backupConfig?.sourceType,
-    destinationKind: query.data?.backupConfig?.destinationKind,
-    artifactPath: query.data?.artifactPath,
-    artifactRemoved: query.data?.artifactRemoved,
-  })
+  const eligibility = query.data ? restoreEligibilityFromHistory(query.data) : null
+  const canRestore = eligibility ? canRestoreBackup(eligibility) : false
+  const restoreBlockReason = eligibility ? restoreBlockedReason(eligibility) : null
 
   const restoreSourceType = query.data?.backupConfig?.sourceType || "path"
   const restoreLabel =

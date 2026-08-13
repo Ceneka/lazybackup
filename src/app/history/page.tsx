@@ -31,7 +31,7 @@ import {
   TableHeader,
   TableRow
 } from "@/components/ui/table"
-import { canRestoreBackup } from "@/lib/backup/restore-eligibility"
+import { canRestoreBackup, restoreEligibilityFromHistory } from "@/lib/backup/restore-eligibility"
 import { useDeleteHistory, usePaginatedHistory } from "@/lib/hooks/useHistory"
 import { formatBytes } from "@/lib/utils"
 import { format, formatDistance } from "date-fns"
@@ -246,13 +246,7 @@ function HistoryPageContent() {
               </TableHeader>
               <TableBody>
                 {data?.history?.map((item: any) => {
-                  const showRestore = canRestoreBackup({
-                    status: item.status,
-                    sourceType: item.backupConfig?.sourceType,
-                    destinationKind: item.backupConfig?.destinationKind,
-                    artifactPath: item.artifactPath,
-                    artifactRemoved: item.artifactRemoved,
-                  })
+                  const showRestore = canRestoreBackup(restoreEligibilityFromHistory(item))
                   return (
                   <TableRow key={item.id}>
                     <TableCell>

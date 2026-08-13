@@ -7,6 +7,8 @@ export const restoreHistorySchema = z.object({
   volumeName: z.string().min(1).optional(),
   databaseName: z.string().min(1).optional(),
   targetPath: z.string().min(1).optional(),
+  /** Restore onto this server instead of the original source (or onto SSH from a local source). */
+  targetServerId: z.string().min(1).nullable().optional(),
 });
 
 export const RESTORE_CONFIRM_REQUIRED =

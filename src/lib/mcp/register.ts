@@ -292,17 +292,26 @@ Setting or changing preBackupCommands requires remote_exec.`,
     {
       title: 'Restore history',
       description:
-        'Restore a successful path, database, or docker_volume backup. Requires confirm=true. Optional targetPath, volumeName, or databaseName overrides.',
+        'Restore a successful path, database, or docker_volume backup. Requires confirm=true. Optional targetPath, volumeName, databaseName, or targetServerId overrides (retarget).',
       inputSchema: z.object({
         id: z.string().describe('History entry id'),
         confirm: z.boolean(),
         targetPath: z.string().optional(),
         volumeName: z.string().optional(),
         databaseName: z.string().optional(),
+        targetServerId: z
+          .string()
+          .optional()
+          .describe('Restore onto this server instead of the original source'),
       }),
     },
-    async ({ id, confirm, targetPath, volumeName, databaseName }) =>
-      ops.restoreHistoryOp(c, id, confirm, { targetPath, volumeName, databaseName })
+    async ({ id, confirm, targetPath, volumeName, databaseName, targetServerId }) =>
+      ops.restoreHistoryOp(c, id, confirm, {
+        targetPath,
+        volumeName,
+        databaseName,
+        targetServerId,
+      })
   )
 
   server.registerTool(

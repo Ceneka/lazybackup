@@ -35,7 +35,7 @@ export async function POST(
         { status: 400 }
       );
     }
-    const { volumeName, databaseName, targetPath, allowRetarget } =
+    const { volumeName, databaseName, targetPath, allowRetarget, targetServerId } =
       restoreHistorySchema.parse(body);
 
     const historyEntry = await db.query.backupHistory.findFirst({
@@ -57,6 +57,7 @@ export async function POST(
         databaseName,
         confirm: true,
         allowRetarget,
+        targetServerId,
       });
       return NextResponse.json({
         success: true,
@@ -76,6 +77,7 @@ export async function POST(
         volumeName,
         confirm: true,
         allowRetarget,
+        targetServerId,
       });
       return NextResponse.json({
         success: true,
@@ -89,6 +91,7 @@ export async function POST(
         targetPath,
         confirm: true,
         allowRetarget,
+        targetServerId,
       });
       return NextResponse.json({
         success: true,

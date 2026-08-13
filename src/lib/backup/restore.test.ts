@@ -28,7 +28,21 @@ mock.module('@/lib/db', () => ({
       peerDeletes: {
         findFirst: async () => null,
       },
+      servers: {
+        findFirst: async () => null,
+      },
     },
+  },
+}));
+
+mock.module('@/lib/peer/retention', () => ({
+  assertPeerArtifactRestorable: async (
+    _artifactPath: string,
+    _historyId?: string | null
+  ) => {
+    if (historyFixture?.artifactRemoved) {
+      throw new Error('artifact removed by retention');
+    }
   },
 }));
 
@@ -94,13 +108,27 @@ describe('resolveLocalRestoreArtifact', () => {
     }
   });
 
-  test('rejects server destination kind', async () => {
+  test('rejects password-only SSH destination', async () => {
+    await expect(
+      resolveLocalRestoreArtifact({
+        artifactPath: '/tmp/x.tar.gz',
+        destinationKind: 'server',
+        destinationServer: {
+          id: 's1',
+          name: 'Offsite',
+          authType: 'password',
+        } as never,
+      })
+    ).rejects.toThrow(/password-only|SSH key/i);
+  });
+
+  test('rejects SSH destination when dest server is missing', async () => {
     await expect(
       resolveLocalRestoreArtifact({
         artifactPath: '/tmp/x.tar.gz',
         destinationKind: 'server',
       })
-    ).rejects.toThrow(/LazyBackup host/i);
+    ).rejects.toThrow(/Destination server is missing/i);
   });
 
   test('local file still resolves without waiting on peer recall', async () => {
@@ -124,6 +152,7 @@ describe('resolveLocalRestoreArtifact', () => {
     mock.module('@/lib/peer/staging', () => ({
       stagedObjectExists: async () => false,
       peerStagingObjectPath: () => '/tmp/no-staged-object',
+      deleteStagedObject: async () => {},
     }));
     mock.module('@/lib/peer/recall', () => ({
       ensureRecall: async () => ({ id: 'rec-wait', status: 'pending' }),
@@ -133,6 +162,7 @@ describe('resolveLocalRestoreArtifact', () => {
       },
       consumeRecallArtifact: async () => {},
       PeerRecallPendingError,
+      listObjectKeysWithOpenRecalls: async () => [],
     }));
 
     try {
@@ -282,6 +312,28 @@ describe('restoreDockerVolumeBackup guards', () => {
       restoreDockerVolumeBackup('h1', { confirm: true, volumeName: 'other' })
     ).rejects.toThrow(/allowRetarget/i);
   });
+
+  test('requires allowRetarget to restore onto a different server', async () => {
+    historyFixture = {
+      id: 'h1',
+      status: 'success',
+      artifactPath: '/tmp/x.tar.gz',
+      backupConfig: {
+        sourceType: 'docker_volume',
+        sourceKind: 'server',
+        sourcePath: 'vol',
+        destinationKind: 'local',
+        serverId: 's1',
+        server: { id: 's1', host: 'h', port: 22, username: 'u', authType: 'key' },
+      },
+    };
+    await expect(
+      restoreDockerVolumeBackup('h1', {
+        confirm: true,
+        targetServerId: 's2',
+      })
+    ).rejects.toThrow(/allowRetarget/i);
+  });
 });
 
 describe('restoreDatabaseBackup guards', () => {
@@ -305,6 +357,25 @@ describe('restoreDatabaseBackup guards', () => {
       },
     };
     await expect(restoreDatabaseBackup('h1')).rejects.toThrow(/database backups/i);
+  });
+
+  test('requires allowRetarget to restore a database onto a different server', async () => {
+    historyFixture = {
+      id: 'h1',
+      status: 'success',
+      artifactPath: '/tmp/x.sql.gz',
+      backupConfig: {
+        sourceType: 'database',
+        sourceKind: 'server',
+        sourcePath: 'app',
+        destinationKind: 'local',
+        serverId: 's1',
+        server: { id: 's1', host: 'h', port: 22, username: 'u', authType: 'key' },
+      },
+    };
+    await expect(
+      restoreDatabaseBackup('h1', { confirm: true, targetServerId: 's2' })
+    ).rejects.toThrow(/allowRetarget/i);
   });
 });
 
@@ -371,6 +442,25 @@ describe('restorePathBackup guards and local restore', () => {
       },
     };
     await expect(restorePathBackup('h1')).rejects.toThrow(/confirm=true/i);
+  });
+
+  test('requires allowRetarget to restore a path onto a different server', async () => {
+    historyFixture = {
+      id: 'h1',
+      status: 'success',
+      artifactPath: '/tmp/x',
+      backupConfig: {
+        sourceType: 'path',
+        sourceKind: 'server',
+        sourcePath: '/data',
+        destinationKind: 'local',
+        serverId: 's1',
+        server: { id: 's1', host: 'h', port: 22, username: 'u', authType: 'key' },
+      },
+    };
+    await expect(
+      restorePathBackup('h1', { confirm: true, targetServerId: 's2' })
+    ).rejects.toThrow(/allowRetarget/i);
   });
 
   test('throws when sourceType is not path', async () => {

@@ -2,7 +2,7 @@
 
 import { detailActionGhostClassName } from "@/components/ui/detail-actions"
 import { Button } from "@/components/ui/button"
-import { canDownloadBackup } from "@/lib/backup/restore-eligibility"
+import { canDownloadBackup, restoreEligibilityFromHistory } from "@/lib/backup/restore-eligibility"
 import { PEER_RECALL_WAITING_MESSAGE } from "@/lib/peer/recall-pending"
 import { cn } from "@/lib/utils"
 import { DownloadIcon } from "lucide-react"
@@ -49,12 +49,7 @@ export function HistoryDownloadButton({
   variant = "detail",
   className,
 }: HistoryDownloadButtonProps) {
-  const eligible = canDownloadBackup({
-    status: entry.status,
-    sourceType: entry.backupConfig?.sourceType,
-    destinationKind: entry.backupConfig?.destinationKind,
-    artifactPath: entry.artifactPath,
-  })
+  const eligible = canDownloadBackup(restoreEligibilityFromHistory(entry))
   const [waiting, setWaiting] = useState(false)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const inFlightRef = useRef(false)

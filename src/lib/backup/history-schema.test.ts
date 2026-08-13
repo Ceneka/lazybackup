@@ -23,12 +23,26 @@ describe('restoreHistorySchema', () => {
         volumeName: 'data',
         databaseName: 'app',
         allowRetarget: true,
+        targetServerId: 'srv-2',
       })
     ).toEqual({
       confirm: true,
       volumeName: 'data',
       databaseName: 'app',
       allowRetarget: true,
+      targetServerId: 'srv-2',
+    });
+  });
+
+  test('accepts null targetServerId', () => {
+    expect(
+      restoreHistorySchema.parse({
+        confirm: true,
+        targetServerId: null,
+      })
+    ).toEqual({
+      confirm: true,
+      targetServerId: null,
     });
   });
 });

@@ -134,12 +134,14 @@ export function useRestoreBackupHistory() {
       databaseName,
       targetPath,
       allowRetarget,
+      targetServerId,
     }: {
       id: string
       volumeName?: string
       databaseName?: string
       targetPath?: string
       allowRetarget?: boolean
+      targetServerId?: string | null
     }) => {
       const res = await fetch(`/api/history/${id}/restore`, {
         method: "POST",
@@ -150,6 +152,7 @@ export function useRestoreBackupHistory() {
           databaseName,
           targetPath,
           allowRetarget,
+          targetServerId,
         }),
       })
 

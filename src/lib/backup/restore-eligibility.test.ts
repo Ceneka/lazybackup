@@ -7,6 +7,7 @@ import {
   downloadFilenameForLocalPath,
   downloadFilenameFromArtifactPath,
   restoreBlockedReason,
+  restoreEligibilityFromHistory,
 } from './restore-eligibility';
 
 describe('canRestoreDockerVolumeBackup', () => {
@@ -31,7 +32,7 @@ describe('canRestoreDockerVolumeBackup', () => {
     ).toBe(true);
   });
 
-  test('blocks remote server destination even with artifact path', () => {
+  test('blocks remote server destination without key auth', () => {
     expect(
       canRestoreDockerVolumeBackup({
         status: 'success',
@@ -40,6 +41,36 @@ describe('canRestoreDockerVolumeBackup', () => {
         artifactPath: '/remote/path/vol.tar.gz',
       })
     ).toBe(false);
+    expect(
+      canRestoreDockerVolumeBackup({
+        status: 'success',
+        sourceType: 'docker_volume',
+        destinationKind: 'server',
+        artifactPath: '/remote/path/vol.tar.gz',
+        destinationAuthType: 'password',
+      })
+    ).toBe(false);
+  });
+
+  test('allows SSH destination with key auth', () => {
+    expect(
+      canRestoreDockerVolumeBackup({
+        status: 'success',
+        sourceType: 'docker_volume',
+        destinationKind: 'server',
+        artifactPath: '/remote/path/vol.tar.gz',
+        destinationAuthType: 'key',
+      })
+    ).toBe(true);
+    expect(
+      canRestoreBackup({
+        status: 'success',
+        sourceType: 'path',
+        destinationKind: 'server',
+        artifactPath: '/remote/tree',
+        destinationAuthType: 'key',
+      })
+    ).toBe(true);
   });
 
   test('allows S3 destination with artifact path', () => {
@@ -83,13 +114,14 @@ describe('canRestoreDockerVolumeBackup', () => {
     ).toBe(true);
   });
 
-  test('blocks path restore when destination is remote SSH', () => {
+  test('blocks path restore when SSH dest is password-only', () => {
     expect(
       canRestoreBackup({
         status: 'success',
         sourceType: 'path',
         destinationKind: 'server',
         artifactPath: '/remote/tree',
+        destinationAuthType: 'password',
       })
     ).toBe(false);
   });
@@ -117,18 +149,19 @@ describe('canRestoreDockerVolumeBackup', () => {
 });
 
 describe('restoreBlockedReason', () => {
-  test('explains remote server destination', () => {
+  test('explains password-only SSH destination', () => {
     expect(
       restoreBlockedReason({
         status: 'success',
         sourceType: 'docker_volume',
         destinationKind: 'server',
         artifactPath: '/x',
+        destinationAuthType: 'password',
       })
-    ).toMatch(/S3|this host|bro/i);
+    ).toMatch(/key authentication|password-only/i);
   });
 
-  test('explains remote server destination for path', () => {
+  test('explains missing dest server for SSH destination', () => {
     expect(
       restoreBlockedReason({
         status: 'success',
@@ -136,7 +169,19 @@ describe('restoreBlockedReason', () => {
         destinationKind: 'server',
         artifactPath: '/x',
       })
-    ).toMatch(/SSH destinations|this host|S3|bro/i);
+    ).toMatch(/destination server/i);
+  });
+
+  test('allows SSH dest with key auth in blocked-reason helper', () => {
+    expect(
+      restoreBlockedReason({
+        status: 'success',
+        sourceType: 'path',
+        destinationKind: 'server',
+        artifactPath: '/x',
+        destinationAuthType: 'key',
+      })
+    ).toBeNull();
   });
 
   test('returns null for instance meta-backups', () => {
@@ -193,6 +238,29 @@ describe('restoreBlockedReason', () => {
   });
 });
 
+describe('restoreEligibilityFromHistory', () => {
+  test('passes dest server authType through', () => {
+    expect(
+      restoreEligibilityFromHistory({
+        status: 'success',
+        artifactPath: '/remote/vol.tar.gz',
+        backupConfig: {
+          sourceType: 'docker_volume',
+          destinationKind: 'server',
+          destinationServer: { authType: 'key' },
+        },
+      })
+    ).toEqual({
+      status: 'success',
+      sourceType: 'docker_volume',
+      destinationKind: 'server',
+      artifactPath: '/remote/vol.tar.gz',
+      artifactRemoved: undefined,
+      destinationAuthType: 'key',
+    });
+  });
+});
+
 describe('download filename helpers', () => {
   test('takes basename from local, s3, and peer paths', () => {
     expect(downloadFilenameFromArtifactPath('/backups/app.sql.gz')).toBe(
@@ -243,7 +311,17 @@ describe('download filename helpers', () => {
         sourceType: 'path',
         destinationKind: 'server',
         artifactPath: '/remote/tree',
+        destinationAuthType: 'password',
       })
     ).toBe(false);
+    expect(
+      canDownloadBackup({
+        status: 'success',
+        sourceType: 'path',
+        destinationKind: 'server',
+        artifactPath: '/remote/tree',
+        destinationAuthType: 'key',
+      })
+    ).toBe(true);
   });
 });
