@@ -11,6 +11,8 @@ Versions before a formal `v*` tag are dated unreleased / pre-release notes.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-13
+
 ### Added
 
 - **Path-tree one-click restore** — History → Restore for `sourceType=path` when the
@@ -51,6 +53,32 @@ Bro Space peer destinations, instance meta-backup, WebAuthn passkeys, Status
 posture page, S3-compatible endpoints, database dumps, MCP + API tokens with
 optional `remote_exec`.
 
+### Changes
+
+- Cut GitHub Releases from CHANGELOG on v* tags, and simplify the landing page.
+- Restore from SSH destinations and onto a new host.
+- Have LazyBro unlink retained objects from mailbox /work.
+- Apply backup retention to Bro mailbox destinations.
+- Self-host Inter so next dev does not fetch Google Fonts.
+- Unify resource cards and S3 pages with shared detail layout and overflow actions.
+- Show S3 and Bro endpoints on backup details, and wait for Run now to finish.
+- Fix the backup form in the browser: wrap sibling SQLite fields so JSX parses, and split transfer-key helpers so the client never loads libsql.
+- Return 202 when Bro still has the artifact instead of blocking restore.
+- Ship LazyBro on more platforms and keep it running at login.
+- Add read_only API tokens plus MCP validate_backup and get_status.
+- Add native SQLite dumps as a first-class database engine.
+- Allow Docker volume backups from this host’s socket.
+- Let operators download a history artifact without restoring it.
+- Add Unraid, TrueNAS, and awesome-selfhosted install catalog copy.
+- Publish the GHCR image for linux/amd64 and linux/arm64.
+- Document age vault setup, export, and recovery on the landing blog.
+- Surface missed schedules on Status and add Discord/ntfy/Telegram success-ping presets.
+- Make the first backup the default job: VPS path recipes, cron chips, and SSH key gate.
+- fix: unblock Next typecheck on vault step-up and related unions.
+- fix: keep Next typecheck off LazyBro and bump checkout to v5.
+- fix: keep passkey unit tests off the SimpleWebAuthn module graph.
+- fix: stop auth unit tests from loading the Next.js auth barrel.
+
 ## Tagging practice
 
 1. Optional: jot highlights under **Unreleased**. You do not have to list every
@@ -62,4 +90,5 @@ optional `remote_exec`.
    from that changelog section. Landing `/changelog` syncs on the next landing
    build.
 
-[Unreleased]: https://github.com/Ceneka/lazybackup/compare/main...HEAD
+[Unreleased]: https://github.com/Ceneka/lazybackup/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/Ceneka/lazybackup/releases/tag/v0.2.0

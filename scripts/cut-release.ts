@@ -191,8 +191,19 @@ export function lastVersionTag(cwd = REPO_ROOT): string | null {
 }
 
 export function changelogAnchorCommit(cwd = REPO_ROOT): string | null {
+  // Ignore tagging-practice / compare-link edits; only commits that changed
+  // version headings or bullets count as "notes already written".
   const result = Bun.spawnSync(
-    ["git", "log", "-1", "--pretty=%H", "--", "CHANGELOG.md"],
+    [
+      "git",
+      "log",
+      "-1",
+      "-G",
+      "^## \\[|^### |^- ",
+      "--pretty=%H",
+      "--",
+      "CHANGELOG.md",
+    ],
     { cwd, stdout: "pipe", stderr: "pipe" },
   );
   if (result.exitCode !== 0) return null;
