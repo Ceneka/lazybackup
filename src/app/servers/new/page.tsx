@@ -15,7 +15,7 @@ export default function NewServerPage() {
   const router = useRouter()
   const queryClient = useQueryClient()
   const [loading, setLoading] = useState(false)
-  const [authType, setAuthType] = useState<'password' | 'key'>('password')
+  const [authType, setAuthType] = useState<'password' | 'key'>('key')
   const { keys, allKeys, isLoading: keysLoading } = useSSHKeys(true) // Include system keys
   const { testServer, isLoading: testingBackup, result: testResult } = useTestNewServerBackupCapabilities()
 
@@ -261,8 +261,8 @@ export default function NewServerPage() {
                     onChange={handleAuthTypeChange}
                     className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    <option value="password">Password</option>
                     <option value="key">SSH Key</option>
+                    <option value="password">Password</option>
                   </select>
                 </div>
 

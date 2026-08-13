@@ -73,6 +73,7 @@ import {
 } from '@/lib/backup/local-paths';
 import { isBackupArtifactFileName, selectFilesToDelete, type RetentionAgeUnit } from './file-retention';
 import { assertCanStartBackup } from './concurrent-run';
+import { assertTransferServersHaveKeys } from './transfer-keys';
 import { createBackupHistoryEntry, updateBackupHistoryFailure, updateBackupHistorySuccess } from './history';
 import {
   buildFileRetentionLog,
@@ -527,6 +528,14 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
     if (sourceType === 'lazybackup_instance' && destinationKind === 'peer') {
       throw new Error('LazyBackup instance backups cannot use Bro destinations');
     }
+
+    await assertTransferServersHaveKeys({
+      sourceType,
+      sourceKind,
+      destinationKind,
+      server: config.server,
+      destinationServer: config.destinationServer,
+    });
 
     const isPeerDestination = destinationKind === 'peer';
     const enableEncryption =

@@ -32,6 +32,8 @@ import Link from "next/link"
 import { useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
 import { usePeers } from "@/lib/hooks/usePeers"
+import { cronPresets } from "@/lib/cron/presets"
+import { pathJobUsesServerEndpoint } from "@/lib/backup/transfer-keys"
 
 export type BackupFormData = {
   name: string
@@ -1194,10 +1196,61 @@ export function BackupConfigForm({
       </div>
 
       <div className="space-y-4 border-t pt-4">
+        {pathJobUsesServerEndpoint({
+          sourceType: formData.sourceType,
+          sourceKind: formData.sourceKind,
+          destinationKind: formData.destinationKind,
+        }) &&
+          ((sourceServer?.authType === "password" && formData.sourceKind === "server") ||
+            (destServer?.authType === "password" && formData.destinationKind === "server")) && (
+            <Alert>
+              <AlertTriangleIcon className="h-4 w-4" />
+              <AlertTitle>SSH key required for path transfers</AlertTitle>
+              <AlertDescription>
+                Password-only servers can be tested and used for volume/container lists and
+                database dumps. Path jobs (rsync/scp) need an SSH key on{" "}
+                {[
+                  sourceServer?.authType === "password" && formData.sourceKind === "server"
+                    ? sourceServer.name
+                    : null,
+                  destServer?.authType === "password" && formData.destinationKind === "server"
+                    ? destServer.name
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join(" and ")}
+                .{" "}
+                <Link href="/servers" className="underline underline-offset-2">
+                  Edit the server
+                </Link>{" "}
+                to attach a key.
+              </AlertDescription>
+            </Alert>
+          )}
+
         <div className="space-y-2">
           <label htmlFor="schedule" className="block text-sm font-medium">
             Schedule (cron)
           </label>
+          <div className="flex flex-wrap gap-2">
+            {cronPresets().map((preset) => {
+              const active = formData.schedule.trim() === preset.expression
+              return (
+                <button
+                  key={preset.expression}
+                  type="button"
+                  className={
+                    active
+                      ? "rounded-md border border-primary bg-primary/10 px-2.5 py-1 text-xs font-medium"
+                      : "rounded-md border px-2.5 py-1 text-xs text-muted-foreground hover:bg-accent"
+                  }
+                  onClick={() => updateField("schedule", preset.expression)}
+                >
+                  {preset.label}
+                </button>
+              )
+            })}
+          </div>
           <input
             id="schedule"
             type="text"
@@ -1207,7 +1260,7 @@ export function BackupConfigForm({
             required
           />
           <p className="text-xs text-muted-foreground">
-            Example: 0 0 * * * (daily at midnight)
+            Example: 0 0 * * * (daily at midnight). Pick a chip or type a 5-field cron.
           </p>
         </div>
 
@@ -1480,6 +1533,8 @@ export function defaultInstanceBackupFormData(): BackupFormData {
 
 /** Starter recipes for empty-state deep links (`?recipe=`). */
 export const BACKUP_RECIPE_IDS = [
+  "server-path-local",
+  "volume-local",
   "database-local",
   "path-s3",
   "instance",
@@ -1493,6 +1548,28 @@ export function isBackupRecipeId(value: string | null | undefined): value is Bac
 
 export function recipeFormData(recipe: BackupRecipeId): BackupFormData {
   switch (recipe) {
+    case "server-path-local":
+      return {
+        ...defaultCreateFormData(),
+        name: "Server path",
+        sourceKind: "server",
+        sourceType: "path",
+        sourcePath: "/var/www",
+        destinationKind: "local",
+        destinationPath: "/backups",
+        schedule: "0 2 * * *",
+      }
+    case "volume-local":
+      return {
+        ...defaultCreateFormData(),
+        name: "Docker volume",
+        sourceKind: "server",
+        sourceType: "docker_volume",
+        sourcePath: "",
+        destinationKind: "local",
+        destinationPath: "/backups",
+        schedule: "0 2 * * *",
+      }
     case "database-local":
       return {
         ...defaultCreateFormData(),

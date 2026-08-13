@@ -6,6 +6,8 @@ import {
   CloudIcon,
   ArrowRightIcon,
   PlusIcon,
+  ServerIcon,
+  FolderIcon,
 } from "lucide-react"
 import Link from "next/link"
 import type { ReactNode } from "react"
@@ -21,6 +23,26 @@ type Recipe = {
 }
 
 const RECIPES: Recipe[] = [
+  {
+    id: "server-path-local",
+    title: "Server path → this host",
+    description:
+      "Pull a filesystem path from an SSH server into /backups on this host. The default From → To job.",
+    href: "/backups/new?recipe=server-path-local",
+    icon: <ServerIcon className="h-5 w-5 text-muted-foreground" />,
+    from: "server path",
+    to: "this host",
+  },
+  {
+    id: "volume-local",
+    title: "Docker volume → this host",
+    description:
+      "Pack a named Docker volume on a source server to a .tar.gz on this host.",
+    href: "/backups/new?recipe=volume-local",
+    icon: <FolderIcon className="h-5 w-5 text-muted-foreground" />,
+    from: "volume",
+    to: "this host",
+  },
   {
     id: "database-local",
     title: "Database dump → this host",
@@ -64,7 +86,7 @@ export function BackupRecipesEmpty() {
         </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {RECIPES.map((recipe) => (
           <Link
             key={recipe.id}

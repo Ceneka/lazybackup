@@ -1,5 +1,6 @@
 import { findExactDestinationConflict } from '@/lib/backup/destination-guard'
 import { backupConfigSchema } from '@/lib/backup/schema'
+import { assertTransferServersHaveKeys } from '@/lib/backup/transfer-keys'
 import { restoreDatabaseBackup, restoreDockerVolumeBackup, restorePathBackup, executeBackup } from '@/lib/backup'
 import {
   REMOTE_EXEC_DENIED,
@@ -133,6 +134,7 @@ export async function createBackupOp(ctx: McpOpsContext, input: unknown) {
   return audited(ctx.actor, 'create_backup', undefined, async () => {
     const validatedData = backupConfigSchema.parse(input)
     assertMcpCanSetPreBackup(ctx, validatedData.preBackupCommands)
+    await assertTransferServersHaveKeys(validatedData)
     const conflictingBackup = await findExactDestinationConflict(
       validatedData.destinationPath,
       undefined,
@@ -180,6 +182,7 @@ export async function updateBackupOp(ctx: McpOpsContext, id: string, input: unkn
     })
     if (!existing) throw new Error(`Backup not found: ${id}`)
     assertMcpCanSetPreBackup(ctx, validatedData.preBackupCommands, existing.preBackupCommands)
+    await assertTransferServersHaveKeys(validatedData)
 
     const conflictingBackup = await findExactDestinationConflict(
       validatedData.destinationPath,

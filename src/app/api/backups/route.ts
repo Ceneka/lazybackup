@@ -6,6 +6,10 @@ import {
 } from '@/lib/auth';
 import { findExactDestinationConflict } from '@/lib/backup/destination-guard';
 import { backupConfigSchema } from '@/lib/backup/schema';
+import {
+  TransferKeyRequiredError,
+  assertTransferServersHaveKeys,
+} from '@/lib/backup/transfer-keys';
 import { attachLastValidation } from '@/lib/backup/validate';
 import { db } from '@/lib/db';
 import { backupConfigs } from '@/lib/db/schema';
@@ -61,6 +65,7 @@ export async function POST(request: NextRequest) {
     // Validate the request body
     const validatedData = backupConfigSchema.parse(body);
     assertCanSetPreBackupCommands(auth, validatedData.preBackupCommands);
+    await assertTransferServersHaveKeys(validatedData);
 
     const conflictingBackup = await findExactDestinationConflict(
       validatedData.destinationPath,
@@ -126,6 +131,10 @@ export async function POST(request: NextRequest) {
     );
   } catch (error) {
     console.error('Failed to create backup configuration:', error);
+
+    if (error instanceof TransferKeyRequiredError) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
 
     if (error instanceof RemoteExecPermissionError) {
       return NextResponse.json({ error: error.message }, { status: 403 });

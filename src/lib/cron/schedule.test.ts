@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { formatCronExpression, isValidTimezone } from './format'
 import { getNextCronDate } from './next'
+import { CRON_PRESET_EXPRESSIONS, cronPresets } from './presets'
 
 describe('formatCronExpression', () => {
   test('labels daily midnight correctly (not hourly)', () => {
@@ -31,6 +32,15 @@ describe('formatCronExpression', () => {
 
   test('returns raw expression when not 5 fields', () => {
     expect(formatCronExpression('0 0 * *')).toBe('0 0 * *')
+  })
+})
+
+describe('cronPresets', () => {
+  test('labels match formatCronExpression', () => {
+    expect(CRON_PRESET_EXPRESSIONS).toEqual(['0 * * * *', '0 2 * * *', '0 2 * * 0'])
+    for (const preset of cronPresets()) {
+      expect(preset.label).toBe(formatCronExpression(preset.expression))
+    }
   })
 })
 
