@@ -24,7 +24,9 @@ export async function encryptFile(
 ): Promise<void> {
   const encrypter = new age.Encrypter();
   encrypter.addRecipient(recipient);
-  const webIn = Readable.toWeb(createReadStream(inputPath));
+  const webIn = Readable.toWeb(
+    createReadStream(inputPath)
+  ) as unknown as ReadableStream<Uint8Array>;
   const encrypted = await encrypter.encrypt(webIn);
   await pipeline(Readable.fromWeb(encrypted as never), createWriteStream(outputPath));
 }
