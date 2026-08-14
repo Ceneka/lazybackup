@@ -19,6 +19,7 @@ const RFC1918: Cidr4[] = [
 ];
 const LINK_LOCAL_V4: Cidr4 = ['169.254.0.0', 16];
 const CGNAT_V4: Cidr4 = ['100.64.0.0', 10];
+const ALIBABA_METADATA_V4: Cidr4 = ['100.100.100.200', 32];
 const THIS_NETWORK_V4: Cidr4 = ['0.0.0.0', 8];
 const MULTICAST_V4: Cidr4 = ['224.0.0.0', 4];
 const BENCHMARK_V4: Cidr4 = ['198.18.0.0', 15];
@@ -33,6 +34,7 @@ const LOOPBACK_V6: Cidr6 = ['::1', 128];
 const LINK_LOCAL_V6: Cidr6 = ['fe80::', 10];
 const ULA_V6: Cidr6 = ['fc00::', 7];
 const TAILSCALE_V6: Cidr6 = ['fd7a:115c:a1e0::', 48];
+const AWS_METADATA_V6: Cidr6 = ['fd00:ec2::254', 128];
 const MULTICAST_V6: Cidr6 = ['ff00::', 8];
 const UNSPECIFIED_V6: Cidr6 = ['::', 128];
 
@@ -252,6 +254,7 @@ export function classifyIp(ip: string): IpClass | null {
   const version = ipVersion(ip);
   if (version === 4) {
     if (inV4(ip, LOOPBACK_V4)) return 'loopback';
+    if (inV4(ip, ALIBABA_METADATA_V4)) return 'linkLocal';
     if (inV4(ip, LINK_LOCAL_V4)) return 'linkLocal';
     if (inV4(ip, THIS_NETWORK_V4)) return 'unspecified';
     if (inV4(ip, MULTICAST_V4)) return 'multicast';
@@ -267,6 +270,7 @@ export function classifyIp(ip: string): IpClass | null {
   if (version === 6) {
     if (inV6(ip, UNSPECIFIED_V6)) return 'unspecified';
     if (inV6(ip, LOOPBACK_V6)) return 'loopback';
+    if (inV6(ip, AWS_METADATA_V6)) return 'linkLocal';
     if (inV6(ip, LINK_LOCAL_V6)) return 'linkLocal';
     if (inV6(ip, MULTICAST_V6)) return 'multicast';
     if (inV6(ip, TAILSCALE_V6)) return 'tailscale';

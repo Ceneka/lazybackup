@@ -7,8 +7,11 @@ import {
   S3Client,
 } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
+import { NodeHttpHandler } from '@smithy/node-http-handler';
 import { createReadStream, createWriteStream } from 'fs';
 import fs from 'fs/promises';
+import http from 'http';
+import https from 'https';
 import path from 'path';
 import { pipeline } from 'stream/promises';
 import { normalizeS3Prefix } from '@/lib/backup/destination';
@@ -20,10 +23,10 @@ import {
 import { confineRelativePath } from '@/lib/backup/local-paths';
 import {
   assertS3EndpointAllowed,
-  assertS3EndpointHostSync,
   type S3EndpointPolicy,
 } from '@/lib/s3/endpoint';
 import { formatS3ConnectionError, normalizeS3ProfileFields } from '@/lib/s3/normalize';
+import { createPinnedLookup } from '@/lib/net/pinned-fetch';
 
 export type S3ProfileConfig = {
   endpoint: string;
@@ -39,9 +42,13 @@ function endpointPolicy(profile: S3ProfileConfig): S3EndpointPolicy {
   return { allowPrivate: profile.allowPrivateEndpoint };
 }
 
-export function createS3Client(profile: S3ProfileConfig): S3Client {
+export async function createS3Client(profile: S3ProfileConfig): Promise<S3Client> {
   const normalized = normalizeS3ProfileFields(profile);
-  assertS3EndpointHostSync(normalized.endpoint, endpointPolicy(profile));
+  const addresses = await assertS3EndpointAllowed(
+    normalized.endpoint,
+    endpointPolicy(profile)
+  );
+  const lookup = createPinnedLookup(addresses);
   return new S3Client({
     endpoint: normalized.endpoint,
     region: normalized.region || 'us-east-1',
@@ -50,6 +57,11 @@ export function createS3Client(profile: S3ProfileConfig): S3Client {
       secretAccessKey: normalized.secretAccessKey ?? profile.secretAccessKey,
     },
     forcePathStyle: profile.forcePathStyle !== false,
+    followRegionRedirects: false,
+    requestHandler: new NodeHttpHandler({
+      httpAgent: new http.Agent({ lookup }),
+      httpsAgent: new https.Agent({ lookup }),
+    }),
   });
 }
 
@@ -62,8 +74,7 @@ export function joinS3Key(...parts: string[]): string {
 
 export async function testS3Connection(profile: S3ProfileConfig): Promise<void> {
   const normalized = normalizeS3ProfileFields(profile);
-  await assertS3EndpointAllowed(normalized.endpoint, endpointPolicy(profile));
-  const client = createS3Client(normalized);
+  const client = await createS3Client(normalized);
   try {
     await client.send(new HeadBucketCommand({ Bucket: normalized.bucket }));
   } catch (error) {
@@ -94,8 +105,7 @@ export async function listObjectsUnderPrefix(
   prefix: string
 ): Promise<S3ObjectInfo[]> {
   profile = normalizeS3ProfileFields(profile);
-  await assertS3EndpointAllowed(profile.endpoint, endpointPolicy(profile));
-  const client = createS3Client(profile);
+  const client = await createS3Client(profile);
   const normalized = normalizeS3Prefix(prefix);
   const listPrefix = normalized ? `${normalized}/` : '';
   const objects: S3ObjectInfo[] = [];
@@ -133,8 +143,7 @@ export async function listVersionPrefixes(
   basePrefix: string
 ): Promise<Array<{ name: string; prefix: string; lastModifiedMs: number }>> {
   profile = normalizeS3ProfileFields(profile);
-  await assertS3EndpointAllowed(profile.endpoint, endpointPolicy(profile));
-  const client = createS3Client(profile);
+  const client = await createS3Client(profile);
   const normalized = normalizeS3Prefix(basePrefix);
   const listPrefix = normalized ? `${normalized}/` : '';
   const versions: Array<{ name: string; prefix: string; lastModifiedMs: number }> = [];
@@ -184,8 +193,7 @@ export async function deleteObjectsByKeys(
 ): Promise<number> {
   if (keys.length === 0) return 0;
   profile = normalizeS3ProfileFields(profile);
-  await assertS3EndpointAllowed(profile.endpoint, endpointPolicy(profile));
-  const client = createS3Client(profile);
+  const client = await createS3Client(profile);
   let deleted = 0;
   try {
     for (let i = 0; i < keys.length; i += 1000) {
@@ -224,8 +232,7 @@ export async function uploadFile(
   key: string
 ): Promise<{ key: string; size: number }> {
   profile = normalizeS3ProfileFields(profile);
-  await assertS3EndpointAllowed(profile.endpoint, endpointPolicy(profile));
-  const client = createS3Client(profile);
+  const client = await createS3Client(profile);
   const stat = await fs.stat(localFilePath);
   const body = createReadStream(localFilePath);
   try {
@@ -295,8 +302,7 @@ export async function downloadFile(
   localFilePath: string
 ): Promise<{ size: number }> {
   profile = normalizeS3ProfileFields(profile);
-  await assertS3EndpointAllowed(profile.endpoint, endpointPolicy(profile));
-  const client = createS3Client(profile);
+  const client = await createS3Client(profile);
   try {
     await fs.mkdir(path.dirname(localFilePath), { recursive: true });
     const result = await client.send(

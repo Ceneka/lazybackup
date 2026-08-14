@@ -3,7 +3,8 @@ import { createHash } from 'crypto';
 import fs from 'fs/promises';
 import { db } from '@/lib/db';
 import { peers } from '@/lib/db/schema';
-import { assertPeerBaseUrl } from '@/lib/net/url-guard';
+import { pinnedFetch, type PinnedRequestInit } from '@/lib/net/pinned-fetch';
+import { peerUrlPolicy } from '@/lib/net/url-guard';
 import { writePeerObject } from './storage';
 import type { PeerRow } from './types';
 
@@ -21,15 +22,13 @@ function peerApi(baseUrl: string, apiPath: string): string {
 async function peerFetch(
   peer: PeerRow,
   apiPath: string,
-  init?: RequestInit
+  init?: PinnedRequestInit
 ): Promise<Response> {
   if (!peer.outboundToken || !peer.remoteBaseUrl) {
     throw new Error('Peer missing outbound credentials');
   }
-  assertPeerBaseUrl(peer.remoteBaseUrl);
-  return fetch(peerApi(peer.remoteBaseUrl, apiPath), {
+  return pinnedFetch(peerApi(peer.remoteBaseUrl, apiPath), peerUrlPolicy(), {
     ...init,
-    redirect: 'error',
     headers: {
       ...(init?.headers || {}),
       Authorization: `Bearer ${peer.outboundToken}`,

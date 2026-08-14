@@ -1,6 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
-import { assertPeerBaseUrl } from '@/lib/net/url-guard';
+import { pinnedFetch, type PinnedRequestInit } from '@/lib/net/pinned-fetch';
+import { peerUrlPolicy } from '@/lib/net/url-guard';
 import type { PeerRow } from './types';
 
 function peerApi(baseUrl: string, apiPath: string): string {
@@ -12,7 +13,7 @@ function peerApi(baseUrl: string, apiPath: string): string {
 async function peerFetch(
   peer: PeerRow,
   apiPath: string,
-  init?: RequestInit
+  init?: PinnedRequestInit
 ): Promise<Response> {
   if (!peer.outboundToken) {
     throw new Error(`Peer "${peer.name}" has no outbound token; re-pair to continue`);
@@ -20,10 +21,8 @@ async function peerFetch(
   if (peer.status !== 'active') {
     throw new Error(`Peer "${peer.name}" is not active`);
   }
-  assertPeerBaseUrl(peer.remoteBaseUrl);
-  const res = await fetch(peerApi(peer.remoteBaseUrl, apiPath), {
+  const res = await pinnedFetch(peerApi(peer.remoteBaseUrl, apiPath), peerUrlPolicy(), {
     ...init,
-    redirect: 'error',
     headers: {
       ...(init?.headers || {}),
       Authorization: `Bearer ${peer.outboundToken}`,

@@ -1,8 +1,7 @@
-import { validateHttpUrlResolved } from '@/lib/net/url-guard-resolve';
+import { pinnedFetch } from '@/lib/net/pinned-fetch';
 import {
   isForbiddenRequestHeader,
   validateHttpUrl,
-  validateRedirectTarget,
   webhookUrlPolicy,
 } from '@/lib/net/url-guard';
 import {
@@ -235,48 +234,30 @@ export async function postFailureWebhook(
     }
   }
 
-  if (!options?.fetchImpl) {
-    const resolved = await validateHttpUrlResolved(validation.url, webhookUrlPolicy());
-    if (!resolved.ok) {
-      return { ok: false, error: resolved.error };
-    }
-  }
-
-  const fetchImpl = options?.fetchImpl ?? fetch;
+  const fetchImpl = options?.fetchImpl;
   const timeoutMs = options?.timeoutMs ?? WEBHOOK_TIMEOUT_MS;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   const policy = webhookUrlPolicy();
 
   try {
-    const response = await fetchImpl(validation.url, {
-      method,
-      headers,
-      body,
-      signal: controller.signal,
-      redirect: 'manual',
-    });
+    const response = await (fetchImpl
+      ? fetchImpl(validation.url, {
+          method,
+          headers,
+          body,
+          signal: controller.signal,
+          redirect: 'manual',
+        })
+      : pinnedFetch(validation.url, policy, {
+          method,
+          headers,
+          body,
+          signal: controller.signal,
+        }));
 
     if (response.status >= 300 && response.status < 400) {
-      const next = validateRedirectTarget(
-        validation.url,
-        response.headers.get('location'),
-        policy
-      );
-      if (!next.ok) {
-        return { ok: false, error: next.error };
-      }
-      const followed = await fetchImpl(next.url, {
-        method,
-        headers,
-        body,
-        signal: controller.signal,
-        redirect: 'error',
-      });
-      if (!followed.ok) {
-        return { ok: false, error: `Webhook responded with HTTP ${followed.status}` };
-      }
-      return { ok: true };
+      return { ok: false, error: 'Webhook redirect was blocked' };
     }
 
     if (!response.ok) {
