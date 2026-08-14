@@ -1,7 +1,7 @@
 const CHALLENGE_TTL_MS = 5 * 60 * 1000
 const MAX_CHALLENGES = 64
 
-export type ChallengeKind = 'register' | 'login'
+export type ChallengeKind = 'register' | 'login' | 'step-up'
 
 type StoredChallenge = {
   kind: ChallengeKind

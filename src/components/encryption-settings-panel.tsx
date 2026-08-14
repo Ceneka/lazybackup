@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/card"
 import {
   useEncryption,
+  performVaultPasskeyStepUp,
   type EncryptionKeyReveal,
   type PublicAgeKey,
   type VaultStepUpFields,
@@ -154,9 +155,10 @@ export function EncryptionSettingsPanel() {
   const configured = Boolean(enc.status?.configured)
   const stepUpReady = !hasPassword || vaultPassword.length > 0
 
-  function vaultStepUp(): VaultStepUpFields {
+  async function vaultStepUp(): Promise<VaultStepUpFields> {
     if (hasPassword) return { currentPassword: vaultPassword }
-    return { confirm: true }
+    if (hasPasskeys) return performVaultPasskeyStepUp()
+    return {}
   }
 
   return (
@@ -202,19 +204,17 @@ export function EncryptionSettingsPanel() {
               autoComplete="current-password"
               value={vaultPassword}
               onChange={(e) => setVaultPassword(e.target.value)}
-              placeholder="Required to create, import, export, or add recovery keys"
+              placeholder="Required for sensitive vault operations"
             />
             <p className="text-xs text-muted-foreground">
-              Exporting private keys and adding recovery recipients requires your
-              app password, not just a signed-in session.
+              Revealing, exporting, deleting, and changing key or recovery state
+              requires your app password, not just a signed-in session.
             </p>
           </div>
         )}
         {hasPasskeys && !hasPassword && (
           <p className="text-xs text-muted-foreground">
-            Passkey-only instance: exporting keys and adding recovery recipients
-            uses this browser session (WebAuthn re-auth is not required). Sign
-            out if this is not your session.
+            Sensitive vault operations require a fresh passkey verification.
           </p>
         )}
 
@@ -225,7 +225,7 @@ export function EncryptionSettingsPanel() {
             disabled={!stepUpReady}
             onClick={async () => {
               try {
-                const result = await enc.generate.mutateAsync(vaultStepUp())
+                const result = await enc.generate.mutateAsync(await vaultStepUp())
                 setRevealed(result)
                 toast.success("New encryption key created — save the private key")
               } catch {
@@ -270,7 +270,17 @@ export function EncryptionSettingsPanel() {
                         size="sm"
                         variant="outline"
                         isLoading={enc.setActive.isPending}
-                        onClick={() => enc.setActive.mutate(key.id)}
+                        disabled={!stepUpReady}
+                        onClick={async () => {
+                          try {
+                            await enc.setActive.mutateAsync({
+                              keyId: key.id,
+                              ...(await vaultStepUp()),
+                            })
+                          } catch {
+                            /* toast */
+                          }
+                        }}
                       >
                         Set active
                       </LoadingButton>
@@ -281,12 +291,18 @@ export function EncryptionSettingsPanel() {
                         size="sm"
                         variant="outline"
                         isLoading={enc.setStatus.isPending}
-                        onClick={() =>
-                          enc.setStatus.mutate({
-                            keyId: key.id,
-                            status: "compromised",
-                          })
-                        }
+                        disabled={!stepUpReady}
+                        onClick={async () => {
+                          try {
+                            await enc.setStatus.mutateAsync({
+                              keyId: key.id,
+                              status: "compromised",
+                              ...(await vaultStepUp()),
+                            })
+                          } catch {
+                            /* toast */
+                          }
+                        }}
                       >
                         Mark compromised
                       </LoadingButton>
@@ -297,12 +313,18 @@ export function EncryptionSettingsPanel() {
                         size="sm"
                         variant="outline"
                         isLoading={enc.setStatus.isPending}
-                        onClick={() =>
-                          enc.setStatus.mutate({
-                            keyId: key.id,
-                            status: "retired",
-                          })
-                        }
+                        disabled={!stepUpReady}
+                        onClick={async () => {
+                          try {
+                            await enc.setStatus.mutateAsync({
+                              keyId: key.id,
+                              status: "retired",
+                              ...(await vaultStepUp()),
+                            })
+                          } catch {
+                            /* toast */
+                          }
+                        }}
                       >
                         Mark retired
                       </LoadingButton>
@@ -317,7 +339,7 @@ export function EncryptionSettingsPanel() {
                         try {
                           const result = await enc.reveal.mutateAsync({
                             keyId: key.id,
-                            ...vaultStepUp(),
+                            ...(await vaultStepUp()),
                           })
                           setRevealed(result)
                         } catch {
@@ -344,7 +366,8 @@ export function EncryptionSettingsPanel() {
                       size="sm"
                       variant="destructive"
                       isLoading={enc.deleteKey.isPending}
-                      onClick={() => {
+                      disabled={!stepUpReady}
+                      onClick={async () => {
                         if (
                           !confirm(
                             "Permanently delete this key? Encrypted backups that only use this key cannot be restored."
@@ -352,7 +375,14 @@ export function EncryptionSettingsPanel() {
                         ) {
                           return
                         }
-                        enc.deleteKey.mutate(key.id)
+                        try {
+                          await enc.deleteKey.mutateAsync({
+                            keyId: key.id,
+                            ...(await vaultStepUp()),
+                          })
+                        } catch {
+                          /* toast */
+                        }
                       }}
                     >
                       Delete
@@ -406,7 +436,7 @@ export function EncryptionSettingsPanel() {
                     const result = await enc.exportPassphrase.mutateAsync({
                       keyId: passphraseKeyId,
                       passphrase,
-                      ...vaultStepUp(),
+                      ...(await vaultStepUp()),
                     })
                     const blob = new Blob([result.armored], {
                       type: "text/plain",
@@ -465,7 +495,7 @@ export function EncryptionSettingsPanel() {
                 const result = await enc.importKey.mutateAsync({
                   identity: importValue.trim(),
                   label: importLabel.trim() || undefined,
-                  ...vaultStepUp(),
+                  ...(await vaultStepUp()),
                 })
                 setImportValue("")
                 setImportLabel("")
@@ -505,7 +535,17 @@ export function EncryptionSettingsPanel() {
                     size="sm"
                     variant="destructive"
                     isLoading={enc.deleteRecovery.isPending}
-                    onClick={() => enc.deleteRecovery.mutate(r.id)}
+                    disabled={!stepUpReady}
+                    onClick={async () => {
+                      try {
+                        await enc.deleteRecovery.mutateAsync({
+                          id: r.id,
+                          ...(await vaultStepUp()),
+                        })
+                      } catch {
+                        /* toast */
+                      }
+                    }}
                   >
                     Remove
                   </LoadingButton>
@@ -529,14 +569,18 @@ export function EncryptionSettingsPanel() {
             variant="secondary"
             isLoading={enc.addRecovery.isPending}
             disabled={!recoveryRecipient.trim().startsWith("age1") || !stepUpReady}
-            onClick={() => {
-              enc.addRecovery.mutate({
-                label: recoveryLabel.trim() || undefined,
-                recipient: recoveryRecipient.trim(),
-                ...vaultStepUp(),
-              })
-              setRecoveryLabel("")
-              setRecoveryRecipient("")
+            onClick={async () => {
+              try {
+                await enc.addRecovery.mutateAsync({
+                  label: recoveryLabel.trim() || undefined,
+                  recipient: recoveryRecipient.trim(),
+                  ...(await vaultStepUp()),
+                })
+                setRecoveryLabel("")
+                setRecoveryRecipient("")
+              } catch {
+                /* toast */
+              }
             }}
           >
             Add recovery recipient
