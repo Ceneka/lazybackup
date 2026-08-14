@@ -15,7 +15,11 @@ import {
   updateAgeKeyLabel,
 } from '@/lib/crypto/keys';
 import { encryptWithPassphrase } from '@/lib/crypto/age';
-import { requireVaultStepUp, VaultStepUpError } from '@/lib/crypto/vault-step-up';
+import {
+  requireVaultStepUp,
+  vaultActionRequiresStepUp,
+  VaultStepUpError,
+} from '@/lib/crypto/vault-step-up';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 
@@ -46,7 +50,7 @@ export async function GET(request: NextRequest) {
 
 const vaultStepUpFields = {
   currentPassword: z.string().optional(),
-  confirm: z.boolean().optional(),
+  stepUpToken: z.string().min(20).optional(),
 };
 
 const postSchema = z.discriminatedUnion('action', [
@@ -84,11 +88,13 @@ const postSchema = z.discriminatedUnion('action', [
   z.object({
     action: z.literal('setActive'),
     keyId: z.string().min(1),
+    ...vaultStepUpFields,
   }),
   z.object({
     action: z.literal('setStatus'),
     keyId: z.string().min(1),
     status: z.enum(['retired', 'compromised']),
+    ...vaultStepUpFields,
   }),
   z.object({
     action: z.literal('updateLabel'),
@@ -98,6 +104,7 @@ const postSchema = z.discriminatedUnion('action', [
   z.object({
     action: z.literal('deleteKey'),
     keyId: z.string().min(1),
+    ...vaultStepUpFields,
   }),
   z.object({
     action: z.literal('addRecovery'),
@@ -108,24 +115,20 @@ const postSchema = z.discriminatedUnion('action', [
   z.object({
     action: z.literal('deleteRecovery'),
     id: z.string().min(1),
+    ...vaultStepUpFields,
   }),
-  z.object({ action: z.literal('clear') }),
+  z.object({ action: z.literal('clear'), ...vaultStepUpFields }),
 ]);
 
 type EncryptionPostBody = z.infer<typeof postSchema>
-type SensitiveVaultBody = Extract<
-  EncryptionPostBody,
-  { action: 'generate' | 'import' | 'reveal' | 'exportPassphrase' | 'addRecovery' }
->
 
-function isSensitiveVaultBody(body: EncryptionPostBody): body is SensitiveVaultBody {
-  return (
-    body.action === 'generate' ||
-    body.action === 'import' ||
-    body.action === 'reveal' ||
-    body.action === 'exportPassphrase' ||
-    body.action === 'addRecovery'
-  )
+function isSensitiveVaultBody(
+  body: EncryptionPostBody
+): body is EncryptionPostBody & {
+  currentPassword?: string
+  stepUpToken?: string
+} {
+  return vaultActionRequiresStepUp(body.action)
 }
 
 /**
@@ -141,8 +144,8 @@ export async function POST(request: NextRequest) {
     if (isSensitiveVaultBody(body)) {
       await requireVaultStepUp({
         currentPassword: body.currentPassword,
-        confirm: body.confirm,
-      });
+        stepUpToken: body.stepUpToken,
+      }, request.headers.get('cookie'));
     }
 
     if (body.action === 'generate') {
