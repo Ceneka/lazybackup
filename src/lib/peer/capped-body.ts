@@ -4,7 +4,11 @@ import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
 import { Readable } from 'stream';
-import { PeerUploadLimitError } from './upload-limit';
+import {
+  parseContentLengthHeader,
+  PEER_UPLOAD_HARD_CAP_BYTES,
+  PeerUploadLimitError,
+} from './upload-limit';
 
 export type CappedBodyResult = {
   tempPath: string;
@@ -103,6 +107,42 @@ export async function moveCappedTempToDest(
 ): Promise<void> {
   await fs.mkdir(path.dirname(destPath), { recursive: true });
   await fs.copyFile(tempPath, destPath);
+}
+
+/** Stream an outbound peer response to disk with declared and actual byte ceilings. */
+export async function writeCappedResponseToFile(options: {
+  response: Response;
+  destPath: string;
+  maxBytes?: number;
+  expectedBytes?: number;
+}): Promise<{ size: number; sha256: string }> {
+  const declared = parseContentLengthHeader(options.response.headers.get('content-length'));
+  if (declared == null) {
+    throw new PeerUploadLimitError('Peer response requires Content-Length', 502);
+  }
+  const maxBytes = options.maxBytes ?? PEER_UPLOAD_HARD_CAP_BYTES;
+  if (declared > maxBytes) {
+    throw new PeerUploadLimitError(`Peer response exceeds maximum of ${maxBytes} bytes`, 413);
+  }
+  if (options.expectedBytes != null && declared !== options.expectedBytes) {
+    throw new PeerUploadLimitError(
+      `Peer response size mismatch: expected ${options.expectedBytes}, declared ${declared}`,
+      502
+    );
+  }
+  const ingested = await writeCappedBodyToTempFile(options.response.body, declared);
+  try {
+    if (ingested.size !== declared) {
+      throw new PeerUploadLimitError(
+        `Content-Length mismatch: declared ${declared} bytes, received ${ingested.size}`,
+        502
+      );
+    }
+    await moveCappedTempToDest(ingested.tempPath, options.destPath);
+    return { size: ingested.size, sha256: ingested.sha256 };
+  } finally {
+    await ingested.cleanup();
+  }
 }
 
 /** Test helper: stream a buffer through the same cap path. */

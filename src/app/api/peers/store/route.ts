@@ -3,13 +3,14 @@ import {
   deletePeerObjectFile,
   ingestPeerObjectUpload,
   listPeerObjects,
-  readPeerObject,
+  openPeerObjectStream,
 } from '@/lib/peer/storage';
 import {
   assertDeclaredUploadSize,
   PeerUploadLimitError,
 } from '@/lib/peer/upload-limit';
 import { NextRequest, NextResponse } from 'next/server';
+import { Readable } from 'stream';
 
 /**
  * Peer opaque object store.
@@ -46,12 +47,12 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const data = await readPeerObject(peer.id, key);
-    return new NextResponse(data, {
+    const data = await openPeerObjectStream(peer.id, key);
+    return new NextResponse(Readable.toWeb(data.stream) as never, {
       status: 200,
       headers: {
         'Content-Type': 'application/octet-stream',
-        'Content-Length': String(data.byteLength),
+        'Content-Length': String(data.size),
       },
     });
   } catch {

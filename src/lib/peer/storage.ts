@@ -1,4 +1,5 @@
 import fs from 'fs/promises';
+import { createReadStream } from 'fs';
 import path from 'path';
 import { eq } from 'drizzle-orm';
 import { db } from '@/lib/db';
@@ -148,12 +149,14 @@ export async function writePeerObject(
   });
 }
 
-export async function readPeerObject(
+export async function openPeerObjectStream(
   peerId: string,
   objectKey: string
-): Promise<Buffer> {
+): Promise<{ size: number; stream: ReturnType<typeof createReadStream> }> {
   const dest = peerObjectPath(peerId, objectKey);
-  return fs.readFile(dest);
+  const stat = await fs.stat(dest);
+  if (!stat.isFile()) throw new Error('Object is not a file');
+  return { size: stat.size, stream: createReadStream(dest) };
 }
 
 export async function deletePeerObjectFile(

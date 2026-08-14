@@ -1,6 +1,7 @@
 import { touchPeerSeen, verifyPeerBearer } from '@/lib/peer/pairing';
-import { readStagedObject } from '@/lib/peer/staging';
+import { openStagedObjectStream } from '@/lib/peer/staging';
 import { NextRequest, NextResponse } from 'next/server';
+import { Readable } from 'stream';
 
 /**
  * GET /api/peers/agent/pending?key= — download staged body for the calling peer.
@@ -18,12 +19,12 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const data = await readStagedObject(peer.id, key);
-    return new NextResponse(data, {
+    const data = await openStagedObjectStream(peer.id, key);
+    return new NextResponse(Readable.toWeb(data.stream) as never, {
       status: 200,
       headers: {
         'Content-Type': 'application/octet-stream',
-        'Content-Length': String(data.byteLength),
+        'Content-Length': String(data.size),
       },
     });
   } catch {

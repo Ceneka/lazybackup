@@ -1,7 +1,11 @@
 import fs from 'fs/promises';
-import path from 'path';
+import { createReadStream } from 'fs';
 import { assertPeerBaseUrl } from '@/lib/net/url-guard';
+import { writeCappedResponseToFile } from './capped-body';
+import { PEER_UPLOAD_HARD_CAP_BYTES } from './upload-limit';
 import type { PeerRow } from './types';
+
+type StreamingRequestInit = RequestInit & { duplex?: 'half' };
 
 function peerApi(baseUrl: string, apiPath: string): string {
   const base = baseUrl.replace(/\/+$/, '');
@@ -12,7 +16,7 @@ function peerApi(baseUrl: string, apiPath: string): string {
 async function peerFetch(
   peer: PeerRow,
   apiPath: string,
-  init?: RequestInit
+  init?: StreamingRequestInit
 ): Promise<Response> {
   if (!peer.outboundToken) {
     throw new Error(`Peer "${peer.name}" has no outbound token; re-pair to continue`);
@@ -41,14 +45,20 @@ export async function uploadPeerObject(
   objectKey: string,
   localFilePath: string
 ): Promise<{ size: number }> {
-  const body = await fs.readFile(localFilePath);
+  const stat = await fs.stat(localFilePath);
+  const maxBytes = Math.min(PEER_UPLOAD_HARD_CAP_BYTES, peer.quotaBytes);
+  if (stat.size > maxBytes) {
+    throw new Error(`Peer upload exceeds maximum of ${maxBytes} bytes`);
+  }
+  const body = createReadStream(localFilePath);
   const res = await peerFetch(peer, storeUrl(objectKey), {
     method: 'PUT',
     headers: {
       'Content-Type': 'application/octet-stream',
-      'Content-Length': String(body.byteLength),
+      'Content-Length': String(stat.size),
     },
-    body,
+    body: body as unknown as BodyInit,
+    duplex: 'half',
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -91,7 +101,9 @@ export async function downloadPeerObject(
         `Peer download failed (${res.status}) for ${peer.name}`
     );
   }
-  const buf = Buffer.from(await res.arrayBuffer());
-  await fs.mkdir(path.dirname(localFilePath), { recursive: true });
-  await fs.writeFile(localFilePath, buf);
+  await writeCappedResponseToFile({
+    response: res,
+    destPath: localFilePath,
+    maxBytes: PEER_UPLOAD_HARD_CAP_BYTES,
+  });
 }

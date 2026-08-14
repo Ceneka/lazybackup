@@ -1,13 +1,18 @@
 import { and, eq, ne } from 'drizzle-orm';
-import { createHash } from 'crypto';
 import fs from 'fs/promises';
+import { createReadStream } from 'fs';
 import { db } from '@/lib/db';
 import { peers } from '@/lib/db/schema';
 import { assertPeerBaseUrl } from '@/lib/net/url-guard';
-import { writePeerObject } from './storage';
+import { ingestPeerObjectUpload } from './storage';
+import {
+  assertDeclaredUploadSize,
+  PEER_UPLOAD_HARD_CAP_BYTES,
+} from './upload-limit';
 import type { PeerRow } from './types';
 
 const DEFAULT_INTERVAL_MS = 45_000;
+type StreamingRequestInit = RequestInit & { duplex?: 'half' };
 
 let timer: ReturnType<typeof setInterval> | null = null;
 let running = false;
@@ -21,7 +26,7 @@ function peerApi(baseUrl: string, apiPath: string): string {
 async function peerFetch(
   peer: PeerRow,
   apiPath: string,
-  init?: RequestInit
+  init?: StreamingRequestInit
 ): Promise<Response> {
   if (!peer.outboundToken || !peer.remoteBaseUrl) {
     throw new Error('Peer missing outbound credentials');
@@ -70,16 +75,29 @@ export async function syncPeerOnce(peer: PeerRow): Promise<void> {
       console.warn(`[peer-sync] pending get failed ${pull.key}: ${getRes.status}`);
       continue;
     }
-    const buf = Buffer.from(await getRes.arrayBuffer());
-    await writePeerObject(peer.id, pull.key, buf, peer.quotaBytes);
-    const sha256 = createHash('sha256').update(buf).digest('hex');
+    const declaredBytes = assertDeclaredUploadSize({
+      contentLengthHeader: getRes.headers.get('content-length'),
+      quotaBytes: peer.quotaBytes,
+    });
+    if (declaredBytes !== pull.size) {
+      throw new Error(
+        `Pending object size mismatch for ${pull.key}: expected ${pull.size}, got ${declaredBytes}`
+      );
+    }
+    const stored = await ingestPeerObjectUpload({
+      peerId: peer.id,
+      objectKey: pull.key,
+      quotaBytes: peer.quotaBytes,
+      declaredBytes,
+      body: getRes.body,
+    });
     const ackRes = await peerFetch(peer, '/api/peers/agent/ack', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         key: pull.key,
-        size: buf.byteLength,
-        sha256,
+        size: stored.size,
+        sha256: stored.sha256,
       }),
     });
     if (!ackRes.ok) {
@@ -91,14 +109,18 @@ export async function syncPeerOnce(peer: PeerRow): Promise<void> {
     try {
       const { peerObjectPath } = await import('./storage');
       const localPath = peerObjectPath(peer.id, recall.objectKey);
-      const data = await fs.readFile(localPath);
+      const stat = await fs.stat(localPath);
+      if (stat.size > PEER_UPLOAD_HARD_CAP_BYTES) {
+        throw new Error(`Recall exceeds maximum of ${PEER_UPLOAD_HARD_CAP_BYTES} bytes`);
+      }
       const putRes = await peerFetch(peer, `/api/peers/agent/recall/${recall.id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/octet-stream',
-          'Content-Length': String(data.byteLength),
+          'Content-Length': String(stat.size),
         },
-        body: data,
+        body: createReadStream(localPath) as unknown as BodyInit,
+        duplex: 'half',
       });
       if (!putRes.ok) {
         console.warn(`[peer-sync] recall upload failed ${recall.id}: ${putRes.status}`);

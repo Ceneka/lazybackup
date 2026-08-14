@@ -1,4 +1,5 @@
 import fs from 'fs/promises';
+import { createReadStream } from 'fs';
 import path from 'path';
 import { sha256File } from './digest';
 
@@ -78,11 +79,14 @@ export async function stagedObjectDigest(
   }
 }
 
-export async function readStagedObject(
+export async function openStagedObjectStream(
   peerId: string,
   objectKey: string
-): Promise<Buffer> {
-  return fs.readFile(peerStagingObjectPath(peerId, objectKey));
+): Promise<{ size: number; stream: ReturnType<typeof createReadStream> }> {
+  const dest = peerStagingObjectPath(peerId, objectKey);
+  const stat = await fs.stat(dest);
+  if (!stat.isFile()) throw new Error('Staged object is not a file');
+  return { size: stat.size, stream: createReadStream(dest) };
 }
 
 export async function stagedObjectExists(
