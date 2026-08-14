@@ -136,11 +136,6 @@
         color: var(--muted);
       }
     </style>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&family=IBM+Plex+Sans:wght@400;600&display=swap"
-      rel="stylesheet"
-    />
   </head>
   <body>
     <main>
@@ -211,10 +206,17 @@
       </section>
     </main>
     <script>
+      const localApiToken = "__LAZYBRO_API_TOKEN__";
+
       async function api(path, opts) {
         const res = await fetch(path, {
-          headers: { "Content-Type": "application/json", ...(opts?.headers || {}) },
           ...opts,
+          headers: {
+            "Content-Type": "application/json",
+            "X-LazyBro-Token": localApiToken,
+            ...(opts?.method && opts.method !== "GET" ? { "X-LazyBro-CSRF": "1" } : {}),
+            ...(opts?.headers || {}),
+          },
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || res.statusText);
@@ -223,18 +225,36 @@
 
       function renderStatus(s) {
         const el = document.getElementById("status");
+        el.replaceChildren();
+        const line = (...parts) => {
+          const div = document.createElement("div");
+          for (const part of parts) {
+            if (part instanceof Node) div.append(part);
+            else div.append(document.createTextNode(String(part)));
+          }
+          el.append(div);
+        };
+        const muted = (value, className) => {
+          const span = document.createElement("span");
+          if (className) span.className = className;
+          span.textContent = String(value);
+          return span;
+        };
         const reach = s.sync.hostReachable
-          ? '<span class="ok">connected</span>'
+          ? muted("connected", "ok")
           : s.config.hostBaseUrl
-            ? '<span class="warn">waiting to reconnect…</span>'
-            : '<span class="warn">not paired yet</span>';
-        el.innerHTML = `
-          <div>Friend: <span>${s.config.remoteLabel || "—"}</span> · ${reach}</div>
-          <div>Space used: <span>${formatBytes(s.sync.usedBytes)}</span> / ${formatBytes(s.sync.quotaBytes)}</div>
-          <div>Last check-in: <span>${s.sync.lastPingAt || "—"}</span></div>
-          ${s.sync.lastError ? `<div class="err">${s.sync.lastError}</div>` : ""}
-          <div>Share folder: <span>${s.config.shareDir}</span></div>
-        `;
+            ? muted("waiting to reconnect…", "warn")
+            : muted("not paired yet", "warn");
+        line("Friend: ", muted(s.config.remoteLabel || "—"), " · ", reach);
+        line(
+          "Space used: ",
+          muted(formatBytes(s.sync.usedBytes)),
+          " / ",
+          formatBytes(s.sync.quotaBytes),
+        );
+        line("Last check-in: ", muted(s.sync.lastPingAt || "—"));
+        if (s.sync.lastError) line(muted(s.sync.lastError, "err"));
+        line("Share folder: ", muted(s.config.shareDir));
         document.getElementById("shareDir").value = s.config.shareDir || "";
         document.getElementById("label").value = s.config.label || "LazyBro";
         document.getElementById("folderPath").value = s.config.folderBackupPath || "";
@@ -247,9 +267,17 @@
 
       function renderAutostart(a) {
         const el = document.getElementById("autostartStatus");
-        el.innerHTML = a.supported
-          ? `<div>${a.enabled ? '<span class="ok">Enabled</span>' : '<span class="warn">Not enabled</span>'} — ${a.hint}</div>`
-          : `<div class="warn">${a.hint}</div>`;
+        const div = document.createElement("div");
+        if (a.supported) {
+          const state = document.createElement("span");
+          state.className = a.enabled ? "ok" : "warn";
+          state.textContent = a.enabled ? "Enabled" : "Not enabled";
+          div.append(state, document.createTextNode(` — ${a.hint}`));
+        } else {
+          div.className = "warn";
+          div.textContent = a.hint;
+        }
+        el.replaceChildren(div);
         document.getElementById("toggleAutostart").textContent = a.enabled
           ? "Disable autostart"
           : "Enable autostart";

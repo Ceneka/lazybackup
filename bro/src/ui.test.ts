@@ -16,4 +16,12 @@ describe('LazyBro UI', () => {
     expect(html).toContain('id="recallBanner"')
     expect(html).toContain('pendingRecalls')
   })
+
+  test('renders untrusted status fields without innerHTML and authenticates API calls', () => {
+    expect(html).not.toContain('.innerHTML')
+    expect(html).toContain('textContent')
+    expect(html).toContain('X-LazyBro-Token')
+    expect(html).toContain('X-LazyBro-CSRF')
+    expect(html).toContain('__LAZYBRO_API_TOKEN__')
+  })
 })
