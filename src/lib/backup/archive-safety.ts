@@ -1,8 +1,10 @@
 import path from 'path';
-import { execFile } from 'child_process';
-import { promisify } from 'util';
+import { createReadStream } from 'fs';
+import { createGunzip } from 'zlib';
+import { extract, type Headers } from 'tar-stream';
 
-const execFileAsync = promisify(execFile);
+const MAX_ARCHIVE_MEMBERS = 500_000;
+const MAX_MEMBER_METADATA_BYTES = 20 * 1024 * 1024;
 
 export type TarMember = {
   type: string;
@@ -66,55 +68,75 @@ export function validateTarMembers(members: TarMember[]): void {
   }
 }
 
-export function parseTarVerboseListing(listing: string): TarMember[] {
-  const members: TarMember[] = [];
-  for (const line of listing.split(/\r?\n/)) {
-    if (!line) continue;
-    const match =
-      /^(\S)\S*\s+\S+\s+\d+\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:\s+[+-]\d{4})?\s+([\s\S]+)$/.exec(
-        line
-      );
-    if (!match) {
-      throw new Error('Unable to safely inspect tar archive member metadata');
-    }
-    const type = match[1]!;
-    let name = match[2]!;
-    let linkTarget: string | undefined;
-    if (type === 'l') {
-      const split = name.lastIndexOf(' -> ');
-      if (split < 0) throw new Error('Unable to inspect tar symlink target');
-      linkTarget = name.slice(split + 4);
-      name = name.slice(0, split);
-    } else if (type === 'h') {
-      const split = name.lastIndexOf(' link to ');
-      if (split < 0) throw new Error('Unable to inspect tar hardlink target');
-      linkTarget = name.slice(split + 9);
-      name = name.slice(0, split);
-    }
-    members.push({ type, name, linkTarget });
-  }
-  return members;
+function tarMemberType(type: Headers['type']): string {
+  if (type === 'file' || type === 'contiguous-file') return '-';
+  if (type === 'directory') return 'd';
+  if (type === 'symlink') return 'l';
+  if (type === 'link') return 'h';
+  return type ?? 'unknown';
+}
+
+async function readTarGzMembers(archivePath: string): Promise<TarMember[]> {
+  return new Promise((resolve, reject) => {
+    const members: TarMember[] = [];
+    let metadataBytes = 0;
+    let settled = false;
+    const source = createReadStream(archivePath);
+    const gunzip = createGunzip();
+    const parser = extract();
+
+    const fail = (error: unknown) => {
+      if (settled) return;
+      settled = true;
+      source.destroy();
+      gunzip.destroy();
+      parser.destroy();
+      reject(error instanceof Error ? error : new Error(String(error)));
+    };
+
+    source.on('error', fail);
+    gunzip.on('error', fail);
+    parser.on('error', fail);
+    parser.on('entry', (header, stream, next) => {
+      const member: TarMember = {
+        type: tarMemberType(header.type),
+        name: header.name,
+        linkTarget: header.linkname ?? undefined,
+      };
+      members.push(member);
+      metadataBytes += Buffer.byteLength(member.name);
+      if (member.linkTarget) metadataBytes += Buffer.byteLength(member.linkTarget);
+      if (
+        members.length > MAX_ARCHIVE_MEMBERS ||
+        metadataBytes > MAX_MEMBER_METADATA_BYTES
+      ) {
+        const error = new Error('Unsafe tar archive: member metadata limit exceeded');
+        stream.destroy(error);
+        next(error);
+        fail(error);
+        return;
+      }
+      stream.on('error', fail);
+      stream.on('end', next);
+      stream.resume();
+    });
+    parser.on('finish', () => {
+      if (settled) return;
+      settled = true;
+      resolve(members);
+    });
+
+    source.pipe(gunzip).pipe(parser);
+  });
 }
 
 export async function assertSafeTarGzArchive(archivePath: string): Promise<void> {
-  const { stdout } = await execFileAsync(
-    'tar',
-    [
-      '--list',
-      '--verbose',
-      '--gzip',
-      '--absolute-names',
-      '--numeric-owner',
-      '--full-time',
-      '--quoting-style=escape',
-      '--file',
-      archivePath,
-    ],
-    {
-      maxBuffer: 20 * 1024 * 1024,
-      env: { ...process.env, LC_ALL: 'C' },
-    }
-  );
-  const members = parseTarVerboseListing(stdout);
+  let members: TarMember[];
+  try {
+    members = await readTarGzMembers(archivePath);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Unable to safely inspect tar archive: ${message}`);
+  }
   validateTarMembers(members);
 }
