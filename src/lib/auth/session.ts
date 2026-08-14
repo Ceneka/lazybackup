@@ -78,7 +78,7 @@ export async function createSessionToken(
 /**
  * Verify a session token against the current session epoch.
  * Legacy `exp.sig` tokens are treated as epoch 0 so AUTH_SECRET upgrades
- * stay valid until the first logout or password change bumps the epoch.
+ * stay valid until a password change or explicit global revocation bumps the epoch.
  */
 export async function inspectSessionToken(
   secret: string,

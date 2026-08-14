@@ -10,7 +10,6 @@ const PUBLIC_EXACT = new Set([
   '/api/auth/status',
   '/api/auth/login',
   '/api/auth/setup',
-  '/api/auth/logout',
   '/api/auth/webauthn/login',
   '/api/peers/pair',
 ])
