@@ -17,11 +17,13 @@ describe('classifyIp', () => {
     expect(classifyIp('192.168.1.10')).toBe('private');
     expect(classifyIp('172.16.0.1')).toBe('private');
     expect(classifyIp('169.254.169.254')).toBe('linkLocal');
+    expect(classifyIp('100.100.100.200')).toBe('linkLocal');
     expect(classifyIp('8.8.8.8')).toBe('public');
     expect(classifyIp('100.64.1.2')).toBe('cgnat');
     expect(classifyIp('::1')).toBe('loopback');
     expect(classifyIp('fd00::1')).toBe('ula');
     expect(classifyIp('fe80::1')).toBe('linkLocal');
+    expect(classifyIp('fd00:ec2::254')).toBe('linkLocal');
   });
 
   test('maps IPv4-mapped IPv6 to the v4 class', () => {

@@ -1,6 +1,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { randomBytes } from 'crypto';
 
 export type BroConfig = {
   dataDir: string;
@@ -23,6 +24,8 @@ export type BroConfig = {
   ageRecipient: string | null;
   autostartPrompted: boolean;
   openUiOnStart: boolean;
+  /** Random bearer used only by the loopback UI/control API. */
+  localApiToken: string;
 };
 
 const DEFAULTS: BroConfig = {
@@ -44,6 +47,7 @@ const DEFAULTS: BroConfig = {
   ageRecipient: null,
   autostartPrompted: false,
   openUiOnStart: true,
+  localApiToken: '',
 };
 
 export function defaultDataDirFor(
@@ -65,13 +69,20 @@ export function defaultDataDirFor(
 }
 
 function defaultDataDir(): string {
-  return defaultDataDirFor(process.platform, os.homedir(), process.env, fs.existsSync);
+  return defaultDataDirFor(
+    process.platform,
+    os.homedir(),
+    { APPDATA: process.env.APPDATA },
+    fs.existsSync
+  );
 }
 
 /** Autostart wrappers set LAZYBRO_AUTOSTART=1 so login launch stays headless. */
 export function shouldOpenUiOnStart(
   openUiOnStart: boolean,
-  env: { LAZYBRO_AUTOSTART?: string } = process.env
+  env: { LAZYBRO_AUTOSTART?: string } = {
+    LAZYBRO_AUTOSTART: process.env.LAZYBRO_AUTOSTART,
+  }
 ): boolean {
   if (env.LAZYBRO_AUTOSTART === '1') return false;
   return openUiOnStart;
@@ -98,17 +109,26 @@ export function loadConfig(): BroConfig {
     dataDir,
     shareDir,
     port: Number(process.env.LAZYBRO_PORT || loaded.port || DEFAULTS.port),
+    localApiToken:
+      typeof loaded.localApiToken === 'string' && loaded.localApiToken.length >= 32
+        ? loaded.localApiToken
+        : randomBytes(32).toString('base64url'),
   };
-  fs.mkdirSync(cfg.dataDir, { recursive: true });
-  fs.mkdirSync(cfg.shareDir, { recursive: true });
+  fs.mkdirSync(cfg.dataDir, { recursive: true, mode: 0o700 });
+  if (process.platform !== 'win32') fs.chmodSync(cfg.dataDir, 0o700);
+  fs.mkdirSync(cfg.shareDir, { recursive: true, mode: 0o700 });
   fs.mkdirSync(path.join(cfg.shareDir, 'objects'), { recursive: true });
   saveConfig(cfg);
   return cfg;
 }
 
 export function saveConfig(cfg: BroConfig): void {
-  fs.mkdirSync(cfg.dataDir, { recursive: true });
-  fs.writeFileSync(configPath(cfg.dataDir), JSON.stringify(cfg, null, 2));
+  fs.mkdirSync(cfg.dataDir, { recursive: true, mode: 0o700 });
+  if (process.platform !== 'win32') fs.chmodSync(cfg.dataDir, 0o700);
+  fs.writeFileSync(configPath(cfg.dataDir), JSON.stringify(cfg, null, 2), {
+    mode: 0o600,
+  });
+  if (process.platform !== 'win32') fs.chmodSync(configPath(cfg.dataDir), 0o600);
 }
 
 export function objectsDir(cfg: BroConfig): string {

@@ -39,7 +39,7 @@ export type EncryptionKeyReveal = {
 
 export type VaultStepUpFields = {
   currentPassword?: string
-  confirm?: boolean
+  stepUpToken?: string
 }
 
 export const encryptionKeys = {
@@ -67,6 +67,27 @@ async function postAction<T>(body: Record<string, unknown>): Promise<T> {
   return res.json()
 }
 
+export async function performVaultPasskeyStepUp(): Promise<VaultStepUpFields> {
+  const { startAuthentication } = await import("@simplewebauthn/browser")
+  const optionsResponse = await fetch("/api/auth/webauthn/step-up")
+  if (!optionsResponse.ok) {
+    throw new Error(await parseError(optionsResponse, "Failed to start passkey verification"))
+  }
+  const response = await startAuthentication({
+    optionsJSON: await optionsResponse.json(),
+  })
+  const verifyResponse = await fetch("/api/auth/webauthn/step-up", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ response }),
+  })
+  if (!verifyResponse.ok) {
+    throw new Error(await parseError(verifyResponse, "Passkey verification failed"))
+  }
+  const result = (await verifyResponse.json()) as { stepUpToken: string }
+  return { stepUpToken: result.stepUpToken }
+}
+
 export function useEncryption() {
   const queryClient = useQueryClient()
   const statusQuery = useQuery({
@@ -91,7 +112,7 @@ export function useEncryption() {
         identity: args.identity,
         label: args.label,
         currentPassword: args.currentPassword,
-        confirm: args.confirm,
+        stepUpToken: args.stepUpToken,
       }),
     onSuccess: () => invalidate(),
     onError: (e: Error) => toast.error(e.message),
@@ -103,7 +124,7 @@ export function useEncryption() {
         action: "reveal",
         keyId: args.keyId,
         currentPassword: args.currentPassword,
-        confirm: args.confirm,
+        stepUpToken: args.stepUpToken,
       }),
     onError: (e: Error) => toast.error(e.message),
   })
@@ -115,7 +136,7 @@ export function useEncryption() {
         keyId: args.keyId,
         passphrase: args.passphrase,
         currentPassword: args.currentPassword,
-        confirm: args.confirm,
+        stepUpToken: args.stepUpToken,
       }),
     onError: (e: Error) => toast.error(e.message),
   })
@@ -128,8 +149,8 @@ export function useEncryption() {
   })
 
   const setActive = useMutation({
-    mutationFn: (keyId: string) =>
-      postAction<{ key: PublicAgeKey }>({ action: "setActive", keyId }),
+    mutationFn: (args: { keyId: string } & VaultStepUpFields) =>
+      postAction<{ key: PublicAgeKey }>({ action: "setActive", ...args }),
     onSuccess: () => {
       invalidate()
       toast.success("Active encryption key updated")
@@ -138,11 +159,12 @@ export function useEncryption() {
   })
 
   const setStatus = useMutation({
-    mutationFn: (args: { keyId: string; status: "retired" | "compromised" }) =>
+    mutationFn: (
+      args: { keyId: string; status: "retired" | "compromised" } & VaultStepUpFields
+    ) =>
       postAction<{ key: PublicAgeKey }>({
         action: "setStatus",
-        keyId: args.keyId,
-        status: args.status,
+        ...args,
       }),
     onSuccess: () => invalidate(),
     onError: (e: Error) => toast.error(e.message),
@@ -160,8 +182,8 @@ export function useEncryption() {
   })
 
   const deleteKey = useMutation({
-    mutationFn: (keyId: string) =>
-      postAction<{ ok: boolean }>({ action: "deleteKey", keyId }),
+    mutationFn: (args: { keyId: string } & VaultStepUpFields) =>
+      postAction<{ ok: boolean }>({ action: "deleteKey", ...args }),
     onSuccess: () => {
       invalidate()
       toast.success("Key deleted permanently")
@@ -176,7 +198,7 @@ export function useEncryption() {
         label: args.label,
         recipient: args.recipient,
         currentPassword: args.currentPassword,
-        confirm: args.confirm,
+        stepUpToken: args.stepUpToken,
       }),
     onSuccess: () => {
       invalidate()
@@ -186,8 +208,8 @@ export function useEncryption() {
   })
 
   const deleteRecovery = useMutation({
-    mutationFn: (id: string) =>
-      postAction<{ ok: boolean }>({ action: "deleteRecovery", id }),
+    mutationFn: (args: { id: string } & VaultStepUpFields) =>
+      postAction<{ ok: boolean }>({ action: "deleteRecovery", ...args }),
     onSuccess: () => {
       invalidate()
       toast.success("Recovery recipient removed")
@@ -196,7 +218,8 @@ export function useEncryption() {
   })
 
   const clear = useMutation({
-    mutationFn: () => postAction<{ configured: boolean }>({ action: "clear" }),
+    mutationFn: (args: VaultStepUpFields) =>
+      postAction<{ configured: boolean }>({ action: "clear", ...args }),
     onSuccess: () => invalidate(),
     onError: (e: Error) => toast.error(e.message),
   })

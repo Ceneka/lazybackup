@@ -32,6 +32,7 @@ function testCfg(dir: string): BroConfig {
     ageRecipient: null,
     autostartPrompted: false,
     openUiOnStart: false,
+    localApiToken: 'test-local-api-token',
   };
 }
 

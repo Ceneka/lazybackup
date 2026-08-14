@@ -2,8 +2,9 @@ import { and, eq } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { db } from '@/lib/db';
 import { peerInvites, peers, settings } from '@/lib/db/schema';
-import { validatePeerUrl } from '@/lib/net/url-guard';
+import { peerUrlPolicy, validatePeerUrl } from '@/lib/net/url-guard';
 import { validatePeerUrlResolved } from '@/lib/net/url-guard-resolve';
+import { pinnedFetch } from '@/lib/net/pinned-fetch';
 import {
   decodeInvitePayload,
   encodeInvitePayload,
@@ -170,10 +171,9 @@ export async function acceptInvite(options: {
   const ourPeerId = nanoid();
 
   const pairUrl = `${remoteCheck.url.replace(/\/+$/, '')}/api/peers/pair`;
-  const res = await fetch(pairUrl, {
+  const res = await pinnedFetch(pairUrl, peerUrlPolicy(), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    redirect: 'error',
     body: JSON.stringify({
       code: payload.c,
       secret: payload.s,

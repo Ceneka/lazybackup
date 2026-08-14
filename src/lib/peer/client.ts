@@ -1,11 +1,10 @@
 import fs from 'fs/promises';
 import { createReadStream } from 'fs';
-import { assertPeerBaseUrl } from '@/lib/net/url-guard';
+import { pinnedFetch, type PinnedRequestInit } from '@/lib/net/pinned-fetch';
+import { peerUrlPolicy } from '@/lib/net/url-guard';
 import { writeCappedResponseToFile } from './capped-body';
 import { PEER_UPLOAD_HARD_CAP_BYTES } from './upload-limit';
 import type { PeerRow } from './types';
-
-type StreamingRequestInit = RequestInit & { duplex?: 'half' };
 
 function peerApi(baseUrl: string, apiPath: string): string {
   const base = baseUrl.replace(/\/+$/, '');
@@ -16,7 +15,7 @@ function peerApi(baseUrl: string, apiPath: string): string {
 async function peerFetch(
   peer: PeerRow,
   apiPath: string,
-  init?: StreamingRequestInit
+  init?: PinnedRequestInit
 ): Promise<Response> {
   if (!peer.outboundToken) {
     throw new Error(`Peer "${peer.name}" has no outbound token; re-pair to continue`);
@@ -24,10 +23,8 @@ async function peerFetch(
   if (peer.status !== 'active') {
     throw new Error(`Peer "${peer.name}" is not active`);
   }
-  assertPeerBaseUrl(peer.remoteBaseUrl);
-  const res = await fetch(peerApi(peer.remoteBaseUrl, apiPath), {
+  const res = await pinnedFetch(peerApi(peer.remoteBaseUrl, apiPath), peerUrlPolicy(), {
     ...init,
-    redirect: 'error',
     headers: {
       ...(init?.headers || {}),
       Authorization: `Bearer ${peer.outboundToken}`,
@@ -57,8 +54,7 @@ export async function uploadPeerObject(
       'Content-Type': 'application/octet-stream',
       'Content-Length': String(stat.size),
     },
-    body: body as unknown as BodyInit,
-    duplex: 'half',
+    body,
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));

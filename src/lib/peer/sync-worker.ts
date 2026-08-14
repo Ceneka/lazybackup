@@ -3,7 +3,8 @@ import fs from 'fs/promises';
 import { createReadStream } from 'fs';
 import { db } from '@/lib/db';
 import { peers } from '@/lib/db/schema';
-import { assertPeerBaseUrl } from '@/lib/net/url-guard';
+import { pinnedFetch, type PinnedRequestInit } from '@/lib/net/pinned-fetch';
+import { peerUrlPolicy } from '@/lib/net/url-guard';
 import { ingestPeerObjectUpload } from './storage';
 import {
   assertDeclaredUploadSize,
@@ -12,7 +13,6 @@ import {
 import type { PeerRow } from './types';
 
 const DEFAULT_INTERVAL_MS = 45_000;
-type StreamingRequestInit = RequestInit & { duplex?: 'half' };
 
 let timer: ReturnType<typeof setInterval> | null = null;
 let running = false;
@@ -26,15 +26,13 @@ function peerApi(baseUrl: string, apiPath: string): string {
 async function peerFetch(
   peer: PeerRow,
   apiPath: string,
-  init?: StreamingRequestInit
+  init?: PinnedRequestInit
 ): Promise<Response> {
   if (!peer.outboundToken || !peer.remoteBaseUrl) {
     throw new Error('Peer missing outbound credentials');
   }
-  assertPeerBaseUrl(peer.remoteBaseUrl);
-  return fetch(peerApi(peer.remoteBaseUrl, apiPath), {
+  return pinnedFetch(peerApi(peer.remoteBaseUrl, apiPath), peerUrlPolicy(), {
     ...init,
-    redirect: 'error',
     headers: {
       ...(init?.headers || {}),
       Authorization: `Bearer ${peer.outboundToken}`,
@@ -119,8 +117,7 @@ export async function syncPeerOnce(peer: PeerRow): Promise<void> {
           'Content-Type': 'application/octet-stream',
           'Content-Length': String(stat.size),
         },
-        body: createReadStream(localPath) as unknown as BodyInit,
-        duplex: 'half',
+        body: createReadStream(localPath),
       });
       if (!putRes.ok) {
         console.warn(`[peer-sync] recall upload failed ${recall.id}: ${putRes.status}`);

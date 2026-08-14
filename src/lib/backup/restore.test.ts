@@ -403,6 +403,27 @@ describe('resolveLocalPathRestoreTree', () => {
       await fs.rm(root, { recursive: true, force: true });
     }
   });
+
+  test('rejects an archive with an escaping symlink before extraction', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'lazybackup-path-tar-'));
+    const src = path.join(root, 'app');
+    await fs.mkdir(src);
+    await fs.symlink('../../outside', path.join(src, 'escape'));
+    const archive = path.join(root, 'unsafe.tar.gz');
+    const { execFile } = await import('child_process');
+    const { promisify } = await import('util');
+    await promisify(execFile)('tar', ['-czf', archive, '-C', root, 'app']);
+    try {
+      await expect(
+        resolveLocalPathRestoreTree({
+          artifactPath: archive,
+          destinationKind: 'local',
+        })
+      ).rejects.toThrow(/unsafe|traversal|symlink/i);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('restorePathBackup guards and local restore', () => {

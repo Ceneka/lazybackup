@@ -13,7 +13,30 @@ mock.module('@/lib/auth/webauthn', () => ({
   countPasskeys,
 }))
 
-const { requireVaultStepUp, VaultStepUpError } = await import('./vault-step-up')
+const {
+  issueVaultStepUpToken,
+  requireVaultStepUp,
+  resetVaultStepUpTokens,
+  vaultActionRequiresStepUp,
+  VaultStepUpError,
+} = await import('./vault-step-up')
+
+test('all destructive and secret-bearing vault actions require step-up', () => {
+  for (const action of [
+    'reveal',
+    'exportPassphrase',
+    'setActive',
+    'setStatus',
+    'deleteKey',
+    'addRecovery',
+    'deleteRecovery',
+    'clear',
+  ]) {
+    expect(vaultActionRequiresStepUp(action)).toBe(true)
+  }
+  expect(vaultActionRequiresStepUp('updateLabel')).toBe(false)
+  expect(vaultActionRequiresStepUp('acknowledgeExport')).toBe(false)
+})
 
 describe('requireVaultStepUp', () => {
   beforeEach(() => {
@@ -23,6 +46,7 @@ describe('requireVaultStepUp', () => {
     getPasswordHash.mockResolvedValue(null)
     verifyPassword.mockResolvedValue(false)
     countPasskeys.mockResolvedValue(0)
+    resetVaultStepUpTokens()
   })
 
   test('reveal without currentPassword fails when a password is set', async () => {
@@ -70,7 +94,7 @@ describe('requireVaultStepUp', () => {
     expect(verifyPassword).toHaveBeenCalledWith('correct-horse', 'argon2-hash')
   })
 
-  test('passkey-only without confirm fails', async () => {
+  test('passkey-only without a fresh assertion fails', async () => {
     getPasswordHash.mockResolvedValue(null)
     countPasskeys.mockResolvedValue(1)
     try {
@@ -79,14 +103,26 @@ describe('requireVaultStepUp', () => {
     } catch (error) {
       expect(error).toBeInstanceOf(VaultStepUpError)
       expect((error as VaultStepUpError).status).toBe(403)
-      expect((error as VaultStepUpError).message).toMatch(/Passkey-only/)
+      expect((error as VaultStepUpError).message).toMatch(/Fresh passkey authentication/)
     }
   })
 
-  test('passkey-only with confirm: true succeeds (residual: no WebAuthn step-up)', async () => {
+  test('passkey-only accepts one fresh token bound to the current session', async () => {
     getPasswordHash.mockResolvedValue(null)
     countPasskeys.mockResolvedValue(2)
-    await requireVaultStepUp({ confirm: true })
+    const cookie = 'lb_session=session-a'
+    const token = issueVaultStepUpToken(cookie)
+    await requireVaultStepUp({ stepUpToken: token }, cookie)
+    await expect(requireVaultStepUp({ stepUpToken: token }, cookie)).rejects.toThrow(/invalid|expired/)
+  })
+
+  test('rejects a fresh token from another session', async () => {
+    getPasswordHash.mockResolvedValue(null)
+    countPasskeys.mockResolvedValue(1)
+    const token = issueVaultStepUpToken('lb_session=session-a')
+    await expect(
+      requireVaultStepUp({ stepUpToken: token }, 'lb_session=session-b')
+    ).rejects.toThrow(/invalid|expired/)
   })
 
   test('unlocked instance does not require password or confirm', async () => {

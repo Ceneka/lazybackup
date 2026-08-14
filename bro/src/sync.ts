@@ -1,8 +1,8 @@
 import fs from 'fs/promises';
-import path from 'path';
 import type { BroConfig } from './config';
 import { objectFilePath, unlinkObject, upsertObject, usedBytes } from './db';
-import { createHash } from 'crypto';
+import { BRO_OBJECT_HARD_CAP_BYTES, streamResponseToFile } from './stream';
+import { safeRemoteFetch, type RemoteRequestInit } from './remote';
 
 export type SyncStatus = {
   lastPingAt: string | null;
@@ -52,10 +52,10 @@ function hostApi(cfg: BroConfig, apiPath: string): string {
 async function hostFetch(
   cfg: BroConfig,
   apiPath: string,
-  init?: RequestInit
+  init?: RemoteRequestInit
 ): Promise<Response> {
   if (!cfg.outboundToken) throw new Error('Not paired');
-  return fetch(hostApi(cfg, apiPath), {
+  return safeRemoteFetch(hostApi(cfg, apiPath), {
     ...init,
     headers: {
       ...(init?.headers || {}),
@@ -115,20 +115,22 @@ export async function syncOnce(cfg: BroConfig): Promise<SyncStatus> {
         `/api/peers/agent/pending?key=${encodeURIComponent(pull.key)}`
       );
       if (!getRes.ok) continue;
-      const buf = Buffer.from(await getRes.arrayBuffer());
-      await assertQuota(cfg, buf.byteLength);
+      await assertQuota(cfg, pull.size);
       const dest = objectFilePath(cfg, pull.key);
-      await fs.mkdir(path.dirname(dest), { recursive: true });
-      await fs.writeFile(dest, buf);
-      upsertObject(cfg, pull.key, buf.byteLength, new Date().toISOString());
-      const sha256 = createHash('sha256').update(buf).digest('hex');
+      const downloaded = await streamResponseToFile({
+        response: getRes,
+        destPath: dest,
+        maxBytes: Math.min(BRO_OBJECT_HARD_CAP_BYTES, cfg.quotaBytes),
+        expectedBytes: pull.size,
+      });
+      upsertObject(cfg, pull.key, downloaded.size, new Date().toISOString());
       await hostFetch(cfg, '/api/peers/agent/ack', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           key: pull.key,
-          size: buf.byteLength,
-          sha256,
+          size: downloaded.size,
+          sha256: downloaded.sha256,
         }),
       });
     }
@@ -137,14 +139,17 @@ export async function syncOnce(cfg: BroConfig): Promise<SyncStatus> {
     for (const recall of work.recalls || []) {
       try {
         const src = objectFilePath(cfg, recall.objectKey);
-        const data = await fs.readFile(src);
+        const stat = await fs.stat(src);
+        if (stat.size > BRO_OBJECT_HARD_CAP_BYTES) {
+          throw new Error(`Recall exceeds maximum of ${BRO_OBJECT_HARD_CAP_BYTES} bytes`);
+        }
         await hostFetch(cfg, `/api/peers/agent/recall/${recall.id}`, {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/octet-stream',
-            'Content-Length': String(data.byteLength),
+            'Content-Length': String(stat.size),
           },
-          body: data,
+          body: Bun.file(src),
         });
         remainingRecalls -= 1;
       } catch (err) {

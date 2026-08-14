@@ -9,7 +9,10 @@ import {
   type UrlGuardResult,
 } from './url-guard';
 
-type LookupFn = (hostname: string) => Promise<string[]>;
+export type LookupFn = (hostname: string) => Promise<string[]>;
+export type ResolvedHttpUrlResult =
+  | { ok: true; url: string; addresses: string[] }
+  | { ok: false; error: string };
 
 async function defaultLookup(hostname: string): Promise<string[]> {
   const results = await dnsLookup(normalizeHostname(hostname), { all: true, verbatim: true });
@@ -53,6 +56,43 @@ export async function validateHttpUrlResolved(
   }
 
   return first;
+}
+
+/** Resolve and return the exact allowed addresses that the caller must pin. */
+export async function resolveHttpUrlAddresses(
+  raw: string,
+  policy: UrlGuardPolicy,
+  lookup: LookupFn = defaultLookup
+): Promise<ResolvedHttpUrlResult> {
+  const first = validateHttpUrl(raw, policy);
+  if (!first.ok) return first;
+
+  const parsed = new URL(first.url);
+  const host = normalizeHostname(parsed.hostname);
+  const literalClass = classifyIp(host);
+  if (literalClass) {
+    if (!ipAllowed(literalClass, policy)) {
+      return { ok: false, error: `${policy.label} targets a disallowed address` };
+    }
+    return { ok: true, url: first.url, addresses: [host] };
+  }
+
+  let addresses: string[];
+  try {
+    addresses = [...new Set(await lookup(host))];
+  } catch {
+    return { ok: false, error: `${policy.label} could not be resolved` };
+  }
+  if (!addresses.length) {
+    return { ok: false, error: `${policy.label} could not be resolved` };
+  }
+  for (const address of addresses) {
+    const ipClass = classifyIp(address);
+    if (!ipClass || !ipAllowed(ipClass, policy)) {
+      return { ok: false, error: `${policy.label} targets a disallowed address` };
+    }
+  }
+  return { ok: true, url: first.url, addresses };
 }
 
 export async function validatePeerUrlResolved(

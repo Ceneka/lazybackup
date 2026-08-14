@@ -4,6 +4,8 @@ import path from 'path';
 import type { BroConfig } from '../config';
 import { saveConfig } from '../config';
 import { ensureAgeKeys, encryptFile, packFolderTarGz } from './pack';
+import { BRO_OBJECT_HARD_CAP_BYTES } from '../stream';
+import { safeRemoteFetch } from '../remote';
 
 function hostApi(cfg: BroConfig, apiPath: string): string {
   if (!cfg.hostBaseUrl) throw new Error('Not paired');
@@ -32,18 +34,21 @@ export async function pushFolderBackup(cfg: BroConfig): Promise<{ key: string; s
   try {
     await packFolderTarGz(cfg.folderBackupPath, tarPath);
     await encryptFile(tarPath, agePath, cfg.ageRecipient);
-    const body = await fs.readFile(agePath);
+    const stat = await fs.stat(agePath);
+    if (stat.size > BRO_OBJECT_HARD_CAP_BYTES) {
+      throw new Error(`Backup exceeds maximum of ${BRO_OBJECT_HARD_CAP_BYTES} bytes`);
+    }
     const key = `lazybro-folder/${stamp}/folder.tar.gz.age`;
-    const res = await fetch(
+    const res = await safeRemoteFetch(
       hostApi(cfg, `/api/peers/store?key=${encodeURIComponent(key)}`),
       {
         method: 'PUT',
         headers: {
           Authorization: `Bearer ${cfg.outboundToken}`,
           'Content-Type': 'application/octet-stream',
-          'Content-Length': String(body.byteLength),
+          'Content-Length': String(stat.size),
         },
-        body,
+        body: Bun.file(agePath),
       }
     );
     if (!res.ok) {

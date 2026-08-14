@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import {
   assertAddressAllowed,
+  assertS3EndpointAllowed,
   assertS3EndpointHostSync,
   classifyHostname,
   classifyIpAddress,
@@ -12,6 +13,9 @@ describe('classifyIpAddress', () => {
     expect(classifyIpAddress('127.0.0.1')).toBe('loopback');
     expect(classifyIpAddress('::1')).toBe('loopback');
     expect(classifyIpAddress('169.254.169.254')).toBe('metadata');
+    expect(classifyIpAddress('100.100.100.200')).toBe('metadata');
+    expect(classifyIpAddress('fd00:ec2::254')).toBe('metadata');
+    expect(classifyIpAddress('::ffff:a9fe:a9fe')).toBe('metadata');
     expect(classifyIpAddress('169.254.1.1')).toBe('link-local');
   });
 
@@ -44,6 +48,7 @@ describe('assertS3EndpointHostSync', () => {
 
   test('blocks loopback MinIO unless allowPrivate', () => {
     expect(() => assertS3EndpointHostSync('http://127.0.0.1:9000')).toThrow(/private|loopback/i);
+    expect(() => assertS3EndpointHostSync('http://[::1]:9000')).toThrow(/private|loopback/i);
     expect(() =>
       assertS3EndpointHostSync('http://127.0.0.1:9000', { allowPrivate: true })
     ).not.toThrow();
@@ -61,5 +66,26 @@ describe('assertS3EndpointHostSync', () => {
     expect(() => assertAddressAllowed('169.254.169.254', { allowPrivate: true })).toThrow(
       /metadata/i
     );
+  });
+});
+
+describe('assertS3EndpointAllowed', () => {
+  test('returns the exact public answers to pin into the S3 transport', async () => {
+    const addresses = await assertS3EndpointAllowed(
+      'https://objects.example',
+      {},
+      (async () => [{ address: '203.0.114.10', family: 4 }]) as never
+    );
+    expect(addresses).toEqual(['203.0.114.10']);
+  });
+
+  test('rejects a hostname whose resolved answer changes to metadata', async () => {
+    await expect(
+      assertS3EndpointAllowed(
+        'https://objects.example',
+        {},
+        (async () => [{ address: '169.254.169.254', family: 4 }]) as never
+      )
+    ).rejects.toThrow(/metadata|SSRF/i);
   });
 });

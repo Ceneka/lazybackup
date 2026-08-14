@@ -136,7 +136,10 @@ export async function verifyAndStoreRegistration(options: {
   }
 }
 
-export async function getAuthenticationOptions(rpID: string) {
+export async function getAuthenticationOptions(
+  rpID: string,
+  kind: 'login' | 'step-up' = 'login'
+) {
   const existing = await db.query.webauthnCredentials.findMany()
   if (existing.length === 0) {
     throw new Error('No passkeys registered')
@@ -147,9 +150,9 @@ export async function getAuthenticationOptions(rpID: string) {
       id: c.credentialId,
       transports: parseTransports(c.transports),
     })),
-    userVerification: 'preferred',
+    userVerification: kind === 'step-up' ? 'required' : 'preferred',
   })
-  saveWebauthnChallenge('login', options.challenge)
+  saveWebauthnChallenge(kind, options.challenge)
   return options
 }
 
@@ -157,9 +160,11 @@ export async function verifyAuthentication(options: {
   response: AuthenticationResponseJSON
   expectedOrigin: string
   expectedRPID: string
+  kind?: 'login' | 'step-up'
 }): Promise<boolean> {
+  const kind = options.kind ?? 'login'
   const expectedChallenge = takeWebauthnChallenge(
-    'login',
+    kind,
     options.response.response.clientDataJSON
   )
   if (!expectedChallenge) {
@@ -179,7 +184,7 @@ export async function verifyAuthentication(options: {
     expectedChallenge,
     expectedOrigin: options.expectedOrigin,
     expectedRPID: options.expectedRPID,
-    requireUserVerification: false,
+    requireUserVerification: kind === 'step-up',
     credential: {
       id: row.credentialId,
       publicKey: isoBase64URL.toBuffer(row.publicKey),

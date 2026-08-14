@@ -78,6 +78,7 @@ import { isBackupArtifactFileName, selectFilesToDelete, type RetentionAgeUnit } 
 import { assertCanStartBackup } from './concurrent-run';
 import { assertTransferServersHaveKeys } from './assert-transfer-keys';
 import { resolveRestoreHost, type ResolvedRestoreHost } from './restore-target';
+import { assertSafeTarGzArchive } from './archive-safety';
 import { createBackupHistoryEntry, updateBackupHistoryFailure, updateBackupHistorySuccess } from './history';
 import {
   buildFileRetentionLog,
@@ -1914,9 +1915,15 @@ async function extractTarGzArchive(
   archivePath: string
 ): Promise<{ treePath: string; tempDir: string }> {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'lazybackup-path-extract-'));
-  await execFileAsync('tar', ['-xzf', archivePath, '-C', tempDir], {
-    maxBuffer: 10 * 1024 * 1024,
-  });
+  try {
+    await assertSafeTarGzArchive(archivePath);
+    await execFileAsync('tar', ['-xzf', archivePath, '-C', tempDir], {
+      maxBuffer: 10 * 1024 * 1024,
+    });
+  } catch (error) {
+    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    throw error;
+  }
   const entries = await fs.readdir(tempDir);
   if (entries.length === 1) {
     return { treePath: path.join(tempDir, entries[0]!), tempDir };
