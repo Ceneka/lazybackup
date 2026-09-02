@@ -1,12 +1,14 @@
 "use client"
 
+import { BackupRecipesEmpty } from "@/components/backup-recipes-empty"
 import { DashboardQuickActions } from "@/components/dashboard-quick-actions"
 import { PageHeader, PageLayout } from "@/components/page-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
 import { QueryState } from "@/components/ui/query-state"
-import { useDashboard } from "@/lib/hooks/useDashboard"
-import { formatBytes } from "@/lib/utils"
+import { useDashboard, type DashboardLastFailure } from "@/lib/hooks/useDashboard"
+import { useStatus } from "@/lib/hooks/useStatus"
+import { cn, formatBytes } from "@/lib/utils"
 import {
     CheckCircleIcon,
     CalendarClockIcon,
@@ -16,6 +18,9 @@ import {
     HistoryIcon,
     PlayIcon,
     ServerIcon,
+    ShieldAlertIcon,
+    ShieldCheckIcon,
+    ShieldIcon,
     XCircleIcon,
 } from "lucide-react"
 import Link from "next/link"
@@ -78,6 +83,64 @@ function Last30DaysChart({
   )
 }
 
+function DashboardStatusChip() {
+  const status = useStatus()
+  const overall = status.data?.summary.overall
+  if (!overall) return null
+
+  const label =
+    overall === "ok" ? "OK" : overall === "warn" ? "Needs attention" : "Critical"
+  const Icon =
+    overall === "ok" ? ShieldCheckIcon : overall === "warn" ? ShieldIcon : ShieldAlertIcon
+
+  return (
+    <Link
+      href="/status"
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-opacity hover:opacity-80",
+        overall === "ok" &&
+          "border-emerald-500/40 bg-emerald-500/10 text-emerald-800 dark:text-emerald-300",
+        overall === "warn" &&
+          "border-amber-500/40 bg-amber-500/10 text-amber-900 dark:text-amber-300",
+        overall === "critical" &&
+          "border-red-500/40 bg-red-500/10 text-red-800 dark:text-red-300"
+      )}
+      title={status.data?.summary.headline}
+    >
+      <Icon className="h-3.5 w-3.5" />
+      Status: {label}
+    </Link>
+  )
+}
+
+function LastFailureCard({
+  failure,
+  isClient,
+}: {
+  failure: DashboardLastFailure
+  isClient: boolean
+}) {
+  return (
+    <Link
+      href={`/history/${failure.id}`}
+      className="block rounded-lg border border-red-500/30 bg-red-500/5 p-4 transition-colors hover:bg-red-500/10"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-red-700 dark:text-red-400">Last failure</p>
+          <p className="truncate font-medium">{failure.configName}</p>
+          {failure.errorSnippet ? (
+            <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{failure.errorSnippet}</p>
+          ) : null}
+        </div>
+        <span className="shrink-0 text-xs text-muted-foreground">
+          {isClient ? new Date(failure.startTime).toLocaleString() : ""}
+        </span>
+      </div>
+    </Link>
+  )
+}
+
 export default function Dashboard() {
   const query = useDashboard(30)
   const [isClient, setIsClient] = useState(false)
@@ -92,7 +155,8 @@ export default function Dashboard() {
         title="Dashboard"
         description="Last 30 days overview"
         actions={
-          <div className="flex flex-wrap gap-3 text-sm text-muted-foreground">
+          <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
+            <DashboardStatusChip />
             <Link href="/servers" className="inline-flex items-center gap-1 hover:text-foreground">
               <ServerIcon className="h-3.5 w-3.5" />
               {query.data?.servers ?? "—"} servers
@@ -134,6 +198,10 @@ export default function Dashboard() {
       >
         {query.data ? (
           <>
+            {query.data.backups === 0 ? (
+              <BackupRecipesEmpty />
+            ) : (
+              <>
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
               <Card className="lg:col-span-3">
                 <CardHeader className="pb-2">
@@ -146,10 +214,21 @@ export default function Dashboard() {
                 <CardContent className="space-y-4">
                   <div className="flex flex-wrap items-end justify-between gap-4">
                     <div>
-                      <div className="text-4xl font-bold tracking-tight">
-                        {query.data.successRate}%
-                      </div>
-                      <div className="text-sm text-muted-foreground">Success rate</div>
+                      {query.data.totalRuns === 0 ? (
+                        <>
+                          <div className="text-4xl font-bold tracking-tight text-muted-foreground">
+                            —
+                          </div>
+                          <div className="text-sm text-muted-foreground">No runs yet</div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="text-4xl font-bold tracking-tight">
+                            {query.data.successRate}%
+                          </div>
+                          <div className="text-sm text-muted-foreground">Success rate</div>
+                        </>
+                      )}
                     </div>
                     <div className="flex items-center gap-4">
                       <Link
@@ -184,7 +263,9 @@ export default function Dashboard() {
                       </Link>
                     </div>
                   </div>
-                  <Progress value={query.data.successRate} className="h-2" />
+                  {query.data.totalRuns > 0 ? (
+                    <Progress value={query.data.successRate} className="h-2" />
+                  ) : null}
                   <Last30DaysChart daily={query.data.daily} />
                   <div className="text-right">
                     <Link href="/history" className="text-sm text-blue-500 hover:underline">
@@ -255,12 +336,19 @@ export default function Dashboard() {
               </Card>
             </div>
 
+            {query.data.lastFailure ? (
+              <LastFailureCard failure={query.data.lastFailure} isClient={isClient} />
+            ) : null}
+              </>
+            )}
+
             <DashboardQuickActions
               servers={query.data.serverList ?? []}
               s3Profiles={query.data.s3ProfileList ?? []}
               backups={query.data.backupList ?? []}
             />
 
+            {query.data.backups > 0 ? (
             <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
               <div className="rounded-lg border bg-card p-6 text-card-foreground shadow">
                 <h2 className="mb-4 text-xl font-semibold">Recent Activity</h2>
@@ -352,6 +440,7 @@ export default function Dashboard() {
                 )}
               </div>
             </div>
+            ) : null}
           </>
         ) : null}
       </QueryState>

@@ -69,8 +69,17 @@ export default function HistoryStatsPage() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-2">
-                  <div className="text-3xl font-bold">{query.data?.successRate || 0}%</div>
-                  <Progress value={query.data?.successRate || 0} className="h-2" />
+                  {query.data.totalBackups === 0 ? (
+                    <>
+                      <div className="text-3xl font-bold text-muted-foreground">—</div>
+                      <p className="text-sm text-muted-foreground">No runs yet</p>
+                    </>
+                  ) : (
+                    <>
+                      <div className="text-3xl font-bold">{query.data.successRate}%</div>
+                      <Progress value={query.data.successRate} className="h-2" />
+                    </>
+                  )}
                 </CardContent>
               </Card>
               

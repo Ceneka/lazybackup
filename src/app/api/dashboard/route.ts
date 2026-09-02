@@ -1,10 +1,22 @@
 import { getBackupStorageStats } from "@/lib/backup/storage-stats"
+import { successRate as calcSuccessRate } from "@/lib/backup/success-rate"
 import { buildUpcomingEntry } from "@/lib/cron/next"
 import { db } from "@/lib/db"
 import { backupConfigs, backupHistory, s3Profiles, servers } from "@/lib/db/schema"
 import { getAppTimezone } from "@/lib/settings/timezone"
 import { and, desc, eq, gte, sql } from "drizzle-orm"
 import { NextRequest, NextResponse } from "next/server"
+
+const ERROR_SNIPPET_MAX = 160
+
+function errorSnippet(text: string | null | undefined): string | null {
+  if (!text) return null
+  const oneLine = text.replace(/\s+/g, " ").trim()
+  if (!oneLine) return null
+  return oneLine.length > ERROR_SNIPPET_MAX
+    ? `${oneLine.slice(0, ERROR_SNIPPET_MAX - 1)}…`
+    : oneLine
+}
 
 function toLocalDateKey(date: Date): string {
   const y = date.getFullYear()
@@ -92,10 +104,7 @@ export async function GET(request: NextRequest) {
 
     const totalInWindow =
       statusCounts.running + statusCounts.success + statusCounts.failed
-    const successRate =
-      totalInWindow > 0
-        ? Math.round((statusCounts.success / totalInWindow) * 100)
-        : 100
+    const successRate = calcSuccessRate(statusCounts.success, totalInWindow)
 
     const [sizeAgg] = await db
       .select({
@@ -149,6 +158,29 @@ export async function GET(request: NextRequest) {
       },
     })
 
+    const lastFailedRow = await db.query.backupHistory.findFirst({
+      where: eq(backupHistory.status, "failed"),
+      orderBy: [desc(backupHistory.startTime)],
+      columns: {
+        id: true,
+        startTime: true,
+        errorMessage: true,
+      },
+      with: {
+        backupConfig: {
+          columns: { name: true },
+        },
+      },
+    })
+    const lastFailure = lastFailedRow
+      ? {
+          id: lastFailedRow.id,
+          configName: lastFailedRow.backupConfig?.name || "Unnamed Backup",
+          startTime: new Date(lastFailedRow.startTime).toISOString(),
+          errorSnippet: errorSnippet(lastFailedRow.errorMessage),
+        }
+      : null
+
     const storage = await getBackupStorageStats()
 
     const timeZone = await getAppTimezone()
@@ -183,6 +215,7 @@ export async function GET(request: NextRequest) {
       avgBackupBytes: Math.round(Number(sizeAgg?.avgSize || 0)),
       daily,
       recentHistory,
+      lastFailure,
       storage,
       timezone: timeZone,
       upcomingBackups,

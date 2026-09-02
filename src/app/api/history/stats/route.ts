@@ -1,3 +1,4 @@
+import { successRate as calcSuccessRate } from '@/lib/backup/success-rate';
 import { db } from '@/lib/db';
 import { backupHistory } from '@/lib/db/schema';
 import { sql } from 'drizzle-orm';
@@ -32,10 +33,7 @@ export async function GET(request: NextRequest) {
       return acc;
     }, { running: 0, success: 0, failed: 0 });
 
-    // Calculate success rate
-    const successRate = totalBackups > 0
-      ? Math.round((statusCounts.success / totalBackups) * 100)
-      : 100;
+    const successRate = calcSuccessRate(statusCounts.success, totalBackups);
 
     // Get average backup size
     const avgSizeQuery = await db

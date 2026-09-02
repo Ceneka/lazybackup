@@ -3,6 +3,7 @@
 import { PageHeader, PageLayout } from "@/components/page-layout"
 import { ResourceListCard } from "@/components/resource-list-card"
 import { s3OverflowItems } from "@/components/resource-overflow"
+import { Button } from "@/components/ui/button"
 import { QueryState } from "@/components/ui/query-state"
 import { useDeleteS3Profile, useS3Profiles } from "@/lib/hooks/useS3Profiles"
 import { useResourceQuickActions } from "@/lib/resource-actions"
@@ -35,6 +36,15 @@ export default function S3ProfilesPage() {
         errorIcon={<CloudIcon className="h-12 w-12 text-red-500" />}
         emptyIcon={<CloudIcon className="h-12 w-12 text-muted-foreground" />}
         emptyMessage="No S3 profiles found"
+        emptyDescription="Add a MinIO, R2, B2, or AWS-compatible profile to use as a backup source or destination."
+        emptyAction={
+          <Button asChild>
+            <Link href="/s3-profiles/new">
+              <PlusIcon className="h-4 w-4" />
+              Add your first S3 profile
+            </Link>
+          </Button>
+        }
       >
         {query.data && query.data.length > 0 && (
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">

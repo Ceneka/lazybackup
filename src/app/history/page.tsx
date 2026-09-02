@@ -135,6 +135,7 @@ function HistoryPageContent() {
   }
 
   const filteredConfigName = data?.filters?.configName
+  const historyFiltered = Boolean(filters.configId || filters.search || filters.status)
 
   return (
     <PageLayout>
@@ -222,9 +223,21 @@ function HistoryPageContent() {
         query={{ isLoading, data, error: null, isError: false, refetch }}
         emptyIcon={<HistoryIcon className="h-12 w-12 text-muted-foreground" />}
         emptyMessage={
-          filters.configId || filters.search || filters.status
+          historyFiltered
             ? "No backup history matches these filters"
             : "No backup history found"
+        }
+        emptyDescription={
+          historyFiltered
+            ? undefined
+            : "Jobs appear here after they run."
+        }
+        emptyAction={
+          historyFiltered ? undefined : (
+            <Button asChild>
+              <Link href="/backups">Run a backup or create one</Link>
+            </Button>
+          )
         }
         dataLabel="backup history"
         isDataEmpty={(data) => !data?.history?.length}

@@ -3,6 +3,7 @@
 import { PageHeader, PageLayout } from "@/components/page-layout"
 import { ResourceListCard } from "@/components/resource-list-card"
 import { serverOverflowItems } from "@/components/resource-overflow"
+import { Button } from "@/components/ui/button"
 import { QueryState } from "@/components/ui/query-state"
 import { useDeleteServer, useServers } from "@/lib/hooks/useServers"
 import { useResourceQuickActions } from "@/lib/resource-actions"
@@ -35,6 +36,15 @@ export default function ServersPage() {
         errorIcon={<ServerIcon className="h-12 w-12 text-red-500" />}
         emptyIcon={<ServerIcon className="h-12 w-12 text-muted-foreground" />}
         emptyMessage="No servers found"
+        emptyDescription="Add an SSH host to pull paths, Docker volumes, or database dumps into a From → To backup."
+        emptyAction={
+          <Button asChild>
+            <Link href="/servers/new">
+              <PlusIcon className="h-4 w-4" />
+              Add your first server
+            </Link>
+          </Button>
+        }
       >
         {query.data && query.data.length > 0 && (
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">

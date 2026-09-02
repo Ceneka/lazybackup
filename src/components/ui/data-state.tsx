@@ -21,6 +21,14 @@ export interface DataStateProps {
    */
   emptyMessage?: string
   /**
+   * Optional body copy under the empty heading
+   */
+  emptyDescription?: React.ReactNode
+  /**
+   * Optional CTA rendered under the empty copy (links, buttons)
+   */
+  emptyAction?: React.ReactNode
+  /**
    * Icon to show in the empty state
    */
   emptyIcon?: React.ReactNode
@@ -62,6 +70,8 @@ export function DataState({
   error = null,
   isEmpty = false,
   emptyMessage = "No data found",
+  emptyDescription,
+  emptyAction,
   emptyIcon,
   errorIcon,
   showRetry = true,
@@ -105,8 +115,12 @@ export function DataState({
   if (isEmpty) {
     return (
       <div className={cn("flex flex-col items-center justify-center py-12 text-center", className)}>
-        {emptyIcon || <div className="h-12 w-12 text-muted-foreground mb-4">{emptyIcon}</div>}
+        {emptyIcon ? <div className="mb-4">{emptyIcon}</div> : null}
         <h3 className="text-lg font-medium">{emptyMessage}</h3>
+        {emptyDescription ? (
+          <div className="mt-2 max-w-md text-sm text-muted-foreground">{emptyDescription}</div>
+        ) : null}
+        {emptyAction ? <div className="mt-4">{emptyAction}</div> : null}
       </div>
     )
   }
