@@ -37,7 +37,13 @@ describe('formatCronExpression', () => {
 
 describe('cronPresets', () => {
   test('labels match formatCronExpression', () => {
-    expect(CRON_PRESET_EXPRESSIONS).toEqual(['0 * * * *', '0 2 * * *', '0 2 * * 0'])
+    expect(CRON_PRESET_EXPRESSIONS).toEqual([
+      '0 * * * *',
+      '0 2 * * *',
+      '0 2 * * 0',
+      '0 2 1 * *',
+    ])
+    expect(formatCronExpression('0 2 1 * *')).toBe('Monthly on day 1 at 02:00')
     for (const preset of cronPresets()) {
       expect(preset.label).toBe(formatCronExpression(preset.expression))
     }

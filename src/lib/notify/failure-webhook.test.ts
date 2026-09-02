@@ -8,6 +8,24 @@ import {
   postFailureWebhook,
   validateFailureWebhookUrl,
 } from './failure-webhook';
+import { WEBHOOK_PRESETS } from './presets';
+
+describe('WEBHOOK_PRESETS', () => {
+  test('includes Gotify with header token and priority 5', () => {
+    const ids = WEBHOOK_PRESETS.map((p) => p.id);
+    expect(ids).toContain('gotify');
+    const gotify = WEBHOOK_PRESETS.find((p) => p.id === 'gotify');
+    expect(gotify?.method).toBe('POST');
+    expect(gotify?.url).toBe('https://gotify.example.com/message');
+    expect(gotify?.headers).toContain('X-Gotify-Key');
+    expect(gotify?.headers).toContain('YOUR_APP_TOKEN');
+    expect(gotify?.body).toContain('"title"');
+    expect(gotify?.body).toContain('"message"');
+    expect(gotify?.body).toContain('"priority": 5');
+    expect(gotify?.body).toContain('{{backupName}}');
+    expect(gotify?.body).toContain('{{errorMessage}}');
+  });
+});
 
 describe('validateFailureWebhookUrl', () => {
   test('rejects https to IMDS / link-local', () => {

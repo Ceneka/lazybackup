@@ -5,6 +5,7 @@ export const CRON_PRESET_EXPRESSIONS = [
   '0 * * * *',
   '0 2 * * *',
   '0 2 * * 0',
+  '0 2 1 * *',
 ] as const
 
 export type CronPreset = {

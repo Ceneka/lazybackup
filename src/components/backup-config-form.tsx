@@ -35,6 +35,9 @@ import { useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
 import { usePeers } from "@/lib/hooks/usePeers"
 import { cronPresets } from "@/lib/cron/presets"
+import { DEFAULT_TIMEZONE, formatInTimezone, isValidTimezone } from "@/lib/cron/format"
+import { getNextCronDate } from "@/lib/cron/next"
+import { useSettings } from "@/lib/hooks/useSettings"
 import { pathJobUsesServerEndpoint } from "@/lib/backup/transfer-keys"
 
 export type BackupFormData = {
@@ -194,6 +197,15 @@ export function BackupConfigForm({
   const s3Profiles = s3ProfilesQuery.data || []
   const peersQuery = usePeers()
   const activePeers = (peersQuery.data?.peers || []).filter((p) => p.status === "active")
+  const settingsQuery = useSettings()
+  const scheduleTimeZone = useMemo(() => {
+    const raw = settingsQuery.settings.timezone?.trim() || DEFAULT_TIMEZONE
+    return isValidTimezone(raw) ? raw : DEFAULT_TIMEZONE
+  }, [settingsQuery.settings.timezone])
+  const nextRunPreview = useMemo(() => {
+    const next = getNextCronDate(formData.schedule, scheduleTimeZone)
+    return next ? formatInTimezone(next, scheduleTimeZone) : null
+  }, [formData.schedule, scheduleTimeZone])
 
   const volumesQuery = useServerDockerVolumes(
     formData.sourceKind === "server" && formData.sourceType === "docker_volume"
@@ -1306,7 +1318,18 @@ export function BackupConfigForm({
             required
           />
           <p className="text-xs text-muted-foreground">
-            Example: 0 0 * * * (daily at midnight). Pick a chip or type a 5-field cron.
+            Next run:{" "}
+            {nextRunPreview ? (
+              <>
+                {nextRunPreview}{" "}
+                <span>({scheduleTimeZone})</span>
+              </>
+            ) : (
+              "—"
+            )}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Example: 0 2 * * * (daily at 02:00). Pick a chip or type a 5-field cron.
           </p>
         </div>
 
@@ -1542,7 +1565,7 @@ export function defaultCreateFormData(prefillServerId?: string): BackupFormData 
     sourceType: "path",
     sourcePath: "",
     destinationPath: "",
-    schedule: "0 0 * * *",
+    schedule: "0 2 * * *",
     excludePatterns: "",
     preBackupCommands: "",
     dbEngine: "postgres",

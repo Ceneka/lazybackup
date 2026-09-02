@@ -1,4 +1,5 @@
-import { CronJob } from 'cron'
+// CronTime only — CronJob pulls child_process and is not safe in client components.
+import { CronTime } from 'cron/dist/time.js'
 import {
   DEFAULT_TIMEZONE,
   formatCronExpression,
@@ -14,13 +15,7 @@ export function getNextCronDate(schedule: string, timeZone: string = DEFAULT_TIM
   if (!isValidTimezone(timeZone)) return null
 
   try {
-    const job = CronJob.from({
-      cronTime: schedule,
-      onTick: () => {},
-      start: false,
-      timeZone,
-    })
-    return job.nextDate().toJSDate()
+    return new CronTime(schedule, timeZone).sendAt().toJSDate()
   } catch {
     return null
   }

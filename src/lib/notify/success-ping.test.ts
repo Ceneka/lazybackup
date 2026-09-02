@@ -17,16 +17,29 @@ describe('parseSuccessPingMethod', () => {
 });
 
 describe('SUCCESS_PING_PRESETS', () => {
-  test('includes Discord, ntfy, and Telegram success copies', () => {
+  test('includes Discord, ntfy, Telegram, Slack, and Gotify success copies', () => {
     const ids = SUCCESS_PING_PRESETS.map((p) => p.id);
     expect(ids).toContain('discord');
     expect(ids).toContain('ntfy');
     expect(ids).toContain('telegram');
+    expect(ids).toContain('slack');
+    expect(ids).toContain('gotify');
     const discord = SUCCESS_PING_PRESETS.find((p) => p.id === 'discord');
     expect(discord?.body).toContain('succeeded');
     expect(discord?.body).not.toContain('errorMessage');
     const ntfy = SUCCESS_PING_PRESETS.find((p) => p.id === 'ntfy');
     expect(ntfy?.body).toContain('{{backupName}}');
+    const slack = SUCCESS_PING_PRESETS.find((p) => p.id === 'slack');
+    expect(slack?.method).toBe('POST');
+    expect(slack?.body).toContain('succeeded');
+    expect(slack?.body).toContain('{{backupName}}');
+    expect(slack?.body).not.toContain('errorMessage');
+    const gotify = SUCCESS_PING_PRESETS.find((p) => p.id === 'gotify');
+    expect(gotify?.url).toBe('https://gotify.example.com/message');
+    expect(gotify?.headers).toContain('X-Gotify-Key');
+    expect(gotify?.body).toContain('"priority": 5');
+    expect(gotify?.body).toContain('succeeded');
+    expect(gotify?.body).not.toContain('errorMessage');
   });
 });
 

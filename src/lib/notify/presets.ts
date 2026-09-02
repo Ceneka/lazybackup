@@ -84,6 +84,23 @@ export const WEBHOOK_PRESETS: WebhookPreset[] = [
     body: '{{backupName}}: {{errorMessage}}',
   },
   {
+    id: 'gotify',
+    name: 'Gotify',
+    description: 'POST /message — app token in X-Gotify-Key (or ?token=).',
+    method: 'POST',
+    url: 'https://gotify.example.com/message',
+    headers: 'Content-Type: application/json\nX-Gotify-Key: YOUR_APP_TOKEN',
+    body: JSON.stringify(
+      {
+        title: 'LazyBackup failure',
+        message: '{{backupName}}: {{errorMessage}}',
+        priority: 5,
+      },
+      null,
+      2
+    ),
+  },
+  {
     id: 'slack',
     name: 'Slack',
     description: 'Incoming webhook with a text field.',
@@ -181,6 +198,38 @@ export const SUCCESS_PING_PRESETS: SuccessPingPreset[] = [
     url: 'https://ntfy.sh/your-topic',
     headers: 'Title: LazyBackup success\nPriority: default\nTags: white_check_mark,backup',
     body: '{{backupName}} succeeded at {{endedAt}}',
+  },
+  {
+    id: 'gotify',
+    name: 'Gotify',
+    description: 'POST /message — app token in X-Gotify-Key (or ?token=).',
+    method: 'POST',
+    url: 'https://gotify.example.com/message',
+    headers: 'Content-Type: application/json\nX-Gotify-Key: YOUR_APP_TOKEN',
+    body: JSON.stringify(
+      {
+        title: 'LazyBackup success',
+        message: '{{backupName}} succeeded at {{endedAt}}',
+        priority: 5,
+      },
+      null,
+      2
+    ),
+  },
+  {
+    id: 'slack',
+    name: 'Slack',
+    description: 'Incoming webhook with a text field.',
+    method: 'POST',
+    url: 'https://hooks.slack.com/services/T00/B00/XXX',
+    headers: 'Content-Type: application/json',
+    body: JSON.stringify(
+      {
+        text: 'Backup succeeded: *{{backupName}}*\n_History:_ `{{historyId}}` · {{endedAt}}',
+      },
+      null,
+      2
+    ),
   },
   {
     id: 'default',
