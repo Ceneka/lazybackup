@@ -15,10 +15,12 @@ on:
 
 permissions:
   contents: read
+  actions: write
 
 jobs:
-  # Host glibc: unit tests + Next build. Alpine/musl is a separate job because
+  # Host glibc unit tests (fast fail). Alpine/musl is a separate job because
   # native addons (@libsql, argon2) can pass here and fail in the GHCR image.
+  # Next.js compile is the Alpine production build, not a second host `next build`.
   test:
     runs-on: ubuntu-latest
     steps:
@@ -38,11 +40,6 @@ jobs:
 
       - name: Run tests
         run: bun test
-
-      - name: Build
-        run: bun run build
-        env:
-          DATABASE_URL: file:/tmp/lazybackup-ci.db
 
   bro-test:
     runs-on: ubuntu-latest
@@ -64,7 +61,7 @@ jobs:
         run: bun test
 
   # Production image is Alpine/musl — catch native addon / NFT gaps host glibc misses.
-  # Keep this job on the runner's linux/amd64; multi-arch is the publish job only.
+  # amd64 only here so we can --load and smoke; GHA cache feeds publish-ghcr.
   docker-alpine:
     runs-on: ubuntu-latest
     steps:
@@ -74,10 +71,38 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Alpine unit tests + production smoke
-        run: bash scripts/docker-test.sh
+      - name: Build Alpine test image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          target: test
+          platforms: linux/amd64
+          load: true
+          tags: lazybackup:test
+          cache-from: type=gha,scope=lazybackup
 
-  # PRs stop after tests. main / v* / manual dispatch publish once those pass.
+      - name: Run bun test on Alpine
+        run: docker run --rm lazybackup:test
+
+      - name: Build Alpine production image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64
+          load: true
+          tags: lazybackup:smoke
+          cache-from: type=gha,scope=lazybackup
+          cache-to: type=gha,mode=max,scope=lazybackup,ignore-error=true
+
+      - name: Smoke-test production image
+        env:
+          IMAGE_SMOKE: lazybackup:smoke
+        run: bash scripts/docker-smoke.sh
+
+  # PRs stop after tests. main / v* / manual dispatch push using Alpine/amd64
+  # layers from docker-alpine; arm64 is the extra compile (then cached too).
   publish-ghcr:
     needs: [test, docker-alpine, bro-test]
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')))
@@ -85,6 +110,7 @@ jobs:
     permissions:
       contents: read
       packages: write
+      actions: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
@@ -119,6 +145,8 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
+          cache-from: type=gha,scope=lazybackup
+          cache-to: type=gha,mode=max,scope=lazybackup,ignore-error=true
 
   # v* tags: GitHub Release body = CHANGELOG section (see bun run release).
   # LazyBro may create the same tag first to attach binaries; edit keeps assets.
