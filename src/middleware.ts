@@ -12,6 +12,7 @@ const PUBLIC_EXACT = new Set([
   '/api/auth/setup',
   '/api/auth/webauthn/login',
   '/api/peers/pair',
+  '/manifest.webmanifest',
 ])
 
 function isPublicPath(pathname: string): boolean {

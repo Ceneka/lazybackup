@@ -94,6 +94,7 @@ export function Navbar() {
               <Link
                 key={item.href}
                 href={item.href}
+                aria-label={item.name}
                 className={cn(
                   "flex items-center transition-colors hover:text-foreground/80",
                   active ? "text-foreground" : "text-foreground/60"
@@ -110,6 +111,7 @@ export function Navbar() {
               variant="ghost"
               size="sm"
               className="text-foreground/60 hover:text-foreground"
+              aria-label="Logout"
               onClick={() => auth.logout.mutate()}
               disabled={auth.logout.isPending}
             >

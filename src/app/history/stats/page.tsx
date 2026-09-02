@@ -33,12 +33,14 @@ export default function HistoryStatsPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-2">
-        <Button 
-          variant="outline" 
-          size="icon" 
+        <Button
+          variant="outline"
+          size="icon"
           onClick={() => router.push("/history")}
+          aria-label="Back to history"
         >
           <ArrowLeftIcon className="h-4 w-4" />
+          <span className="sr-only">Back to history</span>
         </Button>
         <h1 className="text-3xl font-bold">Backup Statistics</h1>
       </div>

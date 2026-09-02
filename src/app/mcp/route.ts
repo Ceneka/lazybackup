@@ -1,4 +1,5 @@
 import { authAllowsRemoteExec, authAllowsWrite, resolveAuth } from '@/lib/auth'
+import { APP_VERSION } from '@/lib/app-version'
 import { registerLazyBackupTools } from '@/lib/mcp/register'
 import { createMcpHandler } from 'mcp-handler'
 
@@ -35,7 +36,7 @@ async function handle(req: Request) {
     {
       serverInfo: {
         name: 'lazybackup',
-        version: '0.1.0',
+        version: APP_VERSION,
       },
       instructions: `You are connected to LazyBackup, a self-hosted From→To backup manager.
 Never invent server, volume, container, or S3 profile names/ids — call find_server, list_docker_volumes, list_docker_containers, get_container_db_hints, list_s3_profiles first.

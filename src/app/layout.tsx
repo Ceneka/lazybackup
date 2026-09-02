@@ -2,7 +2,8 @@ import { AppShell } from "@/components/app-shell";
 import { BodyPointerEventsGuard } from "@/components/body-pointer-events-guard";
 import { Providers } from "@/components/providers";
 import { Toaster } from "@/components/ui/sonner";
-import type { Metadata } from "next";
+import { APP_DESCRIPTION, APP_NAME } from "@/lib/app-version";
+import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
 import "./globals.css";
 
@@ -16,8 +17,9 @@ const inter = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "LazyBackup - VPS Backup Manager",
-  description: "Manage your VPS backups with ease",
+  title: APP_NAME,
+  description: APP_DESCRIPTION,
+  applicationName: APP_NAME,
   icons: {
     icon: [
       { url: "/favicon.ico" },
@@ -25,6 +27,13 @@ export const metadata: Metadata = {
     ],
     apple: "/apple-touch-icon.png",
   },
+};
+
+export const viewport: Viewport = {
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
+    { media: "(prefers-color-scheme: dark)", color: "#030712" },
+  ],
 };
 
 export default function RootLayout({

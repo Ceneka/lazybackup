@@ -174,8 +174,10 @@ function HistoryPageContent() {
             variant="outline"
             size="icon"
             hideTextWhenLoading={true}
+            aria-label="Refresh history"
           >
             <RefreshCwIcon className="h-4 w-4" />
+            <span className="sr-only">Refresh history</span>
           </LoadingButton>
         }
       />

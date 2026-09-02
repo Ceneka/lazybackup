@@ -17,6 +17,7 @@ import { LoadingButton } from "@/components/ui/loading-button"
 import { QueryState } from "@/components/ui/query-state"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
+import { APP_VERSION } from "@/lib/app-version"
 import { COMMON_TIMEZONES, DEFAULT_TIMEZONE, listTimezones } from "@/lib/cron/format"
 import { useAuth } from "@/lib/hooks/useAuth"
 import { useSettings } from "@/lib/hooks/useSettings"
@@ -678,6 +679,9 @@ function SettingsPageInner() {
           </div>
         </TabsContent>
       </Tabs>
+      <p className="pt-2 text-center text-xs text-muted-foreground">
+        LazyBackup v{APP_VERSION}
+      </p>
     </PageLayout>
   )
 }
