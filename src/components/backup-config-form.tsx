@@ -203,9 +203,10 @@ export function BackupConfigForm({
     return isValidTimezone(raw) ? raw : DEFAULT_TIMEZONE
   }, [settingsQuery.settings.timezone])
   const nextRunPreview = useMemo(() => {
+    if (settingsQuery.isLoading) return null
     const next = getNextCronDate(formData.schedule, scheduleTimeZone)
     return next ? formatInTimezone(next, scheduleTimeZone) : null
-  }, [formData.schedule, scheduleTimeZone])
+  }, [formData.schedule, scheduleTimeZone, settingsQuery.isLoading])
 
   const volumesQuery = useServerDockerVolumes(
     formData.sourceKind === "server" && formData.sourceType === "docker_volume"

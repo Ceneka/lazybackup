@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { formatCronExpression, isValidTimezone } from './format'
+import { formatCronExpression, formatInTimezone, isValidTimezone } from './format'
 import { getNextCronDate } from './next'
 import { CRON_PRESET_EXPRESSIONS, cronPresets } from './presets'
 
@@ -71,5 +71,13 @@ describe('timezone helpers', () => {
     // Some locales use 24 for midnight; normalize
     expect(['00', '24']).toContain(hour)
     expect(minute).toBe('00')
+  })
+
+  test('formatInTimezone uses a stable en-US locale', () => {
+    const d = new Date('2026-09-02T05:00:00.000Z')
+    const s = formatInTimezone(d, 'UTC')
+    expect(s).toContain('Sep')
+    expect(s).toContain('2026')
+    expect(s).toContain('5:00')
   })
 })

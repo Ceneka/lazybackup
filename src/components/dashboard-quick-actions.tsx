@@ -154,40 +154,42 @@ export function DashboardQuickActions({
         ))}
       </ResourceCard>
 
-      <ResourceCard
-        title="Backups"
-        href="/backups"
-        addHref="/backups/new"
-        addLabel="Add"
-        icon={FolderIcon}
-        empty={backups.length === 0}
-      >
-        {backups.map((backup) => (
-          <div
-            key={backup.id}
-            className="flex items-center justify-between gap-2 rounded-md p-2 hover:bg-accent/50"
-          >
-            <Link href={`/backups/${backup.id}`} className="min-w-0">
-              <div className="truncate font-medium">{backup.name}</div>
-              <div className="text-xs text-muted-foreground">
-                {backup.enabled ? "Active" : "Disabled"}
-              </div>
-            </Link>
-            <ResourceQuickActionBar
-              editHref={`/backups/${backup.id}/edit`}
-              editLabel={`Edit ${backup.name}`}
-              flash={actions.flashFor(`backup:${backup.id}`)}
-              overflow={backupOverflowItems({
-                id: backup.id,
-                name: backup.name,
-                actions,
-                onDelete: () => deleteBackup.mutate(backup.id),
-                isDeleting: deleteBackup.isPending && deleteBackup.variables === backup.id,
-              })}
-            />
-          </div>
-        ))}
-      </ResourceCard>
+      {backups.length > 0 ? (
+        <ResourceCard
+          title="Backups"
+          href="/backups"
+          addHref="/backups/new"
+          addLabel="Add"
+          icon={FolderIcon}
+          empty={false}
+        >
+          {backups.map((backup) => (
+            <div
+              key={backup.id}
+              className="flex items-center justify-between gap-2 rounded-md p-2 hover:bg-accent/50"
+            >
+              <Link href={`/backups/${backup.id}`} className="min-w-0">
+                <div className="truncate font-medium">{backup.name}</div>
+                <div className="text-xs text-muted-foreground">
+                  {backup.enabled ? "Active" : "Disabled"}
+                </div>
+              </Link>
+              <ResourceQuickActionBar
+                editHref={`/backups/${backup.id}/edit`}
+                editLabel={`Edit ${backup.name}`}
+                flash={actions.flashFor(`backup:${backup.id}`)}
+                overflow={backupOverflowItems({
+                  id: backup.id,
+                  name: backup.name,
+                  actions,
+                  onDelete: () => deleteBackup.mutate(backup.id),
+                  isDeleting: deleteBackup.isPending && deleteBackup.variables === backup.id,
+                })}
+              />
+            </div>
+          ))}
+        </ResourceCard>
+      ) : null}
     </div>
   )
 }

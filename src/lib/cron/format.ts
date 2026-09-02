@@ -113,7 +113,9 @@ export function formatInTimezone(
   }
 ): string {
   try {
-    return new Intl.DateTimeFormat(undefined, { ...options, timeZone }).format(date)
+    // Fixed locale so SSR and the browser agree (avoids hydration mismatches
+    // on the backup form next-run preview).
+    return new Intl.DateTimeFormat('en-US', { ...options, timeZone }).format(date)
   } catch {
     return date.toISOString()
   }
