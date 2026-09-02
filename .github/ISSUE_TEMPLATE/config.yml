@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security report
+    url: https://github.com/Ceneka/lazybackup/security/advisories/new
+    about: Please report vulnerabilities privately via GitHub Security Advisories.
+  - name: Docs & landing
+    url: https://lazy.zic.ar
+    about: Feature reference, compare, changelog, and blog.
