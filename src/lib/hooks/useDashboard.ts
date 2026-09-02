@@ -1,5 +1,6 @@
-import { useQuery } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import type { UpcomingBackup } from "@/lib/cron/format"
+import { toast } from "sonner"
 
 export type DashboardDaily = {
   date: string
@@ -84,5 +85,27 @@ export function useDashboard(days = 30) {
       return res.json()
     },
     refetchInterval: 60_000,
+  })
+}
+
+/** Dev-only POST /api/seed — production API returns 403. */
+export function useSeedDemo() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/seed", { method: "POST" })
+      const data = (await res.json().catch(() => ({}))) as { error?: string }
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to seed demo data")
+      }
+      return data
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries()
+      toast.success("Loaded screenshot fixtures")
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : "Failed to seed demo data")
+    },
   })
 }

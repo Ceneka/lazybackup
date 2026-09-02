@@ -10,7 +10,7 @@ Guide for AI coding agents. User-facing setup lives in [README.md](./README.md) 
 - Source types: `path` (filesystem or S3 object prefix), `docker_volume` (named volume on a **source server** or **this host’s Docker socket** → alpine tar → `.tar.gz`), `database` (Postgres/MySQL/MariaDB/SQLite dump → `.sql.gz` / `.sqlite.gz` via native client or `docker exec`; SQLite is native-only; local or server source), or **`lazybackup_instance`** (local only; packs SQLite + age vault + SSH keys; optional passphrase wrap). Destinations are paths or S3 prefixes. Volume tar is **not** a consistent live-DB backup — use `database` for that. Restore (path + volume + database) pulls a **local** artifact or downloads from **S3**/Bro, or from an **SSH destination with key auth**; History can retarget onto a different host. Password-only SSH dests cannot pull.
 - For **database + docker client** on a server source, the form can list running containers and auto-fill credentials from `docker inspect` env (`POSTGRES_*` / `MYSQL_*` / `MARIADB_*`).
 - **SSH key required** for any server endpoint involved in a **transfer** (host-side rsync/scp). Password auth works for Test connection and other `node-ssh` operations (list volumes/containers, remote shell cmds); it is not enough alone to pull/push path backups.
-- **Optional app password** (single operator, no users table): first-run set/skip; manage in Settings. Hash in settings → middleware gates pages + `/api/*` (public: `/login`, `/api/auth/*`, `/api/health`). Session cookie `lb_session`, 30-day sliding expiry. **Passkeys** (WebAuthn) can lock the instance alone or alongside the password (`webauthn_credentials`).
+- **Optional app password** (single operator, no users table): first-run set/skip; manage in Settings. Hash in settings → middleware gates pages + `/api/*` (public: `/login`, `/api/auth/*`, `/api/health`, `/manifest.webmanifest`). Session cookie `lb_session`, 30-day sliding expiry. **Passkeys** (WebAuthn) can lock the instance alone or alongside the password (`webauthn_credentials`).
 - **API tokens** (Settings → API / MCP): Bearer `Authorization` for agents; hashed in `api_tokens`. Streamable HTTP MCP at `/mcp` (same auth gate). Token CRUD requires a browser session (tokens cannot mint tokens). Opt-in `remote_exec` permission gates `exec_command` and setting/changing `preBackupCommands` (session/unlocked always allowed). Opt-in `read_only` (mutually exclusive with `remote_exec`) blocks mutating MCP tools and non-GET `/api/*` except `/mcp` and `validate` / `test_*`; existing tokens without it still write.
 - **Encryption** (Settings → Encryption): optional per-backup **age** encryption before land (local/server/S3). Forced on for Bro destinations. Keys live in an **`age_keys` vault** (one **active** for new encrypts; **retired** / **compromised** kept for decrypt). Optional **recovery recipients** (`age1…`) are added on every encrypt. Private identities stay on this instance; export (plaintext or passphrase-wrapped) for disaster recovery. **Create new key** demotes the previous active to retired (never silent overwrite).
 - **Instance meta-backup** (`sourceType=lazybackup_instance`): packs SQLite + age vault + SSH keys to a destination; optional archive **passphrase** (not the instance age key). Settings → Encryption has a prefills link. Restore is manual.
@@ -28,7 +28,7 @@ Bun · Next.js 15.5 App Router · React 19 · Tailwind 4 / shadcn · TanStack Qu
 ## Layout
 
 ```
-src/app/           # pages + api/* routes
+src/app/           # pages + api/* routes; manifest.ts → public /manifest.webmanifest
 src/components/    # ui/*, page-layout, backup-config-form (From→To), s3-profile-form, app-shell, navbar
 src/lib/auth/      # password hash, session cookie, isAuthorized
 src/lib/crypto/    # age encrypt/decrypt + key settings helpers
@@ -95,7 +95,7 @@ Pattern: Zod → Drizzle → `NextResponse.json`; errors `{ error, details? }`.
 | S3 | `/api/s3-profiles`, `/api/s3-profiles/[id]`, `…/test`, `POST /api/s3-profiles/test` |
 | Backups | `/api/backups`, `/api/backups/[id]`, `…/run`, `…/validate`, `…/toggle`, `…/storage`, `POST /api/backups/start`, `POST /api/backups/database/test` |
 | History | `/api/history`, `/api/history/[id]`, `…/restore`, `/api/history/stats?chartData=` |
-| Other | `/api/ssh-keys`, `/api/settings`, `/api/scheduler/restart`, `/api/dashboard`, `/api/status` (safety posture), `/api/seed` (dev only) |
+| Other | `/api/ssh-keys`, `/api/settings`, `GET /api/settings/export` (session-only config JSON, no secrets), `GET /api/version` (session-only, GitHub latest cache), `/api/scheduler/restart`, `/api/dashboard`, `/api/status` (safety posture), `/api/seed` (dev only) |
 
 ## Backup workflow (`lib/backup/index.ts`)
 

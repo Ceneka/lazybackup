@@ -1,6 +1,19 @@
 "use client"
 
 import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
+import { Button } from "@/components/ui/button"
+import { LoadingButton } from "@/components/ui/loading-button"
+import { useSeedDemo } from "@/lib/hooks/useDashboard"
+import {
   DatabaseIcon,
   HardDriveIcon,
   CloudIcon,
@@ -10,7 +23,7 @@ import {
   FolderIcon,
 } from "lucide-react"
 import Link from "next/link"
-import type { ReactNode } from "react"
+import { useState, type ReactNode } from "react"
 
 type Recipe = {
   id: string
@@ -107,7 +120,7 @@ export function BackupRecipesEmpty() {
         ))}
       </div>
 
-      <div className="flex justify-center">
+      <div className="flex flex-col items-center gap-3">
         <Link
           href="/backups/new"
           className="inline-flex h-10 items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium ring-offset-background transition-colors hover:bg-accent hover:text-accent-foreground"
@@ -115,7 +128,47 @@ export function BackupRecipesEmpty() {
           <PlusIcon className="mr-2 h-4 w-4" />
           Start from scratch
         </Link>
+        {process.env.NODE_ENV !== "production" ? <DevSeedCta /> : null}
       </div>
     </div>
+  )
+}
+
+/** Screenshot fixtures — compiled out of production builds (`NODE_ENV` inlined). */
+function DevSeedCta() {
+  const seed = useSeedDemo()
+  const [open, setOpen] = useState(false)
+
+  return (
+    <AlertDialog open={open} onOpenChange={setOpen}>
+      <AlertDialogTrigger asChild>
+        <Button variant="ghost" size="sm" className="text-muted-foreground">
+          Load screenshot fixtures
+        </Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Replace data with demo fixtures?</AlertDialogTitle>
+          <AlertDialogDescription>
+            This wipes servers, SSH keys, backup configs, and history, then loads
+            screenshot-friendly demo data. Auth (password and passkeys) is left
+            alone. Use only on a disposable local instance.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={seed.isPending}>Cancel</AlertDialogCancel>
+          <LoadingButton
+            type="button"
+            onClick={() => {
+              seed.mutate(undefined, { onSuccess: () => setOpen(false) })
+            }}
+            isLoading={seed.isPending}
+            loadingText="Loading..."
+          >
+            Load fixtures
+          </LoadingButton>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   )
 }
