@@ -592,10 +592,10 @@ export const LAZYBRO_MACOS_ARM64_URL = `${GITHUB_URL}/releases/download/lazybro/
 export const LAZYBRO_MACOS_X64_URL = `${GITHUB_URL}/releases/download/lazybro/lazybro-darwin-x64`;
 export const LAZYBRO_WINDOWS_URL = `${GITHUB_URL}/releases/download/lazybro/lazybro-windows-x64.exe`;
 
-/** Default Open Graph / Twitter share image (landing public/). */
+/** Default Open Graph / Twitter share image (landing public/og.png, 1200×630). */
 export const OG_IMAGE = {
-  url: "/screenshots/dashboard.png",
-  width: 1440,
-  height: 900,
-  alt: "LazyBackup dashboard — backup status, success rate, and upcoming schedules",
+  url: "/og.png",
+  width: 1200,
+  height: 630,
+  alt: "LazyBackup — From → To backups for your servers",
 } as const;

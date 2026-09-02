@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import { OG_IMAGE, SITE_URL } from "@/components/landing/features-data";
+import { GITHUB_URL, OG_IMAGE, SITE_URL } from "@/components/landing/features-data";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -61,6 +61,22 @@ export const metadata: Metadata = {
   ],
 };
 
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  name: "LazyBackup",
+  url: SITE_URL,
+  sameAs: GITHUB_URL,
+  license: "https://opensource.org/licenses/MIT",
+  applicationCategory: ["DeveloperApplication", "UtilitiesApplication"],
+  operatingSystem: "Linux",
+  offers: {
+    "@type": "Offer",
+    price: "0",
+    priceCurrency: "USD",
+  },
+} as const;
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -71,6 +87,10 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        />
         {children}
       </body>
     </html>

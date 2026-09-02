@@ -24,7 +24,7 @@ export function SiteFooter() {
             markClassName="h-7 w-7"
             wordmarkClassName="text-base text-slate-300"
           />
-          <p>© {new Date().getFullYear()} LazyBackup. All rights reserved.</p>
+          <p>© {new Date().getFullYear()} Ceneka. MIT licensed.</p>
         </div>
         <div className="flex flex-wrap justify-center gap-x-8 gap-y-2">
           {footerLinks.map((link) => (

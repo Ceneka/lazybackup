@@ -83,11 +83,13 @@ const envVars = [
 
 const dockerCommand = `docker run -d \\
   --name lazybackup \\
+  --restart unless-stopped \\
   -p 3000:3000 \\
   -v lazybackup_data:/app/data \\
   -v ./backups:/backups \\
   -v ~/.ssh:/root/.ssh:ro \\
   -e DATABASE_URL=file:/app/data/data.db \\
+  -e BACKUP_STORAGE_PATH=/backups \\
   ${DOCKER_IMAGE}`;
 
 const bunCommand = `git clone ${GITHUB_URL}.git
@@ -107,6 +109,7 @@ services:
       - "3000:3000"
     environment:
       DATABASE_URL: file:/app/data/data.db
+      BACKUP_STORAGE_PATH: /backups
     volumes:
       - lazybackup_data:/app/data
       - ./backups:/backups
@@ -124,7 +127,7 @@ export default function Home() {
       <SiteHeader />
 
       <section
-        id="get-started"
+        id="hero"
         className="relative overflow-hidden border-b border-white/[0.06]"
       >
         <HeroOrbs />
@@ -150,16 +153,16 @@ export default function Home() {
             </p>
             <div className="mt-9 flex flex-wrap items-center gap-4">
               <Link
-                href={GITHUB_URL}
+                href="#cta"
                 className="inline-flex items-center justify-center rounded-xl bg-gradient-to-r from-emerald-500 to-cyan-500 px-6 py-3.5 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-500/25 transition hover:brightness-110"
               >
-                View on GitHub
+                Run with Docker
               </Link>
               <Link
-                href="/features"
+                href={GITHUB_URL}
                 className="inline-flex items-center justify-center rounded-xl border border-white/15 bg-white/[0.04] px-6 py-3.5 text-sm font-medium text-slate-200 backdrop-blur-sm transition hover:border-white/25 hover:bg-white/[0.07]"
               >
-                Feature reference
+                View on GitHub
               </Link>
             </div>
             <dl className="mt-12 grid grid-cols-3 gap-6 border-t border-white/10 pt-10 sm:max-w-md">
@@ -361,7 +364,7 @@ export default function Home() {
                   GitHub
                 </Link>
                 <Link
-                  href="/#get-started"
+                  href="#cta"
                   className="inline-flex items-center justify-center rounded-xl border border-white/15 px-6 py-3.5 text-sm font-medium text-slate-200 transition hover:border-white/25 hover:bg-white/[0.05]"
                 >
                   Get started

@@ -16,6 +16,9 @@ export const metadata: Metadata = {
   title: "Compare",
   description:
     "LazyBackup vs rsync/cron, and how it differs from Restic, Borg, and Duplicati—control plane for SSH boxes, Docker volumes, DB dumps, and MCP.",
+  alternates: {
+    canonical: "/compare",
+  },
   openGraph: {
     title: "Compare · LazyBackup",
     description:

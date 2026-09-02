@@ -45,6 +45,7 @@ Root directory = `landing` still has the parent repo on disk.)
 - `/changelog` — user-facing release notes (from repo `CHANGELOG.md`)
 - `/blog` — guides and product notes
 - `/blog/introducing-lazybackup` — product presentation
+- `/blog/age-vault-recovery` — age vault export, recovery recipients, disaster restore
 - `/blog/easily-backup-docker-database` — Docker DB dump howto
 - `/blog/failure-webhooks-discord-ntfy-kuma` — Discord / ntfy / Uptime Kuma webhooks
 - `/blog/database-dumps-to-s3` — Postgres/MySQL dumps to MinIO/R2/B2/AWS

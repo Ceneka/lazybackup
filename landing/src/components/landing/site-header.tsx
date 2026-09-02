@@ -34,7 +34,7 @@ type SiteHeaderProps = {
 export function SiteHeader({ variant = "home" }: SiteHeaderProps) {
   const [open, setOpen] = useState(false);
   const nav = variant === "home" ? homeNav : innerNav;
-  const ctaHref = variant === "home" ? "/#get-started" : "/#cta";
+  const ctaHref = "/#cta";
 
   return (
     <header className="sticky top-0 z-50 border-b border-white/[0.08] bg-[#070b14]/75 backdrop-blur-xl">

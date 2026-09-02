@@ -9,6 +9,9 @@ export const metadata: Metadata = {
   title: "Changelog",
   description:
     "User-facing LazyBackup release notes: reliability (CI, locks, webhooks, validate, redaction) and landing growth updates.",
+  alternates: {
+    canonical: "/changelog",
+  },
   openGraph: {
     title: "Changelog · LazyBackup",
     description:
