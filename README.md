@@ -1,49 +1,29 @@
-# LazyBackup — VPS Backup Manager
+# LazyBackup — From → To backups
 
-[![CI](https://github.com/Ceneka/lazybackup/actions/workflows/ci.yml/badge.svg)](https://github.com/Ceneka/lazybackup/actions/workflows/ci.yml) · **[lazy.zic.ar](https://lazy.zic.ar)** · **[GitHub](https://github.com/Ceneka/lazybackup)**
+[![CI](https://github.com/Ceneka/lazybackup/actions/workflows/ci.yml/badge.svg)](https://github.com/Ceneka/lazybackup/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/github/license/Ceneka/lazybackup)](./LICENSE)
+[![GHCR](https://img.shields.io/badge/GHCR-ceneka%2Flazybackup-blue)](https://github.com/Ceneka/lazybackup/pkgs/container/lazybackup)
+[![Release](https://img.shields.io/github/v/release/Ceneka/lazybackup)](https://github.com/Ceneka/lazybackup/releases/latest)
+[![Stars](https://img.shields.io/github/stars/Ceneka/lazybackup)](https://github.com/Ceneka/lazybackup/stargazers)
 
-LazyBackup is a self-hosted web app for managing backups between endpoints: **this host (local)**, any configured **Server**, or **S3-compatible** storage. Connect over SSH, schedule jobs with cron, and transfer filesystem paths, Docker volumes, or logical database dumps—including **server→server** (ephemeral direct or relay) and landings on S3.
+**[lazy.zic.ar](https://lazy.zic.ar)** · **[GitHub](https://github.com/Ceneka/lazybackup)**
 
-Marketing site (static): [`landing/`](./landing) → [lazy.zic.ar](https://lazy.zic.ar) · [Features](https://lazy.zic.ar/features)
+LazyBackup is a self-hosted web app for **From → To** backups between endpoints: **this host (local)**, any configured **Server**, or **S3-compatible** storage. Connect over SSH, schedule jobs with cron, and transfer filesystem paths, Docker volumes, or logical database dumps—including **server→server** (ephemeral direct or relay) and landings on S3.
 
-## Features
+**Why not just rsync/cron?** UI, schedules, retention, restore, and encryption without a pile of scripts — [lazy.zic.ar/compare](https://lazy.zic.ar/compare).
 
-- **From → To** — Endpoints: this host, SSH servers, or S3-compatible storage (MinIO, R2, B2, AWS, …)
-- **Server → Server** — Ephemeral SSH key for direct rsync, or relay via the LazyBackup host when peers can’t reach each other
-- **Server management** — Add, edit, and test VPS connections (password or SSH key auth)
-- **Backup jobs** — Paths, Docker volumes, or database dumps; cron schedules; exclude patterns; pre-backup shell commands
-- **Docker volumes** — Discover named volumes on this host or a source server, pack as `.tar.gz` to a destination path/prefix, restore from History
-- **Database dumps** — Postgres / MySQL / MariaDB → `.sql.gz` (native client or `docker exec`); SQLite → `.sqlite.gz` (native file copy / `.backup`); restore from History
-- **S3 profiles** — Source prefixes and destination prefixes for path trees and archives
-- **Versioned backups** — Optional timestamped snapshots with automatic count-based retention
-- **File retention** — Optional age-based cleanup for dump-style destinations (keep a minimum number of files)
-- **Automated scheduling** — In-process cron scheduler; set an app timezone so schedules run when you expect
-- **History & dashboard** — Track runs, view logs, next run times, storage usage, and success rates
-- **Path restore** — One-click restore of path trees from History (local / S3 / Bro artifacts) back to the source path, SSH host, or S3 prefix
-- **Validate before run** — Probe SSH/S3/paths/DB without transferring (backup detail → Validate); last result is stored with a timestamp so you can see status without re-running
-- **Failure webhooks** — Customizable HTTPS webhook on backup failure (method, headers, `{{tag}}` body/URL templates; Discord / Telegram / Kuma / ntfy / Slack presets)
-- **Success pings** — Optional Healthchecks.io / Uptime Kuma-style GET (or POST) when a backup succeeds
-- **Optional app password** — Single-operator lock (set on first run or later in Settings); session cookie lasts 30 days
-- **MCP / API tokens** — Let Cursor, Claude, or other agents manage backups via Streamable HTTP MCP at `/mcp` (Settings → API / MCP)
-- **Encryption** — Age vault (active / retired / compromised keys), recovery recipients, passphrase-wrapped export (Settings → Encryption); works with local, server, and S3 destinations
-- **Instance backup** — Backup LazyBackup itself (SQLite + keys) as a schedulable job; optional archive passphrase
-- **Passkeys** — WebAuthn login alongside or instead of the app password
-- **Bro Space** — share encrypted backup space with a friend (Settings → Bro Space). Invite them to install **LazyBro**, or pair with another LazyBackup.
+![Dashboard](docs/screenshots/dashboard.png)
 
-## Tech stack
+![Backup configurations](docs/screenshots/backups.png)
 
-- **Frontend:** Next.js 15, React 19, Tailwind CSS, shadcn/ui
-- **Backend:** Next.js API routes
-- **Database:** SQLite (libSQL) with Drizzle ORM
-- **Transfer:** rsync (preferred) with scp fallback; S3 via AWS SDK
-- **Runtime:** Bun
+![Age encryption](docs/screenshots/encryption.png)
 
 ## Getting started
 
 ### Prerequisites
 
 - [Bun](https://bun.sh) 1.0+ (or Node.js 18+)
-- SSH access to your VPS
+- SSH access to your servers
 - **SSH key authentication** on each server endpoint used in a backup transfer (rsync/scp run from the LazyBackup host and need a key). Password auth still works for **Test connection** and other `node-ssh` operations (list volumes/containers, etc.)
 - `rsync` and `openssh-client` on the host running LazyBackup
 
@@ -100,6 +80,40 @@ bun run dev        # development
 
 Set `DATABASE_URL` if you want a custom SQLite path (default: `file:./data.db`).
 
+## Features
+
+- **From → To** — Endpoints: this host, SSH servers, or S3-compatible storage (MinIO, R2, B2, AWS, …)
+- **Server → Server** — Ephemeral SSH key for direct rsync, or relay via the LazyBackup host when peers can’t reach each other
+- **Server management** — Add, edit, and test VPS connections (password or SSH key auth)
+- **Backup jobs** — Paths, Docker volumes, or database dumps; cron schedules; exclude patterns; pre-backup shell commands
+- **Docker volumes** — Discover named volumes on this host or a source server, pack as `.tar.gz` to a destination path/prefix, restore from History
+- **Database dumps** — Postgres / MySQL / MariaDB → `.sql.gz` (native client or `docker exec`); SQLite → `.sqlite.gz` (native file copy / `.backup`); restore from History
+- **S3 profiles** — Source prefixes and destination prefixes for path trees and archives
+- **Versioned backups** — Optional timestamped snapshots with automatic count-based retention
+- **File retention** — Optional age-based cleanup for dump-style destinations (keep a minimum number of files)
+- **Automated scheduling** — In-process cron scheduler; set an app timezone so schedules run when you expect
+- **History & dashboard** — Track runs, view logs, next run times, storage usage, and success rates
+- **Path restore** — One-click restore of path trees from History (local / S3 / Bro artifacts) back to the source path, SSH host, or S3 prefix
+- **Validate before run** — Probe SSH/S3/paths/DB without transferring (backup detail → Validate); last result is stored with a timestamp so you can see status without re-running
+- **Failure webhooks** — Customizable HTTPS webhook on backup failure (method, headers, `{{tag}}` body/URL templates; Discord / Telegram / Kuma / ntfy / Slack presets)
+- **Success pings** — Optional Healthchecks.io / Uptime Kuma-style GET (or POST) when a backup succeeds
+- **Optional app password** — Single-operator lock (set on first run or later in Settings); session cookie lasts 30 days
+- **MCP / API tokens** — Let Cursor, Claude, or other agents manage backups via Streamable HTTP MCP at `/mcp` (Settings → API / MCP)
+- **Encryption** — Age vault (active / retired / compromised keys), recovery recipients, passphrase-wrapped export (Settings → Encryption); works with local, server, and S3 destinations
+- **Instance backup** — Backup LazyBackup itself (SQLite + keys) as a schedulable job; optional archive passphrase
+- **Passkeys** — WebAuthn login alongside or instead of the app password
+- **Bro Space** — share encrypted backup space with a friend (Settings → Bro Space). Invite them to install **LazyBro**, or pair with another LazyBackup.
+
+**Docs:** [Features](https://lazy.zic.ar/features) · [Compare](https://lazy.zic.ar/compare) · [Changelog](https://lazy.zic.ar/changelog) · [CONTRIBUTING](./CONTRIBUTING.md) · [SECURITY](./SECURITY.md) · [CHANGELOG](./CHANGELOG.md) · static site [`landing/`](./landing)
+
+## Tech stack
+
+- **Frontend:** Next.js 15, React 19, Tailwind CSS, shadcn/ui
+- **Backend:** Next.js API routes
+- **Database:** SQLite (libSQL) with Drizzle ORM
+- **Transfer:** rsync (preferred) with scp fallback; S3 via AWS SDK
+- **Runtime:** Bun
+
 ## Usage
 
 1. **Optional password** — On first visit, set an app password or skip. Change or remove it later under Settings.
@@ -111,6 +125,8 @@ Set `DATABASE_URL` if you want a custom SQLite path (default: `file:./data.db`).
 7. **Backup this instance** — Settings → Encryption → “Backup LazyBackup data”, or New Backup → local source → LazyBackup instance data. Restore is manual (replace DB / import keys).
 8. **Passkeys (optional)** — Settings → Passkeys to register; use “Sign in with passkey” on `/login`.
 9. **Bro Space (optional)** — Settings → Bro Space → save your address, create an invite, and send it to your friend. They install **[LazyBro](./bro/)** and paste the invite (or Accept below if they also run LazyBackup).
+10. **Run or schedule** — Trigger a manual run or rely on the cron schedule. View results, logs, and storage under History and each backup’s detail page.
+11. **Restore** — On a successful **path**, volume, or database backup in History, restore back to the source (local path, SSH path, S3 prefix, named volume, or DB), or onto a different host (History server picker). Artifacts on S3, Bro, or an SSH destination (key auth) are pulled onto this host first. Password-only SSH destinations cannot pull for restore. Download the artifact from History without restoring in place.
 
 ### LazyBro
 
@@ -128,8 +144,6 @@ docker compose -f docker-compose.yml -f docker-compose.tailscale.yml up -d
 ```
 
    The app shares the Tailscale network namespace (`http://100.x.x.x:3000`). Host port publish is disabled in that mode.
-6. **Run or schedule** — Trigger a manual run or rely on the cron schedule. View results, logs, and storage under History and each backup’s detail page.
-7. **Restore** — On a successful **path**, volume, or database backup in History, restore back to the source (local path, SSH path, S3 prefix, named volume, or DB), or onto a different host (History server picker). Artifacts on S3, Bro, or an SSH destination (key auth) are pulled onto this host first. Password-only SSH destinations cannot pull for restore. Download the artifact from History without restoring in place.
 
 ### MCP (agent access)
 
@@ -212,6 +226,7 @@ POST/PUT with an empty body sends `{"event":"backup.succeeded",…}`.
 | `SSH_KEYS_PATH` | `~/.ssh` | System SSH keys (Docker mount, read-only) |
 | `AUTH_SECRET` | (auto in settings) | HMAC secret for session cookies; auto-generated in SQLite if unset |
 | `AUTH_COOKIE_SECURE` | unset (`false`) | Set `true` only behind HTTPS; Secure cookies are dropped on plain HTTP |
+| `ENABLE_HSTS` | unset (`false`) | Set `true` only when every request is HTTPS; prefer HSTS on the reverse proxy. Leave unset for HTTP/LAN. |
 | `AUTH_TRUST_PROXY` | unset (`false`) | Trust `X-Forwarded-Host` / `X-Forwarded-Proto` / `X-Forwarded-For` for WebAuthn RP ID and login backoff. Set `true` only behind a reverse proxy that overwrites these headers. |
 | `AUTH_PUBLIC_URL` | unset | Public origin for WebAuthn (overrides Host / forwarded headers), e.g. `https://backup.example.com` |
 | `ALLOW_ARBITRARY_LOCAL_PATHS` | unset (`false`) | Allow local backup destinations outside `BACKUP_STORAGE_PATH`. Default denies paths outside the storage root. |
@@ -237,6 +252,8 @@ See [AGENTS.md](./AGENTS.md) for architecture details aimed at contributors and 
 ## License
 
 MIT — see [LICENSE](./LICENSE). Anyone may use, modify, and redistribute LazyBackup.
+
+[Contributing](./CONTRIBUTING.md) · [Security](./SECURITY.md) · [Changelog](./CHANGELOG.md)
 
 ## Acknowledgements
 
