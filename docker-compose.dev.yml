@@ -1,0 +1,7 @@
+# Maintainer override: docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+services:
+  lazybackup:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: lazybackup:local

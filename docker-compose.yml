@@ -1,22 +1,22 @@
 name: lazybackup
 
+# Production-friendly default: pull ghcr.io/ceneka/lazybackup:latest.
+# No .env is required (Compose interpolates PORT / paths with the defaults below).
+# To build a local image: docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+
 services:
   lazybackup:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: lazybackup:local
+    image: ghcr.io/ceneka/lazybackup:latest
     container_name: lazybackup
     restart: unless-stopped
     ports:
       - "${PORT:-3000}:3000"
-    env_file:
-      - .env
     environment:
       # SQLite must live on a volume or it is lost on every image rebuild/recreate.
       DATABASE_URL: file:/app/data/data.db
-      # Host path from .env is only for the bind mount below; inside the
-      # container backups always live at /backups (and /app/backups).
+      # Host path from Compose interpolation (${BACKUP_STORAGE_PATH:-./backups}) is
+      # only for the bind mount below; inside the container backups always live at
+      # /backups (and /app/backups).
       BACKUP_STORAGE_PATH: /backups
     volumes:
       - lazybackup_data:/app/data

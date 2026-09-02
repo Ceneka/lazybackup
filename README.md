@@ -52,21 +52,28 @@ Marketing site (static): [`landing/`](./landing) → [lazy.zic.ar](https://lazy.
 ```bash
 docker run -d \
   --name lazybackup \
+  --restart unless-stopped \
   -p 3000:3000 \
   -v lazybackup_data:/app/data \
   -v ./backups:/backups \
   -v ~/.ssh:/root/.ssh:ro \
   -e DATABASE_URL=file:/app/data/data.db \
+  -e BACKUP_STORAGE_PATH=/backups \
   ghcr.io/ceneka/lazybackup:latest
 ```
 
 The image is multi-arch (`linux/amd64` and `linux/arm64`).
 
-Or with Docker Compose (reads `.env`, persists the database volume):
+Or with Docker Compose (pulls `ghcr.io/ceneka/lazybackup:latest`, persists the database volume). No `.env` is required — defaults are port 3000 and `./backups` on the host. Copy `.env.example` to `.env` only if you want to change `PORT`, `BACKUP_STORAGE_PATH`, or `SSH_KEYS_PATH`.
 
 ```bash
-cp .env.example .env   # optional; adjust paths/port
 docker compose up -d
+```
+
+To build a local image instead of pulling GHCR:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
 ```
 
 Open [http://localhost:3000](http://localhost:3000) (or `http://<lan-ip>:3000` on your network).
