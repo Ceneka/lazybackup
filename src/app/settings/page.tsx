@@ -7,6 +7,7 @@ import { BroSpaceSettingsPanel } from "@/components/bro-space-settings-panel"
 import { FailureWebhookSettings } from "@/components/failure-webhook-settings"
 import { SuccessPingSettings } from "@/components/success-ping-settings"
 import { PasskeySettingsPanel } from "@/components/passkey-settings-panel"
+import { ConfigExportCard, AppVersionFooter } from "@/components/settings-about"
 import { PageHeader, PageLayout } from "@/components/page-layout"
 import { DeleteConfirmationDialog } from "@/components/ui/delete-confirmation-dialog"
 import { Button } from "@/components/ui/button"
@@ -17,7 +18,6 @@ import { LoadingButton } from "@/components/ui/loading-button"
 import { QueryState } from "@/components/ui/query-state"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
-import { APP_VERSION } from "@/lib/app-version"
 import { COMMON_TIMEZONES, DEFAULT_TIMEZONE, listTimezones } from "@/lib/cron/format"
 import { useAuth } from "@/lib/hooks/useAuth"
 import { useSettings } from "@/lib/hooks/useSettings"
@@ -494,6 +494,8 @@ function SettingsPageInner() {
           </Card>
 
           <PasskeySettingsPanel />
+
+          <ConfigExportCard />
         </TabsContent>
 
         <TabsContent value="encryption" className="mt-6 space-y-6">
@@ -679,9 +681,7 @@ function SettingsPageInner() {
           </div>
         </TabsContent>
       </Tabs>
-      <p className="pt-2 text-center text-xs text-muted-foreground">
-        LazyBackup v{APP_VERSION}
-      </p>
+      <AppVersionFooter />
     </PageLayout>
   )
 }

@@ -120,18 +120,43 @@ function CheckList({ checks }: { checks: StatusCheck[] }) {
           <div className="min-w-0 flex-1 space-y-1">
             <div className="font-medium leading-snug">{check.title}</div>
             <p className="text-sm text-muted-foreground">{check.detail}</p>
-            {check.href && (
-              <Link
-                href={check.href}
-                className="inline-block text-sm underline underline-offset-2 hover:text-foreground text-muted-foreground"
-              >
-                Fix / review
-              </Link>
-            )}
+            {check.href &&
+              (check.href.startsWith("http://") || check.href.startsWith("https://") ? (
+                <a
+                  href={check.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-block text-sm underline underline-offset-2 hover:text-foreground text-muted-foreground"
+                >
+                  View release
+                </a>
+              ) : (
+                <Link
+                  href={check.href}
+                  className="inline-block text-sm underline underline-offset-2 hover:text-foreground text-muted-foreground"
+                >
+                  Fix / review
+                </Link>
+              ))}
           </div>
         </li>
       ))}
     </ul>
+  )
+}
+
+function UpdateAvailablePill({ checks }: { checks: StatusCheck[] }) {
+  const updateCheck = checks.find((c) => c.id === "app-update")
+  if (!updateCheck?.href) return null
+  return (
+    <a
+      href={updateCheck.href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="inline-flex items-center rounded-full border border-sky-500/40 bg-sky-500/10 px-2.5 py-0.5 text-xs font-medium text-sky-800 hover:bg-sky-500/20 dark:text-sky-300"
+    >
+      Update available
+    </a>
   )
 }
 
@@ -173,6 +198,7 @@ export default function StatusPage() {
       <QueryState query={query} dataLabel="status">
         {query.data && (
           <div className="space-y-6">
+            <UpdateAvailablePill checks={query.data.checks} />
             <SummaryBanner
               overall={query.data.summary.overall}
               headline={query.data.summary.headline}

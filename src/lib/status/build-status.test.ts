@@ -148,4 +148,21 @@ describe('buildStatusChecks', () => {
     expect(row?.detail).toContain('and 1 more');
     expect(row?.href).toBe('/history');
   });
+
+  test('update available is info, not critical', () => {
+    const checks = buildStatusChecks(
+      baseSnapshot({
+        update: {
+          available: true,
+          latest: '0.3.0',
+          htmlUrl: 'https://github.com/Ceneka/lazybackup/releases/tag/v0.3.0',
+          current: '0.2.0',
+        },
+      })
+    );
+    const row = checks.find((c) => c.id === 'app-update');
+    expect(row?.severity).toBe('info');
+    expect(row?.href).toContain('/releases/tag/v0.3.0');
+    expect(summarizeStatusChecks(checks).overall).not.toBe('critical');
+  });
 });

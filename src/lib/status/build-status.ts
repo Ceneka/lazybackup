@@ -49,6 +49,13 @@ export type StatusSnapshot = {
     passwordOnlyCount: number
   }
   cookieSecure: boolean
+  /** Optional GitHub latest vs running version — info only, never critical. */
+  update?: {
+    available: boolean
+    latest: string | null
+    htmlUrl: string | null
+    current?: string | null
+  }
 }
 
 export type StatusSummary = {
@@ -354,6 +361,18 @@ export function buildStatusChecks(s: StatusSnapshot): StatusCheck[] {
       title: 'API tokens without remote_exec',
       detail: `${s.apiTokens.activeCount} active token${s.apiTokens.activeCount === 1 ? '' : 's'} for MCP/agents.`,
       href: '/settings?tab=mcp',
+    })
+  }
+
+  if (s.update?.available && s.update.htmlUrl) {
+    const latestLabel = s.update.latest ? `v${s.update.latest}` : 'a newer release'
+    const currentLabel = s.update.current ? `v${s.update.current}` : 'this build'
+    checks.push({
+      id: 'app-update',
+      severity: 'info',
+      title: 'Update available',
+      detail: `Running ${currentLabel}; latest is ${latestLabel}.`,
+      href: s.update.htmlUrl,
     })
   }
 

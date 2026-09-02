@@ -11,6 +11,26 @@ Versions before a formal `v*` tag are dated unreleased / pre-release notes.
 
 ## [Unreleased]
 
+### Added
+
+- **Docker first-run** — Compose pulls `ghcr.io/ceneka/lazybackup:latest` without
+  a required `.env` (copy-paste `docker compose up`).
+- **README and landing storefront** — screenshots and badges on GitHub; Get
+  started points at the Docker snippet; Open Graph card for sharing.
+- **Dashboard first hour** — backup recipes and honest empty stats so a new
+  instance does not look like a perfect backup record.
+- **404, PWA, and version** — branded 404/error pages, web app manifest, and a
+  visible app version in Settings.
+- **Next cron run** — the backup form shows when the schedule will fire next
+  (app timezone).
+- **Gotify and Slack** — failure-webhook and success-ping presets.
+- **Config export** — Settings downloads a non-secret `lazybackup-config.json`
+  (no passwords, SSH/S3 keys, token hashes, or age identities). Session-only;
+  no import yet.
+- **Update check** — Settings (and Status) compare the running version to the
+  latest GitHub release, cached about 24 hours. Offline or rate-limited
+  checks stay quiet.
+
 ## [0.2.0] - 2026-08-13
 
 ### Added

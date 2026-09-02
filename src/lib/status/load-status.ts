@@ -7,6 +7,7 @@ import { db } from '@/lib/db'
 import { backupHistory, settings } from '@/lib/db/schema'
 import { FAILURE_WEBHOOK_URL_KEY } from '@/lib/notify/failure-webhook'
 import { getAppTimezone } from '@/lib/settings/timezone'
+import { getAppUpdateInfo } from '@/lib/version/check-update'
 import { and, desc, eq, gte, inArray } from 'drizzle-orm'
 import {
   buildStatusChecks,
@@ -255,6 +256,20 @@ export async function loadOperatorStatus(): Promise<OperatorStatusPayload> {
       passwordOnlyCount,
     },
     cookieSecure: sessionCookieSecure(),
+  }
+
+  try {
+    const info = await getAppUpdateInfo()
+    if (info.updateAvailable && info.htmlUrl) {
+      snapshot.update = {
+        available: true,
+        latest: info.latest,
+        htmlUrl: info.htmlUrl,
+        current: info.current,
+      }
+    }
+  } catch {
+    // GitHub / network must never fail Status
   }
 
   const checks = buildStatusChecks(snapshot)
