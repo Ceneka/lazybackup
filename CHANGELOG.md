@@ -11,12 +11,16 @@ Versions before a formal `v*` tag are dated unreleased / pre-release notes.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-09-04
+
 ### Added
 
 - **Docker first-run** — Compose pulls `ghcr.io/ceneka/lazybackup:latest` without
   a required `.env` (copy-paste `docker compose up`).
 - **README and landing storefront** — screenshots and badges on GitHub; Get
   started points at the Docker snippet; Open Graph card for sharing.
+- **GitHub community files** — CODE_OF_CONDUCT, PR/issue templates, Dependabot,
+  FUNDING, and package metadata so the repo looks installable.
 - **Dashboard first hour** — backup recipes and honest empty stats so a new
   instance does not look like a perfect backup record.
 - **404, PWA, and version** — branded 404/error pages, web app manifest, and a
@@ -30,6 +34,28 @@ Versions before a formal `v*` tag are dated unreleased / pre-release notes.
 - **Update check** — Settings (and Status) compare the running version to the
   latest GitHub release, cached about 24 hours. Offline or rate-limited
   checks stay quiet.
+
+### Changed
+
+- **MCP `read_only` catalog** — mutating tools are omitted from `tools/list`
+  (still denied at call time). `exec_command` is only advertised when
+  `remote_exec` (or a browser session) is allowed.
+
+### Fixed
+
+- **Empty dashboard** — recipes no longer stack on an empty Backups card; next-run
+  times use a stable locale to avoid hydration mismatches.
+- **Restore on Alpine** — inspect archives without requiring GNU tar.
+- **Landing restore copy** — docs match SSH destination pull and host retarget.
+
+### Security
+
+- Fresh authentication required for age vault changes.
+- Safer restore archives (reject unsafe paths / contents).
+- Browser security headers.
+- Logout is caller-local; outbound connections are pinned after validation.
+- LazyBro control/transfer boundaries tightened; peer object streaming uses
+  bounded memory.
 
 ## [0.2.0] - 2026-08-13
 
@@ -112,5 +138,6 @@ optional `remote_exec`.
    from that changelog section. Landing `/changelog` syncs on the next landing
    build.
 
-[Unreleased]: https://github.com/Ceneka/lazybackup/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/Ceneka/lazybackup/compare/v0.2.1...HEAD
 [0.2.0]: https://github.com/Ceneka/lazybackup/releases/tag/v0.2.0
+[0.2.1]: https://github.com/Ceneka/lazybackup/releases/tag/v0.2.1

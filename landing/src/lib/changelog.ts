@@ -24,6 +24,51 @@ export const changelogEntries: readonly ChangelogEntry[] = [
     "sections": []
   },
   {
+    "id": "0-2-1",
+    "title": "0.2.1",
+    "date": "2026-09-04",
+    "sections": [
+      {
+        "heading": "Added",
+        "items": [
+          "Docker first-run — Compose pulls ghcr.io/ceneka/lazybackup:latest without a required .env (copy-paste docker compose up).",
+          "README and landing storefront — screenshots and badges on GitHub; Get started points at the Docker snippet; Open Graph card for sharing.",
+          "GitHub community files — CODE_OF_CONDUCT, PR/issue templates, Dependabot, FUNDING, and package metadata so the repo looks installable.",
+          "Dashboard first hour — backup recipes and honest empty stats so a new instance does not look like a perfect backup record.",
+          "404, PWA, and version — branded 404/error pages, web app manifest, and a visible app version in Settings.",
+          "Next cron run — the backup form shows when the schedule will fire next (app timezone).",
+          "Gotify and Slack — failure-webhook and success-ping presets.",
+          "Config export — Settings downloads a non-secret lazybackup-config.json (no passwords, SSH/S3 keys, token hashes, or age identities). Session-only; no import yet.",
+          "Update check — Settings (and Status) compare the running version to the latest GitHub release, cached about 24 hours. Offline or rate-limited checks stay quiet."
+        ]
+      },
+      {
+        "heading": "Changed",
+        "items": [
+          "MCP read_only catalog — mutating tools are omitted from tools/list (still denied at call time). exec_command is only advertised when remote_exec (or a browser session) is allowed."
+        ]
+      },
+      {
+        "heading": "Fixed",
+        "items": [
+          "Empty dashboard — recipes no longer stack on an empty Backups card; next-run times use a stable locale to avoid hydration mismatches.",
+          "Restore on Alpine — inspect archives without requiring GNU tar.",
+          "Landing restore copy — docs match SSH destination pull and host retarget."
+        ]
+      },
+      {
+        "heading": "Security",
+        "items": [
+          "Fresh authentication required for age vault changes.",
+          "Safer restore archives (reject unsafe paths / contents).",
+          "Browser security headers.",
+          "Logout is caller-local; outbound connections are pinned after validation.",
+          "LazyBro control/transfer boundaries tightened; peer object streaming uses bounded memory."
+        ]
+      }
+    ]
+  },
+  {
     "id": "0-2-0",
     "title": "0.2.0",
     "date": "2026-08-13",
