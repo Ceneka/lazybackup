@@ -132,29 +132,7 @@ export function registerLazyBackupTools(
     async (args) => discovery.testDatabaseOp(c, args)
   )
 
-  server.registerTool(
-    'exec_command',
-    {
-      title: 'Execute remote command',
-      description: `Run a shell command over SSH on a configured server. ${REMOTE_EXEC_NOTE} Requires confirm=true. Output may be truncated.`,
-      inputSchema: z.object({
-        serverId: z.string().describe('Server id from find_server or list_servers'),
-        command: z.string().min(1).describe('Shell command to run on the remote host'),
-        confirm: z.boolean().describe('Must be true to execute'),
-        timeoutMs: z
-          .number()
-          .int()
-          .min(1000)
-          .max(300_000)
-          .optional()
-          .describe('Optional timeout in ms (default 120000)'),
-      }),
-    },
-    async ({ serverId, command, confirm, timeoutMs }) =>
-      ops.execCommandOp(c, serverId, command, confirm, timeoutMs)
-  )
-
-  // --- Backups ---
+  // --- Backups (read / probe; always registered) ---
 
   server.registerTool(
     'list_backups',
@@ -192,76 +170,6 @@ export function registerLazyBackupTools(
   )
 
   server.registerTool(
-    'create_backup',
-    {
-      title: 'Create backup',
-      description: `Create a backup configuration. ${BACKUP_GUIDE}
-${DISCOVER_FIRST}
-Required: name, sourceKind, destinationKind, sourceType, sourcePath, destinationPath, schedule (5-field cron).
-When sourceKind=server set serverId from find_server; for docker_volume use list_docker_volumes; for database use get_container_db_hints + test_database.
-Setting or changing preBackupCommands requires remote_exec (prefer exec_command for one-off shell).`,
-      inputSchema: z.object({
-        config: z
-          .record(z.string(), z.unknown())
-          .describe('Backup config object matching the LazyBackup API schema'),
-      }),
-    },
-    async ({ config }) => ops.createBackupOp(c, config)
-  )
-
-  server.registerTool(
-    'update_backup',
-    {
-      title: 'Update backup',
-      description: `Replace a backup configuration by id with a full config object. ${BACKUP_GUIDE} ${DISCOVER_FIRST}
-Setting or changing preBackupCommands requires remote_exec.`,
-      inputSchema: z.object({
-        id: z.string(),
-        config: z.record(z.string(), z.unknown()),
-      }),
-    },
-    async ({ id, config }) => ops.updateBackupOp(c, id, config)
-  )
-
-  server.registerTool(
-    'delete_backup',
-    {
-      title: 'Delete backup',
-      description: 'Delete a backup configuration. Requires confirm=true.',
-      inputSchema: z.object({
-        id: z.string(),
-        confirm: z.boolean().describe('Must be true to delete'),
-      }),
-    },
-    async ({ id, confirm }) => ops.deleteBackupOp(c, id, confirm)
-  )
-
-  server.registerTool(
-    'run_backup',
-    {
-      title: 'Run backup',
-      description: 'Start a backup run immediately. Returns historyId.',
-      inputSchema: z.object({
-        id: z.string().describe('Backup config id'),
-      }),
-    },
-    async ({ id }) => ops.runBackupOp(c, id)
-  )
-
-  server.registerTool(
-    'toggle_backup',
-    {
-      title: 'Toggle backup',
-      description: 'Enable or disable a backup schedule. Omit enabled to flip.',
-      inputSchema: z.object({
-        id: z.string(),
-        enabled: z.boolean().optional(),
-      }),
-    },
-    async ({ id, enabled }) => ops.toggleBackupOp(c, id, enabled)
-  )
-
-  server.registerTool(
     'list_history',
     {
       title: 'List history',
@@ -288,33 +196,6 @@ Setting or changing preBackupCommands requires remote_exec.`,
   )
 
   server.registerTool(
-    'restore_history',
-    {
-      title: 'Restore history',
-      description:
-        'Restore a successful path, database, or docker_volume backup. Requires confirm=true. Optional targetPath, volumeName, databaseName, or targetServerId overrides (retarget).',
-      inputSchema: z.object({
-        id: z.string().describe('History entry id'),
-        confirm: z.boolean(),
-        targetPath: z.string().optional(),
-        volumeName: z.string().optional(),
-        databaseName: z.string().optional(),
-        targetServerId: z
-          .string()
-          .optional()
-          .describe('Restore onto this server instead of the original source'),
-      }),
-    },
-    async ({ id, confirm, targetPath, volumeName, databaseName, targetServerId }) =>
-      ops.restoreHistoryOp(c, id, confirm, {
-        targetPath,
-        volumeName,
-        databaseName,
-        targetServerId,
-      })
-  )
-
-  server.registerTool(
     'list_servers',
     {
       title: 'List servers',
@@ -322,61 +203,6 @@ Setting or changing preBackupCommands requires remote_exec.`,
       inputSchema: z.object({}),
     },
     async () => ops.listServersOp(c)
-  )
-
-  server.registerTool(
-    'create_server',
-    {
-      title: 'Create server',
-      description:
-        'Create an SSH server. Transfers require key auth (privateKey, sshKeyId, or systemKeyPath). Call test_server after create.',
-      inputSchema: z.object({
-        name: z.string(),
-        host: z.string(),
-        port: z.number().int().optional(),
-        username: z.string(),
-        authType: z.enum(['password', 'key']),
-        password: z.string().optional(),
-        privateKey: z.string().optional(),
-        sshKeyId: z.string().optional(),
-        systemKeyPath: z.string().optional(),
-      }),
-    },
-    async (args) => ops.createServerOp(c, args)
-  )
-
-  server.registerTool(
-    'update_server',
-    {
-      title: 'Update server',
-      description: 'Update an SSH server by id.',
-      inputSchema: z.object({
-        id: z.string(),
-        name: z.string(),
-        host: z.string(),
-        port: z.number().int().optional(),
-        username: z.string(),
-        authType: z.enum(['password', 'key']),
-        password: z.string().optional(),
-        privateKey: z.string().optional(),
-        sshKeyId: z.string().optional(),
-        systemKeyPath: z.string().optional(),
-      }),
-    },
-    async ({ id, ...rest }) => ops.updateServerOp(c, id, rest)
-  )
-
-  server.registerTool(
-    'delete_server',
-    {
-      title: 'Delete server',
-      description: 'Delete a server. Requires confirm=true. Fails if backups still reference it.',
-      inputSchema: z.object({
-        id: z.string(),
-        confirm: z.boolean(),
-      }),
-    },
-    async ({ id, confirm }) => ops.deleteServerOp(c, id, confirm)
   )
 
   server.registerTool(
@@ -409,6 +235,186 @@ Setting or changing preBackupCommands requires remote_exec.`,
     },
     async () => ops.getStatusOp(c)
   )
+
+  // Mutating tools omitted from tools/list when the token is read_only (still denied at call time).
+  if (canWrite) {
+    server.registerTool(
+      'create_backup',
+      {
+        title: 'Create backup',
+        description: `Create a backup configuration. ${BACKUP_GUIDE}
+${DISCOVER_FIRST}
+Required: name, sourceKind, destinationKind, sourceType, sourcePath, destinationPath, schedule (5-field cron).
+When sourceKind=server set serverId from find_server; for docker_volume use list_docker_volumes; for database use get_container_db_hints + test_database.
+Setting or changing preBackupCommands requires remote_exec (prefer exec_command for one-off shell).`,
+        inputSchema: z.object({
+          config: z
+            .record(z.string(), z.unknown())
+            .describe('Backup config object matching the LazyBackup API schema'),
+        }),
+      },
+      async ({ config }) => ops.createBackupOp(c, config)
+    )
+
+    server.registerTool(
+      'update_backup',
+      {
+        title: 'Update backup',
+        description: `Replace a backup configuration by id with a full config object. ${BACKUP_GUIDE} ${DISCOVER_FIRST}
+Setting or changing preBackupCommands requires remote_exec.`,
+        inputSchema: z.object({
+          id: z.string(),
+          config: z.record(z.string(), z.unknown()),
+        }),
+      },
+      async ({ id, config }) => ops.updateBackupOp(c, id, config)
+    )
+
+    server.registerTool(
+      'delete_backup',
+      {
+        title: 'Delete backup',
+        description: 'Delete a backup configuration. Requires confirm=true.',
+        inputSchema: z.object({
+          id: z.string(),
+          confirm: z.boolean().describe('Must be true to delete'),
+        }),
+      },
+      async ({ id, confirm }) => ops.deleteBackupOp(c, id, confirm)
+    )
+
+    server.registerTool(
+      'run_backup',
+      {
+        title: 'Run backup',
+        description: 'Start a backup run immediately. Returns historyId.',
+        inputSchema: z.object({
+          id: z.string().describe('Backup config id'),
+        }),
+      },
+      async ({ id }) => ops.runBackupOp(c, id)
+    )
+
+    server.registerTool(
+      'toggle_backup',
+      {
+        title: 'Toggle backup',
+        description: 'Enable or disable a backup schedule. Omit enabled to flip.',
+        inputSchema: z.object({
+          id: z.string(),
+          enabled: z.boolean().optional(),
+        }),
+      },
+      async ({ id, enabled }) => ops.toggleBackupOp(c, id, enabled)
+    )
+
+    server.registerTool(
+      'restore_history',
+      {
+        title: 'Restore history',
+        description:
+          'Restore a successful path, database, or docker_volume backup. Requires confirm=true. Optional targetPath, volumeName, databaseName, or targetServerId overrides (retarget).',
+        inputSchema: z.object({
+          id: z.string().describe('History entry id'),
+          confirm: z.boolean(),
+          targetPath: z.string().optional(),
+          volumeName: z.string().optional(),
+          databaseName: z.string().optional(),
+          targetServerId: z
+            .string()
+            .optional()
+            .describe('Restore onto this server instead of the original source'),
+        }),
+      },
+      async ({ id, confirm, targetPath, volumeName, databaseName, targetServerId }) =>
+        ops.restoreHistoryOp(c, id, confirm, {
+          targetPath,
+          volumeName,
+          databaseName,
+          targetServerId,
+        })
+    )
+
+    server.registerTool(
+      'create_server',
+      {
+        title: 'Create server',
+        description:
+          'Create an SSH server. Transfers require key auth (privateKey, sshKeyId, or systemKeyPath). Call test_server after create.',
+        inputSchema: z.object({
+          name: z.string(),
+          host: z.string(),
+          port: z.number().int().optional(),
+          username: z.string(),
+          authType: z.enum(['password', 'key']),
+          password: z.string().optional(),
+          privateKey: z.string().optional(),
+          sshKeyId: z.string().optional(),
+          systemKeyPath: z.string().optional(),
+        }),
+      },
+      async (args) => ops.createServerOp(c, args)
+    )
+
+    server.registerTool(
+      'update_server',
+      {
+        title: 'Update server',
+        description: 'Update an SSH server by id.',
+        inputSchema: z.object({
+          id: z.string(),
+          name: z.string(),
+          host: z.string(),
+          port: z.number().int().optional(),
+          username: z.string(),
+          authType: z.enum(['password', 'key']),
+          password: z.string().optional(),
+          privateKey: z.string().optional(),
+          sshKeyId: z.string().optional(),
+          systemKeyPath: z.string().optional(),
+        }),
+      },
+      async ({ id, ...rest }) => ops.updateServerOp(c, id, rest)
+    )
+
+    server.registerTool(
+      'delete_server',
+      {
+        title: 'Delete server',
+        description: 'Delete a server. Requires confirm=true. Fails if backups still reference it.',
+        inputSchema: z.object({
+          id: z.string(),
+          confirm: z.boolean(),
+        }),
+      },
+      async ({ id, confirm }) => ops.deleteServerOp(c, id, confirm)
+    )
+  }
+
+  // Only advertise shell when the token/session may run it.
+  if (canRemoteExec) {
+    server.registerTool(
+      'exec_command',
+      {
+        title: 'Execute remote command',
+        description: `Run a shell command over SSH on a configured server. ${REMOTE_EXEC_NOTE} Requires confirm=true. Output may be truncated.`,
+        inputSchema: z.object({
+          serverId: z.string().describe('Server id from find_server or list_servers'),
+          command: z.string().min(1).describe('Shell command to run on the remote host'),
+          confirm: z.boolean().describe('Must be true to execute'),
+          timeoutMs: z
+            .number()
+            .int()
+            .min(1000)
+            .max(300_000)
+            .optional()
+            .describe('Optional timeout in ms (default 120000)'),
+        }),
+      },
+      async ({ serverId, command, confirm, timeoutMs }) =>
+        ops.execCommandOp(c, serverId, command, confirm, timeoutMs)
+    )
+  }
 
   server.registerResource(
     'backups',

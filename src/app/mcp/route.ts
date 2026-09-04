@@ -29,6 +29,18 @@ async function handle(req: Request) {
   const canRemoteExec = authAllowsRemoteExec(resolved)
   const canWrite = authAllowsWrite(resolved)
 
+  const writeHint = canWrite
+    ? `Verify with test_server / test_database before create_backup when possible.
+Use list_backups / get_dashboard / get_status to inspect state; validate_backup to probe endpoints; run_backup to start jobs.
+Destructive tools (delete_*, restore_history${canRemoteExec ? ', exec_command' : ''}) require confirm=true.
+${
+  canRemoteExec
+    ? 'exec_command and changing preBackupCommands require the API token remote_exec permission (or a browser session). Prefer exec_command for one-off shell instead of abusing preBackupCommands.'
+    : 'This token cannot run remote shell (no remote_exec); changing preBackupCommands is also blocked.'
+}`
+    : `This connection is read_only: only inspect/list tools, validate_backup, and test_* are available (mutating tools are omitted from the catalog).
+Use list_backups / get_dashboard / get_status to inspect state; validate_backup to probe endpoints.`
+
   const requestHandler = createMcpHandler(
     (server) => {
       registerLazyBackupTools(server, { actor, canRemoteExec, canWrite, via: resolved.via })
@@ -40,11 +52,7 @@ async function handle(req: Request) {
       },
       instructions: `You are connected to LazyBackup, a self-hosted From→To backup manager.
 Never invent server, volume, container, or S3 profile names/ids — call find_server, list_docker_volumes, list_docker_containers, get_container_db_hints, list_s3_profiles first.
-Verify with test_server / test_database before create_backup when possible.
-Use list_backups / get_dashboard / get_status to inspect state; validate_backup to probe endpoints; run_backup to start jobs.
-Destructive tools (delete_*, restore_history, exec_command) require confirm=true.
-read_only tokens may call GET-style tools, validate_backup, and test_*.
-exec_command and changing preBackupCommands require the API token remote_exec permission (or a browser session). Prefer exec_command for one-off shell instead of abusing preBackupCommands.`,
+${writeHint}`,
     }
   )
 
