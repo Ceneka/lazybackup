@@ -89,7 +89,8 @@ export function McpSettingsPanel() {
             backups and servers; remote shell (<code className="text-xs">exec_command</code>)
             and changing pre-backup commands require an explicit permission. A{' '}
             <code className="text-xs">read_only</code> token can inspect and validate but
-            cannot mutate. Prefer HTTPS (or a trusted LAN) when exposing the instance.
+            cannot mutate (write tools are omitted from the MCP catalog). Prefer HTTPS (or a
+            trusted LAN) when exposing the instance.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
