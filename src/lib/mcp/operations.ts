@@ -6,9 +6,8 @@ import {
   READ_ONLY_DENIED,
   REMOTE_EXEC_DENIED,
   assertCanSetPreBackupCommands,
-  writeAuditLog,
-  type AuditActor,
-} from '@/lib/auth'
+} from '@/lib/auth/permissions'
+import { writeAuditLog, type AuditActor } from '@/lib/auth/audit'
 import { attachLastValidation, validateBackupConfig } from '@/lib/backup/validate'
 import { loadOperatorStatus } from '@/lib/status/load-status'
 import { PeerRecallPendingError, peerRecallWaitingResponse } from '@/lib/peer/recall'

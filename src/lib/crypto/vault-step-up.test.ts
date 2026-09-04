@@ -1,11 +1,22 @@
 import { beforeEach, describe, expect, mock, test } from 'bun:test'
+import {
+  assertPasswordStrength,
+  hashPassword,
+} from '@/lib/auth/password'
+import * as authSettings from '@/lib/auth/settings'
 
 const getPasswordHash = mock(async (): Promise<string | null> => null)
 const verifyPassword = mock(async (): Promise<boolean> => false)
 const countPasskeys = mock(async (): Promise<number> => 0)
 
-mock.module('@/lib/auth', () => ({
+mock.module('@/lib/auth/settings', () => ({
+  ...authSettings,
   getPasswordHash,
+}))
+
+mock.module('@/lib/auth/password', () => ({
+  assertPasswordStrength,
+  hashPassword,
   verifyPassword,
 }))
 

@@ -1,4 +1,5 @@
-import { getPasswordHash, verifyPassword } from '@/lib/auth'
+import { verifyPassword } from '@/lib/auth/password'
+import { getPasswordHash } from '@/lib/auth/settings'
 import { SESSION_COOKIE_NAME, parseCookieValue } from '@/lib/auth/session'
 import { createHash, randomBytes, timingSafeEqual } from 'crypto'
 

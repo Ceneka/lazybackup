@@ -1,4 +1,5 @@
-import { listApiTokens, sessionCookieSecure } from '@/lib/auth'
+import { listApiTokens } from '@/lib/auth/api-tokens'
+import { sessionCookieSecure } from '@/lib/auth/session'
 import { getPasswordHash } from '@/lib/auth/settings'
 import { countPasskeys } from '@/lib/auth/webauthn'
 import { getEncryptionKeyStatus } from '@/lib/crypto/keys'
