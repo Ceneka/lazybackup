@@ -194,6 +194,23 @@ describe('backupConfigSchema', () => {
     });
     expect(parsed.dbContainer).toBe('postgres');
     expect(parsed.dbPassword).toBe('');
+    expect(parsed.dbHost).toBe('127.0.0.1');
+  });
+
+  test('preserves custom dbHost for docker database client', () => {
+    const parsed = backupConfigSchema.parse({
+      ...base,
+      sourceType: 'database',
+      sourcePath: 'appdb',
+      dbEngine: 'postgres',
+      dbClient: 'docker',
+      dbContainer: 'dump-tools',
+      dbHost: '10.8.0.12',
+      dbUser: 'postgres',
+      dbPassword: '',
+    });
+    expect(parsed.dbHost).toBe('10.8.0.12');
+    expect(parsed.dbContainer).toBe('dump-tools');
   });
 
   test('clears db fields when sourceType is path', () => {

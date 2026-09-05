@@ -46,6 +46,7 @@ export type ContainerDatabaseHints = {
   user?: string
   password?: string
   database?: string
+  host?: string
   port?: number
   image?: string
   found: boolean

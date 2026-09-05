@@ -19,6 +19,7 @@ export type ContainerDatabaseHints = {
   user?: string;
   password?: string;
   database?: string;
+  host?: string;
   port?: number;
   image?: string;
   /** True when at least one credential/engine field was inferred */
@@ -69,12 +70,14 @@ export function mapContainerEnvToDatabaseHints(
   let user: string | undefined;
   let password: string | undefined;
   let database: string | undefined;
+  let host: string | undefined;
   let port: number | undefined;
 
   if (engine === 'postgres') {
     user = firstNonEmpty(env.POSTGRES_USER) || 'postgres';
     password = firstNonEmpty(env.POSTGRES_PASSWORD);
     database = firstNonEmpty(env.POSTGRES_DB) || user;
+    host = firstNonEmpty(env.POSTGRES_HOST, env.PGHOST, env.DB_HOST, env.DATABASE_HOST);
     port = parsePort(env.POSTGRES_PORT) ?? 5432;
   } else if (engine === 'mariadb') {
     user =
@@ -90,6 +93,12 @@ export function mapContainerEnvToDatabaseHints(
       firstNonEmpty(env.MYSQL_ROOT_PASSWORD);
     database =
       firstNonEmpty(env.MARIADB_DATABASE) || firstNonEmpty(env.MYSQL_DATABASE);
+    host = firstNonEmpty(
+      env.MARIADB_HOST,
+      env.MYSQL_HOST,
+      env.DB_HOST,
+      env.DATABASE_HOST
+    );
     port = parsePort(env.MARIADB_PORT) ?? parsePort(env.MYSQL_PORT) ?? 3306;
   } else if (engine === 'mysql') {
     user =
@@ -98,6 +107,7 @@ export function mapContainerEnvToDatabaseHints(
     password =
       firstNonEmpty(env.MYSQL_PASSWORD) || firstNonEmpty(env.MYSQL_ROOT_PASSWORD);
     database = firstNonEmpty(env.MYSQL_DATABASE);
+    host = firstNonEmpty(env.MYSQL_HOST, env.DB_HOST, env.DATABASE_HOST);
     port = parsePort(env.MYSQL_PORT) ?? 3306;
   }
 
@@ -109,6 +119,7 @@ export function mapContainerEnvToDatabaseHints(
     user,
     password,
     database,
+    host,
     port,
     image: image || undefined,
     found,

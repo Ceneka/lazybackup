@@ -30,6 +30,21 @@ describe('mapContainerEnvToDatabaseHints', () => {
     expect(hints.password).toBe('secret');
     expect(hints.database).toBe('appdb');
     expect(hints.port).toBe(5432);
+    expect(hints.host).toBeUndefined();
+  });
+
+  test('maps postgres host from env', () => {
+    const hints = mapContainerEnvToDatabaseHints(
+      'app',
+      {
+        POSTGRES_USER: 'app',
+        POSTGRES_PASSWORD: 'secret',
+        POSTGRES_DB: 'appdb',
+        POSTGRES_HOST: '10.8.0.12',
+      },
+      'app:latest'
+    );
+    expect(hints.host).toBe('10.8.0.12');
   });
 
   test('maps mysql root password', () => {
@@ -43,6 +58,21 @@ describe('mapContainerEnvToDatabaseHints', () => {
     expect(hints.password).toBe('rootpw');
     expect(hints.database).toBe('shop');
     expect(hints.port).toBe(3306);
+    expect(hints.host).toBeUndefined();
+  });
+
+  test('maps mysql host from env', () => {
+    const hints = mapContainerEnvToDatabaseHints(
+      'app',
+      {
+        MYSQL_USER: 'root',
+        MYSQL_PASSWORD: 'pw',
+        MYSQL_DATABASE: 'shop',
+        MYSQL_HOST: 'db.internal',
+      },
+      'app:latest'
+    );
+    expect(hints.host).toBe('db.internal');
   });
 
   test('maps mariadb env', () => {

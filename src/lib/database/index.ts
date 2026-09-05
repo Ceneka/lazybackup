@@ -115,8 +115,8 @@ function clientBinary(engine: DbEngine): string {
   return 'mysql';
 }
 
+/** Host as seen by the dump client (native binary, or from inside the docker container). */
 function effectiveHost(conn: DatabaseConnection): string {
-  if (conn.client === 'docker') return '127.0.0.1';
   return (conn.host || '127.0.0.1').trim() || '127.0.0.1';
 }
 

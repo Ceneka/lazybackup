@@ -865,6 +865,7 @@ export function BackupConfigForm({
         dbUser: hints.user ?? prev.dbUser,
         dbPassword: hints.password ?? prev.dbPassword,
         sourcePath: hints.database ?? prev.sourcePath,
+        dbHost: hints.host ?? prev.dbHost,
         dbPort: hints.port != null ? String(hints.port) : prev.dbPort,
       }))
       if (hints.found) {
@@ -1091,8 +1092,8 @@ export function BackupConfigForm({
                         </Alert>
                       )}
                       <p className="text-xs text-muted-foreground">
-                        Selecting a container fills engine, user, password, and database
-                        name from its env when possible.
+                        Selecting a container fills engine, user, password, database
+                        name, and host from its env when possible.
                       </p>
                     </>
                   ) : (
@@ -1118,7 +1119,7 @@ export function BackupConfigForm({
               )}
               </>
               )}
-              {formData.dbEngine !== "sqlite" && formData.dbClient === "native" && (
+              {formData.dbEngine !== "sqlite" && (
                 <>
                   <div className="space-y-1">
                     <label className="text-xs text-muted-foreground" htmlFor="db-host">
@@ -1146,6 +1147,14 @@ export function BackupConfigForm({
                       placeholder={formData.dbEngine === "postgres" ? "5432" : "3306"}
                     />
                   </div>
+                  {formData.dbClient === "docker" && (
+                    <p className="text-xs text-muted-foreground sm:col-span-2">
+                      Host is the address as seen from inside the container. Leave
+                      127.0.0.1 when dumping from the database container itself; use a
+                      docker-network hostname or VPS private IP when the tools talk to a
+                      DB elsewhere.
+                    </p>
+                  )}
                 </>
               )}
               <div className="space-y-1 sm:col-span-2">

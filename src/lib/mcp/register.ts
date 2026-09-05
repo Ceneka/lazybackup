@@ -122,7 +122,12 @@ export function registerLazyBackupTools(
         dbEngine: z.enum(['postgres', 'mysql', 'mariadb', 'sqlite']),
         dbClient: z.enum(['native', 'docker']),
         dbContainer: z.string().optional(),
-        dbHost: z.string().optional(),
+        dbHost: z
+          .string()
+          .optional()
+          .describe(
+            'DB hostname as seen by the dump client. For dbClient=docker this is from inside the container (127.0.0.1, docker-network name, or VPS private IP).'
+          ),
         dbPort: z.number().int().optional(),
         dbUser: z.string().optional(),
         dbPassword: z.string().optional(),

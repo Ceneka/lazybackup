@@ -94,9 +94,26 @@ describe('database command builders', () => {
     );
     expect(cmd).toContain('docker exec');
     expect(cmd).toContain("'postgres_1'");
+    expect(cmd).toContain("-h '127.0.0.1'");
     expect(cmd).toContain('gzip >');
     expect(cmd).toContain('$(cat');
     expect(cmd).not.toContain("s'ecret");
+  });
+
+  test('docker pack honors a custom host inside the container', () => {
+    const cmd = buildPackDatabaseCommand(
+      {
+        ...basePostgres,
+        client: 'docker',
+        container: 'dump-tools',
+        host: '10.8.0.12',
+      },
+      '/tmp/out/appdb.sql.gz'
+    );
+    expect(cmd).toContain('docker exec');
+    expect(cmd).toContain("'dump-tools'");
+    expect(cmd).toContain("-h '10.8.0.12'");
+    expect(cmd).not.toContain("-h '127.0.0.1'");
   });
 
   test('restore pipes gunzip into client', () => {
@@ -118,6 +135,7 @@ describe('database command builders', () => {
     );
     expect(cmd).toContain('docker exec -i');
     expect(cmd).toContain('mysql');
+    expect(cmd).toContain("-h 'db.internal'");
     expect(cmd).toContain('$(cat');
     expect(cmd).not.toContain('-e MYSQL_PWD=pw');
   });
