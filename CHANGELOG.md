@@ -11,6 +11,23 @@ Versions before a formal `v*` tag are dated unreleased / pre-release notes.
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-09-05
+
+### Added
+
+- **Dashboard day filter** — hover a Backup status bar for that day’s counts and
+  success rate; click to filter the card, then open History for that day.
+
+### Fixed
+
+- **Verbose failure text** — Recent Activity shows a short snippet instead of
+  dumping the full error across the dashboard. The history detail still has the
+  complete message, in a scrollable block.
+- **Toasts covering Save** — connection-test toasts sit under the navbar
+  (top-right) instead of on top of Add Server / Save.
+- **Docker-exec DB host** — honor a custom database host so the client inside
+  the container can reach a VPS-internal or docker-network database.
+
 ## [0.2.1] - 2026-09-04
 
 ### Added
@@ -138,6 +155,7 @@ optional `remote_exec`.
    from that changelog section. Landing `/changelog` syncs on the next landing
    build.
 
-[Unreleased]: https://github.com/Ceneka/lazybackup/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/Ceneka/lazybackup/compare/v0.2.2...HEAD
 [0.2.0]: https://github.com/Ceneka/lazybackup/releases/tag/v0.2.0
 [0.2.1]: https://github.com/Ceneka/lazybackup/releases/tag/v0.2.1
+[0.2.2]: https://github.com/Ceneka/lazybackup/releases/tag/v0.2.2

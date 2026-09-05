@@ -24,6 +24,27 @@ export const changelogEntries: readonly ChangelogEntry[] = [
     "sections": []
   },
   {
+    "id": "0-2-2",
+    "title": "0.2.2",
+    "date": "2026-09-05",
+    "sections": [
+      {
+        "heading": "Added",
+        "items": [
+          "Dashboard day filter — hover a Backup status bar for that day’s counts and success rate; click to filter the card, then open History for that day."
+        ]
+      },
+      {
+        "heading": "Fixed",
+        "items": [
+          "Verbose failure text — Recent Activity shows a short snippet instead of dumping the full error across the dashboard. The history detail still has the complete message, in a scrollable block.",
+          "Toasts covering Save — connection-test toasts sit under the navbar (top-right) instead of on top of Add Server / Save.",
+          "Docker-exec DB host — honor a custom database host so the client inside the container can reach a VPS-internal or docker-network database."
+        ]
+      }
+    ]
+  },
+  {
     "id": "0-2-1",
     "title": "0.2.1",
     "date": "2026-09-04",
