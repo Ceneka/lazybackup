@@ -37,6 +37,14 @@ export type DashboardLastFailure = {
   errorSnippet: string | null
 }
 
+export type DashboardRecentHistory = {
+  id: string
+  status: "running" | "success" | "failed" | string
+  startTime: string
+  errorSnippet: string | null
+  backupConfig: { name: string } | null
+}
+
 export type DashboardData = {
   days: number
   since: string
@@ -54,7 +62,7 @@ export type DashboardData = {
   reportedBackupBytes: number
   avgBackupBytes: number
   daily: DashboardDaily[]
-  recentHistory: any[]
+  recentHistory: DashboardRecentHistory[]
   lastFailure: DashboardLastFailure | null
   timezone: string
   upcomingBackups: UpcomingBackup[]

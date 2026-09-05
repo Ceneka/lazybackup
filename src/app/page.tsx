@@ -123,14 +123,16 @@ function LastFailureCard({
   return (
     <Link
       href={`/history/${failure.id}`}
-      className="block rounded-lg border border-red-500/30 bg-red-500/5 p-4 transition-colors hover:bg-red-500/10"
+      className="block overflow-hidden rounded-lg border border-red-500/30 bg-red-500/5 p-4 transition-colors hover:bg-red-500/10"
     >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="text-sm font-medium text-red-700 dark:text-red-400">Last failure</p>
           <p className="truncate font-medium">{failure.configName}</p>
           {failure.errorSnippet ? (
-            <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{failure.errorSnippet}</p>
+            <p className="mt-1 line-clamp-2 break-all text-sm text-muted-foreground">
+              {failure.errorSnippet}
+            </p>
           ) : null}
         </div>
         <span className="shrink-0 text-xs text-muted-foreground">
@@ -350,15 +352,15 @@ export default function Dashboard() {
 
             {query.data.backups > 0 ? (
             <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-              <div className="rounded-lg border bg-card p-6 text-card-foreground shadow">
+              <div className="overflow-hidden rounded-lg border bg-card p-6 text-card-foreground shadow">
                 <h2 className="mb-4 text-xl font-semibold">Recent Activity</h2>
                 {query.data.recentHistory.length > 0 ? (
                   <div className="space-y-3">
-                    {query.data.recentHistory.map((item: any) => (
+                    {query.data.recentHistory.map((item) => (
                       <Link
                         href={`/history/${item.id}`}
                         key={item.id}
-                        className="block rounded-md p-3 transition-colors hover:bg-accent"
+                        className="block min-w-0 overflow-hidden rounded-md p-3 transition-colors hover:bg-accent"
                       >
                         <div className="flex items-center justify-between gap-2">
                           <div className="flex min-w-0 items-center space-x-2">
@@ -379,11 +381,14 @@ export default function Dashboard() {
                             {isClient ? new Date(item.startTime).toLocaleString() : ""}
                           </span>
                         </div>
-                        {item.status === "failed" && item.errorMessage && (
-                          <p className="mt-1 pl-4 text-sm text-red-500">
-                            Error: {item.errorMessage}
+                        {item.status === "failed" && item.errorSnippet ? (
+                          <p
+                            className="mt-1 line-clamp-2 break-all pl-4 text-sm text-red-500"
+                            title={item.errorSnippet}
+                          >
+                            {item.errorSnippet}
                           </p>
-                        )}
+                        ) : null}
                       </Link>
                     ))}
                     <div className="mt-4 text-center">

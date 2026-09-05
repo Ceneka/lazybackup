@@ -1,3 +1,4 @@
+import { errorSnippet } from "@/lib/backup/error-snippet"
 import { getBackupStorageStats } from "@/lib/backup/storage-stats"
 import { successRate as calcSuccessRate } from "@/lib/backup/success-rate"
 import { buildUpcomingEntry } from "@/lib/cron/next"
@@ -6,17 +7,6 @@ import { backupConfigs, backupHistory, s3Profiles, servers } from "@/lib/db/sche
 import { getAppTimezone } from "@/lib/settings/timezone"
 import { and, desc, eq, gte, sql } from "drizzle-orm"
 import { NextRequest, NextResponse } from "next/server"
-
-const ERROR_SNIPPET_MAX = 160
-
-function errorSnippet(text: string | null | undefined): string | null {
-  if (!text) return null
-  const oneLine = text.replace(/\s+/g, " ").trim()
-  if (!oneLine) return null
-  return oneLine.length > ERROR_SNIPPET_MAX
-    ? `${oneLine.slice(0, ERROR_SNIPPET_MAX - 1)}…`
-    : oneLine
-}
 
 function toLocalDateKey(date: Date): string {
   const y = date.getFullYear()
@@ -148,15 +138,28 @@ export async function GET(request: NextRequest) {
       total: byDay[date].success + byDay[date].failed + byDay[date].running,
     }))
 
-    const recentHistory = await db.query.backupHistory.findMany({
+    const recentHistoryRows = await db.query.backupHistory.findMany({
       orderBy: [desc(backupHistory.startTime)],
       limit: 5,
+      columns: {
+        id: true,
+        status: true,
+        startTime: true,
+        errorMessage: true,
+      },
       with: {
         backupConfig: {
-          with: { server: true, destinationServer: true, sourceS3Profile: true, destinationS3Profile: true },
+          columns: { name: true },
         },
       },
     })
+    const recentHistory = recentHistoryRows.map((row) => ({
+      id: row.id,
+      status: row.status,
+      startTime: new Date(row.startTime).toISOString(),
+      errorSnippet: errorSnippet(row.errorMessage),
+      backupConfig: row.backupConfig ? { name: row.backupConfig.name } : null,
+    }))
 
     const lastFailedRow = await db.query.backupHistory.findFirst({
       where: eq(backupHistory.status, "failed"),

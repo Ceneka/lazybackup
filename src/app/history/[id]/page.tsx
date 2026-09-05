@@ -219,7 +219,7 @@ export default function HistoryDetailPage() {
                         <AccordionItem value="error">
                           <AccordionTrigger className="text-red-500">Error Message</AccordionTrigger>
                           <AccordionContent>
-                            <div className="bg-red-50 text-red-900 dark:bg-red-950/50 dark:text-red-200 p-4 rounded border border-red-200 dark:border-red-900 whitespace-pre-wrap font-mono text-sm">
+                            <div className="max-h-96 overflow-auto break-all rounded border border-red-200 bg-red-50 p-4 font-mono text-sm whitespace-pre-wrap text-red-900 dark:border-red-900 dark:bg-red-950/50 dark:text-red-200">
                               {query.data.errorMessage}
                             </div>
                           </AccordionContent>
