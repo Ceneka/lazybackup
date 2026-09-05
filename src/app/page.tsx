@@ -1,87 +1,27 @@
 "use client"
 
 import { BackupRecipesEmpty } from "@/components/backup-recipes-empty"
+import { DashboardBackupStatus } from "@/components/dashboard-backup-status"
 import { DashboardQuickActions } from "@/components/dashboard-quick-actions"
 import { PageHeader, PageLayout } from "@/components/page-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Progress } from "@/components/ui/progress"
 import { QueryState } from "@/components/ui/query-state"
 import { useDashboard, type DashboardLastFailure } from "@/lib/hooks/useDashboard"
 import { useStatus } from "@/lib/hooks/useStatus"
 import { cn, formatBytes } from "@/lib/utils"
 import {
-    CheckCircleIcon,
     CalendarClockIcon,
     CloudIcon,
     FolderIcon,
     HardDriveIcon,
     HistoryIcon,
-    PlayIcon,
     ServerIcon,
     ShieldAlertIcon,
     ShieldCheckIcon,
     ShieldIcon,
-    XCircleIcon,
 } from "lucide-react"
 import Link from "next/link"
 import { useEffect, useState } from "react"
-
-function Last30DaysChart({
-  daily,
-}: {
-  daily: Array<{
-    date: string
-    success: number
-    failed: number
-    running: number
-    total: number
-  }>
-}) {
-  const max = Math.max(1, ...daily.map((d) => d.total))
-  const hasAny = daily.some((d) => d.total > 0)
-
-  if (!hasAny) {
-    return (
-      <div className="flex h-36 items-center justify-center rounded-lg bg-muted/20">
-        <p className="text-sm text-muted-foreground">No backup runs in the last 30 days</p>
-      </div>
-    )
-  }
-
-  return (
-    <div className="space-y-2">
-      <div className="flex h-36 items-end gap-0.5">
-        {daily.map((day) => {
-          const px = day.total === 0 ? 3 : Math.max(10, Math.round((day.total / max) * 140))
-          const title = `${day.date}: ${day.success} ok, ${day.failed} failed, ${day.running} running`
-          return (
-            <div key={day.date} className="flex flex-1 flex-col justify-end" title={title}>
-              <div
-                className="mx-auto flex w-full max-w-[10px] flex-col justify-end overflow-hidden rounded-t-sm"
-                style={{ height: `${px}px` }}
-              >
-                {day.failed > 0 && (
-                  <div className="w-full bg-red-500" style={{ flex: day.failed }} />
-                )}
-                {day.running > 0 && (
-                  <div className="w-full bg-blue-500" style={{ flex: day.running }} />
-                )}
-                {day.success > 0 && (
-                  <div className="w-full bg-green-500" style={{ flex: day.success }} />
-                )}
-                {day.total === 0 && <div className="w-full flex-1 bg-muted" />}
-              </div>
-            </div>
-          )
-        })}
-      </div>
-      <div className="flex justify-between text-xs text-muted-foreground">
-        <span>{daily[0]?.date}</span>
-        <span>{daily[daily.length - 1]?.date}</span>
-      </div>
-    </div>
-  )
-}
 
 function DashboardStatusChip() {
   const status = useStatus()
@@ -205,77 +145,13 @@ export default function Dashboard() {
             ) : (
               <>
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
-              <Card className="lg:col-span-3">
-                <CardHeader className="pb-2">
-                  <CardTitle>Backup status</CardTitle>
-                  <CardDescription>
-                    {query.data.totalRuns} run{query.data.totalRuns === 1 ? "" : "s"} in the last{" "}
-                    {query.data.days} days
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex flex-wrap items-end justify-between gap-4">
-                    <div>
-                      {query.data.totalRuns === 0 ? (
-                        <>
-                          <div className="text-4xl font-bold tracking-tight text-muted-foreground">
-                            —
-                          </div>
-                          <div className="text-sm text-muted-foreground">No runs yet</div>
-                        </>
-                      ) : (
-                        <>
-                          <div className="text-4xl font-bold tracking-tight">
-                            {query.data.successRate}%
-                          </div>
-                          <div className="text-sm text-muted-foreground">Success rate</div>
-                        </>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-4">
-                      <Link
-                        href="/history?status=running"
-                        className="flex items-center gap-1.5 rounded-md transition-opacity hover:opacity-80"
-                        title="View running backups"
-                      >
-                        <PlayIcon className="h-4 w-4 text-blue-500" />
-                        <span className="font-medium text-blue-500">
-                          {query.data.statusCounts.running}
-                        </span>
-                      </Link>
-                      <Link
-                        href="/history?status=success"
-                        className="flex items-center gap-1.5 rounded-md transition-opacity hover:opacity-80"
-                        title="View successful backups"
-                      >
-                        <CheckCircleIcon className="h-4 w-4 text-green-500" />
-                        <span className="font-medium text-green-500">
-                          {query.data.statusCounts.success}
-                        </span>
-                      </Link>
-                      <Link
-                        href="/history?status=failed"
-                        className="flex items-center gap-1.5 rounded-md transition-opacity hover:opacity-80"
-                        title="View failed backups"
-                      >
-                        <XCircleIcon className="h-4 w-4 text-red-500" />
-                        <span className="font-medium text-red-500">
-                          {query.data.statusCounts.failed}
-                        </span>
-                      </Link>
-                    </div>
-                  </div>
-                  {query.data.totalRuns > 0 ? (
-                    <Progress value={query.data.successRate} className="h-2" />
-                  ) : null}
-                  <Last30DaysChart daily={query.data.daily} />
-                  <div className="text-right">
-                    <Link href="/history" className="text-sm text-blue-500 hover:underline">
-                      View all history
-                    </Link>
-                  </div>
-                </CardContent>
-              </Card>
+              <DashboardBackupStatus
+                days={query.data.days}
+                totalRuns={query.data.totalRuns}
+                successRate={query.data.successRate}
+                statusCounts={query.data.statusCounts}
+                daily={query.data.daily}
+              />
 
               <Card className="lg:col-span-2">
                 <CardHeader className="pb-2">

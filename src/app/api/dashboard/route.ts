@@ -1,4 +1,5 @@
 import { errorSnippet } from "@/lib/backup/error-snippet"
+import { toLocalDateKey } from "@/lib/backup/local-date"
 import { getBackupStorageStats } from "@/lib/backup/storage-stats"
 import { successRate as calcSuccessRate } from "@/lib/backup/success-rate"
 import { buildUpcomingEntry } from "@/lib/cron/next"
@@ -7,13 +8,6 @@ import { backupConfigs, backupHistory, s3Profiles, servers } from "@/lib/db/sche
 import { getAppTimezone } from "@/lib/settings/timezone"
 import { and, desc, eq, gte, sql } from "drizzle-orm"
 import { NextRequest, NextResponse } from "next/server"
-
-function toLocalDateKey(date: Date): string {
-  const y = date.getFullYear()
-  const m = String(date.getMonth() + 1).padStart(2, "0")
-  const d = String(date.getDate()).padStart(2, "0")
-  return `${y}-${m}-${d}`
-}
 
 /**
  * GET /api/dashboard - Aggregated dashboard data (default: last 30 days)

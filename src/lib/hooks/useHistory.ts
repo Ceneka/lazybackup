@@ -6,6 +6,7 @@ type HistoryFilter = {
   status?: string
   configId?: string
   search?: string
+  day?: string
 }
 
 type Pagination = {
@@ -55,6 +56,7 @@ export function useHistoryList(
       if (filters.status) searchParams.set("status", filters.status)
       if (filters.configId) searchParams.set("configId", filters.configId)
       if (filters.search) searchParams.set("search", filters.search)
+      if (filters.day) searchParams.set("day", filters.day)
       searchParams.set("limit", pagination.limit.toString())
       searchParams.set("offset", pagination.offset.toString())
 
@@ -203,6 +205,7 @@ export function usePaginatedHistory(initialFilters: HistoryFilter = {}) {
     status: "",
     configId: "",
     search: "",
+    day: "",
     ...initialFilters
   };
 

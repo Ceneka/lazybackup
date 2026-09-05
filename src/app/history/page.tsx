@@ -31,6 +31,7 @@ import {
   TableHeader,
   TableRow
 } from "@/components/ui/table"
+import { localDayRange } from "@/lib/backup/local-date"
 import { canRestoreBackup, restoreEligibilityFromHistory } from "@/lib/backup/restore-eligibility"
 import { useDeleteHistory, usePaginatedHistory } from "@/lib/hooks/useHistory"
 import { formatBytes } from "@/lib/utils"
@@ -62,6 +63,8 @@ function HistoryPageContent() {
     searchParams.get("configId") || searchParams.get("backupId") || ""
   const statusParam = searchParams.get("status") || ""
   const statusFromUrl = HISTORY_STATUSES.has(statusParam) ? statusParam : ""
+  const dayParam = searchParams.get("day") || ""
+  const dayFromUrl = localDayRange(dayParam) ? dayParam : ""
 
   const [searchTerm, setSearchTerm] = useState("")
   const { mutate: deleteHistory, isPending: isDeleting } = useDeleteHistory()
@@ -78,6 +81,7 @@ function HistoryPageContent() {
   } = usePaginatedHistory({
     configId: configIdFromUrl,
     status: statusFromUrl,
+    day: dayFromUrl,
   })
 
   // Keep filters in sync when navigating from dashboard / backup detail links
@@ -95,6 +99,13 @@ function HistoryPageContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only react to URL changes
   }, [statusFromUrl])
 
+  useEffect(() => {
+    if ((filters.day || "") !== dayFromUrl) {
+      updateFilters({ day: dayFromUrl })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only react to URL changes
+  }, [dayFromUrl])
+
   // Debounce search into the query filter
   useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -105,6 +116,14 @@ function HistoryPageContent() {
     return () => window.clearTimeout(handle)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchTerm])
+
+  const clearDayFilter = () => {
+    updateFilters({ day: "" })
+    const params = new URLSearchParams(searchParams.toString())
+    params.delete("day")
+    const qs = params.toString()
+    router.replace(qs ? `/history?${qs}` : "/history")
+  }
 
   const clearConfigFilter = () => {
     updateFilters({ configId: "" })
@@ -135,35 +154,53 @@ function HistoryPageContent() {
   }
 
   const filteredConfigName = data?.filters?.configName
-  const historyFiltered = Boolean(filters.configId || filters.search || filters.status)
+  const dayRange = filters.day ? localDayRange(filters.day) : null
+  const historyFiltered = Boolean(
+    filters.configId || filters.search || filters.status || filters.day
+  )
 
   return (
     <PageLayout>
       <PageHeader
         title="Backup History"
         description={
-          filters.configId ? (
+          filters.configId || dayRange ? (
             <div className="flex flex-wrap items-center gap-2">
               <span>Showing history for</span>
-              <Badge variant="secondary" className="gap-1 font-normal">
-                {filteredConfigName || filters.configId}
-                <button
-                  type="button"
-                  onClick={clearConfigFilter}
-                  className="ml-1 rounded-sm hover:bg-muted"
-                  aria-label="Clear backup filter"
-                >
-                  <XIcon className="h-3 w-3" />
-                </button>
-              </Badge>
-              {filteredConfigName && (
+              {filters.configId ? (
+                <Badge variant="secondary" className="gap-1 font-normal">
+                  {filteredConfigName || filters.configId}
+                  <button
+                    type="button"
+                    onClick={clearConfigFilter}
+                    className="ml-1 rounded-sm hover:bg-muted"
+                    aria-label="Clear backup filter"
+                  >
+                    <XIcon className="h-3 w-3" />
+                  </button>
+                </Badge>
+              ) : null}
+              {dayRange ? (
+                <Badge variant="secondary" className="gap-1 font-normal">
+                  {format(dayRange.start, "MMM d, yyyy")}
+                  <button
+                    type="button"
+                    onClick={clearDayFilter}
+                    className="ml-1 rounded-sm hover:bg-muted"
+                    aria-label="Clear day filter"
+                  >
+                    <XIcon className="h-3 w-3" />
+                  </button>
+                </Badge>
+              ) : null}
+              {filters.configId && filteredConfigName ? (
                 <Link
                   href={`/backups/${filters.configId}`}
                   className="text-blue-500 hover:underline"
                 >
                   View backup
                 </Link>
-              )}
+              ) : null}
             </div>
           ) : undefined
         }

@@ -2,7 +2,8 @@ import { historyBackupConfigWith } from '@/lib/api/history-query';
 import { redactHistoryEntry } from '@/lib/api/redact';
 import { db } from '@/lib/db';
 import { backupConfigs, backupHistory, servers } from '@/lib/db/schema';
-import { and, desc, eq, inArray, like, or, sql } from 'drizzle-orm';
+import { localDayRange } from '@/lib/backup/local-date';
+import { and, desc, eq, gte, inArray, like, lt, or, sql } from 'drizzle-orm';
 import { NextRequest, NextResponse } from 'next/server';
 
 function escapeLike(value: string): string {
@@ -19,6 +20,8 @@ export async function GET(request: NextRequest) {
     // backupId is accepted as an alias used by older UI links
     const configId = searchParams.get('configId') || searchParams.get('backupId');
     const search = searchParams.get('search')?.trim() || '';
+    const day = searchParams.get('day')?.trim() || '';
+    const dayRange = localDayRange(day);
 
     const conditions = [];
 
@@ -28,6 +31,11 @@ export async function GET(request: NextRequest) {
 
     if (configId) {
       conditions.push(eq(backupHistory.configId, configId));
+    }
+
+    if (dayRange) {
+      conditions.push(gte(backupHistory.startTime, dayRange.start));
+      conditions.push(lt(backupHistory.startTime, dayRange.end));
     }
 
     if (search) {
@@ -55,7 +63,7 @@ export async function GET(request: NextRequest) {
             offset,
             hasMore: false,
           },
-          filters: { status: status || null, configId: configId || null, search },
+          filters: { status: status || null, configId: configId || null, search, day: dayRange ? day : null },
         });
       }
       conditions.push(inArray(backupHistory.configId, ids));
@@ -104,6 +112,7 @@ export async function GET(request: NextRequest) {
         configId: configId || null,
         configName,
         search: search || null,
+        day: dayRange ? day : null,
       },
     });
   } catch (error) {
