@@ -68,6 +68,7 @@ export type BackupFormData = {
   hasInstanceBackupPassphrase?: boolean
   enabled: boolean
   enableEncryption: boolean
+  deleteExtraneous: boolean
   enableVersioning: boolean
   versionsToKeep: number
   enableFileRetention: boolean
@@ -107,6 +108,7 @@ export function backupToFormData(backup: Backup): BackupFormData {
     hasInstanceBackupPassphrase: Boolean(backup.hasInstanceBackupPassphrase),
     enabled: backup.enabled,
     enableEncryption: Boolean(backup.enableEncryption) || backup.destinationKind === "peer",
+    deleteExtraneous: Boolean(backup.deleteExtraneous),
     enableVersioning: Boolean(backup.enableVersioning),
     versionsToKeep: backup.versionsToKeep ?? 5,
     enableFileRetention: Boolean(backup.enableFileRetention),
@@ -391,12 +393,25 @@ export function BackupConfigForm({
           next.destinationServerId = ""
           next.destinationS3ProfileId = ""
           next.enableEncryption = true
+          next.deleteExtraneous = false
           if (!next.destinationPath) next.destinationPath = "backups"
           if (next.sourceType === "lazybackup_instance") {
             next.sourceType = "path"
             next.sourcePath = ""
           }
         }
+      }
+      if (key === "sourceKind" && value === "s3") {
+        next.deleteExtraneous = false
+      }
+      if (key === "destinationKind" && (value === "s3" || value === "peer")) {
+        next.deleteExtraneous = false
+      }
+      if (key === "enableEncryption" && value === true) {
+        next.deleteExtraneous = false
+      }
+      if (key === "sourceType" && value !== "path") {
+        next.deleteExtraneous = false
       }
       if (key === "sourceType" && value === "docker_volume") {
         next.sourcePath = ""
@@ -1440,6 +1455,30 @@ export function BackupConfigForm({
         </div>
         )}
 
+        {formData.sourceType === "path" &&
+          formData.sourceKind !== "s3" &&
+          formData.destinationKind !== "s3" &&
+          formData.destinationKind !== "peer" &&
+          !formData.enableEncryption && (
+        <div className="flex items-start">
+          <input
+            id="deleteExtraneous"
+            type="checkbox"
+            className="mt-1 h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+            checked={formData.deleteExtraneous}
+            onChange={(e) => updateField("deleteExtraneous", e.target.checked)}
+          />
+          <label htmlFor="deleteExtraneous" className="ml-2 block text-sm">
+            Remove files at destination that were deleted at source
+            <span className="block text-xs text-muted-foreground">
+              Passes rsync <code>--delete</code> so the destination mirrors the source.
+              Excluded paths are not deleted. No effect when versioning is on (each run is a new
+              folder).
+            </span>
+          </label>
+        </div>
+        )}
+
         <div className="flex items-center">
           <input
             id="enableVersioning"
@@ -1588,6 +1627,7 @@ export function defaultCreateFormData(prefillServerId?: string): BackupFormData 
     instanceBackupPassphrase: "",
     enabled: true,
     enableEncryption: false,
+    deleteExtraneous: false,
     enableVersioning: false,
     versionsToKeep: 5,
     enableFileRetention: false,
@@ -1731,6 +1771,14 @@ export function formDataToPayload(data: BackupFormData) {
         : data.destinationKind === "peer"
           ? true
           : data.enableEncryption,
+    deleteExtraneous:
+      data.sourceType === "path" &&
+      data.sourceKind !== "s3" &&
+      data.destinationKind !== "s3" &&
+      data.destinationKind !== "peer" &&
+      data.sourceType !== "lazybackup_instance" &&
+      !data.enableEncryption &&
+      data.deleteExtraneous,
     enableVersioning: data.enableVersioning,
     versionsToKeep: data.versionsToKeep,
     enableFileRetention: data.enableFileRetention,

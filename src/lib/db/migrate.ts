@@ -320,6 +320,11 @@ export async function runMigration() {
         sql`ALTER TABLE backup_configs ADD COLUMN enable_encryption INTEGER NOT NULL DEFAULT 0`
       );
     }
+    if (!backupColsEnc.includes('delete_extraneous')) {
+      await db.run(
+        sql`ALTER TABLE backup_configs ADD COLUMN delete_extraneous INTEGER NOT NULL DEFAULT 0`
+      );
+    }
     if (!backupColsEnc.includes('destination_peer_id')) {
       await db.run(sql`ALTER TABLE backup_configs ADD COLUMN destination_peer_id TEXT`);
     }

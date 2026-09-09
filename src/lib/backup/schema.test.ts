@@ -316,6 +316,47 @@ describe('backupConfigSchema', () => {
     expect(parsed.serverId).toBeNull();
   });
 
+  test('accepts deleteExtraneous for unencrypted path transfers', () => {
+    const parsed = backupConfigSchema.parse({
+      ...base,
+      sourcePath: '/var/www',
+      deleteExtraneous: true,
+    });
+    expect(parsed.deleteExtraneous).toBe(true);
+  });
+
+  test('forces deleteExtraneous off for S3 destinations', () => {
+    const parsed = backupConfigSchema.parse({
+      ...base,
+      sourcePath: '/var/www',
+      destinationKind: 's3',
+      destinationS3ProfileId: 's3p1',
+      destinationPath: 'backups/test',
+      deleteExtraneous: true,
+    });
+    expect(parsed.deleteExtraneous).toBe(false);
+  });
+
+  test('forces deleteExtraneous off when encrypting', () => {
+    const parsed = backupConfigSchema.parse({
+      ...base,
+      sourcePath: '/var/www',
+      enableEncryption: true,
+      deleteExtraneous: true,
+    });
+    expect(parsed.deleteExtraneous).toBe(false);
+  });
+
+  test('forces deleteExtraneous off for docker volume', () => {
+    const parsed = backupConfigSchema.parse({
+      ...base,
+      sourceType: 'docker_volume',
+      sourcePath: 'app_data',
+      deleteExtraneous: true,
+    });
+    expect(parsed.deleteExtraneous).toBe(false);
+  });
+
   test('rejects lazybackup_instance to peer', () => {
     const result = backupConfigSchema.safeParse({
       sourceKind: 'local',

@@ -44,6 +44,8 @@ export const backupConfigSchema = z
     instanceBackupPassphrase: z.string().nullable().optional(),
     enabled: z.boolean().default(true),
     enableEncryption: z.boolean().default(false),
+    /** rsync --delete for unencrypted path transfers (ignored for S3/peer/archives) */
+    deleteExtraneous: z.boolean().default(false),
     enableVersioning: z.boolean().default(false),
     versionsToKeep: z.coerce.number().min(1).max(100).optional().default(5),
     enableFileRetention: z.boolean().default(false),
@@ -265,6 +267,18 @@ export const backupConfigSchema = z
     const isDatabase = data.sourceType === 'database';
     const isInstance = data.sourceType === 'lazybackup_instance';
     const isPeer = data.destinationKind === 'peer';
+    const enableEncryption = isInstance
+      ? false
+      : isPeer
+        ? true
+        : Boolean(data.enableEncryption);
+    const deleteExtraneous =
+      data.sourceType === 'path' &&
+      data.sourceKind !== 's3' &&
+      data.destinationKind !== 's3' &&
+      data.destinationKind !== 'peer' &&
+      !enableEncryption &&
+      Boolean(data.deleteExtraneous);
     return {
       ...data,
       sourceKind: isInstance ? ('local' as const) : data.sourceKind,
@@ -284,11 +298,8 @@ export const backupConfigSchema = z
         data.destinationKind === 's3' ? data.destinationS3ProfileId || null : null,
       destinationPeerId: isPeer ? data.destinationPeerId || null : null,
       // Instance archives use optional passphrase, never instance age keys / Bro encrypt
-      enableEncryption: isInstance
-        ? false
-        : isPeer
-          ? true
-          : Boolean(data.enableEncryption),
+      enableEncryption,
+      deleteExtraneous,
       instanceBackupPassphrase: isInstance
         ? data.instanceBackupPassphrase ?? null
         : null,

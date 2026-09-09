@@ -39,6 +39,25 @@ describe('buildRsyncArgv', () => {
     expect(argv.join(' ')).not.toContain('--exclude="');
   });
 
+  test('includes --delete when deleteExtraneous is set', () => {
+    const argv = buildRsyncArgv({
+      sourcePath: '/src/',
+      destinationPath: '/dest',
+      deleteExtraneous: true,
+    });
+    expect(argv).toContain('--delete');
+    expect(argv.indexOf('--delete')).toBeGreaterThan(argv.indexOf('--safe-links'));
+    expect(argv).not.toContain('--delete-excluded');
+  });
+
+  test('omits --delete by default', () => {
+    const argv = buildRsyncArgv({
+      sourcePath: '/src/',
+      destinationPath: '/dest',
+    });
+    expect(argv).not.toContain('--delete');
+  });
+
   test('rejects newline in paths', () => {
     expect(() =>
       buildRsyncArgv({ sourcePath: '/src\n/evil', destinationPath: '/dest' })

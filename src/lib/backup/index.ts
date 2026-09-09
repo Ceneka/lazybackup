@@ -128,6 +128,7 @@ export type BackupConfigWithEndpoints = {
   instanceBackupPassphrase?: string | null;
   enabled: boolean;
   enableEncryption?: boolean | null;
+  deleteExtraneous?: boolean | null;
   enableVersioning: boolean;
   versionsToKeep?: number | null;
   enableFileRetention?: boolean | null;
@@ -220,6 +221,7 @@ async function pullPathFromServer(options: {
   localDestination: string;
   keyPath: string;
   excludePatterns: string[];
+  deleteExtraneous?: boolean;
 }): Promise<{ stdout: string; stderr: string; method: 'rsync' | 'scp' }> {
   const { rsyncAvailable, scpAvailable } = await getBackupTransportCapabilities(options.ssh);
   const rsh = await sshRshForIdentity(options.server.port, options.keyPath);
@@ -232,6 +234,7 @@ async function pullPathFromServer(options: {
         destinationPath: options.localDestination,
         excludePatterns: options.excludePatterns,
         rsh,
+        deleteExtraneous: options.deleteExtraneous,
       })
     );
     return { stdout: result.stdout, stderr: result.stderr, method: 'rsync' };
@@ -431,6 +434,7 @@ async function pushPathToServer(options: {
   remoteDestination: string;
   keyPath: string;
   excludePatterns: string[];
+  deleteExtraneous?: boolean;
 }): Promise<{ stdout: string; stderr: string; method: 'rsync' | 'scp' }> {
   const { rsyncAvailable, scpAvailable } = await getBackupTransportCapabilities(options.ssh);
   await ensureRemoteDirectory(options.ssh, options.remoteDestination);
@@ -448,6 +452,7 @@ async function pushPathToServer(options: {
         destinationPath: remoteTarget,
         excludePatterns: options.excludePatterns,
         rsh,
+        deleteExtraneous: options.deleteExtraneous,
       })
     );
     return { stdout: result.stdout, stderr: result.stderr, method: 'rsync' };
@@ -476,7 +481,8 @@ async function pushPathToServer(options: {
 async function localPathCopy(
   sourcePath: string,
   destinationPath: string,
-  excludePatterns: string[]
+  excludePatterns: string[],
+  deleteExtraneous?: boolean
 ): Promise<{ stdout: string; stderr: string }> {
   await fs.mkdir(destinationPath, { recursive: true });
   const source = sourcePath.endsWith('/') ? sourcePath : `${sourcePath}/`;
@@ -485,6 +491,7 @@ async function localPathCopy(
       sourcePath: source,
       destinationPath,
       excludePatterns,
+      deleteExtraneous,
     })
   );
 }
@@ -495,6 +502,7 @@ async function transferServerToServer(options: {
   sourcePath: string;
   destPath: string;
   excludePatterns: string[];
+  deleteExtraneous?: boolean;
 }): Promise<{ stdout: string; stderr: string; mode: 'ephemeral' | 'relay' }> {
   const sourceConfig = normalizeServer(options.sourceServer);
   const destConfig = normalizeServer(options.destServer);
@@ -531,6 +539,7 @@ async function transferServerToServer(options: {
           destPath: options.destPath,
           ephemeralPrivateKeyPath: ephemeral.privateKeyPath,
           excludePatterns: options.excludePatterns,
+          deleteExtraneous: options.deleteExtraneous,
         });
         return {
           mode: 'ephemeral',
@@ -574,6 +583,7 @@ async function transferServerToServer(options: {
           remoteDestination: options.destPath,
           keyPath: destKeyPath,
           excludePatterns: [],
+          deleteExtraneous: options.deleteExtraneous,
         });
         return {
           mode: 'relay',
@@ -671,6 +681,13 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
         ? false
         : Boolean(config.enableEncryption) || isPeerDestination;
     const useEncryptedLand = enableEncryption;
+    const deleteExtraneous =
+      sourceType === 'path' &&
+      !useEncryptedLand &&
+      sourceKind !== 's3' &&
+      destinationKind !== 's3' &&
+      destinationKind !== 'peer' &&
+      Boolean(config.deleteExtraneous);
 
     // Pre-backup commands (not applicable for S3 sources)
     if (
@@ -1382,7 +1399,12 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
       };
     } else if (sourceKind === 'local' && destinationKind === 'local' && localDestination) {
       const localSource = expandLocalPath(config.sourcePath);
-      backupResult = await localPathCopy(localSource, localDestination, excludePatterns);
+      backupResult = await localPathCopy(
+        localSource,
+        localDestination,
+        excludePatterns,
+        deleteExtraneous
+      );
       usedMethod = 'local-rsync';
       artifactPath = localDestination;
     } else if (sourceKind === 'local' && destinationKind === 'server' && config.destinationServer && remoteDestination) {
@@ -1402,6 +1424,7 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
         remoteDestination,
         keyPath: destKeyPath,
         excludePatterns,
+        deleteExtraneous,
       });
       backupResult = push;
       usedMethod = `push-${push.method}`;
@@ -1421,6 +1444,7 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
         localDestination,
         keyPath,
         excludePatterns,
+        deleteExtraneous,
       });
       backupResult = pull;
       usedMethod = pull.method;
@@ -1448,6 +1472,7 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
         sourcePath: config.sourcePath,
         destPath: remoteDestination,
         excludePatterns,
+        deleteExtraneous,
       });
       backupResult = transfer;
       usedMethod = `s2s-${transfer.mode}`;
@@ -1591,6 +1616,13 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
       }
     } else {
       throw new Error(`Unsupported transfer direction: ${sourceKind} → ${destinationKind}`);
+    }
+
+    if (deleteExtraneous) {
+      backupResult = {
+        ...backupResult,
+        stdout: [`Mirror deletes: rsync --delete`, backupResult.stdout].filter(Boolean).join('\n'),
+      };
     }
 
     if (remoteTmpDir && sourceSsh) {

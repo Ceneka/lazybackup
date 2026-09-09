@@ -71,6 +71,7 @@ export type ExportBackupRow = {
   schedule: string
   excludePatterns?: string | null
   enableEncryption: boolean
+  deleteExtraneous: boolean
   enableVersioning: boolean
   versionsToKeep?: number | null
   enableFileRetention: boolean
@@ -150,6 +151,7 @@ export type ConfigExportSnapshot = {
     schedule: string
     excludePatterns: string | null
     enableEncryption: boolean
+    deleteExtraneous: boolean
     enableVersioning: boolean
     versionsToKeep: number | null
     enableFileRetention: boolean
@@ -272,6 +274,7 @@ function exportBackup(row: ExportBackupRow) {
     schedule: row.schedule,
     excludePatterns: row.excludePatterns ?? null,
     enableEncryption: Boolean(row.enableEncryption),
+    deleteExtraneous: Boolean(row.deleteExtraneous),
     enableVersioning: Boolean(row.enableVersioning),
     versionsToKeep: row.versionsToKeep ?? null,
     enableFileRetention: Boolean(row.enableFileRetention),

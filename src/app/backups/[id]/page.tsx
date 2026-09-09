@@ -324,6 +324,14 @@ export default function BackupDetailPage() {
                         : "Disabled"}
                     </dd>
                   </div>
+                  {query.data.deleteExtraneous ? (
+                    <div>
+                      <dt className="text-sm font-medium text-muted-foreground">Mirror deletes</dt>
+                      <dd className="text-lg">
+                        On — destination files missing at source are removed (rsync --delete)
+                      </dd>
+                    </div>
+                  ) : null}
                   {query.data.excludePatterns && (
                     <div>
                       <dt className="text-sm font-medium text-muted-foreground">Exclude Patterns</dt>

@@ -47,6 +47,7 @@ export interface Backup {
   hasInstanceBackupPassphrase?: boolean
   enabled: boolean
   enableEncryption?: boolean
+  deleteExtraneous?: boolean
   enableVersioning?: boolean
   versionsToKeep?: number
   enableFileRetention?: boolean

@@ -66,10 +66,15 @@ export function buildRsyncArgv(options: {
   excludePatterns?: string[];
   additionalOptions?: string[];
   rsh?: string;
+  /** Remove dest files that no longer exist at source (rsync --delete, not --delete-excluded) */
+  deleteExtraneous?: boolean;
 }): string[] {
   const sourcePath = assertSafeCliToken(options.sourcePath, 'Source path');
   const destinationPath = assertSafeCliToken(options.destinationPath, 'Destination path');
   const args = ['-avz', '--stats', '--safe-links'];
+  if (options.deleteExtraneous) {
+    args.push('--delete');
+  }
   if (options.rsh) {
     args.push('-e', options.rsh);
   }

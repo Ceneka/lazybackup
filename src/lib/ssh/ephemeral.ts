@@ -131,6 +131,7 @@ export async function runEphemeralDirectRsync(options: {
   destPath: string;
   ephemeralPrivateKeyPath: string;
   excludePatterns?: string[];
+  deleteExtraneous?: boolean;
 }): Promise<{ stdout: string; stderr: string }> {
   const destPort = assertSshPort(options.destPort);
   assertSafeCliToken(options.sourcePath, 'Source path');
@@ -170,7 +171,8 @@ export async function runEphemeralDirectRsync(options: {
     const sshOptsQuoted = sshOptParts
       .map((part) => (part.startsWith('-') && !part.includes('=') ? part : shellSingleQuote(part)))
       .join(' ');
-    const rsyncCmd = `${REMOTE_STANDARD_PATH} rsync -avz --stats --safe-links ${excludeArgs} -e ${shellSingleQuote(`ssh ${sshOptsQuoted}`)} ${shellSingleQuote(sourceArg)} ${shellSingleQuote(destArg)}`;
+    const deleteArg = options.deleteExtraneous ? '--delete ' : '';
+    const rsyncCmd = `${REMOTE_STANDARD_PATH} rsync -avz --stats --safe-links ${deleteArg}${excludeArgs} -e ${shellSingleQuote(`ssh ${sshOptsQuoted}`)} ${shellSingleQuote(sourceArg)} ${shellSingleQuote(destArg)}`;
 
     const result = await options.sourceSsh.execCommand(rsyncCmd);
     if (result.code !== 0 && result.code !== null && result.code !== undefined) {

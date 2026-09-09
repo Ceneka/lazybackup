@@ -64,6 +64,7 @@ function fakeExport() {
         schedule: '0 2 * * *',
         excludePatterns: '["tmp"]',
         enableEncryption: true,
+        deleteExtraneous: false,
         enableVersioning: true,
         versionsToKeep: 5,
         enableFileRetention: false,

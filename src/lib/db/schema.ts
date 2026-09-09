@@ -107,6 +107,8 @@ export const backupConfigs = sqliteTable('backup_configs', {
   enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
   /** Client-side age encryption before land (forced on for peer destinations) */
   enableEncryption: integer('enable_encryption', { mode: 'boolean' }).notNull().default(false),
+  /** rsync --delete: remove dest files that no longer exist at source (path transfers only) */
+  deleteExtraneous: integer('delete_extraneous', { mode: 'boolean' }).notNull().default(false),
   enableVersioning: integer('enable_versioning', { mode: 'boolean' }).notNull().default(false),
   versionsToKeep: integer('versions_to_keep').default(5),
   enableFileRetention: integer('enable_file_retention', { mode: 'boolean' }).notNull().default(false),
