@@ -24,6 +24,27 @@ export const changelogEntries: readonly ChangelogEntry[] = [
     "sections": []
   },
   {
+    "id": "0-2-3",
+    "title": "0.2.3",
+    "date": "2026-09-09",
+    "sections": [
+      {
+        "heading": "Added",
+        "items": [
+          "Git repository sources — clone a bare mirror on this host (git clone --mirror, vault SSH key for SSH remotes), tar it, then land like a volume archive. Restore unpacks the mirror. Connections has a Git tab.",
+          "Live History — backup start and finish stream over SSE so History refreshes without a reload, and a toast reports the result.",
+          "rsync --delete — opt-in on path backups so destination files that vanished at the source are dropped."
+        ]
+      },
+      {
+        "heading": "Changed",
+        "items": [
+          "Connections — Servers, S3, and Git live under one navbar item instead of separate top-level links."
+        ]
+      }
+    ]
+  },
+  {
     "id": "0-2-2",
     "title": "0.2.2",
     "date": "2026-09-05",

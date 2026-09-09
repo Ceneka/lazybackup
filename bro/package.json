@@ -1,6 +1,6 @@
 {
   "name": "lazybro",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "private": true,
   "license": "MIT",
   "description": "Self-hosted From→To backup manager for paths, Docker volumes, and database dumps between local, SSH, and S3.",

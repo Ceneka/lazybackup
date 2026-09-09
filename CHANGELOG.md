@@ -11,6 +11,23 @@ Versions before a formal `v*` tag are dated unreleased / pre-release notes.
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-09-09
+
+### Added
+
+- **Git repository sources** — clone a bare mirror on this host (`git clone
+  --mirror`, vault SSH key for SSH remotes), tar it, then land like a volume
+  archive. Restore unpacks the mirror. Connections has a Git tab.
+- **Live History** — backup start and finish stream over SSE so History
+  refreshes without a reload, and a toast reports the result.
+- **rsync `--delete`** — opt-in on path backups so destination files that
+  vanished at the source are dropped.
+
+### Changed
+
+- **Connections** — Servers, S3, and Git live under one navbar item instead of
+  separate top-level links.
+
 ## [0.2.2] - 2026-09-05
 
 ### Added
@@ -155,7 +172,8 @@ optional `remote_exec`.
    from that changelog section. Landing `/changelog` syncs on the next landing
    build.
 
-[Unreleased]: https://github.com/Ceneka/lazybackup/compare/v0.2.2...HEAD
+[Unreleased]: https://github.com/Ceneka/lazybackup/compare/v0.2.3...HEAD
 [0.2.0]: https://github.com/Ceneka/lazybackup/releases/tag/v0.2.0
 [0.2.1]: https://github.com/Ceneka/lazybackup/releases/tag/v0.2.1
 [0.2.2]: https://github.com/Ceneka/lazybackup/releases/tag/v0.2.2
+[0.2.3]: https://github.com/Ceneka/lazybackup/releases/tag/v0.2.3
