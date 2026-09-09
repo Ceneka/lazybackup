@@ -35,7 +35,7 @@ export default function ServerPage() {
   useEffect(() => {
     if (query.error?.message === "Server not found") {
       toast.error("Server not found")
-      router.push("/servers")
+      router.push("/connections?tab=servers")
     }
   }, [query.error, router])
 
@@ -45,7 +45,7 @@ export default function ServerPage() {
     setDeleteBlockers(null)
     deleteServer.mutate(serverId, {
       onSuccess: () => {
-        router.push("/servers")
+        router.push("/connections?tab=servers")
       },
       onError: (error) => {
         if (isResourceInUseError(error)) {
@@ -73,7 +73,7 @@ export default function ServerPage() {
     >
       {query.data ? (
         <ResourceDetailLayout
-          backHref="/servers"
+          backHref="/connections?tab=servers"
           backLabel="Back to servers"
           title={query.data.name}
           detailsTitle="Server Details"

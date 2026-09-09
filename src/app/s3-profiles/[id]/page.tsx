@@ -37,7 +37,7 @@ export default function S3ProfilePage() {
   useEffect(() => {
     if (query.error?.message === "S3 profile not found") {
       toast.error("S3 profile not found")
-      router.push("/s3-profiles")
+      router.push("/connections?tab=s3")
     }
   }, [query.error, router])
 
@@ -58,7 +58,7 @@ export default function S3ProfilePage() {
   const handleDelete = () => {
     deleteProfile.mutate(id, {
       onSuccess: () => {
-        router.push("/s3-profiles")
+        router.push("/connections?tab=s3")
       },
       onError: (error) => {
         if (isResourceInUseError(error)) {
@@ -79,7 +79,7 @@ export default function S3ProfilePage() {
     >
       {query.data ? (
         <ResourceDetailLayout
-          backHref="/s3-profiles"
+          backHref="/connections?tab=s3"
           backLabel="Back to S3 profiles"
           title={query.data.name}
           detailsTitle="S3 Details"

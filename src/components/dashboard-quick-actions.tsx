@@ -88,7 +88,7 @@ export function DashboardQuickActions({
     <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
       <ResourceCard
         title="Servers"
-        href="/servers"
+        href="/connections?tab=servers"
         addHref="/servers/new"
         addLabel="Add"
         icon={ServerIcon}
@@ -123,7 +123,7 @@ export function DashboardQuickActions({
 
       <ResourceCard
         title="S3"
-        href="/s3-profiles"
+        href="/connections?tab=s3"
         addHref="/s3-profiles/new"
         addLabel="Add"
         icon={CloudIcon}

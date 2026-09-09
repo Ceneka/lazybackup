@@ -14,13 +14,12 @@ import { cn } from "@/lib/utils"
 import { Logo } from "@/components/logo"
 import { ModeToggle } from "@/components/mode-toggle"
 import {
-  CloudIcon,
+  CableIcon,
   FolderIcon,
   HistoryIcon,
   HomeIcon,
   LogOutIcon,
   MenuIcon,
-  ServerIcon,
   SettingsIcon,
   ShieldIcon,
 } from "lucide-react"
@@ -28,21 +27,22 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useState } from "react"
 
-const navItems = [
+const navItems: Array<{
+  name: string
+  href: string
+  icon: typeof HomeIcon
+  matchPrefixes?: string[]
+}> = [
   {
     name: "Dashboard",
     href: "/",
     icon: HomeIcon,
   },
   {
-    name: "Servers",
-    href: "/servers",
-    icon: ServerIcon,
-  },
-  {
-    name: "S3",
-    href: "/s3-profiles",
-    icon: CloudIcon,
+    name: "Connections",
+    href: "/connections",
+    icon: CableIcon,
+    matchPrefixes: ["/connections", "/servers", "/s3-profiles", "/git-repos"],
   },
   {
     name: "Backups",
@@ -66,7 +66,12 @@ const navItems = [
   },
 ]
 
-function isActivePath(pathname: string, href: string) {
+function isActivePath(pathname: string, href: string, matchPrefixes?: string[]) {
+  if (matchPrefixes?.length) {
+    return matchPrefixes.some(
+      (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)
+    )
+  }
   if (href === "/") return pathname === "/"
   return pathname === href || pathname.startsWith(`${href}/`)
 }
@@ -89,7 +94,7 @@ export function Navbar() {
         {/* Desktop Navigation */}
         <nav className="hidden items-center space-x-4 md:flex lg:space-x-6">
           {navItems.map((item) => {
-            const active = isActivePath(pathname, item.href)
+            const active = isActivePath(pathname, item.href, item.matchPrefixes)
             return (
               <Link
                 key={item.href}
@@ -148,7 +153,7 @@ export function Navbar() {
 
               <nav className="flex flex-1 flex-col gap-1 overflow-y-auto px-3 py-4">
                 {navItems.map((item) => {
-                  const active = isActivePath(pathname, item.href)
+                  const active = isActivePath(pathname, item.href, item.matchPrefixes)
                   return (
                     <Link
                       key={item.href}

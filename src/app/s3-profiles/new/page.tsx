@@ -37,7 +37,7 @@ export default function NewS3ProfilePage() {
       }
       await queryClient.invalidateQueries({ queryKey: s3ProfileKeys.lists() })
       toast.success("S3 profile created")
-      router.push("/s3-profiles")
+      router.push("/connections?tab=s3")
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to create profile")
     } finally {
@@ -47,7 +47,7 @@ export default function NewS3ProfilePage() {
 
   return (
     <ResourceEditLayout
-      backHref="/s3-profiles"
+      backHref="/connections?tab=s3"
       backLabel="Back to S3 profiles"
       title="Add S3 Profile"
     >
@@ -55,7 +55,7 @@ export default function NewS3ProfilePage() {
         initial={empty}
         submitting={submitting}
         submitLabel="Add Profile"
-        cancelHref="/s3-profiles"
+        cancelHref="/connections?tab=s3"
         onSubmit={handleSubmit}
       />
     </ResourceEditLayout>

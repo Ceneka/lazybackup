@@ -1303,7 +1303,7 @@ export function BackupConfigForm({
                   .filter(Boolean)
                   .join(" and ")}
                 .{" "}
-                <Link href="/servers" className="underline underline-offset-2">
+                <Link href="/connections?tab=servers" className="underline underline-offset-2">
                   Edit the server
                 </Link>{" "}
                 to attach a key.

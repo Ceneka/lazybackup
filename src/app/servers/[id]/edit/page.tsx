@@ -47,7 +47,7 @@ export default function EditServerPage() {
           toast.error("Server not found", {
             description: "The server you're trying to edit doesn't exist or has been deleted.",
           })
-          router.push("/servers")
+          router.push("/connections?tab=servers")
           return null
         }
         throw new Error("Failed to fetch server")
@@ -206,7 +206,7 @@ export default function EditServerPage() {
         <h3 className="text-lg font-medium">Server not found</h3>
         <p className="text-muted-foreground mt-2 mb-4">The server you're trying to edit doesn't exist or has been deleted.</p>
         <Link
-          href="/servers"
+          href="/connections?tab=servers"
           className="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground hover:bg-primary/90 h-10 px-4 py-2"
         >
           Back to Servers

@@ -99,11 +99,11 @@ export default function Dashboard() {
         actions={
           <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
             <DashboardStatusChip />
-            <Link href="/servers" className="inline-flex items-center gap-1 hover:text-foreground">
+            <Link href="/connections?tab=servers" className="inline-flex items-center gap-1 hover:text-foreground">
               <ServerIcon className="h-3.5 w-3.5" />
               {query.data?.servers ?? "—"} servers
             </Link>
-            <Link href="/s3-profiles" className="inline-flex items-center gap-1 hover:text-foreground">
+            <Link href="/connections?tab=s3" className="inline-flex items-center gap-1 hover:text-foreground">
               <CloudIcon className="h-3.5 w-3.5" />
               {query.data?.s3Profiles ?? "—"} S3
             </Link>

@@ -31,7 +31,7 @@ export default function TestConnectionPage() {
       if (!response.ok) {
         if (response.status === 404) {
           toast.error("Server not found")
-          router.push("/servers")
+          router.push("/connections?tab=servers")
           return null
         }
         throw new Error("Failed to fetch server")

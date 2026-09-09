@@ -29,7 +29,7 @@ Bun · Next.js 15.5 App Router · React 19 · Tailwind 4 / shadcn · TanStack Qu
 
 ```
 src/app/           # pages + api/* routes; manifest.ts → public /manifest.webmanifest
-src/components/    # ui/*, page-layout, backup-config-form (From→To), s3-profile-form, app-shell, navbar
+src/components/    # ui/*, page-layout, backup-config-form (From→To), connections/*, s3-profile-form, app-shell, navbar
 src/lib/auth/      # password hash, session cookie, isAuthorized
 src/lib/crypto/    # age encrypt/decrypt + key settings helpers
 src/lib/peer/      # Bro Space pairing, mailbox staging/recall, sync worker, opaque store
@@ -114,6 +114,7 @@ Pattern: Zod → Drizzle → `NextResponse.json`; errors `{ error, details? }`.
 
 - Bun only; `"use client"` pages + hooks in `lib/hooks/`.
 - Page chrome: `AppShell` owns `container` + padding; list/detail pages use `PageLayout` / `PageHeader` (do not nest another `container py-*` layout).
+- Navbar: Dashboard, **Connections** (`/connections?tab=servers|s3`; SSH keys stay in Settings), Backups, History, Status, Settings. `/servers` and `/s3-profiles` list routes redirect to the matching tab.
 - Query keys: `backupKeys`, `['servers']`, `['stats']`, `authStatusKey`, etc.
 - UI: `QueryState`, `DataState`, `LoadingButton`, `DeleteConfirmationDialog`, sonner toasts, `cn()`.
 - Mobile `Sheet` uses `modal={false}` (avoids stuck body `pointer-events`).
@@ -167,8 +168,9 @@ CI publishes GHCR on `main` / `v*` tags (skips docs/`LICENSE`/`landing` via `pat
 |------|--------|
 | Backup / retention / storage | `lib/backup/{index,file-retention,storage-stats,log-format,destination}.ts`, `lib/ssh/` (incl. `ephemeral.ts`) |
 | From→To form UI | `components/backup-config-form.tsx`, `app/backups/new`, `app/backups/[id]/edit` |
+| Connections | `app/connections`, `components/connections/*`; server/S3 detail still `app/servers`, `app/s3-profiles` |
 | Docker volumes / DB containers | `lib/docker/{volumes,containers}.ts`, `GET /api/docker/volumes` (local) + `GET …/servers/:id/docker/volumes`, same for containers/`db-hints`, `POST …/history/[id]/restore` |
-| S3 profiles | `lib/s3/`, `/api/s3-profiles`, `app/s3-profiles` |
+| S3 profiles | `lib/s3/`, `/api/s3-profiles`, `app/connections` (S3 tab), `app/s3-profiles` (detail/new) |
 | Database dumps | `lib/database/`, `POST /api/backups/database/test`, restore via `POST …/history/[id]/restore` |
 | Scheduling / timezone | `lib/scheduler/`, `instrumentation.ts` |
 | DB | `lib/db/schema.ts`, `lib/db/migrate.ts` |

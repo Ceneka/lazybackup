@@ -117,8 +117,8 @@ Set `DATABASE_URL` if you want a custom SQLite path (default: `file:./data.db`).
 ## Usage
 
 1. **Optional password** — On first visit, set an app password or skip. Change or remove it later under Settings.
-2. **Add a server** — Servers → add host, user, and SSH credentials. Use **Test connection** to verify rsync/scp (and Docker) availability. Prefer an SSH key for any server you will back up from or to.
-3. **(Optional) S3 profile** — S3 Profiles → endpoint, bucket, and keys (path-style for MinIO/R2/B2 as needed).
+2. **Add a server** — Connections → Servers → add host, user, and SSH credentials. Use **Test connection** to verify rsync/scp (and Docker) availability. Prefer an SSH key for any server you will back up from or to.
+3. **(Optional) S3 profile** — Connections → S3 → endpoint, bucket, and keys (path-style for MinIO/R2/B2 as needed).
 4. **Create a backup** — Backups → pick **From** and **To** (local, server, or S3), then **filesystem path**, **Docker volume** (this host’s Docker socket or a source server), or **database**. Default dest is still `/backups/<server>/<name>` on this host when To is local. Optionally enable versioning and/or age-based file retention.
 5. **Timezone** — Settings → choose the timezone used for cron schedules and “next run” times.
 6. **Encryption (optional)** — Settings → Encryption → generate an age key (export and acknowledge a copy), optionally add recovery recipients, then enable “Encrypt before storing” on a backup (or use a Bro destination). Create new keys instead of overwriting; old keys stay for decrypt.
