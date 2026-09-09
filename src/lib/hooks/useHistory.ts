@@ -64,6 +64,10 @@ export function useHistoryList(
       if (!res.ok) throw new Error("Failed to fetch history")
       return res.json()
     },
+    refetchInterval: (query) => {
+      const rows = query.state.data?.history as { status?: string }[] | undefined
+      return rows?.some((h) => h.status === "running") ? 15_000 : false
+    },
   })
 }
 

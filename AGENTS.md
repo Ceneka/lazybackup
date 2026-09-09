@@ -94,7 +94,7 @@ Pattern: Zod → Drizzle → `NextResponse.json`; errors `{ error, details? }`.
 | Servers | `/api/servers`, `/api/servers/[id]`, `…/test`, `…/exec` (remote shell; Bearer needs `remote_exec`), `…/docker/volumes`, `…/docker/containers`, `…/docker/containers/[name]/db-hints`, `POST /api/servers/test` |
 | S3 | `/api/s3-profiles`, `/api/s3-profiles/[id]`, `…/test`, `POST /api/s3-profiles/test` |
 | Backups | `/api/backups`, `/api/backups/[id]`, `…/run`, `…/validate`, `…/toggle`, `…/storage`, `POST /api/backups/start`, `POST /api/backups/database/test` |
-| History | `/api/history`, `/api/history/[id]`, `…/restore`, `/api/history/stats?chartData=` |
+| History | `/api/history`, `/api/history/[id]`, `…/restore`, `/api/history/stats?chartData=`, `GET /api/events` (SSE backup start/finish) |
 | Other | `/api/ssh-keys`, `/api/settings`, `GET /api/settings/export` (session-only config JSON, no secrets), `GET /api/version` (session-only, GitHub latest cache), `/api/scheduler/restart`, `/api/dashboard`, `/api/status` (safety posture), `/api/seed` (dev only) |
 
 ## Backup workflow (`lib/backup/index.ts`)

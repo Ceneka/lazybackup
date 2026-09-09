@@ -2,6 +2,7 @@
 
 import { AuthSetupPrompt } from "@/components/auth-setup-prompt"
 import { Navbar } from "@/components/navbar"
+import { BackupEventsProvider } from "@/lib/hooks/useBackupEvents"
 import { usePathname } from "next/navigation"
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -15,6 +16,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <>
       <Navbar />
+      <BackupEventsProvider />
       <main className="flex-1 container mx-auto py-6 px-4">{children}</main>
       <AuthSetupPrompt />
     </>

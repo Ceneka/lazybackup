@@ -278,13 +278,10 @@ export async function runBackupOp(ctx: McpOpsContext, id: string) {
     const { assertCanStartBackup } = await import('@/lib/backup/concurrent-run')
     await assertCanStartBackup(config.id)
 
-    const historyEntry = {
-      id: nanoid(),
-      configId: config.id,
-      startTime: new Date(),
-      status: 'running' as const,
-    }
-    await db.insert(backupHistory).values(historyEntry)
+    const { createBackupHistoryEntry } = await import('@/lib/backup/history')
+    const historyEntry = await createBackupHistoryEntry(config.id, {
+      backupName: config.name,
+    })
     executeBackup(config, historyEntry.id).catch((error) => {
       console.error(`Backup execution failed for ${config.name}:`, error)
     })

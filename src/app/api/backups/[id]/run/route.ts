@@ -1,12 +1,12 @@
 import { executeBackup } from '@/lib/backup';
+import { createBackupHistoryEntry } from '@/lib/backup/history';
 import {
   assertCanStartBackup,
   isBackupAlreadyRunningError,
 } from '@/lib/backup/concurrent-run';
 import { db } from '@/lib/db';
-import { backupConfigs, backupHistory } from '@/lib/db/schema';
+import { backupConfigs } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
-import { nanoid } from 'nanoid';
 import { NextRequest, NextResponse } from 'next/server';
 
 // POST /api/backups/:id/run - Run a backup manually
@@ -50,15 +50,9 @@ export async function POST(
       throw error;
     }
 
-    // Create a history entry for this backup execution
-    const historyEntry = {
-      id: nanoid(),
-      configId: config.id,
-      startTime: new Date(),
-      status: 'running' as const,
-    };
-
-    await db.insert(backupHistory).values(historyEntry);
+    const historyEntry = await createBackupHistoryEntry(config.id, {
+      backupName: config.name,
+    });
 
     // Execute the backup asynchronously
     executeBackup(config, historyEntry.id).catch(error => {

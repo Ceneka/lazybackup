@@ -1,8 +1,7 @@
 import { CronJob } from 'cron';
 import { eq } from 'drizzle-orm';
-import { nanoid } from 'nanoid';
 import { db } from '../db';
-import { backupConfigs, backupHistory } from '../db/schema';
+import { backupConfigs } from '../db/schema';
 import { getAppTimezone } from '../settings/timezone';
 
 // Map to store active cron jobs
@@ -124,13 +123,11 @@ export async function runBackup(config: any) {
   }
 
   // Create a backup history record
-  const historyId = nanoid();
-  await db.insert(backupHistory).values({
-    id: historyId,
-    configId: config.id,
-    startTime: new Date(),
-    status: 'running',
+  const { createBackupHistoryEntry } = await import('../backup/history');
+  const historyEntry = await createBackupHistoryEntry(config.id, {
+    backupName: config.name,
   });
+  const historyId = historyEntry.id;
   
   try {
     // Import the executeBackup function from the backup module

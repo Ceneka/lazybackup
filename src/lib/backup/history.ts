@@ -1,15 +1,59 @@
 import { db } from '@/lib/db';
-import { backupHistory } from '@/lib/db/schema';
+import { backupConfigs, backupHistory } from '@/lib/db/schema';
+import { emitBackupEvent } from '@/lib/events/backup-events';
 import { and, eq } from 'drizzle-orm';
+
+async function backupNameForConfig(configId: string): Promise<string> {
+  const row = await db.query.backupConfigs.findFirst({
+    where: eq(backupConfigs.id, configId),
+    columns: { name: true },
+  });
+  return row?.name || 'Backup';
+}
+
+function emitStarted(options: { historyId: string; configId: string; backupName: string }) {
+  emitBackupEvent({
+    type: 'backup.started',
+    historyId: options.historyId,
+    configId: options.configId,
+    backupName: options.backupName,
+    status: 'running',
+    at: new Date().toISOString(),
+  });
+}
+
+function emitFinished(options: {
+  historyId: string;
+  configId: string;
+  backupName: string;
+  status: 'success' | 'failed';
+  errorMessage?: string;
+  mailboxPending?: boolean;
+}) {
+  emitBackupEvent({
+    type: 'backup.finished',
+    historyId: options.historyId,
+    configId: options.configId,
+    backupName: options.backupName,
+    status: options.status,
+    errorMessage: options.errorMessage,
+    mailboxPending: options.mailboxPending,
+    at: new Date().toISOString(),
+  });
+}
 
 /**
  * Create a new backup history entry for a started backup
  */
-export async function createBackupHistoryEntry(configId: string) {
+export async function createBackupHistoryEntry(
+  configId: string,
+  options?: { backupName?: string }
+) {
   const id = crypto.randomUUID();
-  
-  // Create a new history entry with 'running' status
-  const newEntry = await db.insert(backupHistory)
+  const backupName = options?.backupName ?? (await backupNameForConfig(configId));
+
+  const newEntry = await db
+    .insert(backupHistory)
     .values({
       id,
       configId,
@@ -17,7 +61,9 @@ export async function createBackupHistoryEntry(configId: string) {
       status: 'running',
     })
     .returning();
-  
+
+  emitStarted({ historyId: id, configId, backupName });
+
   return newEntry[0];
 }
 
@@ -75,7 +121,19 @@ export async function updateBackupHistorySuccess(
         console.error('Success ping notify error:', notifyError);
       });
   }
-  
+
+  const configId = updatedEntry[0]?.configId;
+  if (configId) {
+    const backupName = await backupNameForConfig(configId);
+    emitFinished({
+      historyId,
+      configId,
+      backupName,
+      status: 'success',
+      mailboxPending: Boolean(mailboxPending),
+    });
+  }
+
   return updatedEntry[0];
 }
 
@@ -147,6 +205,18 @@ export async function updateBackupHistoryFailure(
     .catch((notifyError) => {
       console.error('Failure webhook notify error:', notifyError);
     });
-  
+
+  const configId = options?.configId ?? updatedEntry[0]?.configId;
+  if (configId) {
+    const backupName = options?.backupName ?? (await backupNameForConfig(configId));
+    emitFinished({
+      historyId,
+      configId,
+      backupName,
+      status: 'failed',
+      errorMessage,
+    });
+  }
+
   return updatedEntry[0];
 } 

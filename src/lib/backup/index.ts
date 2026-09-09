@@ -1787,7 +1787,11 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
     await updateBackupHistoryFailure(
       historyId,
       error instanceof Error ? error.message : 'Unknown error',
-      preBackupLog ? { logOutput: preBackupLog } : undefined
+      {
+        ...(preBackupLog ? { logOutput: preBackupLog } : {}),
+        configId: config.id,
+        backupName: config.name,
+      }
     );
     throw error;
   } finally {
