@@ -374,6 +374,7 @@ export function BackupConfigForm({
 
   const canSwap =
     formData.sourceType === "path" &&
+    formData.sourceKind !== "git" &&
     formData.destinationKind !== "peer" &&
     !(
       formData.sourceKind === formData.destinationKind &&
@@ -494,24 +495,30 @@ export function BackupConfigForm({
 
   function handleSwap() {
     if (!canSwap) {
-      toast.error("Cannot swap when source is a Docker volume, database, or instance backup")
+      toast.error("Cannot swap when source is a Docker volume, database, Git repository, or instance backup")
       return
     }
     setDestinationTouched(true)
-    setFormData((prev) => ({
-      ...prev,
-      sourceKind: prev.destinationKind,
-      serverId: prev.destinationKind === "server" ? prev.destinationServerId : "",
-      sourceS3ProfileId:
-        prev.destinationKind === "s3" ? prev.destinationS3ProfileId : "",
-      destinationKind:
-        prev.destinationKind === "peer" ? "local" : prev.sourceKind,
-      destinationServerId: prev.sourceKind === "server" ? prev.serverId : "",
-      destinationS3ProfileId: prev.sourceKind === "s3" ? prev.sourceS3ProfileId : "",
-      destinationPeerId: "",
-      sourcePath: prev.destinationPath,
-      destinationPath: prev.sourcePath,
-    }))
+    setFormData((prev) => {
+      const nextDestinationKind: EndpointKind =
+        prev.destinationKind === "peer" || prev.sourceKind === "git"
+          ? "local"
+          : prev.sourceKind
+      return {
+        ...prev,
+        sourceKind: prev.destinationKind,
+        serverId: prev.destinationKind === "server" ? prev.destinationServerId : "",
+        sourceS3ProfileId:
+          prev.destinationKind === "s3" ? prev.destinationS3ProfileId : "",
+        sourceGitRepoId: "",
+        destinationKind: nextDestinationKind,
+        destinationServerId: prev.sourceKind === "server" ? prev.serverId : "",
+        destinationS3ProfileId: prev.sourceKind === "s3" ? prev.sourceS3ProfileId : "",
+        destinationPeerId: "",
+        sourcePath: prev.destinationPath,
+        destinationPath: prev.sourcePath,
+      }
+    })
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -1888,7 +1895,6 @@ export function formDataToPayload(data: BackupFormData) {
       data.sourceKind !== "git" &&
       data.destinationKind !== "s3" &&
       data.destinationKind !== "peer" &&
-      data.sourceType !== "lazybackup_instance" &&
       !data.enableEncryption &&
       data.deleteExtraneous,
     enableVersioning: data.enableVersioning,
