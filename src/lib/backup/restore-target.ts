@@ -32,7 +32,7 @@ export function resolveRestoreHost(input: {
   const sourceKind = input.sourceKind || 'server';
   const requested = input.targetServerId?.trim() || null;
   const originalServerId =
-    sourceKind === 'local' || sourceKind === 's3'
+    sourceKind === 'local' || sourceKind === 's3' || sourceKind === 'git'
       ? null
       : input.originalServerId?.trim() || null;
 
@@ -48,7 +48,7 @@ export function resolveRestoreHost(input: {
     };
   }
 
-  if (sourceKind === 'local') {
+  if (sourceKind === 'local' || sourceKind === 'git') {
     if (!requested) {
       return {
         kind: 'local',

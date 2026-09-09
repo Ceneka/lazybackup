@@ -164,6 +164,7 @@ describe('buildConfigExport', () => {
     expect(snapshot.settings.failureWebhookHeaders).toContain('Content-Type: application/json')
     expect(snapshot.metadata.version).toBe(APP_VERSION)
     expect(snapshot.metadata.exportedAt).toBe('2026-09-02T12:00:00.000Z')
+    expect(snapshot.gitRepos).toEqual([])
   })
 })
 

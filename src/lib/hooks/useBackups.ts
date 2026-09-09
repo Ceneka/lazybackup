@@ -17,15 +17,16 @@ export type LastValidation = {
 // Type definitions
 export interface Backup {
   id: string
-  sourceKind?: 'local' | 'server' | 's3'
+  sourceKind?: 'local' | 'server' | 's3' | 'git'
   serverId?: string | null
   sourceS3ProfileId?: string | null
+  sourceGitRepoId?: string | null
   destinationKind?: 'local' | 'server' | 's3' | 'peer'
   destinationServerId?: string | null
   destinationS3ProfileId?: string | null
   destinationPeerId?: string | null
   name: string
-  sourceType?: 'path' | 'docker_volume' | 'database' | 'lazybackup_instance'
+  sourceType?: 'path' | 'docker_volume' | 'database' | 'lazybackup_instance' | 'git_repo'
   sourcePath: string
   destinationPath: string
   schedule: string
@@ -81,6 +82,11 @@ export interface Backup {
     name: string
     quotaBytes?: number
     usedBytes?: number
+  } | null
+  sourceGitRepo?: {
+    id?: string
+    name: string
+    url?: string
   } | null
   createdAt: string
   updatedAt: string

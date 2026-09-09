@@ -357,6 +357,39 @@ describe('backupConfigSchema', () => {
     expect(parsed.deleteExtraneous).toBe(false);
   });
 
+  test('accepts git_repo source and forces git-mirror path', () => {
+    const parsed = backupConfigSchema.parse({
+      sourceKind: 'git',
+      sourceGitRepoId: 'repo1',
+      destinationKind: 'local',
+      name: 'Mirror',
+      sourceType: 'git_repo',
+      sourcePath: '',
+      destinationPath: '/backups/git/mirror',
+      schedule: '0 0 * * *',
+      deleteExtraneous: true,
+    });
+    expect(parsed.sourceKind).toBe('git');
+    expect(parsed.sourceType).toBe('git_repo');
+    expect(parsed.sourcePath).toBe('git-mirror');
+    expect(parsed.sourceGitRepoId).toBe('repo1');
+    expect(parsed.serverId).toBeNull();
+    expect(parsed.deleteExtraneous).toBe(false);
+  });
+
+  test('rejects git source without repo id', () => {
+    const result = backupConfigSchema.safeParse({
+      sourceKind: 'git',
+      destinationKind: 'local',
+      name: 'Mirror',
+      sourceType: 'git_repo',
+      sourcePath: 'git-mirror',
+      destinationPath: '/backups/git/mirror',
+      schedule: '0 0 * * *',
+    });
+    expect(result.success).toBe(false);
+  });
+
   test('rejects lazybackup_instance to peer', () => {
     const result = backupConfigSchema.safeParse({
       sourceKind: 'local',

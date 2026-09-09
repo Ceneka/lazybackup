@@ -22,6 +22,12 @@ const publicS3Columns = {
   forcePathStyle: true,
 } as const;
 
+const publicGitRepoColumns = {
+  id: true,
+  name: true,
+  url: true,
+} as const;
+
 export const historyBackupConfigWith = {
   columns: {
     dbPassword: false,
@@ -32,5 +38,6 @@ export const historyBackupConfigWith = {
     destinationServer: { columns: publicServerColumns },
     sourceS3Profile: { columns: publicS3Columns },
     destinationS3Profile: { columns: publicS3Columns },
+    sourceGitRepo: { columns: publicGitRepoColumns },
   },
 } as const;

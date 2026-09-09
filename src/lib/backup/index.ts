@@ -1,8 +1,9 @@
 import { db } from '@/lib/db';
-import { backupConfigs, backupHistory, peers, s3Profiles, servers } from '@/lib/db/schema';
+import { backupConfigs, backupHistory, gitRepos, peers, s3Profiles, servers } from '@/lib/db/schema';
 import { normalizeS3Prefix } from '@/lib/backup/destination';
 import { landLocalFileArtifact } from '@/lib/backup/land-file';
 import { materializeLocalArtifact, packLocalPathArchive } from '@/lib/backup/materialize';
+import { packGitMirror } from '@/lib/git/mirror';
 import { packLazybackupInstance } from '@/lib/backup/instance-export';
 import {
   archiveFileNameForDatabase,
@@ -44,6 +45,7 @@ import {
   pullFileFromRemote,
   pushFileToRemote,
   resolvePrivateKeyForServer,
+  resolvePrivateKeyForSshKeyId,
   writeTemporarySshIdentityFile,
 } from '@/lib/ssh';
 import {
@@ -101,18 +103,20 @@ const execFileAsync = promisify(execFile);
 type ServerRow = typeof servers.$inferSelect;
 type S3ProfileRow = typeof s3Profiles.$inferSelect;
 type PeerRow = typeof peers.$inferSelect;
+type GitRepoRow = typeof gitRepos.$inferSelect;
 
 export type BackupConfigWithEndpoints = {
   id: string;
-  sourceKind?: 'local' | 'server' | 's3' | null;
+  sourceKind?: 'local' | 'server' | 's3' | 'git' | null;
   serverId?: string | null;
   sourceS3ProfileId?: string | null;
+  sourceGitRepoId?: string | null;
   destinationKind?: 'local' | 'server' | 's3' | 'peer' | null;
   destinationServerId?: string | null;
   destinationS3ProfileId?: string | null;
   destinationPeerId?: string | null;
   name: string;
-  sourceType?: 'path' | 'docker_volume' | 'database' | 'lazybackup_instance' | null;
+  sourceType?: 'path' | 'docker_volume' | 'database' | 'lazybackup_instance' | 'git_repo' | null;
   sourcePath: string;
   destinationPath: string;
   schedule: string;
@@ -140,6 +144,7 @@ export type BackupConfigWithEndpoints = {
   sourceS3Profile?: S3ProfileRow | null;
   destinationS3Profile?: S3ProfileRow | null;
   destinationPeer?: PeerRow | null;
+  sourceGitRepo?: GitRepoRow | null;
 };
 
 function toS3ProfileConfig(row: S3ProfileRow): S3ProfileConfig {
@@ -666,6 +671,15 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
     if (sourceType === 'lazybackup_instance' && destinationKind === 'peer') {
       throw new Error('LazyBackup instance backups cannot use Bro destinations');
     }
+    if (sourceType === 'git_repo' && sourceKind !== 'git') {
+      throw new Error('Git repository backups require a Git source');
+    }
+    if (sourceKind === 'git' && sourceType !== 'git_repo') {
+      throw new Error('Git sources only support Git repository (bare mirror) backups');
+    }
+    if (sourceKind === 'git' && !config.sourceGitRepo) {
+      throw new Error('Git repository is missing from backup configuration');
+    }
 
     await assertTransferServersHaveKeys({
       sourceType,
@@ -689,11 +703,12 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
       destinationKind !== 'peer' &&
       Boolean(config.deleteExtraneous);
 
-    // Pre-backup commands (not applicable for S3 sources)
+    // Pre-backup commands (not applicable for S3 or Git sources)
     if (
       config.preBackupCommands &&
       config.preBackupCommands.trim() &&
-      sourceKind !== 's3'
+      sourceKind !== 's3' &&
+      sourceKind !== 'git'
     ) {
       if (sourceKind === 'server' && config.server) {
         sourceSsh = await connectToServer(normalizeServer(config.server));
@@ -812,6 +827,67 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
         stdout: [
           'Source: LazyBackup instance (SQLite + age vault + SSH keys)',
           packed.passphraseWrapped ? 'Wrap: age passphrase' : 'Wrap: none (trusted destination)',
+          landed.stdout,
+        ]
+          .filter(Boolean)
+          .join('\n'),
+        stderr: '',
+      };
+    } else if (sourceType === 'git_repo') {
+      const repo = config.sourceGitRepo!;
+      const keyContent = repo.sshKeyId
+        ? await resolvePrivateKeyForSshKeyId(repo.sshKeyId)
+        : null;
+      const packed = await packGitMirror({
+        url: repo.url,
+        keyContent,
+        archiveBaseName: slugifyArchiveBase(repo.name || config.name || 'git-mirror'),
+      });
+      encryptTmpPaths.push(packed.tmpDir);
+
+      let landPath = packed.localPath;
+      let landName = packed.archiveName;
+      let encrypted = false;
+      if (useEncryptedLand) {
+        const materialized = await materializeLocalArtifact({
+          enableEncryption: true,
+          archiveName: packed.archiveName,
+          localPath: packed.localPath,
+        });
+        encryptTmpPaths.push(...materialized.tmpPaths);
+        landPath = materialized.localPath;
+        landName = materialized.archiveName;
+        encrypted = materialized.encrypted;
+      }
+
+      const landed = await landLocalFileArtifact({
+        localFilePath: landPath,
+        archiveName: landName,
+        destinationKind: destinationKind as 'local' | 'server' | 's3' | 'peer',
+        localDestination,
+        remoteDestination,
+        destinationServer: config.destinationServer,
+        destSsh,
+        s3DestProfile,
+        s3DestinationPrefix,
+        destinationPeer: config.destinationPeer,
+        peerPrefix: peerPrefix || '',
+      });
+      if (landed.cleanupDestIdentity) {
+        cleanupDestIdentity = landed.cleanupDestIdentity;
+      }
+      destSsh = landed.destSsh;
+      usedMethod = encrypted
+        ? `git-mirror-${landed.usedMethod}-age`
+        : `git-mirror-${landed.usedMethod}`;
+      artifactPath = landed.artifactPath;
+      mailboxPending = Boolean(landed.mailboxPending);
+      artifactSha256 = landed.artifactSha256;
+      backupResult = {
+        stdout: [
+          `Git: ${repo.url}`,
+          `Refs: ${packed.refCount}`,
+          encrypted ? 'Encryption: age' : '',
           landed.stdout,
         ]
           .filter(Boolean)
@@ -1746,7 +1822,8 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
     const isArchiveTransfer =
       usedMethod.startsWith('docker') ||
       usedMethod.startsWith('database') ||
-      usedMethod.startsWith('lazybackup-instance');
+      usedMethod.startsWith('lazybackup-instance') ||
+      usedMethod.startsWith('git-mirror');
     const parsedOutput =
       isArchiveTransfer && destinationKind === 'local'
         ? {
@@ -2604,6 +2681,142 @@ export async function restorePathBackup(
       .filter(Boolean)
       .join('\n');
 
+    return { log, targetPath };
+  } finally {
+    if (tempDir) {
+      await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    }
+  }
+}
+
+/**
+ * Restore a Git bare-mirror archive into a directory (this host or an SSH dest).
+ */
+export async function restoreGitRepoBackup(
+  historyId: string,
+  options?: RestoreTargetOptions
+): Promise<{ log: string; targetPath: string }> {
+  if (process.env.NEXT_RUNTIME !== 'nodejs') {
+    throw new Error('Not in Node.js environment');
+  }
+
+  const historyEntry = await db.query.backupHistory.findFirst({
+    where: eq(backupHistory.id, historyId),
+    with: {
+      backupConfig: {
+        with: {
+          server: true,
+          destinationServer: true,
+          destinationS3Profile: true,
+          sourceS3Profile: true,
+          destinationPeer: true,
+        },
+      },
+    },
+  });
+
+  if (!historyEntry) {
+    throw new Error('Backup history entry not found');
+  }
+  if (historyEntry.status !== 'success') {
+    throw new Error('Only successful backups can be restored');
+  }
+  const config = historyEntry.backupConfig;
+  if (!config) {
+    throw new Error('Backup configuration not found for this history entry');
+  }
+  if (config.sourceType !== 'git_repo') {
+    throw new Error('This restore path is only for Git repository backups');
+  }
+  if (!historyEntry.artifactPath) {
+    throw new Error('This backup has no stored artifact path and cannot be restored');
+  }
+
+  const requested = options?.targetPath?.trim();
+  if (!requested) {
+    throw new Error('Git restore requires targetPath (directory to unpack the bare mirror into)');
+  }
+  const targetPath = resolveRestoreTarget(requested, requested, options, 'path');
+  const host = resolveRestoreHost({
+    sourceKind: config.sourceKind || 'git',
+    originalServerId: null,
+    targetServerId: options?.targetServerId,
+    allowRetarget: options?.allowRetarget,
+    confirm: options?.confirm,
+  });
+
+  const { localPath, tempDir } = await resolveLocalRestoreArtifact({
+    artifactPath: historyEntry.artifactPath,
+    destinationKind: config.destinationKind,
+    destinationS3Profile: config.destinationS3Profile,
+    destinationPeer: config.destinationPeer,
+    destinationServer: config.destinationServer,
+    expectedSha256: historyEntry.artifactSha256,
+    historyId: historyEntry.id,
+  });
+
+  const transferLines: string[] = [];
+
+  try {
+    if (host.kind === 'local') {
+      const dest = expandLocalPath(targetPath);
+      await fs.mkdir(dest, { recursive: true });
+      await execFileAsync('tar', ['-xzf', localPath, '-C', dest]);
+      transferLines.push(`Local Git restore: ${localPath} → ${dest}`);
+    } else if (host.kind === 'server') {
+      const targetServer = await resolveRestoreTargetServerRow(host, config.server);
+      const serverConfig = normalizeServer(targetServer);
+      let ssh: Awaited<ReturnType<typeof connectToServer>> | null = null;
+      let cleanupIdentity: (() => Promise<void>) | undefined;
+      try {
+        ssh = await connectToServer(serverConfig);
+        const privateKey = await resolvePrivateKeyForServer(serverConfig);
+        const { path: keyPath, cleanup: cleanupKeyFile } =
+          await writeTemporarySshIdentityFile(privateKey);
+        cleanupIdentity = cleanupKeyFile;
+        await ensureRemoteDirectory(ssh, targetPath);
+        const remoteTar = `${targetPath.replace(/\/+$/, '')}/git-mirror.tar.gz`;
+        const { rsyncAvailable, scpAvailable } = await getBackupTransportCapabilities(ssh);
+        const pushed = await pushFileToRemote({
+          localPath,
+          remotePath: remoteTar,
+          username: targetServer.username,
+          host: targetServer.host,
+          port: targetServer.port,
+          identityKeyPath: keyPath,
+          rsyncAvailable,
+          scpAvailable,
+        });
+        const posixQuote = (value: string) => `'${value.replace(/'/g, `'\\''`)}'`;
+        const extract = await ssh.execCommand(
+          `tar -xzf ${posixQuote(remoteTar)} -C ${posixQuote(targetPath)} && rm -f ${posixQuote(remoteTar)}`
+        );
+        if (extract.code !== 0 && extract.code !== null && extract.code !== undefined) {
+          throw restoreRetargetHostError(
+            targetServer.name,
+            extract.stderr || extract.stdout || `exit ${extract.code}`
+          );
+        }
+        transferLines.push(
+          `Remote Git restore: ${localPath} → ${targetServer.host}:${targetPath}`,
+          `Host: ${targetServer.name}`,
+          `Transfer: ${pushed.method}`,
+          extract.stdout?.trim() ? `--- tar stdout ---\n${extract.stdout.trim()}` : ''
+        );
+      } finally {
+        await cleanupIdentity?.();
+        ssh?.dispose();
+      }
+    } else {
+      throw new Error('Git restore onto S3 is not supported');
+    }
+
+    const log = [
+      `Restored Git mirror to ${targetPath}`,
+      ...transferLines,
+    ]
+      .filter(Boolean)
+      .join('\n');
     return { log, targetPath };
   } finally {
     if (tempDir) {

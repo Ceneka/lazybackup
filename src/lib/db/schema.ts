@@ -51,15 +51,30 @@ export const s3Profiles = sqliteTable('s3_profiles', {
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
 });
 
+/** Git remotes used as backup sources (clone --mirror on this host) */
+export const gitRepos = sqliteTable('git_repos', {
+  id: text('id').primaryKey().notNull(),
+  name: text('name').notNull(),
+  /** ssh git@host:org/repo.git, ssh://…, or public https://… */
+  url: text('url').notNull(),
+  sshKeyId: text('ssh_key_id').references(() => sshKeys.id, { onDelete: 'set null' }),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+});
+
 // Backup configurations
 export const backupConfigs = sqliteTable('backup_configs', {
   id: text('id').primaryKey().notNull(),
-  /** Where data is copied from: LazyBackup host, SSH server, or S3 */
-  sourceKind: text('source_kind', { enum: ['local', 'server', 's3'] }).notNull().default('server'),
+  /** Where data is copied from: LazyBackup host, SSH server, S3, or Git remote */
+  sourceKind: text('source_kind', { enum: ['local', 'server', 's3', 'git'] }).notNull().default('server'),
   /** Source server when sourceKind === 'server' */
   serverId: text('server_id').references(() => servers.id, { onDelete: 'cascade' }),
   /** Source S3 profile when sourceKind === 's3' */
   sourceS3ProfileId: text('source_s3_profile_id').references(() => s3Profiles.id, {
+    onDelete: 'cascade',
+  }),
+  /** Source Git repo when sourceKind === 'git' */
+  sourceGitRepoId: text('source_git_repo_id').references(() => gitRepos.id, {
     onDelete: 'cascade',
   }),
   /** Where data is copied to */
@@ -80,9 +95,10 @@ export const backupConfigs = sqliteTable('backup_configs', {
   /**
    * 'path' | 'docker_volume' (server or local Docker) | 'database' (local or server; sourcePath = DB name)
    * | 'lazybackup_instance' (local only; packs SQLite + keys)
+   * | 'git_repo' (clone --mirror on this host → .tar.gz)
    */
   sourceType: text('source_type', {
-    enum: ['path', 'docker_volume', 'database', 'lazybackup_instance'],
+    enum: ['path', 'docker_volume', 'database', 'lazybackup_instance', 'git_repo'],
   })
     .notNull()
     .default('path'),
@@ -334,6 +350,15 @@ export const serversRelations = relations(servers, ({ one, many }) => ({
 
 export const sshKeysRelations = relations(sshKeys, ({ many }) => ({
   servers: many(servers),
+  gitRepos: many(gitRepos),
+}));
+
+export const gitReposRelations = relations(gitRepos, ({ one, many }) => ({
+  sshKey: one(sshKeys, {
+    fields: [gitRepos.sshKeyId],
+    references: [sshKeys.id],
+  }),
+  sourceBackupConfigs: many(backupConfigs, { relationName: 'backupSourceGit' }),
 }));
 
 export const s3ProfilesRelations = relations(s3Profiles, ({ many }) => ({
@@ -357,6 +382,11 @@ export const backupConfigsRelations = relations(backupConfigs, ({ one, many }) =
     fields: [backupConfigs.sourceS3ProfileId],
     references: [s3Profiles.id],
     relationName: 'backupSourceS3',
+  }),
+  sourceGitRepo: one(gitRepos, {
+    fields: [backupConfigs.sourceGitRepoId],
+    references: [gitRepos.id],
+    relationName: 'backupSourceGit',
   }),
   destinationS3Profile: one(s3Profiles, {
     fields: [backupConfigs.destinationS3ProfileId],

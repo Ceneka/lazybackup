@@ -16,3 +16,18 @@ export function findServersUsingSshKey(
     .filter((server) => server.sshKeyId === keyId)
     .map((server) => ({ id: server.id, name: server.name }));
 }
+
+export type GitRepoSshKeyRef = {
+  id: string;
+  name: string;
+  sshKeyId: string | null;
+};
+
+export function findGitReposUsingSshKey(
+  repos: readonly GitRepoSshKeyRef[],
+  keyId: string
+): Array<{ id: string; name: string }> {
+  return repos
+    .filter((repo) => repo.sshKeyId === keyId)
+    .map((repo) => ({ id: repo.id, name: repo.name }));
+}

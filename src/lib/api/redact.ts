@@ -72,7 +72,15 @@ export function redactBackup<T extends Record<string, unknown>>(config: T) {
       copy.destinationS3Profile as Record<string, unknown>
     );
   }
+  if (copy.sourceGitRepo && typeof copy.sourceGitRepo === 'object') {
+    copy.sourceGitRepo = redactGitRepo(copy.sourceGitRepo as Record<string, unknown>);
+  }
   return copy as T & Record<string, unknown>;
+}
+
+/** Git remotes have no secrets today; keep the same strip-and-flag pattern. */
+export function redactGitRepo<T extends Record<string, unknown>>(repo: T) {
+  return { ...repo };
 }
 
 /** Redact nested backupConfig on a history row (list or detail). */

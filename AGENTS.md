@@ -4,10 +4,10 @@ Guide for AI coding agents. User-facing setup lives in [README.md](./README.md) 
 
 ## Mental model
 
-- Backups are **From → To** transfers between endpoints: **this host (local)**, any configured **Server**, or an **S3-compatible** profile. Directions include local↔local, local↔server, server↔server, and any side with S3 (S3 path sources; archives and path trees can land on S3).
+- Backups are **From → To** transfers between endpoints: **this host (local)**, any configured **Server**, an **S3-compatible** profile, or a **Git** remote (source only). Directions include local↔local, local↔server, server↔server, and any side with S3 (S3 path sources; archives and path trees can land on S3). Git sources clone a bare mirror on this host, tar it, then land like a volume archive.
 - Default for new configs remains **Server → Local** (`/backups/<server-slug>/<backup-slug>`). Destination uniqueness is per endpoint (local path, `(destinationServerId, path)`, or `(destinationS3ProfileId, prefix)`).
 - **Server → Server** prefers an **ephemeral SSH key** installed on the destination so the source can rsync directly; if the source cannot reach the dest, LazyBackup **relays** (pull then push via the host). S3 transfers always relay via the LazyBackup host.
-- Source types: `path` (filesystem or S3 object prefix), `docker_volume` (named volume on a **source server** or **this host’s Docker socket** → alpine tar → `.tar.gz`), `database` (Postgres/MySQL/MariaDB/SQLite dump → `.sql.gz` / `.sqlite.gz` via native client or `docker exec`; SQLite is native-only; local or server source), or **`lazybackup_instance`** (local only; packs SQLite + age vault + SSH keys; optional passphrase wrap). Destinations are paths or S3 prefixes. Volume tar is **not** a consistent live-DB backup — use `database` for that. Restore (path + volume + database) pulls a **local** artifact or downloads from **S3**/Bro, or from an **SSH destination with key auth**; History can retarget onto a different host. Password-only SSH dests cannot pull.
+- Source types: `path` (filesystem or S3 object prefix), `docker_volume` (named volume on a **source server** or **this host’s Docker socket** → alpine tar → `.tar.gz`), `database` (Postgres/MySQL/MariaDB/SQLite dump → `.sql.gz` / `.sqlite.gz` via native client or `docker exec`; SQLite is native-only; local or server source), **`lazybackup_instance`** (local only; packs SQLite + age vault + SSH keys; optional passphrase wrap), or **`git_repo`** (Git connection → `git clone --mirror` on this host → `.tar.gz`). Destinations are paths or S3 prefixes. Volume tar is **not** a consistent live-DB backup — use `database` for that. Restore (path + volume + database + Git mirror) pulls a **local** artifact or downloads from **S3**/Bro, or from an **SSH destination with key auth**; History can retarget onto a different host. Password-only SSH dests cannot pull.
 - For **database + docker client** on a server source, the form can list running containers and auto-fill credentials from `docker inspect` env (`POSTGRES_*` / `MYSQL_*` / `MARIADB_*`).
 - **SSH key required** for any server endpoint involved in a **transfer** (host-side rsync/scp). Password auth works for Test connection and other `node-ssh` operations (list volumes/containers, remote shell cmds); it is not enough alone to pull/push path backups.
 - **Optional app password** (single operator, no users table): first-run set/skip; manage in Settings. Hash in settings → middleware gates pages + `/api/*` (public: `/login`, `/api/auth/*`, `/api/health`, `/manifest.webmanifest`). Session cookie `lb_session`, 30-day sliding expiry. **Passkeys** (WebAuthn) can lock the instance alone or alongside the password (`webauthn_credentials`).
@@ -40,6 +40,7 @@ src/lib/database/  # dump/restore/test command builders for Postgres/MySQL/Maria
 src/lib/docker/    # remote volume/container list, pack/restore, DB inspect hints
 src/lib/notify/    # failure webhook + success ping (templates, presets)
 src/lib/s3/        # S3-compatible client (upload/download/list/delete/test)
+src/lib/git/       # Git URL parse, ls-remote test, clone --mirror + tar
 src/lib/db/        # schema, client, migrate.ts
 src/lib/hooks/     # React Query hooks (1:1 with APIs)
 src/lib/scheduler/ # CronJob registry (timezone-aware)
@@ -55,8 +56,8 @@ Alias `@/*` → `src/*`. Config: `next.config.ts` (standalone), `docker-compose.
 ```
 Browser (useQuery) → /api/* (Zod → Drizzle → JSON) → SQLite
 instrumentation (nodejs, not during build) → migrate → schedule enabled configs
-Backup: resolve From/To → pre-backup cmds → path transfer **or** docker pack **or** database dump → land artifact (FS or S3) → version/file retention → history + artifactPath
-Restore (path/volume/database; local, S3, or bro dest): history artifact → download if needed → rsync/push tree, extract volume, or pipe into psql/mysql
+Backup: resolve From/To → pre-backup cmds → path transfer **or** docker pack **or** database dump **or** Git mirror **or** instance pack → land artifact (FS or S3) → version/file retention → history + artifactPath
+Restore (path/volume/database/git; local, S3, or bro dest): history artifact → download if needed → rsync/push tree, extract volume, pipe into psql/mysql, or unpack a Git bare mirror
 ```
 
 ## Data (`schema.ts`)
@@ -66,7 +67,8 @@ Restore (path/volume/database; local, S3, or bro dest): history artifact → dow
 | `servers` | host/port/user, `authType` password\|key, password / privateKey / `sshKeyId` / `systemKeyPath` |
 | `ssh_keys` | name + content or path |
 | `s3_profiles` | endpoint, region, bucket, access/secret keys, `forcePathStyle` |
-| `backup_configs` | `sourceKind`/`destinationKind` local\|server\|s3\|**peer**, nullable `serverId` / `destinationServerId` / `sourceS3ProfileId` / `destinationS3ProfileId` / **`destinationPeerId`**, `sourceType` path\|docker_volume\|database\|**lazybackup_instance**, `sourcePath`/`destinationPath` (prefix when S3/peer), `db_*` for dumps, optional **`instanceBackupPassphrase`**, cron, excludes, pre-cmds, **`enableEncryption`**, versioning + file retention, optional last validation (`lastValidatedAt` / `lastValidationOk` / `lastValidationChecks`; cleared on config update) |
+| `git_repos` | name, URL (`git@…` / `ssh://` / public `https://`), optional `sshKeyId` → `ssh_keys` `ON DELETE SET NULL` |
+| `backup_configs` | `sourceKind`/`destinationKind` local\|server\|s3\|**peer** (source also **git**), nullable `serverId` / `destinationServerId` / `sourceS3ProfileId` / `destinationS3ProfileId` / **`destinationPeerId`** / **`sourceGitRepoId`**, `sourceType` path\|docker_volume\|database\|**lazybackup_instance**\|**git_repo**, `sourcePath`/`destinationPath` (prefix when S3/peer), `db_*` for dumps, optional **`instanceBackupPassphrase`**, cron, excludes, pre-cmds, **`enableEncryption`**, **`deleteExtraneous`**, versioning + file retention, optional last validation (`lastValidatedAt` / `lastValidationOk` / `lastValidationChecks`; cleared on config update) |
 | `backup_history` | status running\|success\|failed, sizes, `logOutput`, `artifactPath` (local path or `s3://bucket/key`) |
 | `settings` | KV: timezone, SSH defaults, `appPasswordHash`, `sessionSecret`, `authSetupCompleted`, failure webhook + success ping URL/method/headers/body |
 | `age_keys` | Age vault: identity + recipient, status active\|retired\|compromised, export ack |
@@ -76,7 +78,7 @@ Restore (path/volume/database; local, S3, or bro dest): history artifact → dow
 | `peers` / `peer_invites` / `peer_recalls` | Bro Space pairing + mailbox recalls; peers have `transport` mailbox\|direct, `lastSeenAt`; LazyBro has empty `remoteBaseUrl` |
 | `audit_log` | Token/MCP action audit (no secrets) |
 
-Cascade: server/S3 profile → configs → history. Never return `appPasswordHash` / `sessionSecret` from `GET /api/settings`.
+Cascade: server/S3 profile/Git repo → configs → history. Never return `appPasswordHash` / `sessionSecret` from `GET /api/settings`.
 
 ## API map
 
@@ -93,29 +95,31 @@ Pattern: Zod → Drizzle → `NextResponse.json`; errors `{ error, details? }`.
 | MCP discovery | Tools: `find_server`, `list_docker_volumes`, `list_docker_containers`, `get_container_db_hints`, `test_server`, `test_database`, `validate_backup`, `get_status`, `exec_command` (SSH shell; needs `remote_exec`) |
 | Servers | `/api/servers`, `/api/servers/[id]`, `…/test`, `…/exec` (remote shell; Bearer needs `remote_exec`), `…/docker/volumes`, `…/docker/containers`, `…/docker/containers/[name]/db-hints`, `POST /api/servers/test` |
 | S3 | `/api/s3-profiles`, `/api/s3-profiles/[id]`, `…/test`, `POST /api/s3-profiles/test` |
+| Git | `/api/git-repos`, `/api/git-repos/[id]`, `…/test`, `POST /api/git-repos/test` (`ls-remote`) |
 | Backups | `/api/backups`, `/api/backups/[id]`, `…/run`, `…/validate`, `…/toggle`, `…/storage`, `POST /api/backups/start`, `POST /api/backups/database/test` |
 | History | `/api/history`, `/api/history/[id]`, `…/restore`, `/api/history/stats?chartData=`, `GET /api/events` (SSE backup start/finish) |
 | Other | `/api/ssh-keys`, `/api/settings`, `GET /api/settings/export` (session-only config JSON, no secrets), `GET /api/version` (session-only, GitHub latest cache), `/api/scheduler/restart`, `/api/dashboard`, `/api/status` (safety posture), `/api/seed` (dev only) |
 
 ## Backup workflow (`lib/backup/index.ts`)
 
-1. Resolve From/To endpoints; optional pre-backup commands on source (SSH or local shell; skipped for S3 sources).
+1. Resolve From/To endpoints; optional pre-backup commands on source (SSH or local shell; skipped for S3 and Git sources).
 2. Prepare destination (local mkdir, remote mkdir, or S3 prefix). Versioning → `YYYY-MM-DD_HH-mm-ss` subfolder/prefix.
 3. **Path:** local→local rsync; server→local pull; local→server push; server→server ephemeral direct or relay; any side with S3 via host upload/download.
 4. **Docker volume (source server or local Docker):** pack with alpine on the source → land `.tar.gz` at destination path/prefix.
 5. **Database dump (local or server):** `pg_dump` / `mysqldump` (native or `docker exec`) → `.sql.gz` temp file → land at destination.
 5b. **LazyBackup instance:** pack SQLite + age vault + SSH keys → optional passphrase wrap → land (not Bro; not instance age-key encrypt).
+5c. **Git repository:** `git clone --mirror` on this host (vault SSH key for SSH URLs) → tar `mirror.git` → land `.tar.gz` (optional age / Bro).
 6. Temp SSH identity + `-F /dev/null` (ignore host ssh config); ephemeral keys cleaned in `finally`.
 7. Cleanup: version count and/or age-based file retention (local FS, remote SSH, S3, or Bro mailbox delete).
 8. History + `combineBackupLog`; storage stats for local dest (`storage-stats.ts`); remote/S3 dest returns a marker.
-9. **Restore:** `POST /api/history/[id]/restore` → local artifact or download from S3/Bro/SSH dest (key) → path tree rsync/push **or** volume extract **or** database load (optional host retarget). Download without restore: `GET /api/history/[id]/download`.
+9. **Restore:** `POST /api/history/[id]/restore` → local artifact or download from S3/Bro/SSH dest (key) → path tree rsync/push **or** volume extract **or** database load **or** Git bare-mirror unpack (optional host retarget). Download without restore: `GET /api/history/[id]/download`.
 
 ## Frontend
 
 - Bun only; `"use client"` pages + hooks in `lib/hooks/`.
 - Page chrome: `AppShell` owns `container` + padding; list/detail pages use `PageLayout` / `PageHeader` (do not nest another `container py-*` layout).
-- Navbar: Dashboard, **Connections** (`/connections?tab=servers|s3`; SSH keys stay in Settings), Backups, History, Status, Settings. `/servers` and `/s3-profiles` list routes redirect to the matching tab.
-- Query keys: `backupKeys`, `['servers']`, `['stats']`, `authStatusKey`, etc.
+- Navbar: Dashboard, **Connections** (`/connections?tab=servers|s3|git`; SSH keys stay in Settings), Backups, History, Status, Settings. `/servers`, `/s3-profiles`, and `/git-repos` list routes redirect to the matching tab.
+- Query keys: `backupKeys`, `['servers']`, `['gitRepos']`, `['stats']`, `authStatusKey`, etc.
 - UI: `QueryState`, `DataState`, `LoadingButton`, `DeleteConfirmationDialog`, sonner toasts, `cn()`.
 - Mobile `Sheet` uses `modal={false}` (avoids stuck body `pointer-events`).
 - Failure webhooks: Settings KV `failureWebhookUrl` / `Method` / `Headers` / `Body` with `{{tag}}` templates (`lib/notify/failure-webhook.ts`).
@@ -161,6 +165,7 @@ CI publishes GHCR on `main` / `v*` tags (skips docs/`LICENSE`/`landing` via `pat
 16. Tailscale is **not** bundled in the Docker image. Detect via LocalAPI socket or host CLI; optional `docker-compose.tailscale.yml` sidecar. Settings → Bro Space can fill `http://100.x:PORT`.
 17. Auth locks when an app password **or** ≥1 passkey is configured. Passkey login is public at `/api/auth/webauthn/login`; registration requires a session (or unlocked instance).
 18. Instance meta-backups (`lazybackup_instance`) include secrets; restore manually. Prefer passphrase wrap or a trusted destination — never Bro.
+19. Git sources run `git clone --mirror` on the LazyBackup host (`git` must be on PATH; the Docker image installs it). SSH remotes need a vault key; public HTTPS remotes do not. Pre-backup commands and rsync `--delete` do not apply.
 
 ## Read first
 
@@ -168,9 +173,10 @@ CI publishes GHCR on `main` / `v*` tags (skips docs/`LICENSE`/`landing` via `pat
 |------|--------|
 | Backup / retention / storage | `lib/backup/{index,file-retention,storage-stats,log-format,destination}.ts`, `lib/ssh/` (incl. `ephemeral.ts`) |
 | From→To form UI | `components/backup-config-form.tsx`, `app/backups/new`, `app/backups/[id]/edit` |
-| Connections | `app/connections`, `components/connections/*`; server/S3 detail still `app/servers`, `app/s3-profiles` |
+| Connections | `app/connections`, `components/connections/*`; server/S3/Git detail still `app/servers`, `app/s3-profiles`, `app/git-repos` |
 | Docker volumes / DB containers | `lib/docker/{volumes,containers}.ts`, `GET /api/docker/volumes` (local) + `GET …/servers/:id/docker/volumes`, same for containers/`db-hints`, `POST …/history/[id]/restore` |
 | S3 profiles | `lib/s3/`, `/api/s3-profiles`, `app/connections` (S3 tab), `app/s3-profiles` (detail/new) |
+| Git repositories | `lib/git/`, `/api/git-repos`, `app/connections` (Git tab), `app/git-repos` (detail/new) |
 | Database dumps | `lib/database/`, `POST /api/backups/database/test`, restore via `POST …/history/[id]/restore` |
 | Scheduling / timezone | `lib/scheduler/`, `instrumentation.ts` |
 | DB | `lib/db/schema.ts`, `lib/db/migrate.ts` |

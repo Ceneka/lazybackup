@@ -4,6 +4,7 @@ import {
   isBearerAudience,
   redactBackup,
   redactDbHints,
+  redactGitRepo,
   redactHistoryEntry,
   redactS3,
   redactServer,
@@ -86,6 +87,16 @@ describe('redactBackup', () => {
     });
     expect(result).not.toHaveProperty('instanceBackupPassphrase');
     expect(result.hasInstanceBackupPassphrase).toBe(true);
+  });
+
+  test('redacts nested Git repository', () => {
+    const result = redactBackup({
+      id: 'b1',
+      sourceGitRepo: { id: 'g1', name: 'app', url: 'git@host:org/app.git' },
+    });
+    expect(result.sourceGitRepo).toEqual(
+      redactGitRepo({ id: 'g1', name: 'app', url: 'git@host:org/app.git' })
+    );
   });
 });
 

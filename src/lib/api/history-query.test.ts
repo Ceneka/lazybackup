@@ -27,5 +27,10 @@ describe('historyBackupConfigWith', () => {
     expect(
       historyBackupConfigWith.with.destinationS3Profile.columns
     ).not.toHaveProperty('secretAccessKey');
+    expect(historyBackupConfigWith.with.sourceGitRepo.columns).toEqual({
+      id: true,
+      name: true,
+      url: true,
+    });
   });
 });

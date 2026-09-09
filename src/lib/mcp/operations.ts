@@ -1,7 +1,7 @@
 import { findExactDestinationConflict } from '@/lib/backup/destination-guard'
 import { backupConfigSchema } from '@/lib/backup/schema'
 import { assertTransferServersHaveKeys } from '@/lib/backup/assert-transfer-keys'
-import { restoreDatabaseBackup, restoreDockerVolumeBackup, restorePathBackup, executeBackup } from '@/lib/backup'
+import { restoreDatabaseBackup, restoreDockerVolumeBackup, restoreGitRepoBackup, restorePathBackup, executeBackup } from '@/lib/backup'
 import {
   READ_ONLY_DENIED,
   REMOTE_EXEC_DENIED,
@@ -32,6 +32,7 @@ const backupWithEndpoints = {
   sourceS3Profile: true,
   destinationS3Profile: true,
   destinationPeer: true,
+  sourceGitRepo: true,
 } as const
 
 const LOG_TRUNCATE = 4000
@@ -437,7 +438,20 @@ export async function restoreHistoryOp(
         log: truncateLog(result.log),
       })
     }
-    throw new Error('Only path, database, and docker_volume backups can be restored via MCP')
+    if (sourceType === 'git_repo') {
+      const result = await restoreGitRepoBackup(id, {
+        targetPath: opts.targetPath,
+        confirm: true,
+        allowRetarget,
+        targetServerId: opts.targetServerId,
+      })
+      return jsonResult({
+        success: true,
+        targetPath: result.targetPath,
+        log: truncateLog(result.log),
+      })
+    }
+    throw new Error('Only path, database, docker_volume, and git_repo backups can be restored via MCP')
   }).catch((error) => {
     if (error instanceof PeerRecallPendingError) {
       return jsonResult(peerRecallWaitingResponse(error.recallId))

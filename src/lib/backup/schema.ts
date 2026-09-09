@@ -12,16 +12,17 @@ export const endpointKindSchema = z.enum(['local', 'server', 's3', 'peer']);
 export const backupConfigSchema = z
   .object({
     name: z.string().min(1, 'Name is required'),
-    sourceKind: z.enum(['local', 'server', 's3']).default('server'),
+    sourceKind: z.enum(['local', 'server', 's3', 'git']).default('server'),
     /** Source server when sourceKind === 'server' (legacy field name) */
     serverId: z.string().nullable().optional(),
     sourceS3ProfileId: z.string().nullable().optional(),
+    sourceGitRepoId: z.string().nullable().optional(),
     destinationKind: endpointKindSchema.default('local'),
     destinationServerId: z.string().nullable().optional(),
     destinationS3ProfileId: z.string().nullable().optional(),
     destinationPeerId: z.string().nullable().optional(),
     sourceType: z
-      .enum(['path', 'docker_volume', 'database', 'lazybackup_instance'])
+      .enum(['path', 'docker_volume', 'database', 'lazybackup_instance', 'git_repo'])
       .default('path'),
     sourcePath: z.string().default(''),
     destinationPath: z.string().min(1, 'Destination path is required'),
@@ -54,7 +55,7 @@ export const backupConfigSchema = z
     retentionMinKeep: z.coerce.number().min(1).max(10000).optional().default(5),
   })
   .superRefine((data, ctx) => {
-    if (data.sourceType !== 'lazybackup_instance' && !data.sourcePath.trim()) {
+    if (data.sourceType !== 'lazybackup_instance' && data.sourceType !== 'git_repo' && !data.sourcePath.trim()) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: 'Source path is required',
@@ -87,6 +88,31 @@ export const backupConfigSchema = z
           path: ['sourceType'],
         });
       }
+    }
+
+    if (data.sourceKind === 'git') {
+      if (!data.sourceGitRepoId || !data.sourceGitRepoId.trim()) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Git repository is required',
+          path: ['sourceGitRepoId'],
+        });
+      }
+      if (data.sourceType !== 'git_repo') {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Git sources only support Git repository (bare mirror) backups',
+          path: ['sourceType'],
+        });
+      }
+    }
+
+    if (data.sourceType === 'git_repo' && data.sourceKind !== 'git') {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Git repository backups require a Git source',
+        path: ['sourceKind'],
+      });
     }
 
     if (data.destinationKind === 'server') {
@@ -266,6 +292,7 @@ export const backupConfigSchema = z
   .transform((data) => {
     const isDatabase = data.sourceType === 'database';
     const isInstance = data.sourceType === 'lazybackup_instance';
+    const isGit = data.sourceType === 'git_repo' || data.sourceKind === 'git';
     const isPeer = data.destinationKind === 'peer';
     const enableEncryption = isInstance
       ? false
@@ -275,24 +302,26 @@ export const backupConfigSchema = z
     const deleteExtraneous =
       data.sourceType === 'path' &&
       data.sourceKind !== 's3' &&
+      data.sourceKind !== 'git' &&
       data.destinationKind !== 's3' &&
       data.destinationKind !== 'peer' &&
       !enableEncryption &&
       Boolean(data.deleteExtraneous);
     return {
       ...data,
-      sourceKind: isInstance ? ('local' as const) : data.sourceKind,
-      sourcePath: isInstance ? 'lazybackup-instance' : data.sourcePath,
-      serverId: isInstance
+      sourceKind: isInstance ? ('local' as const) : isGit ? ('git' as const) : data.sourceKind,
+      sourcePath: isInstance ? 'lazybackup-instance' : isGit ? 'git-mirror' : data.sourcePath,
+      serverId: isInstance || isGit
         ? null
         : data.sourceKind === 'server'
           ? data.serverId || null
           : null,
-      sourceS3ProfileId: isInstance
+      sourceS3ProfileId: isInstance || isGit
         ? null
         : data.sourceKind === 's3'
           ? data.sourceS3ProfileId || null
           : null,
+      sourceGitRepoId: isGit ? data.sourceGitRepoId || null : null,
       destinationServerId: data.destinationKind === 'server' ? data.destinationServerId || null : null,
       destinationS3ProfileId:
         data.destinationKind === 's3' ? data.destinationS3ProfileId || null : null,
@@ -318,8 +347,8 @@ export const backupConfigSchema = z
       dbPort: isDatabase && data.dbEngine !== 'sqlite' ? data.dbPort ?? null : null,
       dbUser: isDatabase && data.dbEngine !== 'sqlite' ? data.dbUser?.trim() || null : null,
       dbPassword: isDatabase && data.dbEngine !== 'sqlite' ? data.dbPassword ?? '' : null,
-      preBackupCommands: isInstance ? undefined : data.preBackupCommands,
-      excludePatterns: isInstance || isDatabase ? undefined : data.excludePatterns,
+      preBackupCommands: isInstance || isGit ? undefined : data.preBackupCommands,
+      excludePatterns: isInstance || isDatabase || isGit ? undefined : data.excludePatterns,
     };
   });
 

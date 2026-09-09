@@ -31,12 +31,18 @@ export async function testServerConnection(id: string, name: string) {
   }
 }
 
-export async function testStoredS3Profile(id: string, name: string) {
-  const response = await fetch(`/api/s3-profiles/${id}/test`)
-  if (!response.ok) {
-    throw new Error(await readError(response, "S3 connection failed"))
+export async function testStoredGitRepo(id: string, name: string) {
+  const response = await fetch(`/api/git-repos/${id}/test`)
+  const data = (await response.json()) as {
+    success?: boolean
+    message?: string
+    error?: string
+    refCount?: number
   }
-  toast.success(`${name}: S3 connection OK`)
+  if (!response.ok || !data.success) {
+    throw new Error(data.error || data.message || "Git connection failed")
+  }
+  toast.success(`${name}: ${data.message || "Git connection OK"}`)
 }
 
 export async function startBackupRun(id: string, name: string) {
@@ -104,6 +110,8 @@ export function useResourceQuickActions() {
       run(`server:${id}`, () => testServerConnection(id, name)),
     testS3: (id: string, name: string) =>
       run(`s3:${id}`, () => testStoredS3Profile(id, name)),
+    testGit: (id: string, name: string) =>
+      run(`git:${id}`, () => testStoredGitRepo(id, name)),
     runBackup: (id: string, name: string) =>
       run(`backup:${id}`, async () => {
         const outcome = await startBackupRun(id, name)

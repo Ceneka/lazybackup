@@ -62,6 +62,27 @@ export async function resolvePrivateKeyForServer(server: Server): Promise<string
   throw new Error('Invalid authentication configuration: no private key available');
 }
 
+/** Resolve stored SSH key material by vault id (Git remotes, etc.). */
+export async function resolvePrivateKeyForSshKeyId(sshKeyId: string): Promise<string> {
+  const key = await db.query.sshKeys.findFirst({
+    where: eq(sshKeys.id, sshKeyId),
+  });
+  if (!key) {
+    throw new Error('Referenced SSH key not found');
+  }
+  if (key.privateKeyContent) {
+    return key.privateKeyContent;
+  }
+  if (key.privateKeyPath) {
+    try {
+      return await fs.readFile(key.privateKeyPath, 'utf8');
+    } catch {
+      throw new Error(`Failed to read SSH key file: ${key.privateKeyPath}`);
+    }
+  }
+  throw new Error('SSH key has no content or path');
+}
+
 /**
  * Prepare key text for OpenSSH CLI (scp/rsync). ssh2 is more lenient than native ssh;
  * DB/JSON often stores CRLF or literal \\n sequences which break libcrypto PEM parsing.

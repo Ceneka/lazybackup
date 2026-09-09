@@ -1,4 +1,4 @@
-import { restoreDatabaseBackup, restoreDockerVolumeBackup, restorePathBackup } from '@/lib/backup';
+import { restoreDatabaseBackup, restoreDockerVolumeBackup, restoreGitRepoBackup, restorePathBackup } from '@/lib/backup';
 import {
   RESTORE_CONFIRM_REQUIRED,
   hasRestoreConfirm,
@@ -100,10 +100,24 @@ export async function POST(
       });
     }
 
+    if (sourceType === 'git_repo') {
+      const result = await restoreGitRepoBackup(id, {
+        targetPath,
+        confirm: true,
+        allowRetarget,
+        targetServerId,
+      });
+      return NextResponse.json({
+        success: true,
+        targetPath: result.targetPath,
+        log: result.log,
+      });
+    }
+
     return NextResponse.json(
       {
         error:
-          'Restore is only supported for path, Docker volume, and database backups',
+          'Restore is only supported for path, Docker volume, database, and Git repository backups',
       },
       { status: 400 }
     );

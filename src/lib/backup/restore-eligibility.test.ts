@@ -95,6 +95,17 @@ describe('canRestoreDockerVolumeBackup', () => {
     ).toBe(true);
   });
 
+  test('allows successful Git mirror with local artifact', () => {
+    expect(
+      canRestoreBackup({
+        status: 'success',
+        sourceType: 'git_repo',
+        destinationKind: 'local',
+        artifactPath: '/backups/git/app.tar.gz',
+      })
+    ).toBe(true);
+  });
+
   test('allows path restore from S3 or peer destinations', () => {
     expect(
       canRestoreBackup({

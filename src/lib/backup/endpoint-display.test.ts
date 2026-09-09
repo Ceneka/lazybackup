@@ -47,6 +47,16 @@ describe('sourceEndpointName', () => {
       })
     ).toBe('MinIO')
   })
+
+  test('names Git sources', () => {
+    expect(
+      sourceEndpointName({
+        sourceKind: 'git',
+        sourceGitRepo: { name: 'lazybackup' },
+        sourceType: 'git_repo',
+      })
+    ).toBe('lazybackup')
+  })
 })
 
 describe('source labels', () => {
@@ -58,6 +68,17 @@ describe('source labels', () => {
     }
     expect(sourcePathLabel(backup)).toBe('instance data')
     expect(sourceTypeLabel(backup)).toBe('LazyBackup instance data')
+  })
+
+  test('describes Git repository mirrors', () => {
+    const backup = {
+      sourceKind: 'git' as const,
+      sourceType: 'git_repo' as const,
+      sourcePath: 'git-mirror',
+      sourceGitRepo: { name: 'app' },
+    }
+    expect(sourcePathLabel(backup)).toBe('mirror')
+    expect(sourceTypeLabel(backup)).toBe('Git repository (bare mirror)')
   })
 })
 

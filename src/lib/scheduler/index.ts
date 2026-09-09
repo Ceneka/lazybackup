@@ -19,6 +19,8 @@ export async function initializeScheduler() {
       destinationServer: true,
       sourceS3Profile: true,
       destinationS3Profile: true,
+      destinationPeer: true,
+      sourceGitRepo: true,
     },
   });
 

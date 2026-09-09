@@ -4,6 +4,7 @@ import {
   BackupConfigForm,
   cloneToFormData,
   defaultCreateFormData,
+  defaultGitBackupFormData,
   defaultInstanceBackupFormData,
   formDataToPayload,
   isBackupRecipeId,
@@ -26,6 +27,7 @@ function NewBackupForm() {
   const queryClient = useQueryClient()
   const [saving, setSaving] = useState(false)
   const prefillServerId = searchParams.get("serverId") || undefined
+  const prefillGitRepoId = searchParams.get("gitRepoId") || undefined
   const cloneFromId = searchParams.get("cloneFrom") || ""
   const recipeParam = searchParams.get("recipe")
   const recipe = isBackupRecipeId(recipeParam) ? recipeParam : null
@@ -76,7 +78,9 @@ function NewBackupForm() {
         ? recipeFormData(recipe)
         : prefillInstance
           ? defaultInstanceBackupFormData()
-          : defaultCreateFormData(prefillServerId)
+          : prefillGitRepoId
+            ? defaultGitBackupFormData(prefillGitRepoId)
+            : defaultCreateFormData(prefillServerId)
 
   const formReady =
     !serversQuery.isLoading &&

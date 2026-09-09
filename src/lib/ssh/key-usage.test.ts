@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { findServersUsingSshKey } from './key-usage';
+import { findGitReposUsingSshKey, findServersUsingSshKey } from './key-usage';
 
 describe('findServersUsingSshKey', () => {
   const servers = [
@@ -18,5 +18,15 @@ describe('findServersUsingSshKey', () => {
 
   test('returns empty when unused', () => {
     expect(findServersUsingSshKey(servers, 'key-missing')).toEqual([]);
+  });
+});
+
+describe('findGitReposUsingSshKey', () => {
+  test('returns repos that reference the key', () => {
+    const repos = [
+      { id: 'g1', name: 'app', sshKeyId: 'key-a' },
+      { id: 'g2', name: 'docs', sshKeyId: null },
+    ];
+    expect(findGitReposUsingSshKey(repos, 'key-a')).toEqual([{ id: 'g1', name: 'app' }]);
   });
 });

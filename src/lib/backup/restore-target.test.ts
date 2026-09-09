@@ -134,4 +134,19 @@ describe('resolveRestoreHost', () => {
       })
     ).toThrow(RESTORE_S3_SOURCE_TO_SERVER);
   });
+
+  test('git source restores like this host', () => {
+    expect(
+      resolveRestoreHost({
+        sourceKind: 'git',
+        originalServerId: 'ignored',
+        confirm: true,
+      })
+    ).toEqual({
+      kind: 'local',
+      serverId: null,
+      originalServerId: null,
+      retargeted: false,
+    });
+  });
 });

@@ -1,7 +1,7 @@
 export type EndpointDisplayBackup = {
-  sourceKind?: 'local' | 'server' | 's3' | null
+  sourceKind?: 'local' | 'server' | 's3' | 'git' | null
   destinationKind?: 'local' | 'server' | 's3' | 'peer' | null
-  sourceType?: 'path' | 'docker_volume' | 'database' | 'lazybackup_instance' | null
+  sourceType?: 'path' | 'docker_volume' | 'database' | 'lazybackup_instance' | 'git_repo' | null
   sourcePath?: string | null
   destinationPath?: string | null
   dbEngine?: string | null
@@ -10,11 +10,12 @@ export type EndpointDisplayBackup = {
   sourceS3Profile?: { name: string } | null
   destinationS3Profile?: { name: string } | null
   destinationPeer?: { name: string } | null
+  sourceGitRepo?: { name: string } | null
 }
 
 export function sourceKindOf(
   backup: EndpointDisplayBackup
-): 'local' | 'server' | 's3' {
+): 'local' | 'server' | 's3' | 'git' {
   return backup.sourceKind || 'server'
 }
 
@@ -28,6 +29,7 @@ export function sourceEndpointName(backup: EndpointDisplayBackup): string {
   const kind = sourceKindOf(backup)
   if (kind === 'local') return 'This host'
   if (kind === 's3') return backup.sourceS3Profile?.name || 'S3'
+  if (kind === 'git') return backup.sourceGitRepo?.name || 'Git'
   return backup.server?.name || 'Unknown server'
 }
 
@@ -44,6 +46,7 @@ export function sourcePathLabel(backup: EndpointDisplayBackup): string {
   if (backup.sourceType === 'docker_volume') return `volume ${path}`
   if (backup.sourceType === 'database') return `${backup.dbEngine || 'db'} ${path}`
   if (backup.sourceType === 'lazybackup_instance') return 'instance data'
+  if (backup.sourceType === 'git_repo') return 'mirror'
   return path
 }
 
@@ -53,5 +56,6 @@ export function sourceTypeLabel(backup: EndpointDisplayBackup): string {
     return `Database dump (${backup.dbEngine || 'unknown'})`
   }
   if (backup.sourceType === 'lazybackup_instance') return 'LazyBackup instance data'
+  if (backup.sourceType === 'git_repo') return 'Git repository (bare mirror)'
   return 'Filesystem path'
 }

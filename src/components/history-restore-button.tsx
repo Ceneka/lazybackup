@@ -70,19 +70,26 @@ export function HistoryRestoreButton({
   const sourceKind = entry.backupConfig?.sourceKind || "server"
   const isDatabase = sourceType === "database"
   const isPath = sourceType === "path"
+  const isGit = sourceType === "git_repo"
   const originalServerId = entry.backupConfig?.server?.id || ""
   const showHostPicker = sourceKind !== "s3"
   const defaultHostValue =
-    sourceKind === "local" ? LOCAL_HOST_VALUE : originalServerId || LOCAL_HOST_VALUE
+    sourceKind === "local" || sourceKind === "git"
+      ? LOCAL_HOST_VALUE
+      : originalServerId || LOCAL_HOST_VALUE
   const [targetHost, setTargetHost] = useState(defaultHostValue)
 
   const eligible = canRestoreBackup(restoreEligibilityFromHistory(entry))
 
   useEffect(() => {
+    if (isGit) {
+      setTargetName("")
+      return
+    }
     if (entry.backupConfig?.sourcePath) {
       setTargetName(entry.backupConfig.sourcePath)
     }
-  }, [entry.backupConfig?.sourcePath])
+  }, [entry.backupConfig?.sourcePath, isGit])
 
   useEffect(() => {
     setTargetHost(defaultHostValue)
@@ -103,10 +110,17 @@ export function HistoryRestoreButton({
     return null
   }
 
-  const label = isDatabase ? "Restore DB" : isPath ? "Restore path" : "Restore volume"
+  const label = isDatabase
+    ? "Restore DB"
+    : isPath
+      ? "Restore path"
+      : isGit
+        ? "Restore Git"
+        : "Restore volume"
   const servers = serversQuery.data || []
   const selectedServerId = targetHost === LOCAL_HOST_VALUE ? null : targetHost || null
-  const originalHostId = sourceKind === "local" ? null : originalServerId || null
+  const originalHostId =
+    sourceKind === "local" || sourceKind === "git" ? null : originalServerId || null
   const hostChanged = selectedServerId !== originalHostId
 
   const handleRestore = () => {
@@ -120,7 +134,7 @@ export function HistoryRestoreButton({
       targetServerId: selectedServerId || undefined,
       ...(isDatabase
         ? { databaseName: requested || undefined }
-        : isPath
+        : isPath || isGit
           ? { targetPath: requested || undefined }
           : { volumeName: requested || undefined }),
     }
@@ -188,14 +202,18 @@ export function HistoryRestoreButton({
               ? "Restore database dump?"
               : isPath
                 ? "Restore path tree?"
-                : "Restore Docker volume?"}
+                : isGit
+                  ? "Restore Git mirror?"
+                  : "Restore Docker volume?"}
           </AlertDialogTitle>
           <AlertDialogDescription>
             {isDatabase
               ? "This loads the .sql.gz dump into the target database using the backup’s connection settings. Existing objects may be overwritten or conflict depending on the dump contents. Credentials on a new host may not match — restore will fail clearly rather than using the original box."
               : isPath
                 ? "This copies the backed-up files back onto the source (local path, SSH host, or S3 prefix). Existing files at the target may be overwritten. Artifacts on S3, Bro, or an SSH destination are pulled onto this host first."
-                : "This uploads the backup archive to the target host and extracts it into the target volume. Existing files in that volume will be overwritten. Images, networks, and compose config are not restored."}
+                : isGit
+                  ? "This unpacks the bare Git mirror archive into the target directory (this host or an SSH dest). Existing files at that path may be overwritten."
+                  : "This uploads the backup archive to the target host and extracts it into the target volume. Existing files in that volume will be overwritten. Images, networks, and compose config are not restored."}
           </AlertDialogDescription>
         </AlertDialogHeader>
         {waitingForBro ? (
@@ -215,7 +233,7 @@ export function HistoryRestoreButton({
                 onChange={(e) => setTargetHost(e.target.value)}
                 className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
               >
-                {sourceKind === "local" ? (
+                {sourceKind === "local" || sourceKind === "git" ? (
                   <option value={LOCAL_HOST_VALUE}>This host</option>
                 ) : originalServerId ? (
                   <option value={originalServerId}>
@@ -240,7 +258,13 @@ export function HistoryRestoreButton({
             </div>
           ) : null}
           <label htmlFor={`restore-target-${entry.id}`} className="text-sm font-medium">
-            {isDatabase ? "Target database name" : isPath ? "Target path" : "Target volume name"}
+            {isDatabase
+              ? "Target database name"
+              : isPath
+                ? "Target path"
+                : isGit
+                  ? "Target directory"
+                  : "Target volume name"}
           </label>
           <input
             id={`restore-target-${entry.id}`}
@@ -248,8 +272,10 @@ export function HistoryRestoreButton({
             onChange={(e) => setTargetName(e.target.value)}
             className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
             placeholder={
-              entry.backupConfig?.sourcePath ||
-              (isDatabase ? "database" : isPath ? "/path/to/restore" : "volume-name")
+              isGit
+                ? "/backups/git/restore"
+                : entry.backupConfig?.sourcePath ||
+                  (isDatabase ? "database" : isPath ? "/path/to/restore" : "volume-name")
             }
           />
         </div>

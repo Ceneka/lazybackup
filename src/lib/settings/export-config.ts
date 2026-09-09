@@ -4,6 +4,7 @@ import { SENSITIVE_SETTING_KEYS } from '@/lib/auth/constants'
 import { db } from '@/lib/db'
 import {
   backupConfigs,
+  gitRepos,
   s3Profiles,
   servers,
   settings,
@@ -54,6 +55,13 @@ export type ExportS3Row = {
   secretAccessKey?: string | null
 }
 
+export type ExportGitRepoRow = {
+  id: string
+  name: string
+  url: string
+  sshKeyId?: string | null
+}
+
 export type ExportBackupRow = {
   id: string
   name: string
@@ -63,6 +71,7 @@ export type ExportBackupRow = {
   serverId?: string | null
   destinationServerId?: string | null
   sourceS3ProfileId?: string | null
+  sourceGitRepoId?: string | null
   destinationS3ProfileId?: string | null
   destinationPeerId?: string | null
   sourceType: string
@@ -97,6 +106,7 @@ export type ConfigExportInput = {
   servers: ExportServerRow[]
   sshKeys: ExportSshKeyRow[]
   s3Profiles: ExportS3Row[]
+  gitRepos?: ExportGitRepoRow[]
   backupConfigs: ExportBackupRow[]
   settings: ExportSettingRow[]
   exportedAt?: Date
@@ -134,6 +144,12 @@ export type ConfigExportSnapshot = {
     bucket: string
     forcePathStyle: boolean
   }>
+  gitRepos: Array<{
+    id: string
+    name: string
+    url: string
+    sshKeyId: string | null
+  }>
   backupConfigs: Array<{
     id: string
     name: string
@@ -143,6 +159,7 @@ export type ConfigExportSnapshot = {
     serverId: string | null
     destinationServerId: string | null
     sourceS3ProfileId: string | null
+    sourceGitRepoId: string | null
     destinationS3ProfileId: string | null
     destinationPeerId: string | null
     sourceType: string
@@ -256,6 +273,15 @@ function exportS3(row: ExportS3Row) {
   }
 }
 
+function exportGitRepo(row: ExportGitRepoRow) {
+  return {
+    id: row.id,
+    name: row.name,
+    url: row.url,
+    sshKeyId: row.sshKeyId ?? null,
+  }
+}
+
 function exportBackup(row: ExportBackupRow) {
   return {
     id: row.id,
@@ -266,6 +292,7 @@ function exportBackup(row: ExportBackupRow) {
     serverId: row.serverId ?? null,
     destinationServerId: row.destinationServerId ?? null,
     sourceS3ProfileId: row.sourceS3ProfileId ?? null,
+    sourceGitRepoId: row.sourceGitRepoId ?? null,
     destinationS3ProfileId: row.destinationS3ProfileId ?? null,
     destinationPeerId: row.destinationPeerId ?? null,
     sourceType: row.sourceType,
@@ -303,16 +330,18 @@ export function buildConfigExport(input: ConfigExportInput): ConfigExportSnapsho
     servers: input.servers.map(exportServer),
     sshKeys: input.sshKeys.map(exportSshKey),
     s3Profiles: input.s3Profiles.map(exportS3),
+    gitRepos: (input.gitRepos ?? []).map(exportGitRepo),
     backupConfigs: input.backupConfigs.map(exportBackup),
     settings: exportSettingsMap(input.settings),
   }
 }
 
 export async function loadConfigExport(): Promise<ConfigExportSnapshot> {
-  const [serverRows, sshKeyRows, s3Rows, backupRows, settingRows] = await Promise.all([
+  const [serverRows, sshKeyRows, s3Rows, gitRows, backupRows, settingRows] = await Promise.all([
     db.select().from(servers),
     db.select().from(sshKeys),
     db.select().from(s3Profiles),
+    db.select().from(gitRepos),
     db.select().from(backupConfigs),
     db.select().from(settings),
   ])
@@ -321,6 +350,7 @@ export async function loadConfigExport(): Promise<ConfigExportSnapshot> {
     servers: serverRows,
     sshKeys: sshKeyRows,
     s3Profiles: s3Rows,
+    gitRepos: gitRows,
     backupConfigs: backupRows,
     settings: settingRows,
   })

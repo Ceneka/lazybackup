@@ -95,6 +95,40 @@ export function s3OverflowItems(opts: {
   ]
 }
 
+export function gitOverflowItems(opts: {
+  id: string
+  name: string
+  actions: QuickActions
+  onDelete: () => void
+  isDeleting: boolean
+}): OverflowItem[] {
+  const { id, name, actions, onDelete, isDeleting } = opts
+  return [
+    {
+      type: "action",
+      label: actions.isBusy(`git:${id}`) ? "Testing…" : "Test connection",
+      icon: CableIcon,
+      disabled: actions.isBusy(`git:${id}`),
+      onSelect: () => void actions.testGit(id, name),
+    },
+    { type: "link", href: `/git-repos/${id}`, label: "View", icon: EyeIcon },
+    {
+      type: "link",
+      href: `/backups/new?gitRepoId=${id}`,
+      label: "Create backup",
+      icon: FolderPlusIcon,
+    },
+    { type: "separator" },
+    {
+      type: "delete",
+      title: "Delete this Git repository?",
+      description: "This cannot be undone. Repositories used by backups cannot be deleted.",
+      onDelete,
+      isDeleting,
+    },
+  ]
+}
+
 export function backupOverflowItems(opts: {
   id: string
   name: string

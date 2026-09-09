@@ -2,7 +2,7 @@ import { isBearerAudience, redactSshKey } from '@/lib/api/redact';
 import { resolveAuth } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { sshKeys } from '@/lib/db/schema';
-import { findServersUsingSshKey } from '@/lib/ssh/key-usage';
+import { findGitReposUsingSshKey, findServersUsingSshKey } from '@/lib/ssh/key-usage';
 import { eq } from 'drizzle-orm';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
@@ -39,6 +39,10 @@ export async function GET(
       columns: { id: true, name: true, sshKeyId: true },
     });
     const usedByServers = findServersUsingSshKey(allServers, id);
+    const allGitRepos = await db.query.gitRepos.findMany({
+      columns: { id: true, name: true, sshKeyId: true },
+    });
+    const usedByGitRepos = findGitReposUsingSshKey(allGitRepos, id);
 
     const auth = await resolveAuth(
       request.headers.get('cookie'),
@@ -51,6 +55,7 @@ export async function GET(
         includePrivateKeyContent,
       }),
       usedByServers,
+      usedByGitRepos,
     });
   } catch (error) {
     console.error('Failed to fetch SSH key:', error);
@@ -134,13 +139,18 @@ export async function DELETE(
       columns: { id: true, name: true, sshKeyId: true },
     });
     const usedByServers = findServersUsingSshKey(allServers, id);
+    const allGitRepos = await db.query.gitRepos.findMany({
+      columns: { id: true, name: true, sshKeyId: true },
+    });
+    const usedByGitRepos = findGitReposUsingSshKey(allGitRepos, id);
 
-    if (usedByServers.length > 0) {
+    if (usedByServers.length > 0 || usedByGitRepos.length > 0) {
       return NextResponse.json(
         {
           error:
-            'SSH key is used by servers. Reassign or delete those servers first.',
+            'SSH key is used by servers or Git repositories. Reassign or delete those first.',
           servers: usedByServers,
+          gitRepos: usedByGitRepos,
         },
         { status: 409 }
       );

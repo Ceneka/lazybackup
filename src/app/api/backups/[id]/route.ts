@@ -25,6 +25,7 @@ const backupWithEndpoints = {
   sourceS3Profile: true,
   destinationS3Profile: true,
   destinationPeer: true,
+  sourceGitRepo: true,
 } as const;
 
 // GET /api/backups/:id - Get a backup configuration

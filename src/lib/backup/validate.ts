@@ -133,6 +133,8 @@ export async function validateBackupConfig(
       push(checks, 'config-source', 'Source endpoint', 'fail', 'Source server is missing');
     } else if (sourceKind === 's3' && !config.sourceS3Profile) {
       push(checks, 'config-source', 'Source endpoint', 'fail', 'Source S3 profile is missing');
+    } else if (sourceKind === 'git' && !config.sourceGitRepo) {
+      push(checks, 'config-source', 'Source endpoint', 'fail', 'Git repository is missing');
     } else {
       push(checks, 'config-source', 'Source endpoint', 'pass', `Source kind: ${sourceKind}`);
     }
@@ -230,6 +232,22 @@ export async function validateBackupConfig(
         'Source type',
         'fail',
         'S3 sources only support path (object prefix) backups'
+      );
+    } else if (sourceKind === 'git' && sourceType !== 'git_repo') {
+      push(
+        checks,
+        'config-source-type',
+        'Source type',
+        'fail',
+        'Git sources only support Git repository (bare mirror) backups'
+      );
+    } else if (sourceType === 'git_repo' && sourceKind !== 'git') {
+      push(
+        checks,
+        'config-source-type',
+        'Source type',
+        'fail',
+        'Git repository backups require a Git source'
       );
     } else {
       push(checks, 'config-source-type', 'Source type', 'pass', `sourceType=${sourceType}`);
@@ -402,6 +420,35 @@ export async function validateBackupConfig(
         'Source S3',
         'fail',
         error instanceof Error ? error.message : 'S3 source check failed'
+      );
+    }
+  }
+
+  if (sourceKind === 'git' && config.sourceGitRepo) {
+    try {
+      const { testGitRepo } = await import('@/lib/git/mirror');
+      const { resolvePrivateKeyForSshKeyId } = await import('@/lib/ssh');
+      const keyContent = config.sourceGitRepo.sshKeyId
+        ? await resolvePrivateKeyForSshKeyId(config.sourceGitRepo.sshKeyId)
+        : null;
+      const result = await testGitRepo({
+        url: config.sourceGitRepo.url,
+        keyContent,
+      });
+      push(
+        checks,
+        'source-git',
+        'Git repository',
+        'pass',
+        result.refCount === 1 ? 'ls-remote OK (1 ref)' : `ls-remote OK (${result.refCount} refs)`
+      );
+    } catch (error) {
+      push(
+        checks,
+        'source-git',
+        'Git repository',
+        'fail',
+        error instanceof Error ? error.message : 'Git source check failed'
       );
     }
   }

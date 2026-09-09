@@ -6,10 +6,13 @@ import { LoadingButton } from "@/components/ui/loading-button"
 import {
   findExactConflictInList,
   findNestedOverlapsInList,
+  getSuggestStorageRoot,
+  slugifyName,
   suggestDestinationPath,
   type EndpointKind,
 } from "@/lib/backup/destination"
 import { useBackups, type Backup } from "@/lib/hooks/useBackups"
+import { useGitRepos } from "@/lib/hooks/useGitRepos"
 import {
   fetchContainerDbHints,
   Server,
@@ -24,6 +27,7 @@ import {
   ArrowLeftRightIcon,
   ArrowRightIcon,
   CloudIcon,
+  GitBranchIcon,
   HardDriveIcon,
   Loader2Icon,
   RefreshCwIcon,
@@ -40,16 +44,19 @@ import { getNextCronDate } from "@/lib/cron/next"
 import { useSettings } from "@/lib/hooks/useSettings"
 import { pathJobUsesServerEndpoint } from "@/lib/backup/transfer-keys"
 
+export type SourceKind = EndpointKind | "git"
+
 export type BackupFormData = {
   name: string
-  sourceKind: EndpointKind
+  sourceKind: SourceKind
   serverId: string
   sourceS3ProfileId: string
+  sourceGitRepoId: string
   destinationKind: EndpointKind
   destinationServerId: string
   destinationS3ProfileId: string
   destinationPeerId: string
-  sourceType: "path" | "docker_volume" | "database" | "lazybackup_instance"
+  sourceType: "path" | "docker_volume" | "database" | "lazybackup_instance" | "git_repo"
   sourcePath: string
   destinationPath: string
   schedule: string
@@ -86,6 +93,7 @@ export function backupToFormData(backup: Backup): BackupFormData {
     sourceKind: backup.sourceKind || "server",
     serverId: backup.serverId || "",
     sourceS3ProfileId: backup.sourceS3ProfileId || "",
+    sourceGitRepoId: backup.sourceGitRepoId || "",
     destinationKind: backup.destinationKind || "local",
     destinationServerId: backup.destinationServerId || "",
     destinationS3ProfileId: backup.destinationS3ProfileId || "",
@@ -143,14 +151,16 @@ export function cloneToFormData(backup: Backup): BackupFormData {
 }
 
 function endpointLabel(
-  kind: EndpointKind,
+  kind: SourceKind,
   serverId: string,
   servers: Server[],
   s3ProfileId: string,
   s3Profiles: S3Profile[],
   peerId: string,
   peers: Array<{ id: string; name: string }>,
-  path: string
+  path: string,
+  gitRepoId?: string,
+  gitRepos?: Array<{ id: string; name: string }>
 ): string {
   if (kind === "local") {
     return path ? `this host:${path}` : "this host"
@@ -164,6 +174,10 @@ function endpointLabel(
     const peer = peers.find((p) => p.id === peerId)
     const name = peer?.name || "bro"
     return path ? `${name}:${path}` : name
+  }
+  if (kind === "git") {
+    const repo = gitRepos?.find((r) => r.id === gitRepoId)
+    return repo?.name || "git"
   }
   const server = servers.find((s) => s.id === serverId)
   const name = server?.name || "server"
@@ -197,6 +211,8 @@ export function BackupConfigForm({
   const backupsQuery = useBackups()
   const s3ProfilesQuery = useS3Profiles()
   const s3Profiles = s3ProfilesQuery.data || []
+  const gitReposQuery = useGitRepos()
+  const gitRepos = gitReposQuery.data || []
   const peersQuery = usePeers()
   const activePeers = (peersQuery.data?.peers || []).filter((p) => p.status === "active")
   const settingsQuery = useSettings()
@@ -243,7 +259,19 @@ export function BackupConfigForm({
     if (!autoSuggestDestination || destinationTouched) {
       return
     }
-    if (formData.destinationKind !== "local" || !formData.name.trim()) {
+    if (formData.destinationKind !== "local") {
+      return
+    }
+    if (formData.sourceKind === "git") {
+      const repo = gitRepos.find((r) => r.id === formData.sourceGitRepoId)
+      const slug = slugifyName(repo?.name || formData.name || "repo")
+      const suggested = `${getSuggestStorageRoot()}/git/${slug}`
+      setFormData((prev) =>
+        prev.destinationPath === suggested ? prev : { ...prev, destinationPath: suggested }
+      )
+      return
+    }
+    if (!formData.name.trim()) {
       return
     }
     const suggested = suggestDestinationPath({
@@ -259,7 +287,9 @@ export function BackupConfigForm({
     formData.destinationKind,
     formData.name,
     formData.sourceKind,
+    formData.sourceGitRepoId,
     sourceServer?.name,
+    gitRepos,
   ])
 
   const destinationConflict = useMemo(() => {
@@ -326,7 +356,11 @@ export function BackupConfigForm({
         ? `db:${formData.sourcePath || "…"}`
         : formData.sourceType === "lazybackup_instance"
           ? "LazyBackup data"
-          : formData.sourcePath || "…"
+          : formData.sourceType === "git_repo"
+            ? "mirror"
+            : formData.sourcePath || "…",
+    formData.sourceGitRepoId,
+    gitRepos
   )} → ${endpointLabel(
     formData.destinationKind,
     formData.destinationServerId,
@@ -371,8 +405,19 @@ export function BackupConfigForm({
         if (value !== "s3") {
           next.sourceS3ProfileId = ""
         }
-        if (value !== "server") {
+        if (value === "git") {
+          next.sourceType = "git_repo"
           next.serverId = ""
+          next.sourceS3ProfileId = ""
+          next.sourcePath = "git-mirror"
+          next.deleteExtraneous = false
+        }
+        if (value !== "git") {
+          next.sourceGitRepoId = ""
+          if (next.sourceType === "git_repo") {
+            next.sourceType = "path"
+            next.sourcePath = ""
+          }
         }
       }
       if (key === "destinationKind") {
@@ -479,8 +524,8 @@ export function BackupConfigForm({
       toast.error("Select a source server")
       return
     }
-    if (formData.sourceKind === "s3" && !formData.sourceS3ProfileId) {
-      toast.error("Select a source S3 profile")
+    if (formData.sourceKind === "git" && !formData.sourceGitRepoId) {
+      toast.error("Select a Git repository")
       return
     }
     if (formData.destinationKind === "server" && !formData.destinationServerId) {
@@ -503,17 +548,22 @@ export function BackupConfigForm({
     onChange,
     idPrefix,
     allowPeer = false,
+    allowGit = false,
   }: {
-    value: EndpointKind
-    onChange: (kind: EndpointKind) => void
+    value: SourceKind
+    onChange: (kind: SourceKind) => void
     idPrefix: string
     allowPeer?: boolean
+    allowGit?: boolean
   }) {
-    const options: Array<{ kind: EndpointKind; label: string; icon: typeof HardDriveIcon }> = [
+    const options: Array<{ kind: SourceKind; label: string; icon: typeof HardDriveIcon }> = [
       { kind: "local", label: "This host", icon: HardDriveIcon },
       { kind: "server", label: "Server", icon: ServerIcon },
       { kind: "s3", label: "S3", icon: CloudIcon },
     ]
+    if (allowGit) {
+      options.push({ kind: "git", label: "Git", icon: GitBranchIcon })
+    }
     if (allowPeer) {
       options.push({ kind: "peer", label: "Bro", icon: UsersIcon })
     }
@@ -555,8 +605,8 @@ export function BackupConfigForm({
     isSource,
   }: {
     title: string
-    kind: EndpointKind
-    onKindChange: (k: EndpointKind) => void
+    kind: SourceKind
+    onKindChange: (k: SourceKind) => void
     serverId: string
     onServerChange: (id: string) => void
     s3ProfileId: string
@@ -577,6 +627,8 @@ export function BackupConfigForm({
             <CloudIcon className="h-4 w-4 text-muted-foreground" />
           ) : kind === "peer" ? (
             <UsersIcon className="h-4 w-4 text-muted-foreground" />
+          ) : kind === "git" ? (
+            <GitBranchIcon className="h-4 w-4 text-muted-foreground" />
           ) : (
             <ServerIcon className="h-4 w-4 text-muted-foreground" />
           )}
@@ -588,6 +640,7 @@ export function BackupConfigForm({
           onChange={onKindChange}
           idPrefix={idPrefix}
           allowPeer={!isSource && formData.sourceType !== "lazybackup_instance"}
+          allowGit={isSource}
         />
 
         {kind === "server" && (
@@ -644,6 +697,38 @@ export function BackupConfigForm({
           </div>
         )}
 
+        {kind === "git" && (
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground" htmlFor={`${idPrefix}-git-select`}>
+              Git repository
+            </label>
+            <select
+              id={`${idPrefix}-git-select`}
+              className={inputClass}
+              value={formData.sourceGitRepoId}
+              onChange={(e) => updateField("sourceGitRepoId", e.target.value)}
+              required
+            >
+              <option value="">
+                {gitReposQuery.isLoading ? "Loading…" : "Select a repository"}
+              </option>
+              {gitRepos.map((repo) => (
+                <option key={repo.id} value={repo.id}>
+                  {repo.name}
+                </option>
+              ))}
+            </select>
+            {gitRepos.length === 0 && !gitReposQuery.isLoading && (
+              <p className="text-xs text-muted-foreground">
+                <Link href="/git-repos/new" className="underline">
+                  Add a Git repository
+                </Link>{" "}
+                first.
+              </p>
+            )}
+          </div>
+        )}
+
         {kind === "peer" && (
           <div className="space-y-1">
             <label className="text-xs text-muted-foreground" htmlFor={`${idPrefix}-peer-select`}>
@@ -676,7 +761,7 @@ export function BackupConfigForm({
           </div>
         )}
 
-        {isSource && (
+        {isSource && kind !== "git" && (
           <div className="space-y-1">
             <label className="text-xs text-muted-foreground" htmlFor={`${idPrefix}-source-type`}>
               Source type
@@ -778,6 +863,11 @@ export function BackupConfigForm({
             Packs this instance&apos;s SQLite database, age encryption vault, and SSH
             keys. Restore is manual (replace DB / import keys). Prefer a passphrase
             wrap below for untrusted destinations.
+          </p>
+        ) : isSource && kind === "git" ? (
+          <p className="text-sm text-muted-foreground">
+            Clones a bare mirror on this host, then stores <code>.tar.gz</code> at the
+            destination (optional age encryption).
           </p>
         ) : !(isSource && formData.sourceType === "database") ? (
           <div className="space-y-1">
@@ -952,7 +1042,7 @@ export function BackupConfigForm({
           <EndpointPanel
             title="To"
             kind={formData.destinationKind}
-            onKindChange={(k) => updateField("destinationKind", k)}
+            onKindChange={(k) => updateField("destinationKind", k as EndpointKind)}
             serverId={formData.destinationServerId}
             onServerChange={(id) => updateField("destinationServerId", id)}
             s3ProfileId={formData.destinationS3ProfileId}
@@ -1359,7 +1449,8 @@ export function BackupConfigForm({
         </div>
 
         {formData.sourceType !== "database" &&
-          formData.sourceType !== "lazybackup_instance" && (
+          formData.sourceType !== "lazybackup_instance" &&
+          formData.sourceType !== "git_repo" && (
           <div className="space-y-2">
             <label htmlFor="excludePatterns" className="block text-sm font-medium">
               Exclude patterns
@@ -1376,6 +1467,7 @@ export function BackupConfigForm({
         )}
 
         {formData.sourceKind !== "s3" &&
+          formData.sourceKind !== "git" &&
           formData.sourceType !== "lazybackup_instance" && (
           <div className="space-y-2">
             <label htmlFor="preBackupCommands" className="block text-sm font-medium">
@@ -1607,6 +1699,7 @@ export function defaultCreateFormData(prefillServerId?: string): BackupFormData 
     sourceKind: "server",
     serverId: prefillServerId || "",
     sourceS3ProfileId: "",
+    sourceGitRepoId: "",
     destinationKind: "local",
     destinationServerId: "",
     destinationS3ProfileId: "",
@@ -1647,6 +1740,17 @@ export function defaultInstanceBackupFormData(): BackupFormData {
     sourcePath: "lazybackup-instance",
     destinationPath: "/backups/_lazybackup",
     enableEncryption: false,
+  }
+}
+
+export function defaultGitBackupFormData(gitRepoId: string): BackupFormData {
+  return {
+    ...defaultCreateFormData(),
+    sourceKind: "git",
+    sourceType: "git_repo",
+    sourceGitRepoId: gitRepoId,
+    sourcePath: "git-mirror",
+    destinationPath: "/backups/git/repo",
   }
 }
 
@@ -1727,6 +1831,7 @@ export function formDataToPayload(data: BackupFormData) {
     sourceKind: data.sourceKind,
     serverId: data.sourceKind === "server" ? data.serverId : null,
     sourceS3ProfileId: data.sourceKind === "s3" ? data.sourceS3ProfileId : null,
+    sourceGitRepoId: data.sourceKind === "git" ? data.sourceGitRepoId : null,
     destinationKind: data.destinationKind,
     destinationServerId: data.destinationKind === "server" ? data.destinationServerId : null,
     destinationS3ProfileId:
@@ -1736,15 +1841,21 @@ export function formDataToPayload(data: BackupFormData) {
     sourcePath:
       data.sourceType === "lazybackup_instance"
         ? "lazybackup-instance"
-        : data.sourcePath,
+        : data.sourceType === "git_repo"
+          ? "git-mirror"
+          : data.sourcePath,
     destinationPath: data.destinationPath,
     schedule: data.schedule,
     excludePatterns:
-      data.sourceType === "database" || data.sourceType === "lazybackup_instance"
+      data.sourceType === "database" ||
+      data.sourceType === "lazybackup_instance" ||
+      data.sourceType === "git_repo"
         ? undefined
         : data.excludePatterns || undefined,
     preBackupCommands:
-      data.sourceKind === "s3" || data.sourceType === "lazybackup_instance"
+      data.sourceKind === "s3" ||
+      data.sourceKind === "git" ||
+      data.sourceType === "lazybackup_instance"
         ? undefined
         : data.preBackupCommands || undefined,
     dbEngine: data.sourceType === "database" ? data.dbEngine : null,
@@ -1774,6 +1885,7 @@ export function formDataToPayload(data: BackupFormData) {
     deleteExtraneous:
       data.sourceType === "path" &&
       data.sourceKind !== "s3" &&
+      data.sourceKind !== "git" &&
       data.destinationKind !== "s3" &&
       data.destinationKind !== "peer" &&
       data.sourceType !== "lazybackup_instance" &&

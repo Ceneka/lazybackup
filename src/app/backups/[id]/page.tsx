@@ -42,6 +42,7 @@ import {
   CopyIcon,
   FileIcon,
   FolderIcon,
+  GitBranchIcon,
   HardDriveIcon,
   HistoryIcon,
   PencilIcon,
@@ -62,6 +63,7 @@ function EndpointGlyph({ kind }: { kind: string }) {
   if (kind === "local") return <HardDriveIcon className={className} />
   if (kind === "s3") return <CloudIcon className={className} />
   if (kind === "peer") return <UsersIcon className={className} />
+  if (kind === "git") return <GitBranchIcon className={className} />
   return <ServerIcon className={className} />
 }
 

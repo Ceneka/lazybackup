@@ -10,7 +10,7 @@ export type RestoreEligibilityInput = {
 
 function isRestorableSourceType(sourceType: string | null | undefined): boolean {
   const t = sourceType || 'path';
-  return t === 'docker_volume' || t === 'database' || t === 'path';
+  return t === 'docker_volume' || t === 'database' || t === 'path' || t === 'git_repo';
 }
 
 function isRestorableDestination(input: RestoreEligibilityInput): boolean {
@@ -42,7 +42,7 @@ export function restoreEligibilityFromHistory(entry: {
 }
 
 /**
- * Whether History UI should offer restore (path tree, Docker volume, or database dump).
+ * Whether History UI should offer restore (path tree, Docker volume, database dump, or Git mirror).
  * Local dest (on disk), S3, bro peer, or SSH dest with key auth (pull then restore).
  */
 export function canRestoreDockerVolumeBackup(
@@ -111,7 +111,9 @@ export function restoreBlockedReason(
       ? 'database'
       : sourceType === 'docker_volume'
         ? 'volume'
-        : 'path';
+        : sourceType === 'git_repo'
+          ? 'git mirror'
+          : 'path';
   if (input.status !== 'success') {
     return `Only successful ${kindLabel} backups can be restored.`;
   }

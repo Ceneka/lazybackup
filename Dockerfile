@@ -9,7 +9,7 @@ RUN bun install --frozen-lockfile
 # Unit tests on Alpine/musl (same libc as the published image).
 FROM builder-dependencies AS test
 WORKDIR /app
-RUN apk add --no-cache openssh-client rsync
+RUN apk add --no-cache openssh-client rsync git
 COPY . /app
 ENV DATABASE_URL=file:/tmp/lazybackup-test.db
 CMD ["bun", "test"]
@@ -73,7 +73,7 @@ WORKDIR /app
 ENV NODE_ENV=production
 
 # rsync/scp on the app host; curl for compose healthcheck
-RUN apk add --no-cache openssh-client rsync curl
+RUN apk add --no-cache openssh-client rsync curl git
 
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static

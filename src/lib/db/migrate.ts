@@ -330,6 +330,25 @@ export async function runMigration() {
     }
 
     await db.run(sql`
+      CREATE TABLE IF NOT EXISTS git_repos (
+        id TEXT PRIMARY KEY NOT NULL,
+        name TEXT NOT NULL,
+        url TEXT NOT NULL,
+        ssh_key_id TEXT REFERENCES ssh_keys(id) ON DELETE SET NULL,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+      )
+    `);
+
+    const backupColsGit = await db.run(sql`PRAGMA table_info(backup_configs)`);
+    const backupGitNames = backupColsGit.rows.map((row: any) => row.name);
+    if (!backupGitNames.includes('source_git_repo_id')) {
+      await db.run(
+        sql`ALTER TABLE backup_configs ADD COLUMN source_git_repo_id TEXT REFERENCES git_repos(id) ON DELETE CASCADE`
+      );
+    }
+
+    await db.run(sql`
       CREATE TABLE IF NOT EXISTS peers (
         id TEXT PRIMARY KEY NOT NULL,
         name TEXT NOT NULL,
