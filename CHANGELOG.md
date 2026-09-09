@@ -28,6 +28,11 @@ Versions before a formal `v*` tag are dated unreleased / pre-release notes.
 - **Connections** — Servers, S3, and Git live under one navbar item instead of
   separate top-level links.
 
+### Fixed
+
+- **S3 Test connection** — restore the stored-profile helper so S3 detail and
+  Connections overflow menus can probe a saved profile.
+
 ## [0.2.2] - 2026-09-05
 
 ### Added

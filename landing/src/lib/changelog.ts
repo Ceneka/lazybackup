@@ -41,6 +41,12 @@ export const changelogEntries: readonly ChangelogEntry[] = [
         "items": [
           "Connections — Servers, S3, and Git live under one navbar item instead of separate top-level links."
         ]
+      },
+      {
+        "heading": "Fixed",
+        "items": [
+          "S3 Test connection — restore the stored-profile helper so S3 detail and Connections overflow menus can probe a saved profile."
+        ]
       }
     ]
   },

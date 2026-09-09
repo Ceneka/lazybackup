@@ -31,6 +31,19 @@ export async function testServerConnection(id: string, name: string) {
   }
 }
 
+export async function testStoredS3Profile(id: string, name: string) {
+  const response = await fetch(`/api/s3-profiles/${id}/test`)
+  const data = (await response.json()) as {
+    success?: boolean
+    message?: string
+    error?: string
+  }
+  if (!response.ok || !data.success) {
+    throw new Error(data.error || data.message || "S3 connection failed")
+  }
+  toast.success(`${name}: ${data.message || "S3 connection OK"}`)
+}
+
 export async function testStoredGitRepo(id: string, name: string) {
   const response = await fetch(`/api/git-repos/${id}/test`)
   const data = (await response.json()) as {
