@@ -24,6 +24,19 @@ export const changelogEntries: readonly ChangelogEntry[] = [
     "sections": []
   },
   {
+    "id": "0-2-5",
+    "title": "0.2.5",
+    "date": "2026-09-18",
+    "sections": [
+      {
+        "heading": "Fixed",
+        "items": [
+          "GHCR / Alpine image — pin Bun 1.3.13 in the Docker image (same as CI). Floating oven/bun:1-alpine pulled 1.4.2, which segfaults bun test on musl."
+        ]
+      }
+    ]
+  },
+  {
     "id": "0-2-4",
     "title": "0.2.4",
     "date": "2026-09-18",

@@ -11,6 +11,13 @@ Versions before a formal `v*` tag are dated unreleased / pre-release notes.
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-09-18
+
+### Fixed
+
+- **GHCR / Alpine image** — pin Bun 1.3.13 in the Docker image (same as CI).
+  Floating `oven/bun:1-alpine` pulled 1.4.2, which segfaults `bun test` on musl.
+
 ## [0.2.4] - 2026-09-18
 
 ### Security
@@ -184,9 +191,10 @@ optional `remote_exec`.
    from that changelog section. Landing `/changelog` syncs on the next landing
    build.
 
-[Unreleased]: https://github.com/Ceneka/lazybackup/compare/v0.2.4...HEAD
+[Unreleased]: https://github.com/Ceneka/lazybackup/compare/v0.2.5...HEAD
 [0.2.0]: https://github.com/Ceneka/lazybackup/releases/tag/v0.2.0
 [0.2.1]: https://github.com/Ceneka/lazybackup/releases/tag/v0.2.1
 [0.2.2]: https://github.com/Ceneka/lazybackup/releases/tag/v0.2.2
 [0.2.3]: https://github.com/Ceneka/lazybackup/releases/tag/v0.2.3
 [0.2.4]: https://github.com/Ceneka/lazybackup/releases/tag/v0.2.4
+[0.2.5]: https://github.com/Ceneka/lazybackup/releases/tag/v0.2.5

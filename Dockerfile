@@ -1,5 +1,7 @@
 # Build + run on Alpine so native packages resolve musl binaries.
-FROM oven/bun:1-alpine AS base
+# Pin the same Bun as CI (setup-bun 1.3.13). oven/bun:1-alpine floated to
+# 1.4.2, which segfaults `bun test` on musl.
+FROM oven/bun:1.3.13-alpine AS base
 
 FROM base AS builder-dependencies
 WORKDIR /app
@@ -68,7 +70,7 @@ RUN bun install --frozen-lockfile --production \
       node_modules/csstype \
       node_modules/typescript
 
-FROM oven/bun:1-alpine AS runner
+FROM oven/bun:1.3.13-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 
