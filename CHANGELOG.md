@@ -11,6 +11,12 @@ Versions before a formal `v*` tag are dated unreleased / pre-release notes.
 
 ## [Unreleased]
 
+### Changed
+
+- **GHCR publish** — `:latest` and version tags publish only on `v*` releases
+  (not every `main` push). amd64 and arm64 build natively in parallel, then
+  CI stitches a multi-arch manifest (no QEMU).
+
 ## [0.2.5] - 2026-09-18
 
 ### Fixed
@@ -187,9 +193,9 @@ optional `remote_exec`.
    subjects since the last `v*` tag (or since this file last changed).
 2. Review the new `## [X.Y.Z] - YYYY-MM-DD` section, commit, tag `vX.Y.Z`, and
    `git push origin main --tags`. CI publishes `ghcr.io/ceneka/lazybackup:vX.Y.Z`
-   (docs/`LICENSE`/`landing`-only paths are ignored) and opens a GitHub Release
-   from that changelog section. Landing `/changelog` syncs on the next landing
-   build.
+   and `:latest` on the version tag only (docs/`LICENSE`/`landing`-only paths are
+   ignored) and opens a GitHub Release from that changelog section. Landing
+   `/changelog` syncs on the next landing build.
 
 [Unreleased]: https://github.com/Ceneka/lazybackup/compare/v0.2.5...HEAD
 [0.2.0]: https://github.com/Ceneka/lazybackup/releases/tag/v0.2.0

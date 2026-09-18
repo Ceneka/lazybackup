@@ -137,7 +137,7 @@ bun run build && bun run start
 docker compose up -d
 ```
 
-CI publishes GHCR on `main` / `v*` tags (skips docs/`LICENSE`/`landing` via `paths-ignore`; LazyBro has its own `bro-test` job). Startup: migrate + cron via instrumentation. Healthcheck: `GET /api/health`.
+CI publishes GHCR on `v*` tags only (`:latest` + `:vX.Y.Z`; amd64 and arm64 native, then a manifest — not on `main`). Docs/`LICENSE`/`landing` are skipped via `paths-ignore`; LazyBro has its own `bro-test` job. Startup: migrate + cron via instrumentation. Healthcheck: `GET /api/health`.
 
 ## Conventions
 

@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-Security fixes target the latest `main` and published `ghcr.io/ceneka/lazybackup` images (and tagged releases). Older tags may not receive backports.
+Security fixes target the latest `main` and published `ghcr.io/ceneka/lazybackup` images (tagged releases; `:latest` moves with `v*`). Older tags may not receive backports.
 
 ## Reporting a vulnerability
 

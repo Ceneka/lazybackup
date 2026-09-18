@@ -21,7 +21,14 @@ export const changelogEntries: readonly ChangelogEntry[] = [
     "id": "unreleased",
     "title": "Unreleased",
     "date": "main",
-    "sections": []
+    "sections": [
+      {
+        "heading": "Changed",
+        "items": [
+          "GHCR publish — :latest and version tags publish only on v* releases (not every main push). amd64 and arm64 build natively in parallel, then CI stitches a multi-arch manifest (no QEMU)."
+        ]
+      }
+    ]
   },
   {
     "id": "0-2-5",
