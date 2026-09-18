@@ -11,6 +11,13 @@ Versions before a formal `v*` tag are dated unreleased / pre-release notes.
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-09-18
+
+### Security
+
+- **Next.js 15.5.24** — patch the 15.5.x unauthenticated RCEs (Windows-hosted
+  servers and Image Optimization AVIF).
+
 ## [0.2.3] - 2026-09-09
 
 ### Added
@@ -177,8 +184,9 @@ optional `remote_exec`.
    from that changelog section. Landing `/changelog` syncs on the next landing
    build.
 
-[Unreleased]: https://github.com/Ceneka/lazybackup/compare/v0.2.3...HEAD
+[Unreleased]: https://github.com/Ceneka/lazybackup/compare/v0.2.4...HEAD
 [0.2.0]: https://github.com/Ceneka/lazybackup/releases/tag/v0.2.0
 [0.2.1]: https://github.com/Ceneka/lazybackup/releases/tag/v0.2.1
 [0.2.2]: https://github.com/Ceneka/lazybackup/releases/tag/v0.2.2
 [0.2.3]: https://github.com/Ceneka/lazybackup/releases/tag/v0.2.3
+[0.2.4]: https://github.com/Ceneka/lazybackup/releases/tag/v0.2.4

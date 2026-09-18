@@ -24,6 +24,19 @@ export const changelogEntries: readonly ChangelogEntry[] = [
     "sections": []
   },
   {
+    "id": "0-2-4",
+    "title": "0.2.4",
+    "date": "2026-09-18",
+    "sections": [
+      {
+        "heading": "Security",
+        "items": [
+          "Next.js 15.5.24 — patch the 15.5.x unauthenticated RCEs (Windows-hosted servers and Image Optimization AVIF)."
+        ]
+      }
+    ]
+  },
+  {
     "id": "0-2-3",
     "title": "0.2.3",
     "date": "2026-09-09",
