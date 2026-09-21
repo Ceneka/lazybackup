@@ -1,10 +1,9 @@
 "use client"
 
-import { HistoryRestoreButton } from "@/components/history-restore-button"
+import { HistoryList } from "@/components/history-list"
 import { PageHeader, PageLayout } from "@/components/page-layout"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { DeleteConfirmationDialog } from "@/components/ui/delete-confirmation-dialog"
 import { Input } from "@/components/ui/input"
 import { LoadingButton } from "@/components/ui/loading-button"
 import {
@@ -23,38 +22,15 @@ import {
   SelectTrigger,
   SelectValue
 } from "@/components/ui/select"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow
-} from "@/components/ui/table"
 import { localDayRange } from "@/lib/backup/local-date"
-import { canRestoreBackup, restoreEligibilityFromHistory } from "@/lib/backup/restore-eligibility"
 import { useDeleteHistory, usePaginatedHistory } from "@/lib/hooks/useHistory"
-import { formatBytes } from "@/lib/utils"
-import { format, formatDistance } from "date-fns"
-import { ExternalLinkIcon, HistoryIcon, RefreshCwIcon, SearchIcon, XIcon } from "lucide-react"
+import { format } from "date-fns"
+import { HistoryIcon, RefreshCwIcon, SearchIcon, XIcon } from "lucide-react"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Suspense, useEffect, useState } from "react"
 
 const HISTORY_STATUSES = new Set(["running", "success", "failed"])
-
-function historyEndpointLabel(item: {
-  backupConfig?: {
-    sourceKind?: string | null
-    server?: { name?: string | null } | null
-    sourceS3Profile?: { name?: string | null } | null
-  } | null
-}): string {
-  const kind = item.backupConfig?.sourceKind || "server"
-  if (kind === "local") return "this host"
-  if (kind === "s3") return item.backupConfig?.sourceS3Profile?.name || "S3"
-  return item.backupConfig?.server?.name || "—"
-}
 
 function HistoryPageContent() {
   const router = useRouter()
@@ -134,25 +110,6 @@ function HistoryPageContent() {
     router.replace(qs ? `/history?${qs}` : "/history")
   }
 
-  const statusColors = {
-    running: "bg-blue-500",
-    success: "bg-green-500",
-    failed: "bg-red-500",
-  }
-
-  function statusBadge(item: { status: string; mailboxPending?: boolean }) {
-    if (item.mailboxPending) {
-      return <Badge className="bg-amber-500">waiting for bro</Badge>
-    }
-    return (
-      <Badge
-        className={statusColors[item.status as keyof typeof statusColors] || "bg-gray-500"}
-      >
-        {item.status}
-      </Badge>
-    )
-  }
-
   const filteredConfigName = data?.filters?.configName
   const dayRange = filters.day ? localDayRange(filters.day) : null
   const historyFiltered = Boolean(
@@ -219,17 +176,15 @@ function HistoryPageContent() {
         }
       />
 
-      <div className="flex gap-4">
-        <div className="flex-1">
-          <div className="relative">
-            <SearchIcon className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search by backup name, server, or path..."
-              className="pl-8"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </div>
+      <div className="flex flex-col gap-3 sm:flex-row sm:gap-4">
+        <div className="relative min-w-0 flex-1">
+          <SearchIcon className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search by backup name, server, or path..."
+            className="pl-8"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
         </div>
         <Select
           value={filters.status === "" || !filters.status ? "all" : filters.status}
@@ -246,7 +201,7 @@ function HistoryPageContent() {
             router.replace(qs ? `/history?${qs}` : "/history")
           }}
         >
-          <SelectTrigger className="w-[180px]">
+          <SelectTrigger className="w-full sm:w-[180px]">
             <SelectValue placeholder="Status" />
           </SelectTrigger>
           <SelectContent>
@@ -282,97 +237,17 @@ function HistoryPageContent() {
         isDataEmpty={(data) => !data?.history?.length}
       >
         <>
-          <div className="rounded-md border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Backup Config</TableHead>
-                  <TableHead>Source</TableHead>
-                  <TableHead>Started</TableHead>
-                  <TableHead>Duration</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Size</TableHead>
-                  <TableHead className="text-right">Files</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {data?.history?.map((item: any) => {
-                  const showRestore = canRestoreBackup(restoreEligibilityFromHistory(item))
-                  return (
-                  <TableRow key={item.id}>
-                    <TableCell>
-                      <Link href={`/history/${item.id}`} className="font-medium hover:underline text-primary">
-                        {item.backupConfig?.name || "Unknown"}
-                      </Link>
-                    </TableCell>
-                    <TableCell>{historyEndpointLabel(item)}</TableCell>
-                    <TableCell>
-                      <div className="font-medium">
-                        {format(new Date(item.startTime), "MMM d, yyyy")}
-                      </div>
-                      <div className="text-sm text-muted-foreground">
-                        {format(new Date(item.startTime), "h:mm a")}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      {item.endTime ? (
-                        formatDistance(
-                          new Date(item.startTime),
-                          new Date(item.endTime),
-                          { includeSeconds: true }
-                        )
-                      ) : (
-                        <span className="text-muted-foreground">In progress</span>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {statusBadge(item)}
-                    </TableCell>
-                    <TableCell>
-                      {item.totalSize ? formatBytes(item.totalSize) : "-"}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {item.fileCount || "-"}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex flex-wrap items-center justify-end gap-1">
-                        {showRestore && <HistoryRestoreButton entry={item} />}
-                        <Button variant="ghost" size="sm" asChild>
-                          <Link href={`/history/${item.id}`}>
-                            <ExternalLinkIcon className="h-3.5 w-3.5" />
-                            Open
-                          </Link>
-                        </Button>
-                        <DeleteConfirmationDialog
-                          title="Delete this history entry?"
-                          description="This deletes the history row only. Backup files on disk (if any) are left in place."
-                          isDeleting={isDeleting && deletingId === item.id}
-                          buttonText="Delete"
-                          onDelete={() => {
-                            setDeletingId(item.id)
-                            deleteHistory(item.id, {
-                              onSettled: () => setDeletingId(null),
-                            })
-                          }}
-                        >
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="text-destructive hover:text-destructive"
-                          >
-                            Delete
-                          </Button>
-                        </DeleteConfirmationDialog>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                  )
-                })}
-              </TableBody>
-            </Table>
-          </div>
+          <HistoryList
+            items={data?.history ?? []}
+            isDeleting={isDeleting}
+            deletingId={deletingId}
+            onDelete={(id) => {
+              setDeletingId(id)
+              deleteHistory(id, {
+                onSettled: () => setDeletingId(null),
+              })
+            }}
+          />
 
           {data?.pagination && data.pagination.total > pagination.limit && (
             <Pagination className="mt-4">
