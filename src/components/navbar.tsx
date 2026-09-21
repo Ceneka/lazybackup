@@ -14,18 +14,23 @@ import { cn } from "@/lib/utils"
 import { Logo } from "@/components/logo"
 import { ModeToggle } from "@/components/mode-toggle"
 import {
+  NavigationPendingSpinner,
+  NavigationProgressBar,
+} from "@/components/navigation-pending"
+import {
   CableIcon,
   FolderIcon,
   HistoryIcon,
   HomeIcon,
+  Loader2Icon,
   LogOutIcon,
   MenuIcon,
   SettingsIcon,
   ShieldIcon,
 } from "lucide-react"
-import Link from "next/link"
+import Link, { useLinkStatus } from "next/link"
 import { usePathname } from "next/navigation"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 
 const navItems: Array<{
   name: string
@@ -76,14 +81,25 @@ function isActivePath(pathname: string, href: string, matchPrefixes?: string[]) 
   return pathname === href || pathname.startsWith(`${href}/`)
 }
 
+function MobileNavPendingIcon() {
+  const { pending } = useLinkStatus()
+  if (!pending) return null
+  return <Loader2Icon className="ml-auto h-4 w-4 shrink-0 animate-spin" aria-hidden />
+}
+
 export function Navbar() {
   const pathname = usePathname()
   const [open, setOpen] = useState(false)
   const auth = useAuth()
   const showLogout = Boolean(auth.data?.authEnabled)
 
+  useEffect(() => {
+    setOpen(false)
+  }, [pathname])
+
   return (
     <header className="sticky top-0 z-[100] w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      <NavigationProgressBar />
       <div className="container mx-auto flex h-14 w-[90%] items-center justify-between">
         <div className="flex items-center">
           <Link href="/" className="flex items-center">
@@ -128,6 +144,7 @@ export function Navbar() {
 
         {/* Mobile Navigation */}
         <div className="flex items-center gap-2 md:hidden">
+          <NavigationPendingSpinner />
           <ModeToggle />
           {/* modal={false}: avoid Radix body pointer-events lock (cleanup can stick and freeze the whole app) */}
           <Sheet modal={false} open={open} onOpenChange={setOpen}>
@@ -158,7 +175,9 @@ export function Navbar() {
                     <Link
                       key={item.href}
                       href={item.href}
-                      onClick={() => setOpen(false)}
+                      onClick={() => {
+                        if (active) setOpen(false)
+                      }}
                       className={cn(
                         "flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-colors",
                         active
@@ -169,6 +188,7 @@ export function Navbar() {
                     >
                       <item.icon className="h-4 w-4 shrink-0" />
                       {item.name}
+                      <MobileNavPendingIcon />
                     </Link>
                   )
                 })}
