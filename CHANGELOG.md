@@ -11,6 +11,19 @@ Versions before a formal `v*` tag are dated unreleased / pre-release notes.
 
 ## [Unreleased]
 
+## [0.2.6] - 2026-09-21
+
+### Fixed
+
+- **Mobile dashboard** — header stats (servers, S3, backups) wrap under the
+  title instead of overflowing.
+- **History on phones** — each run is a card with name, status, source, size,
+  and time at a glance. Desktop still uses the table.
+- **Menu navigation** — the sheet stays open with a spinner until the new page
+  is ready, plus a progress bar so a slow load is not a blank wait.
+- **SSH authorize box** — shorter copy; the install command stays selectable so
+  it can be copied on HTTP/LAN when the clipboard button cannot.
+
 ### Changed
 
 - **GHCR publish** — `:latest` and version tags publish only on `v*` releases
@@ -197,10 +210,11 @@ optional `remote_exec`.
    ignored) and opens a GitHub Release from that changelog section. Landing
    `/changelog` syncs on the next landing build.
 
-[Unreleased]: https://github.com/Ceneka/lazybackup/compare/v0.2.5...HEAD
+[Unreleased]: https://github.com/Ceneka/lazybackup/compare/v0.2.6...HEAD
 [0.2.0]: https://github.com/Ceneka/lazybackup/releases/tag/v0.2.0
 [0.2.1]: https://github.com/Ceneka/lazybackup/releases/tag/v0.2.1
 [0.2.2]: https://github.com/Ceneka/lazybackup/releases/tag/v0.2.2
 [0.2.3]: https://github.com/Ceneka/lazybackup/releases/tag/v0.2.3
 [0.2.4]: https://github.com/Ceneka/lazybackup/releases/tag/v0.2.4
 [0.2.5]: https://github.com/Ceneka/lazybackup/releases/tag/v0.2.5
+[0.2.6]: https://github.com/Ceneka/lazybackup/releases/tag/v0.2.6

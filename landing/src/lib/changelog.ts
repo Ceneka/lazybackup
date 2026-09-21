@@ -21,7 +21,22 @@ export const changelogEntries: readonly ChangelogEntry[] = [
     "id": "unreleased",
     "title": "Unreleased",
     "date": "main",
+    "sections": []
+  },
+  {
+    "id": "0-2-6",
+    "title": "0.2.6",
+    "date": "2026-09-21",
     "sections": [
+      {
+        "heading": "Fixed",
+        "items": [
+          "Mobile dashboard — header stats (servers, S3, backups) wrap under the title instead of overflowing.",
+          "History on phones — each run is a card with name, status, source, size, and time at a glance. Desktop still uses the table.",
+          "Menu navigation — the sheet stays open with a spinner until the new page is ready, plus a progress bar so a slow load is not a blank wait.",
+          "SSH authorize box — shorter copy; the install command stays selectable so it can be copied on HTTP/LAN when the clipboard button cannot."
+        ]
+      },
       {
         "heading": "Changed",
         "items": [
