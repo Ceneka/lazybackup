@@ -29,7 +29,7 @@ function DashboardStatusChip() {
   if (!overall) return null
 
   const label =
-    overall === "ok" ? "OK" : overall === "warn" ? "Needs attention" : "Critical"
+    overall === "ok" ? "OK" : overall === "warn" ? "Attention" : "Critical"
   const Icon =
     overall === "ok" ? ShieldCheckIcon : overall === "warn" ? ShieldIcon : ShieldAlertIcon
 
@@ -37,7 +37,7 @@ function DashboardStatusChip() {
     <Link
       href="/status"
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-opacity hover:opacity-80",
+        "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-semibold transition-opacity hover:opacity-80",
         overall === "ok" &&
           "border-emerald-500/40 bg-emerald-500/10 text-emerald-800 dark:text-emerald-300",
         overall === "warn" &&
@@ -48,7 +48,7 @@ function DashboardStatusChip() {
       title={status.data?.summary.headline}
     >
       <Icon className="h-3.5 w-3.5" />
-      Status: {label}
+      {label}
     </Link>
   )
 }
@@ -97,7 +97,7 @@ export default function Dashboard() {
         title="Dashboard"
         description="Last 30 days overview"
         actions={
-          <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
+          <div className="flex w-full min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground sm:w-auto sm:gap-x-3 sm:text-sm">
             <DashboardStatusChip />
             <Link href="/connections?tab=servers" className="inline-flex items-center gap-1 hover:text-foreground">
               <ServerIcon className="h-3.5 w-3.5" />
@@ -109,7 +109,9 @@ export default function Dashboard() {
             </Link>
             <Link href="/backups" className="inline-flex items-center gap-1 hover:text-foreground">
               <FolderIcon className="h-3.5 w-3.5" />
-              {query.data?.enabledBackups ?? "—"}/{query.data?.backups ?? "—"} backups enabled
+              {query.data?.enabledBackups ?? "—"}/{query.data?.backups ?? "—"}{" "}
+              <span className="sm:hidden">backups</span>
+              <span className="hidden sm:inline">backups enabled</span>
             </Link>
           </div>
         }
