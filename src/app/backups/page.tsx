@@ -4,19 +4,28 @@ import { BackupRecipesEmpty } from "@/components/backup-recipes-empty"
 import { PageHeader, PageLayout } from "@/components/page-layout"
 import { ResourceListCard } from "@/components/resource-list-card"
 import { backupOverflowItems } from "@/components/resource-overflow"
+import { Input } from "@/components/ui/input"
 import { QueryState } from "@/components/ui/query-state"
 import { destinationEndpointKey } from "@/lib/backup/destination"
 import {
   destinationEndpointName,
   sourceEndpointName,
   sourcePathLabel,
+  sourceTypeLabel,
 } from "@/lib/backup/endpoint-display"
 import { formatCronExpression } from "@/lib/cron/format"
 import { useBackups, useDeleteBackup, type Backup } from "@/lib/hooks/useBackups"
 import { useResourceQuickActions } from "@/lib/resource-actions"
-import { ArrowRightIcon, CalendarIcon, FolderIcon, PlusIcon } from "lucide-react"
+import {
+  ArrowRightIcon,
+  CalendarIcon,
+  FolderIcon,
+  PlusIcon,
+  SearchIcon,
+  XIcon,
+} from "lucide-react"
 import Link from "next/link"
-import { useMemo } from "react"
+import { useMemo, useState } from "react"
 
 function endpointShort(backup: Backup, side: "from" | "to"): string {
   if (side === "from") {
@@ -29,6 +38,8 @@ export default function BackupsPage() {
   const query = useBackups()
   const actions = useResourceQuickActions()
   const deleteBackup = useDeleteBackup()
+  const [search, setSearch] = useState("")
+  const searchTrimmed = search.trim()
 
   const duplicateDestinationIds = useMemo(() => {
     const ids = new Set<string>()
@@ -60,6 +71,30 @@ export default function BackupsPage() {
     return ids
   }, [query.data])
 
+  // Client-side search: name, endpoints, paths, source type, schedule
+  const visibleBackups = useMemo(() => {
+    const backups = query.data
+    if (!backups) return []
+    const terms = searchTrimmed.toLowerCase().split(/\s+/).filter(Boolean)
+    if (terms.length === 0) return backups
+
+    return backups.filter((backup) => {
+      const haystack = [
+        backup.name,
+        endpointShort(backup, "from"),
+        endpointShort(backup, "to"),
+        sourceTypeLabel(backup),
+        backup.sourcePath,
+        backup.destinationPath,
+        backup.schedule,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+      return terms.every((term) => haystack.includes(term))
+    })
+  }, [query.data, searchTrimmed])
+
   return (
     <PageLayout>
       <PageHeader
@@ -75,6 +110,37 @@ export default function BackupsPage() {
         }
       />
 
+      {query.data && query.data.length > 0 && (
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
+          <div className="relative min-w-0 flex-1">
+            <SearchIcon className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              type="search"
+              placeholder="Search by name, server, or path..."
+              className="pl-8 pr-8"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              aria-label="Search backups"
+            />
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch("")}
+                className="absolute right-2 top-2.5 rounded-sm text-muted-foreground hover:text-foreground"
+                aria-label="Clear search"
+              >
+                <XIcon className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+          {searchTrimmed && (
+            <p className="shrink-0 text-sm text-muted-foreground">
+              {visibleBackups.length} of {query.data.length} backups
+            </p>
+          )}
+        </div>
+      )}
+
       <QueryState
         query={query}
         dataLabel="backup configurations"
@@ -82,9 +148,27 @@ export default function BackupsPage() {
         isDataEmpty={() => false}
       >
         {query.data && query.data.length === 0 && <BackupRecipesEmpty />}
-        {query.data && query.data.length > 0 && (
+        {query.data && query.data.length > 0 && visibleBackups.length === 0 && (
+          <div className="rounded-lg border border-dashed py-12 text-center">
+            <p className="text-muted-foreground">
+              No backups match{" "}
+              <span className="font-medium text-foreground">
+                “{searchTrimmed}”
+              </span>
+              .
+            </p>
+            <button
+              type="button"
+              onClick={() => setSearch("")}
+              className="mt-2 text-sm text-blue-500 hover:underline"
+            >
+              Clear search
+            </button>
+          </div>
+        )}
+        {visibleBackups.length > 0 && (
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {query.data.map((backup) => (
+            {visibleBackups.map((backup) => (
               <ResourceListCard
                 key={backup.id}
                 href={`/backups/${backup.id}`}
