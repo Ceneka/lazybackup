@@ -73,6 +73,10 @@ RUN bun install --frozen-lockfile --production \
 FROM oven/bun:1.3.13-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
+# Next.js standalone server.js listens on process.env.HOSTNAME, which Docker sets
+# to the container hostname -> the app bound only its own container IP and the
+# loopback healthcheck below could never connect. Bind all interfaces.
+ENV HOSTNAME=0.0.0.0
 
 # rsync/scp on the app host; curl for compose healthcheck
 RUN apk add --no-cache openssh-client rsync curl git

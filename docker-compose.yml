@@ -14,6 +14,13 @@ services:
     environment:
       # SQLite must live on a volume or it is lost on every image rebuild/recreate.
       DATABASE_URL: file:/app/data/data.db
+      # Next.js standalone binds `process.env.HOSTNAME` (server.js), and Docker
+      # injects HOSTNAME=<container hostname>, so the app used to listen ONLY on
+      # its own container IP (e.g. 10.0.11.6:3000). Loopback then had nothing on
+      # it and the healthcheck below failed forever ("unhealthy"), even though
+      # the published port worked. Pin it to 0.0.0.0 so 127.0.0.1, the published
+      # port, and the container IP all hit the same listener.
+      HOSTNAME: "0.0.0.0"
       # Host path from Compose interpolation (${BACKUP_STORAGE_PATH:-./backups}) is
       # only for the bind mount below; inside the container backups always live at
       # /backups (and /app/backups).
