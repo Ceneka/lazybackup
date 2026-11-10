@@ -13,7 +13,7 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "motion": "^12.4.10",
+    "motion": "^14.10.1",
     "next": "15.5.28",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
