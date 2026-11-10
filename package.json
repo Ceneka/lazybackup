@@ -43,7 +43,7 @@
     "@aws-sdk/client-s3": "^3.1107.0",
     "@aws-sdk/lib-storage": "^3.1107.0",
     "@libsql/client": "^0.14.0",
-    "@modelcontextprotocol/server": "^2.0.0",
+    "@modelcontextprotocol/server": "^2.4.0",
     "@node-rs/argon2": "^2.0.2",
     "@radix-ui/react-accordion": "^1.2.3",
     "@radix-ui/react-alert-dialog": "^1.1.6",
@@ -67,8 +67,8 @@
     "drizzle-orm": "^0.40.0",
     "lucide-react": "^0.477.0",
     "mcp-handler": "^2.1.0",
-    "nanoid": "^5.1.2",
-    "next": "15.5.24",
+    "nanoid": "^5.1.16",
+    "next": "15.5.28",
     "next-themes": "^0.4.4",
     "node-ssh": "^13.2.0",
     "react": "^19.0.0",
@@ -77,7 +77,7 @@
     "tailwind-merge": "^3.0.2",
     "tailwindcss-animate": "^1.0.7",
     "tar-stream": "^3.2.0",
-    "zod": "^4.2.0"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.0",
@@ -88,7 +88,7 @@
     "@types/tar-stream": "^3.1.4",
     "drizzle-kit": "^0.30.5",
     "eslint": "^9.21.0",
-    "eslint-config-next": "15.5.24",
+    "eslint-config-next": "15.5.28",
     "tailwindcss": "^4.0.11",
     "typescript": "^5.8.2"
   }
