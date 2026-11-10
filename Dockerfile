@@ -1,6 +1,7 @@
 # Build + run on Alpine so native packages resolve musl binaries.
-# Pin the same Bun as CI (setup-bun 1.3.13). oven/bun:1-alpine floated to
-# 1.4.2, which segfaults `bun test` on musl.
+# Keep this pinned to the same Bun as CI (setup-bun in ci.yml). Bump both
+# together: oven/bun:1-alpine floated to 1.4.2 once, which segfaulted
+# `bun test` on musl, so the docker-alpine job re-tests every bump.
 FROM oven/bun:1.4.4-alpine AS base
 
 FROM base AS builder-dependencies
