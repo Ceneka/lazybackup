@@ -24,6 +24,42 @@ export const changelogEntries: readonly ChangelogEntry[] = [
     "sections": []
   },
   {
+    "id": "0-2-7",
+    "title": "0.2.7",
+    "date": "2026-11-10",
+    "sections": [
+      {
+        "heading": "Added",
+        "items": [
+          "Backups list search — filter the list by name as you type, client-side."
+        ]
+      },
+      {
+        "heading": "Fixed",
+        "items": [
+          "Docker healthcheck — containers sat at unhealthy forever: Next.js standalone listened on the container IP instead of 0.0.0.0, so the probe against loopback found nothing. The image and docker-compose.yml now set HOSTNAME=0.0.0.0; the healthcheck goes healthy without a rebuild."
+        ]
+      },
+      {
+        "heading": "Security",
+        "items": [
+          "Next.js 15.5.28 — unauthenticated RCE in the Image Optimization API via SVG input, a Server Actions denial of service, and SSG/ISR cache poisoning on self-hosted instances.",
+          "MCP server SDK 2.4.0 — request body and JSON-RPC batch size limits, per-client message isolation, and bearer token audience validation on /mcp.",
+          "drizzle-orm 0.45.4 — SQL injection via improperly escaped identifiers; a shell-quote override closes the advisory reachable through its gel driver.",
+          "zod 4.6.7, nanoid 5.1.16 — memory exhaustion while validating oversized constrained collections, and generator loops on non-positive sizes.",
+          "Transitive — sharp 0.35.5 (libvips/libheif/librsvg CVEs), ws 8.22.2, postcss 8.5.32, source-map-js 1.2.2."
+        ]
+      },
+      {
+        "heading": "Changed",
+        "items": [
+          "Bun 1.4.4 — image and CI run the same Bun again, with the Dockerfile pin kept in step by hand. The 1.4.2 musl bun test segfault is gone; verified on amd64 and arm64 Alpine.",
+          "LazyBro release — softprops/action-gh-release v3 (Node 24 runtime)."
+        ]
+      }
+    ]
+  },
+  {
     "id": "0-2-6",
     "title": "0.2.6",
     "date": "2026-09-21",

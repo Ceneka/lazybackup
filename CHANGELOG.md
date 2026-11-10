@@ -11,6 +11,41 @@ Versions before a formal `v*` tag are dated unreleased / pre-release notes.
 
 ## [Unreleased]
 
+## [0.2.7] - 2026-11-10
+
+### Added
+
+- **Backups list search** — filter the list by name as you type, client-side.
+
+### Fixed
+
+- **Docker healthcheck** — containers sat at `unhealthy` forever: Next.js
+  standalone listened on the container IP instead of `0.0.0.0`, so the probe
+  against loopback found nothing. The image and `docker-compose.yml` now set
+  `HOSTNAME=0.0.0.0`; the healthcheck goes healthy without a rebuild.
+
+### Security
+
+- **Next.js 15.5.28** — unauthenticated RCE in the Image Optimization API via
+  SVG input, a Server Actions denial of service, and SSG/ISR cache poisoning on
+  self-hosted instances.
+- **MCP server SDK 2.4.0** — request body and JSON-RPC batch size limits,
+  per-client message isolation, and bearer token audience validation on `/mcp`.
+- **drizzle-orm 0.45.4** — SQL injection via improperly escaped identifiers;
+  a `shell-quote` override closes the advisory reachable through its `gel`
+  driver.
+- **zod 4.6.7, nanoid 5.1.16** — memory exhaustion while validating oversized
+  constrained collections, and generator loops on non-positive sizes.
+- **Transitive** — sharp 0.35.5 (libvips/libheif/librsvg CVEs), ws 8.22.2,
+  postcss 8.5.32, source-map-js 1.2.2.
+
+### Changed
+
+- **Bun 1.4.4** — image and CI run the same Bun again, with the Dockerfile pin
+  kept in step by hand. The 1.4.2 musl `bun test` segfault is gone; verified on
+  amd64 and arm64 Alpine.
+- **LazyBro release** — `softprops/action-gh-release` v3 (Node 24 runtime).
+
 ## [0.2.6] - 2026-09-21
 
 ### Fixed
@@ -210,7 +245,7 @@ optional `remote_exec`.
    ignored) and opens a GitHub Release from that changelog section. Landing
    `/changelog` syncs on the next landing build.
 
-[Unreleased]: https://github.com/Ceneka/lazybackup/compare/v0.2.6...HEAD
+[Unreleased]: https://github.com/Ceneka/lazybackup/compare/v0.2.7...HEAD
 [0.2.0]: https://github.com/Ceneka/lazybackup/releases/tag/v0.2.0
 [0.2.1]: https://github.com/Ceneka/lazybackup/releases/tag/v0.2.1
 [0.2.2]: https://github.com/Ceneka/lazybackup/releases/tag/v0.2.2
@@ -218,3 +253,4 @@ optional `remote_exec`.
 [0.2.4]: https://github.com/Ceneka/lazybackup/releases/tag/v0.2.4
 [0.2.5]: https://github.com/Ceneka/lazybackup/releases/tag/v0.2.5
 [0.2.6]: https://github.com/Ceneka/lazybackup/releases/tag/v0.2.6
+[0.2.7]: https://github.com/Ceneka/lazybackup/releases/tag/v0.2.7
