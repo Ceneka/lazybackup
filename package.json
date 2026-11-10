@@ -64,7 +64,7 @@
     "cron": "^4.1.0",
     "date-fns": "^4.1.0",
     "dayjs": "^1.11.13",
-    "drizzle-orm": "^0.40.0",
+    "drizzle-orm": "^0.45.4",
     "lucide-react": "^0.477.0",
     "mcp-handler": "^2.1.0",
     "nanoid": "^5.1.16",
@@ -91,5 +91,8 @@
     "eslint-config-next": "15.5.28",
     "tailwindcss": "^4.0.11",
     "typescript": "^5.8.2"
+  },
+  "overrides": {
+    "shell-quote": "^1.12.0"
   }
 }
