@@ -8,3 +8,30 @@ updates:
     directory: /
     schedule:
       interval: weekly
+  # Every JS manifest here is managed by bun.lock, so the ecosystem has to be
+  # `bun`: with `npm_and_yarn` Dependabot fails with misconfigured_tooling
+  # ("cannot update bun.lock"), including for security updates.
+  - package-ecosystem: bun
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      app-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+  - package-ecosystem: bun
+    directory: /bro
+    schedule:
+      interval: weekly
+    groups:
+      bro-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+  - package-ecosystem: bun
+    directory: /landing
+    schedule:
+      interval: weekly
+    groups:
+      landing-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
