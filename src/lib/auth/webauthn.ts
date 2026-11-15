@@ -3,7 +3,7 @@ import {
   generateRegistrationOptions,
   verifyAuthenticationResponse,
   verifyRegistrationResponse,
-  type AuthenticatorTransportFuture,
+  type AuthenticatorTransport,
   type AuthenticationResponseJSON,
   type RegistrationResponseJSON,
 } from '@simplewebauthn/server'
@@ -209,10 +209,10 @@ export async function verifyAuthentication(options: {
   return true
 }
 
-function parseTransports(raw: string | null | undefined): AuthenticatorTransportFuture[] | undefined {
+function parseTransports(raw: string | null | undefined): AuthenticatorTransport[] | undefined {
   if (!raw) return undefined
   try {
-    const parsed = JSON.parse(raw) as AuthenticatorTransportFuture[]
+    const parsed = JSON.parse(raw) as AuthenticatorTransport[]
     return Array.isArray(parsed) ? parsed : undefined
   } catch {
     return undefined
