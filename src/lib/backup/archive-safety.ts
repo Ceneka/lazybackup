@@ -1,7 +1,7 @@
 import path from 'path';
 import { createReadStream } from 'fs';
 import { createGunzip } from 'zlib';
-import { extract, type Headers } from 'tar-stream';
+import { extract, type Header } from 'tar-stream';
 
 const MAX_ARCHIVE_MEMBERS = 500_000;
 const MAX_MEMBER_METADATA_BYTES = 20 * 1024 * 1024;
@@ -68,7 +68,7 @@ export function validateTarMembers(members: TarMember[]): void {
   }
 }
 
-function tarMemberType(type: Headers['type']): string {
+function tarMemberType(type: Header['type']): string {
   if (type === 'file' || type === 'contiguous-file') return '-';
   if (type === 'directory') return 'd';
   if (type === 'symlink') return 'l';
