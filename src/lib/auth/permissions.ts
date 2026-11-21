@@ -1,5 +1,5 @@
 /** Opt-in API token capabilities (session / unlocked always have all). */
-export const API_TOKEN_PERMISSIONS = ['remote_exec', 'read_only'] as const
+export const API_TOKEN_PERMISSIONS = ['remote_exec', 'read_only', 'authorize_keys'] as const
 
 export type ApiTokenPermission = (typeof API_TOKEN_PERMISSIONS)[number]
 
@@ -83,6 +83,18 @@ export function authAllowsRemoteExec(auth: AuthPermissionView): boolean {
   return authHasPermission(auth, 'remote_exec')
 }
 
+export const AUTHORIZE_KEYS_DENIED =
+  'API token lacks authorize_keys permission. Create a token with “Allow authorizing SSH keys” in Settings → API / MCP (remote_exec also allows it).'
+
+/**
+ * Installing a caller's public key on a server (sshya link). It is as strong as
+ * remote_exec (the caller gets a shell), so remote_exec implies it; on its own it
+ * can be combined with read_only because it changes no LazyBackup state.
+ */
+export function authAllowsAuthorizeKeys(auth: AuthPermissionView): boolean {
+  return authHasPermission(auth, 'authorize_keys') || authAllowsRemoteExec(auth)
+}
+
 /**
  * Session/unlocked always write. Bearer tokens with read_only cannot mutate
  * (except allowlisted probes: validate_backup / test_*).
@@ -113,6 +125,10 @@ export function isReadOnlyApiException(method: string, pathname: string): boolea
   const m = method.toUpperCase()
   if (m === 'GET' || m === 'HEAD' || m === 'OPTIONS') return true
   if (pathname === '/mcp' || pathname.startsWith('/mcp/')) return true
+  // The route enforces authorize_keys itself; it changes no LazyBackup state.
+  if ((m === 'POST' || m === 'DELETE') && /^\/api\/servers\/[^/]+\/authorize-key$/.test(pathname)) {
+    return true
+  }
   if (m !== 'POST') return false
   if (pathname === '/api/backups/database/test') return true
   if (pathname === '/api/servers/test') return true

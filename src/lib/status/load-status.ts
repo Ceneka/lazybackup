@@ -173,8 +173,10 @@ export async function loadOperatorStatus(): Promise<OperatorStatusPayload> {
     return !hasKey
   }).length
 
-  const remoteExecCount = tokens.filter((t) =>
-    t.permissions.includes('remote_exec')
+  // authorize_keys hands out a shell too, so it counts as remote access.
+  const remoteExecCount = tokens.filter(
+    (t) =>
+      t.permissions.includes('remote_exec') || t.permissions.includes('authorize_keys')
   ).length
 
   const encryptedOrPeerCount = allConfigs.filter(

@@ -11,6 +11,16 @@ Versions before a formal `v*` tag are dated unreleased / pre-release notes.
 
 ## [Unreleased]
 
+### Added
+
+- **Authorize SSH keys for linked clients** — new `authorize_keys` API token
+  permission (works together with Read only) and
+  `POST`/`DELETE /api/servers/:id/authorize-key`. A client such as
+  [sshya](https://github.com/Ceneka/sshya) sends its own public key and
+  LazyBackup adds it to the server's `~/.ssh/authorized_keys` with the stored
+  credentials, so keys generated inside LazyBackup stay inside it. Each call is
+  audited with the key fingerprint.
+
 ## [0.2.7] - 2026-11-10
 
 ### Added
