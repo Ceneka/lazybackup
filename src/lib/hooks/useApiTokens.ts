@@ -3,7 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 
-export type ApiTokenPermission = 'remote_exec' | 'read_only'
+export type ApiTokenPermission = 'remote_exec' | 'read_only' | 'authorize_keys'
 
 export type ApiToken = {
   id: string

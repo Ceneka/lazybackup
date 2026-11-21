@@ -12,7 +12,11 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { LoadingButton } from '@/components/ui/loading-button'
 import { QueryState } from '@/components/ui/query-state'
-import { useApiTokens, type CreatedApiToken } from '@/lib/hooks/useApiTokens'
+import {
+  useApiTokens,
+  type ApiTokenPermission,
+  type CreatedApiToken,
+} from '@/lib/hooks/useApiTokens'
 import {
   buildClaudeCodeCommand,
   buildClaudeDesktopSnippet,
@@ -43,6 +47,7 @@ export function McpSettingsPanel() {
   const [newName, setNewName] = useState('MCP agent')
   const [allowRemoteExec, setAllowRemoteExec] = useState(false)
   const [readOnly, setReadOnly] = useState(false)
+  const [allowAuthorizeKeys, setAllowAuthorizeKeys] = useState(false)
   const [created, setCreated] = useState<CreatedApiToken | null>(null)
 
   const origin = typeof window !== 'undefined' ? window.location.origin : ''
@@ -60,19 +65,22 @@ export function McpSettingsPanel() {
 
   const handleCreate = async () => {
     try {
-      const permissions = readOnly
-        ? (['read_only'] as const)
+      const permissions: ApiTokenPermission[] = readOnly
+        ? ['read_only']
         : allowRemoteExec
-          ? (['remote_exec'] as const)
+          ? ['remote_exec']
           : []
+      // remote_exec already implies it.
+      if (allowAuthorizeKeys && !allowRemoteExec) permissions.push('authorize_keys')
       const result = await tokensQuery.createToken.mutateAsync({
         name: newName.trim() || 'MCP agent',
-        permissions: [...permissions],
+        permissions,
       })
       setCreated(result)
       setNewName('MCP agent')
       setAllowRemoteExec(false)
       setReadOnly(false)
+      setAllowAuthorizeKeys(false)
     } catch {
       // toast in hook
     }
@@ -150,6 +158,26 @@ export function McpSettingsPanel() {
                   Grants <code className="text-xs">remote_exec</code>: MCP/API{' '}
                   <code className="text-xs">exec_command</code> on servers, and setting or
                   changing pre-backup commands. Leave off for read/manage-only agents.
+                </span>
+              </span>
+            </label>
+            <label className="flex items-start gap-2 text-sm max-w-xl cursor-pointer">
+              <input
+                type="checkbox"
+                className="mt-1"
+                checked={allowAuthorizeKeys || allowRemoteExec}
+                disabled={allowRemoteExec}
+                onChange={(e) => setAllowAuthorizeKeys(e.target.checked)}
+              />
+              <span>
+                <span className="font-medium">Allow authorizing SSH keys</span>
+                <span className="block text-muted-foreground">
+                  Grants <code className="text-xs">authorize_keys</code>: the client may add
+                  its own public key to a server&apos;s{' '}
+                  <code className="text-xs">authorized_keys</code> (for example{' '}
+                  <code className="text-xs">sshya link</code>), so it can SSH in without
+                  LazyBackup exporting private keys. Works with Read only. That client gets a
+                  shell on every server, so treat it like root SSH.
                 </span>
               </span>
             </label>
@@ -234,11 +262,9 @@ export function McpSettingsPanel() {
                       <p className="text-xs text-muted-foreground">
                         {token.tokenPrefix} · created {formatDate(token.createdAt)} · last used{' '}
                         {formatDate(token.lastUsedAt)}
-                        {token.permissions?.includes('remote_exec')
-                          ? ' · remote_exec'
-                          : token.permissions?.includes('read_only')
-                            ? ' · read_only'
-                            : ''}
+                        {token.permissions?.length
+                          ? ` · ${token.permissions.join(' · ')}`
+                          : ''}
                       </p>
                     </div>
                     <Button

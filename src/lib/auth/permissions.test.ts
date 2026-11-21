@@ -3,6 +3,7 @@ import {
   REMOTE_EXEC_DENIED,
   RemoteExecPermissionError,
   assertCanSetPreBackupCommands,
+  authAllowsAuthorizeKeys,
   authAllowsRemoteExec,
   authAllowsWrite,
   authHasPermission,
@@ -11,6 +12,7 @@ import {
   parseApiTokenPermissions,
   preBackupChangeRequiresRemoteExec,
   serializeApiTokenPermissions,
+  type ApiTokenPermission,
 } from './permissions'
 
 describe('parseApiTokenPermissions', () => {
@@ -87,6 +89,36 @@ describe('authHasPermission / remote_exec', () => {
 
   test('unauthorized never allows', () => {
     expect(authAllowsRemoteExec({ authorized: false, via: 'none' })).toBe(false)
+  })
+})
+
+describe('authAllowsAuthorizeKeys', () => {
+  const bearer = (permissions: ApiTokenPermission[]) =>
+    ({ authorized: true, via: 'bearer', apiToken: { permissions } }) as const
+
+  test('session/unlocked allow; plain and read_only bearers do not', () => {
+    expect(authAllowsAuthorizeKeys({ authorized: true, via: 'session' })).toBe(true)
+    expect(authAllowsAuthorizeKeys({ authorized: true, via: 'unlocked' })).toBe(true)
+    expect(authAllowsAuthorizeKeys(bearer([]))).toBe(false)
+    expect(authAllowsAuthorizeKeys(bearer(['read_only']))).toBe(false)
+    expect(authAllowsAuthorizeKeys({ authorized: false, via: 'none' })).toBe(false)
+  })
+
+  test('authorize_keys (also with read_only) or remote_exec allow', () => {
+    expect(authAllowsAuthorizeKeys(bearer(['authorize_keys']))).toBe(true)
+    expect(authAllowsAuthorizeKeys(bearer(['read_only', 'authorize_keys']))).toBe(true)
+    expect(authAllowsAuthorizeKeys(bearer(['remote_exec']))).toBe(true)
+  })
+
+  test('authorize_keys does not grant remote_exec', () => {
+    expect(authAllowsRemoteExec(bearer(['authorize_keys']))).toBe(false)
+  })
+
+  test('normalize accepts read_only + authorize_keys', () => {
+    expect(normalizeApiTokenPermissionsInput(['read_only', 'authorize_keys'])).toEqual([
+      'read_only',
+      'authorize_keys',
+    ])
   })
 })
 
@@ -190,6 +222,14 @@ describe('authAllowsWrite', () => {
 })
 
 describe('isReadOnlyApiException', () => {
+  test('lets authorize-key through (the route checks authorize_keys)', () => {
+    expect(isReadOnlyApiException('POST', '/api/servers/abc/authorize-key')).toBe(true)
+    expect(isReadOnlyApiException('DELETE', '/api/servers/abc/authorize-key')).toBe(true)
+    expect(isReadOnlyApiException('PUT', '/api/servers/abc/authorize-key')).toBe(false)
+    expect(isReadOnlyApiException('DELETE', '/api/servers/abc')).toBe(false)
+    expect(isReadOnlyApiException('POST', '/api/servers/abc/exec')).toBe(false)
+  })
+
   test('allows GET and /mcp', () => {
     expect(isReadOnlyApiException('GET', '/api/status')).toBe(true)
     expect(isReadOnlyApiException('HEAD', '/api/backups')).toBe(true)

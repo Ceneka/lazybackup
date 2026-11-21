@@ -351,7 +351,7 @@ export function buildStatusChecks(s: StatusSnapshot): StatusCheck[] {
       id: 'tokens-remote-exec',
       severity: 'info',
       title: 'API tokens with remote_exec',
-      detail: `${s.apiTokens.remoteExecCount} active token${s.apiTokens.remoteExecCount === 1 ? '' : 's'} can run remote shell commands — treat like root SSH.`,
+      detail: `${s.apiTokens.remoteExecCount} active token${s.apiTokens.remoteExecCount === 1 ? '' : 's'} can run remote shell commands or authorize SSH keys — treat like root SSH.`,
       href: '/settings?tab=mcp',
     })
   } else if (s.apiTokens.activeCount > 0) {
