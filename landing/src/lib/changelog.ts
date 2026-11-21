@@ -24,6 +24,33 @@ export const changelogEntries: readonly ChangelogEntry[] = [
     "sections": []
   },
   {
+    "id": "0-2-8",
+    "title": "0.2.8",
+    "date": "2026-11-21",
+    "sections": [
+      {
+        "heading": "Added",
+        "items": [
+          "Authorize SSH keys for linked clients — new authorize_keys API token permission (works together with Read only) and POST/DELETE /api/servers/:id/authorize-key. A client such as sshya sends its own public key and LazyBackup adds it to the server's ~/.ssh/authorized_keys with the stored credentials, so keys generated inside LazyBackup stay inside it. Each call is audited with the key fingerprint."
+        ]
+      },
+      {
+        "heading": "Security",
+        "items": [
+          "SimpleWebAuthn 14 — passkey registration and login move to @simplewebauthn/server 14.1.0 / browser 14, which fix GHSA-2g3p-m8c9-hhwh and GHSA-j3h4-m3m2-7p7j.",
+          "Landing site — Next.js 16.4.5 for lazy.zic.ar (static export, not shipped in the Docker image)."
+        ]
+      },
+      {
+        "heading": "Changed",
+        "items": [
+          "Dependency refresh — 34 minor/patch updates across the app (AWS SDK, libsql client, Radix UI, TanStack Query, React 19.3, Tailwind 4.3, cron, drizzle-kit, …) and LazyBro (nanoid 6, age-encryption 0.3.1).",
+          "Dependabot — now tracks the Bun lockfiles for the app, LazyBro and the landing site, so dependency and security updates arrive as PRs again."
+        ]
+      }
+    ]
+  },
+  {
     "id": "0-2-7",
     "title": "0.2.7",
     "date": "2026-11-10",

@@ -11,6 +11,8 @@ Versions before a formal `v*` tag are dated unreleased / pre-release notes.
 
 ## [Unreleased]
 
+## [0.2.8] - 2026-11-21
+
 ### Added
 
 - **Authorize SSH keys for linked clients** — new `authorize_keys` API token
@@ -20,6 +22,22 @@ Versions before a formal `v*` tag are dated unreleased / pre-release notes.
   LazyBackup adds it to the server's `~/.ssh/authorized_keys` with the stored
   credentials, so keys generated inside LazyBackup stay inside it. Each call is
   audited with the key fingerprint.
+
+### Security
+
+- **SimpleWebAuthn 14** — passkey registration and login move to
+  `@simplewebauthn/server` 14.1.0 / browser 14, which fix GHSA-2g3p-m8c9-hhwh
+  and GHSA-j3h4-m3m2-7p7j.
+- **Landing site** — Next.js 16.4.5 for lazy.zic.ar (static export, not
+  shipped in the Docker image).
+
+### Changed
+
+- **Dependency refresh** — 34 minor/patch updates across the app (AWS SDK,
+  libsql client, Radix UI, TanStack Query, React 19.3, Tailwind 4.3, cron,
+  drizzle-kit, …) and LazyBro (nanoid 6, age-encryption 0.3.1).
+- **Dependabot** — now tracks the Bun lockfiles for the app, LazyBro and the
+  landing site, so dependency and security updates arrive as PRs again.
 
 ## [0.2.7] - 2026-11-10
 
@@ -255,7 +273,7 @@ optional `remote_exec`.
    ignored) and opens a GitHub Release from that changelog section. Landing
    `/changelog` syncs on the next landing build.
 
-[Unreleased]: https://github.com/Ceneka/lazybackup/compare/v0.2.7...HEAD
+[Unreleased]: https://github.com/Ceneka/lazybackup/compare/v0.2.8...HEAD
 [0.2.0]: https://github.com/Ceneka/lazybackup/releases/tag/v0.2.0
 [0.2.1]: https://github.com/Ceneka/lazybackup/releases/tag/v0.2.1
 [0.2.2]: https://github.com/Ceneka/lazybackup/releases/tag/v0.2.2
@@ -264,3 +282,4 @@ optional `remote_exec`.
 [0.2.5]: https://github.com/Ceneka/lazybackup/releases/tag/v0.2.5
 [0.2.6]: https://github.com/Ceneka/lazybackup/releases/tag/v0.2.6
 [0.2.7]: https://github.com/Ceneka/lazybackup/releases/tag/v0.2.7
+[0.2.8]: https://github.com/Ceneka/lazybackup/releases/tag/v0.2.8
