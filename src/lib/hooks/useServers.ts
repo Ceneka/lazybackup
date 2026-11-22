@@ -1,3 +1,4 @@
+import { ApiError, readApiError } from "@/lib/api/client-error"
 import { resourceInUseFromResponse } from "@/lib/api/resource-in-use"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
@@ -16,6 +17,7 @@ export interface Server {
   privateKey?: string
   sshKeyId?: string | null
   systemKeyPath?: string | null
+  sshKey?: { id: string; name: string } | null
   hasPassword?: boolean
   hasPrivateKey?: boolean
   createdAt: string
@@ -25,6 +27,58 @@ export interface Server {
     name: string
     roles: Array<"source" | "destination">
   }>
+}
+
+/** Payload accepted by POST /api/servers/test and PUT /api/servers/:id. */
+export type ServerTestPayload = {
+  name?: string
+  host: string
+  port: number
+  username: string
+  authType: "password" | "key"
+  password?: string
+  privateKey?: string
+  sshKeyId?: string
+  systemKeyPath?: string
+}
+
+export type ServerTestResult = {
+  success: boolean
+  rsyncAvailable: boolean
+  scpAvailable: boolean
+  dockerAvailable?: boolean
+  authType?: "password" | "key"
+  message?: string
+}
+
+/** Probe the credentials currently in a form (POST /api/servers/test). */
+export async function testServerFromForm(
+  serverData: ServerTestPayload
+): Promise<ServerTestResult> {
+  const response = await fetch("/api/servers/test", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(serverData),
+  })
+
+  if (!response.ok) {
+    const { message, fieldErrors } = await readApiError(response)
+    throw new ApiError(message, { status: response.status, fieldErrors })
+  }
+
+  return (await response.json()) as ServerTestResult
+}
+
+/** Probe the saved row (GET /api/servers/:id/test). */
+export async function testStoredServer(id: string): Promise<ServerTestResult> {
+  const response = await fetch(`/api/servers/${id}/test`)
+
+  if (!response.ok) {
+    const { message, fieldErrors } = await readApiError(response)
+    throw new ApiError(message, { status: response.status, fieldErrors })
+  }
+
+  return (await response.json()) as ServerTestResult
 }
 
 // Query keys
@@ -157,7 +211,8 @@ export function useServers() {
       const response = await fetch('/api/servers')
 
       if (!response.ok) {
-        throw new Error(`Failed to fetch servers: ${response.status}`)
+        const { message } = await readApiError(response)
+        throw new ApiError(message, { status: response.status })
       }
 
       const data = await response.json()
@@ -179,14 +234,11 @@ export function useServer(id: string) {
       const response = await fetch(`/api/servers/${id}`)
 
       if (!response.ok) {
-        if (response.status === 404) {
-          throw new Error("Server not found")
-        }
-        throw new Error("Failed to fetch server")
+        const { message } = await readApiError(response)
+        throw new ApiError(message, { status: response.status })
       }
 
-      const data = await response.json()
-      return data as Server
+      return (await response.json()) as Server
     },
     enabled: !!id
   })
@@ -196,22 +248,7 @@ export function useServer(id: string) {
 export function useTestServer(id: string) {
   return useQuery({
     queryKey: ['servers', id, 'test'],
-    queryFn: async () => {
-      const response = await fetch(`/api/servers/${id}/test`)
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to test server")
-      }
-
-      return data as {
-        success: boolean;
-        rsyncAvailable: boolean;
-        scpAvailable: boolean;
-        dockerAvailable?: boolean;
-        message?: string;
-      }
-    },
+    queryFn: () => testStoredServer(id),
     enabled: false,
   })
 }
@@ -220,50 +257,46 @@ export function useTestServer(id: string) {
 export function useTestNewServerBackupCapabilities() {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<Error | null>(null)
-  const [result, setResult] = useState<{
-    success: boolean;
-    rsyncAvailable: boolean;
-    scpAvailable: boolean;
-    dockerAvailable?: boolean;
-    message?: string;
-  } | null>(null)
+  const [result, setResult] = useState<
+    (ServerTestResult & { testedAt?: number; testedLabel?: string }) | null
+  >(null)
 
-  const testServer = async (serverData: {
-    host: string;
-    port: number;
-    username: string;
-    authType: 'password' | 'key';
-    password?: string;
-    privateKey?: string;
-    sshKeyId?: string;
-    systemKeyPath?: string;
-  }) => {
+  const testServer = async (serverData: ServerTestPayload) => {
     setIsLoading(true)
     setError(null)
+    setResult(null)
 
     try {
-      const response = await fetch('/api/servers/test', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(serverData),
-      })
-
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to test server connection")
+      const data = await testServerFromForm(serverData)
+      const withMeta = {
+        ...data,
+        testedAt: Date.now(),
+        testedLabel: `Current form values · ${serverData.username}@${serverData.host}:${serverData.port}`,
       }
-
-      setResult(data)
-      return data
+      setResult(withMeta)
+      return withMeta
     } catch (err) {
-      setError(err instanceof Error ? err : new Error('Unknown error'))
+      const message = err instanceof Error ? err.message : 'Unknown error'
+      setError(err instanceof Error ? err : new Error(message))
+      setResult({
+        success: false,
+        rsyncAvailable: false,
+        scpAvailable: false,
+        dockerAvailable: false,
+        authType: serverData.authType,
+        message,
+        testedAt: Date.now(),
+        testedLabel: `Current form values · ${serverData.username}@${serverData.host}:${serverData.port}`,
+      })
       throw err
     } finally {
       setIsLoading(false)
     }
+  }
+
+  const resetResult = () => {
+    setResult(null)
+    setError(null)
   }
 
   return {
@@ -271,6 +304,7 @@ export function useTestNewServerBackupCapabilities() {
     isLoading,
     error,
     result,
+    resetResult,
   }
 }
 

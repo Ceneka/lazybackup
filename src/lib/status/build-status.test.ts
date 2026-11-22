@@ -146,7 +146,42 @@ describe('buildStatusChecks', () => {
     expect(row?.severity).toBe('warn');
     expect(row?.detail).toContain('Daily DB');
     expect(row?.detail).toContain('and 1 more');
-    expect(row?.href).toBe('/history');
+    expect(row?.href).toBe('/backups');
+    expect(row?.linkLabel).toBe('Review backups');
+  });
+
+  test('links a single overdue schedule to that backup', () => {
+    const checks = buildStatusChecks(
+      baseSnapshot({
+        backups: {
+          total: 1,
+          enabled: 1,
+          encryptedOrPeerCount: 0,
+          failedLast24h: 0,
+          overdueSchedules: [{ id: 'job-1', name: 'Nightly' }],
+        },
+      })
+    );
+    const row = checks.find((c) => c.id === 'schedules-overdue');
+    expect(row?.href).toBe('/backups/job-1');
+    expect(row?.linkLabel).toBe('Review backups');
+  });
+
+  test('recent failures link to the failed history filter', () => {
+    const checks = buildStatusChecks(
+      baseSnapshot({
+        backups: {
+          total: 1,
+          enabled: 1,
+          encryptedOrPeerCount: 0,
+          failedLast24h: 2,
+          overdueSchedules: [],
+        },
+      })
+    );
+    const row = checks.find((c) => c.id === 'backups-failed-24h');
+    expect(row?.href).toBe('/history?status=failed');
+    expect(row?.linkLabel).toBe('See failures');
   });
 
   test('update available is info, not critical', () => {

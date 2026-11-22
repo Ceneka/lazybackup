@@ -1,11 +1,15 @@
 "use client"
 
 import {
+  ConnectionTestResultPanel,
+  type ConnectionTestOutcome,
+} from "@/components/connections/connection-test-result"
+import {
   DetailField,
   DetailFields,
   ResourceDetailLayout,
 } from "@/components/resource-detail-layout"
-import { UsedByBackupsCard } from "@/components/used-by-backups"
+import { InUseBlockers, UsedByBackupsCard, type UsedByBackup } from "@/components/used-by-backups"
 import { DeleteConfirmationDialog } from "@/components/ui/delete-confirmation-dialog"
 import {
   DetailActionLink,
@@ -16,8 +20,8 @@ import {
 } from "@/components/ui/detail-actions"
 import { LoadingButton } from "@/components/ui/loading-button"
 import { QueryState } from "@/components/ui/query-state"
+import { readApiError } from "@/lib/api/client-error"
 import { isResourceInUseError } from "@/lib/api/resource-in-use"
-import { testStoredGitRepo } from "@/lib/resource-actions"
 import { gitRepoKeys, useDeleteGitRepo, useGitRepo } from "@/lib/hooks/useGitRepos"
 import { useQueryClient } from "@tanstack/react-query"
 import { CableIcon, FolderPlusIcon, GitBranchIcon, PencilIcon } from "lucide-react"
@@ -33,6 +37,8 @@ export default function GitRepoPage() {
   const query = useGitRepo(id)
   const deleteRepo = useDeleteGitRepo()
   const [testing, setTesting] = useState(false)
+  const [testResult, setTestResult] = useState<ConnectionTestOutcome | null>(null)
+  const [deleteBlockers, setDeleteBlockers] = useState<UsedByBackup[] | null>(null)
 
   useEffect(() => {
     if (query.error?.message === "Git repository not found") {
@@ -46,22 +52,58 @@ export default function GitRepoPage() {
   async function handleTest() {
     if (!query.data) return
     setTesting(true)
+    setTestResult(null)
+    const testedLabel = `Saved repository · ${query.data.name}`
     try {
-      await testStoredGitRepo(query.data.id, query.data.name)
+      const response = await fetch(`/api/git-repos/${query.data.id}/test`)
+      if (!response.ok) {
+        const { message } = await readApiError(response)
+        setTestResult({
+          success: false,
+          message,
+          testedAt: Date.now(),
+          testedLabel,
+        })
+        return
+      }
+      const body = (await response.json()) as {
+        success?: boolean
+        message?: string
+        error?: string
+      }
+      setTestResult({
+        success: body.success !== false,
+        message: body.message || body.error || "Git connection OK",
+        testedAt: Date.now(),
+        testedLabel,
+      })
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Git connection failed")
+      setTestResult({
+        success: false,
+        message: error instanceof Error ? error.message : "Git connection failed",
+        testedAt: Date.now(),
+        testedLabel,
+      })
     } finally {
       setTesting(false)
     }
   }
 
   const handleDelete = () => {
+    setDeleteBlockers(null)
     deleteRepo.mutate(id, {
       onSuccess: () => {
         router.push("/connections?tab=git")
       },
       onError: (error) => {
         if (isResourceInUseError(error)) {
+          setDeleteBlockers(
+            error.resources.map((resource) => ({
+              id: resource.id,
+              name: resource.name,
+              roles: (resource.roles as UsedByBackup["roles"]) || ["source"],
+            }))
+          )
           queryClient.invalidateQueries({ queryKey: gitRepoKeys.detail(id) })
         }
       },
@@ -85,9 +127,10 @@ export default function GitRepoPage() {
           detailsTitle="Git details"
           details={
             <DetailFields>
-              <DetailField label="URL">{query.data.url}</DetailField>
+              <DetailField label="URL" mono>{query.data.url}</DetailField>
               <DetailField label="SSH key">
-                {query.data.sshKey?.name || (query.data.sshKeyId ? query.data.sshKeyId : "None")}
+                {query.data.sshKey?.name ||
+                  (query.data.sshKeyId ? "Unknown key" : "None")}
               </DetailField>
             </DetailFields>
           }
@@ -126,6 +169,20 @@ export default function GitRepoPage() {
                 triggerButtonClassName={detailActionDestructiveClassName}
               />
             </DetailActions>
+          }
+          actionsExtra={
+            testResult || deleteBlockers?.length ? (
+              <div className="mt-3 space-y-3">
+                {testResult ? (
+                  <ConnectionTestResultPanel
+                    result={testResult}
+                    onRetry={() => void handleTest()}
+                    retrying={testing}
+                  />
+                ) : null}
+                <InUseBlockers blockers={deleteBlockers} />
+              </div>
+            ) : null
           }
         >
           <UsedByBackupsCard

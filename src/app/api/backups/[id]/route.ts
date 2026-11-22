@@ -9,6 +9,7 @@ import { backupConfigSchema } from '@/lib/backup/schema';
 import { assertTransferServersHaveKeys } from '@/lib/backup/assert-transfer-keys';
 import { TransferKeyRequiredError } from '@/lib/backup/transfer-keys';
 import { attachLastValidation } from '@/lib/backup/validate';
+import { getLatestRun } from '@/lib/backup/latest-run';
 import { formatCronExpression } from '@/lib/cron/format';
 import { buildUpcomingEntry } from '@/lib/cron/next';
 import { db } from '@/lib/db';
@@ -61,6 +62,7 @@ export async function GET(
     const redacted = attachLastValidation(
       redactBackup(config as unknown as Record<string, unknown>) as Record<string, unknown>
     );
+    const latestRun = await getLatestRun(id);
 
     return NextResponse.json({
       ...redacted,
@@ -68,6 +70,7 @@ export async function GET(
       timezone: timeZone,
       nextRun: upcoming.nextRun,
       nextRunFormatted: upcoming.nextRunFormatted,
+      latestRun,
     });
   } catch (error) {
     console.error('Failed to fetch backup configuration:', error);

@@ -39,6 +39,7 @@ export async function GET(
     // Get the server
     const server = await db.query.servers.findFirst({
       where: eq(servers.id, id),
+      with: { sshKey: { columns: { id: true, name: true } } },
     });
 
     if (!server) {

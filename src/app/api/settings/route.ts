@@ -20,6 +20,14 @@ const settingSchema = z.object({
   value: z.string().optional(),
 });
 
+// Batch write: { settings: { key: value, … } } — used by the notification presets
+// so four fields are applied atomically instead of four separate POSTs.
+const batchSettingsSchema = z.object({
+  settings: z.record(z.string().min(1), z.string()),
+});
+
+const settingsBodySchema = z.union([batchSettingsSchema, settingSchema]);
+
 function isSensitiveKey(key: string): boolean {
   return sensitiveKeySet.has(key);
 }
@@ -56,13 +64,86 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST /api/settings - Create or update a setting
+/** Upsert one setting, skipping the write when the value is already stored. */
+async function writeSetting(key: string, value: string | undefined): Promise<boolean> {
+  const existingSetting = await db.query.settings.findFirst({
+    where: eq(settings.key, key),
+  });
+
+  if (existingSetting) {
+    if (existingSetting.value === value) return false;
+    await db.update(settings)
+      .set({
+        value,
+        updatedAt: new Date(),
+      })
+      .where(eq(settings.key, key));
+    return true;
+  }
+
+  await db.insert(settings).values({
+    id: nanoid(),
+    key,
+    value,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+  return true;
+}
+
+async function restartSchedulerForTimezone() {
+  clearTimezoneCache();
+  if (process.env.NEXT_RUNTIME === 'nodejs') {
+    const { restartScheduler } = await import('@/lib/scheduler');
+    await restartScheduler();
+  }
+}
+
+// POST /api/settings - Create or update one setting, or a batch of settings
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    
+
     // Validate the request body
-    const validatedData = settingSchema.parse(body);
+    const parsed = settingsBodySchema.parse(body);
+
+    if ('settings' in parsed) {
+      const values = parsed.settings;
+      const keys = Object.keys(values);
+
+      for (const key of keys) {
+        if (isSensitiveKey(key)) {
+          return NextResponse.json(
+            { error: `Setting "${key}" cannot be modified via the settings API. Use /api/auth instead.` },
+            { status: 403 }
+          );
+        }
+      }
+
+      if (
+        TIMEZONE_SETTING_KEY in values &&
+        values[TIMEZONE_SETTING_KEY] &&
+        !isValidTimezone(values[TIMEZONE_SETTING_KEY])
+      ) {
+        return NextResponse.json(
+          { error: 'Invalid timezone. Use an IANA name like America/Argentina/Buenos_Aires.' },
+          { status: 400 }
+        );
+      }
+
+      let changed = false;
+      for (const key of keys) {
+        changed = (await writeSetting(key, values[key])) || changed;
+      }
+
+      if (changed && TIMEZONE_SETTING_KEY in values) {
+        await restartSchedulerForTimezone();
+      }
+
+      return NextResponse.json({ settings: values });
+    }
+
+    const validatedData = parsed;
 
     if (isSensitiveKey(validatedData.key)) {
       return NextResponse.json(
@@ -81,59 +162,31 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-    
-    // Check if setting already exists
+
     const existingSetting = await db.query.settings.findFirst({
       where: eq(settings.key, validatedData.key),
     });
-    
-    if (existingSetting) {
-      // Update existing setting
-      await db.update(settings)
-        .set({
-          value: validatedData.value,
-          updatedAt: new Date(),
-        })
-        .where(eq(settings.key, validatedData.key));
-    } else {
-      // Create new setting
-      const newSetting = {
-        id: nanoid(),
-        key: validatedData.key,
-        value: validatedData.value,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
-      
-      await db.insert(settings).values(newSetting);
-    }
 
-    if (validatedData.key === TIMEZONE_SETTING_KEY) {
-      clearTimezoneCache();
-      if (process.env.NEXT_RUNTIME === 'nodejs') {
-        const { restartScheduler } = await import('@/lib/scheduler');
-        await restartScheduler();
-      }
-    }
+    const changed = await writeSetting(validatedData.key, validatedData.value);
 
-    if (existingSetting) {
-      return NextResponse.json({ key: validatedData.key, value: validatedData.value });
+    if (changed && validatedData.key === TIMEZONE_SETTING_KEY) {
+      await restartSchedulerForTimezone();
     }
 
     return NextResponse.json(
       { key: validatedData.key, value: validatedData.value },
-      { status: 201 }
+      { status: existingSetting ? 200 : 201 }
     );
   } catch (error) {
     console.error('Failed to save setting:', error);
-    
+
     if (error instanceof z.ZodError) {
       return NextResponse.json(
         { error: 'Validation error', details: error.issues },
         { status: 400 }
       );
     }
-    
+
     return NextResponse.json(
       { error: 'Failed to save setting' },
       { status: 500 }

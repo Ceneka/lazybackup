@@ -100,7 +100,7 @@ export function Navbar() {
   return (
     <header className="sticky top-0 z-[100] w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <NavigationProgressBar />
-      <div className="container mx-auto flex h-14 w-[90%] items-center justify-between">
+      <div className="container mx-auto flex h-14 items-center justify-between px-4">
         <div className="flex items-center">
           <Link href="/" className="flex items-center">
             <Logo withWordmark className="gap-2" />
@@ -108,24 +108,37 @@ export function Navbar() {
         </div>
 
         {/* Desktop Navigation */}
-        <nav className="hidden items-center space-x-4 md:flex lg:space-x-6">
-          {navItems.map((item) => {
-            const active = isActivePath(pathname, item.href, item.matchPrefixes)
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                aria-label={item.name}
-                className={cn(
-                  "flex items-center transition-colors hover:text-foreground/80",
-                  active ? "text-foreground" : "text-foreground/60"
-                )}
-              >
-                <item.icon className="mr-2 h-4 w-4" />
-                <span className="hidden lg:inline">{item.name}</span>
-              </Link>
-            )
-          })}
+        <div className="hidden items-center gap-2 md:flex">
+          <nav aria-label="Main" className="flex items-center gap-3 lg:gap-6">
+            {navItems.map((item) => {
+              const active = isActivePath(pathname, item.href, item.matchPrefixes)
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  aria-label={item.name}
+                  aria-current={active ? "page" : undefined}
+                  // Labels only fit from lg; the tooltip keeps icon-only
+                  // tablet links understandable (and hover-discoverable).
+                  title={item.name}
+                  className={cn(
+                    "relative flex h-14 items-center gap-2 rounded-sm text-sm font-medium transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+                    active ? "text-foreground" : "text-foreground/60"
+                  )}
+                >
+                  <item.icon className="h-4 w-4" aria-hidden />
+                  <span className="hidden lg:inline">{item.name}</span>
+                  <span
+                    aria-hidden
+                    className={cn(
+                      "absolute inset-x-0 bottom-0 h-0.5 rounded-full bg-primary transition-opacity",
+                      active ? "opacity-100" : "opacity-0"
+                    )}
+                  />
+                </Link>
+              )
+            })}
+          </nav>
           <ModeToggle />
           {showLogout && (
             <Button
@@ -140,7 +153,7 @@ export function Navbar() {
               <span className="hidden lg:inline">Logout</span>
             </Button>
           )}
-        </nav>
+        </div>
 
         {/* Mobile Navigation */}
         <div className="flex items-center gap-2 md:hidden">

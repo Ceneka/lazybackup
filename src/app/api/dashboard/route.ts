@@ -1,13 +1,20 @@
 import { errorSnippet } from "@/lib/backup/error-snippet"
-import { toLocalDateKey } from "@/lib/backup/local-date"
 import { getBackupStorageStats } from "@/lib/backup/storage-stats"
 import { successRate as calcSuccessRate } from "@/lib/backup/success-rate"
 import { buildUpcomingEntry } from "@/lib/cron/next"
 import { db } from "@/lib/db"
-import { backupConfigs, backupHistory, s3Profiles, servers } from "@/lib/db/schema"
+import {
+  backupConfigs,
+  backupHistory,
+  gitRepos,
+  s3Profiles,
+  servers,
+} from "@/lib/db/schema"
 import { getAppTimezone } from "@/lib/settings/timezone"
-import { and, desc, eq, gte, sql } from "drizzle-orm"
+import { dateKeyInTimeZone, zonedDayStart } from "@/lib/backup/local-date"
+import { and, desc, eq, gt, gte, sql } from "drizzle-orm"
 import { NextRequest, NextResponse } from "next/server"
+
 
 /**
  * GET /api/dashboard - Aggregated dashboard data (default: last 30 days)
@@ -20,9 +27,20 @@ export async function GET(request: NextRequest) {
       Math.max(1, parseInt(searchParams.get("days") || "30", 10) || 30)
     )
 
-    const since = new Date()
-    since.setHours(0, 0, 0, 0)
-    since.setDate(since.getDate() - (days - 1))
+    const timeZone = await getAppTimezone()
+    const todayKey = dateKeyInTimeZone(new Date(), timeZone)
+    const [todayYear, todayMonth, todayDay] = todayKey.split("-").map(Number)
+    const dayKeys: string[] = []
+    for (let i = 0; i < days; i++) {
+      const d = new Date(
+        Date.UTC(todayYear, todayMonth - 1, todayDay - (days - 1 - i))
+      )
+      const y = d.getUTCFullYear()
+      const m = String(d.getUTCMonth() + 1).padStart(2, "0")
+      const day = String(d.getUTCDate()).padStart(2, "0")
+      dayKeys.push(`${y}-${m}-${day}`)
+    }
+    const since = zonedDayStart(dayKeys[0], timeZone)
 
     const [serverCountRow] = await db
       .select({ count: sql<number>`count(*)` })
@@ -30,6 +48,9 @@ export async function GET(request: NextRequest) {
     const [s3CountRow] = await db
       .select({ count: sql<number>`count(*)` })
       .from(s3Profiles)
+    const [gitCountRow] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(gitRepos)
     const [backupCountRow] = await db
       .select({ count: sql<number>`count(*)` })
       .from(backupConfigs)
@@ -88,7 +109,8 @@ export async function GET(request: NextRequest) {
 
     const totalInWindow =
       statusCounts.running + statusCounts.success + statusCounts.failed
-    const successRate = calcSuccessRate(statusCounts.success, totalInWindow)
+    const finishedInWindow = statusCounts.success + statusCounts.failed
+    const successRate = calcSuccessRate(statusCounts.success, finishedInWindow)
 
     const [sizeAgg] = await db
       .select({
@@ -108,18 +130,13 @@ export async function GET(request: NextRequest) {
       .where(windowWhere)
       .orderBy(backupHistory.startTime)
 
-    const dayKeys: string[] = []
     const byDay: Record<string, { success: number; failed: number; running: number }> = {}
-    for (let i = 0; i < days; i++) {
-      const d = new Date(since)
-      d.setDate(since.getDate() + i)
-      const key = toLocalDateKey(d)
-      dayKeys.push(key)
+    for (const key of dayKeys) {
       byDay[key] = { success: 0, failed: 0, running: 0 }
     }
 
     for (const row of historyRows) {
-      const key = toLocalDateKey(new Date(row.startTime))
+      const key = dateKeyInTimeZone(new Date(row.startTime), timeZone)
       if (!byDay[key]) continue
       if (row.status === "success" || row.status === "failed" || row.status === "running") {
         byDay[key][row.status] += 1
@@ -140,6 +157,7 @@ export async function GET(request: NextRequest) {
         status: true,
         startTime: true,
         errorMessage: true,
+        mailboxPending: true,
       },
       with: {
         backupConfig: {
@@ -152,14 +170,16 @@ export async function GET(request: NextRequest) {
       status: row.status,
       startTime: new Date(row.startTime).toISOString(),
       errorSnippet: errorSnippet(row.errorMessage),
+      mailboxPending: row.mailboxPending,
       backupConfig: row.backupConfig ? { name: row.backupConfig.name } : null,
     }))
 
     const lastFailedRow = await db.query.backupHistory.findFirst({
-      where: eq(backupHistory.status, "failed"),
+      where: and(eq(backupHistory.status, "failed"), windowWhere),
       orderBy: [desc(backupHistory.startTime)],
       columns: {
         id: true,
+        configId: true,
         startTime: true,
         errorMessage: true,
       },
@@ -169,18 +189,71 @@ export async function GET(request: NextRequest) {
         },
       },
     })
-    const lastFailure = lastFailedRow
+    let lastFailure: {
+      id: string
+      configId: string
+      configName: string
+      startTime: string
+      errorSnippet: string | null
+      resolved: boolean
+      successesSince: number
+    } | null = null
+    if (lastFailedRow) {
+      const [newerSuccess, [successCountRow]] = await Promise.all([
+        db.query.backupHistory.findFirst({
+          where: and(
+            eq(backupHistory.configId, lastFailedRow.configId),
+            eq(backupHistory.status, "success"),
+            gt(backupHistory.startTime, lastFailedRow.startTime)
+          ),
+          columns: { id: true },
+        }),
+        db
+          .select({ count: sql<number>`count(*)` })
+          .from(backupHistory)
+          .where(
+            and(
+              eq(backupHistory.status, "success"),
+              gt(backupHistory.startTime, lastFailedRow.startTime)
+            )
+          ),
+      ])
+      lastFailure = {
+        id: lastFailedRow.id,
+        configId: lastFailedRow.configId,
+        configName: lastFailedRow.backupConfig?.name || "Unnamed Backup",
+        startTime: new Date(lastFailedRow.startTime).toISOString(),
+        errorSnippet: errorSnippet(lastFailedRow.errorMessage),
+        resolved: Boolean(newerSuccess),
+        successesSince: Number(successCountRow?.count || 0),
+      }
+    }
+
+    const lastSuccessRow = await db.query.backupHistory.findFirst({
+      where: eq(backupHistory.status, "success"),
+      orderBy: [desc(backupHistory.startTime)],
+      columns: {
+        id: true,
+        configId: true,
+        startTime: true,
+      },
+      with: {
+        backupConfig: {
+          columns: { name: true },
+        },
+      },
+    })
+    const lastSuccess = lastSuccessRow
       ? {
-          id: lastFailedRow.id,
-          configName: lastFailedRow.backupConfig?.name || "Unnamed Backup",
-          startTime: new Date(lastFailedRow.startTime).toISOString(),
-          errorSnippet: errorSnippet(lastFailedRow.errorMessage),
+          id: lastSuccessRow.id,
+          configId: lastSuccessRow.configId,
+          configName: lastSuccessRow.backupConfig?.name || "Unnamed Backup",
+          startTime: new Date(lastSuccessRow.startTime).toISOString(),
         }
       : null
 
     const storage = await getBackupStorageStats()
 
-    const timeZone = await getAppTimezone()
     const enabledConfigs = await db.query.backupConfigs.findMany({
       where: eq(backupConfigs.enabled, true),
       with: { server: true, destinationServer: true, sourceS3Profile: true, destinationS3Profile: true },
@@ -199,6 +272,7 @@ export async function GET(request: NextRequest) {
       since: since.toISOString(),
       servers: Number(serverCountRow?.count || 0),
       s3Profiles: Number(s3CountRow?.count || 0),
+      gitRepos: Number(gitCountRow?.count || 0),
       backups: Number(backupCountRow?.count || 0),
       enabledBackups: Number(enabledCountRow?.count || 0),
       serverList,
@@ -213,6 +287,7 @@ export async function GET(request: NextRequest) {
       daily,
       recentHistory,
       lastFailure,
+      lastSuccess,
       storage,
       timezone: timeZone,
       upcomingBackups,

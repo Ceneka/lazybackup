@@ -32,9 +32,19 @@ export type DashboardBackupItem = {
 
 export type DashboardLastFailure = {
   id: string
+  configId: string
   configName: string
   startTime: string
   errorSnippet: string | null
+  resolved: boolean
+  successesSince: number
+}
+
+export type DashboardLastSuccess = {
+  id: string
+  configId: string
+  configName: string
+  startTime: string
 }
 
 export type DashboardRecentHistory = {
@@ -42,6 +52,7 @@ export type DashboardRecentHistory = {
   status: "running" | "success" | "failed" | string
   startTime: string
   errorSnippet: string | null
+  mailboxPending: boolean
   backupConfig: { name: string } | null
 }
 
@@ -50,6 +61,7 @@ export type DashboardData = {
   since: string
   servers: number
   s3Profiles: number
+  gitRepos: number
   backups: number
   enabledBackups: number
   serverList: DashboardServerItem[]
@@ -64,6 +76,7 @@ export type DashboardData = {
   daily: DashboardDaily[]
   recentHistory: DashboardRecentHistory[]
   lastFailure: DashboardLastFailure | null
+  lastSuccess: DashboardLastSuccess | null
   timezone: string
   upcomingBackups: UpcomingBackup[]
   storage: {

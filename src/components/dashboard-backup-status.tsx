@@ -1,12 +1,14 @@
 "use client"
 
+import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
 import { localDayRange } from "@/lib/backup/local-date"
 import { successRate as calcSuccessRate } from "@/lib/backup/success-rate"
-import type { DashboardDaily } from "@/lib/hooks/useDashboard"
+import { formatInTimezone } from "@/lib/cron/format"
+import type { DashboardDaily, DashboardLastSuccess } from "@/lib/hooks/useDashboard"
 import { cn } from "@/lib/utils"
-import { format } from "date-fns"
+import { format, formatDistanceToNow } from "date-fns"
 import { CheckCircleIcon, PlayIcon, XCircleIcon } from "lucide-react"
 import Link from "next/link"
 import { useState } from "react"
@@ -75,53 +77,64 @@ function DayChart({
               <p className="text-muted-foreground">
                 {tip.success} ok · {tip.failed} failed
                 {tip.running > 0 ? ` · ${tip.running} running` : ""}
-                {tip.total > 0 ? ` · ${calcSuccessRate(tip.success, tip.total)}%` : ""}
+                {tip.success + tip.failed > 0
+                  ? ` · ${calcSuccessRate(tip.success, tip.success + tip.failed)}%`
+                  : ""}
               </p>
             )}
           </div>
         ) : null}
-        <div className="flex h-36 items-end gap-px" onMouseLeave={() => onHover(null)}>
-          {daily.map((day) => {
-            const px = day.total === 0 ? 3 : Math.max(10, Math.round((day.total / max) * 140))
-            const isSelected = selectedDate === day.date
-            const isHovered = hoveredDate === day.date
-            return (
-              <button
-                key={day.date}
-                type="button"
-                aria-pressed={isSelected}
-                aria-label={`${formatDay(day.date, "MMMM d, yyyy")}: ${day.success} ok, ${day.failed} failed, ${day.running} running`}
-                onClick={() => onSelect(day.date)}
-                onMouseEnter={() => onHover(day.date)}
-                onFocus={() => onHover(day.date)}
-                className={cn(
-                  "flex min-w-0 flex-1 cursor-pointer flex-col items-center justify-end rounded-sm py-0.5 outline-none transition-colors",
-                  "hover:bg-muted/70 focus-visible:ring-2 focus-visible:ring-ring/60",
-                  isSelected && "bg-muted",
-                  isHovered && !isSelected && "bg-muted/50"
-                )}
-              >
-                <div
+        <div className="-mx-1 overflow-x-auto pb-1">
+          <div
+            role="group"
+            aria-label="Daily backup runs"
+            className="flex h-36 min-w-[600px] items-end gap-px sm:min-w-0"
+            onMouseLeave={() => onHover(null)}
+          >
+            {daily.map((day) => {
+              const px = day.total === 0 ? 3 : Math.max(10, Math.round((day.total / max) * 140))
+              const isSelected = selectedDate === day.date
+              const isHovered = hoveredDate === day.date
+              return (
+                <button
+                  key={day.date}
+                  type="button"
+                  aria-pressed={isSelected}
+                  aria-label={`${formatDay(day.date, "MMMM d, yyyy")}: ${day.success} ok, ${day.failed} failed, ${day.running} running`}
+                  onClick={() => onSelect(day.date)}
+                  onMouseEnter={() => onHover(day.date)}
+                  onFocus={() => onHover(day.date)}
+                  onBlur={() => onHover(null)}
                   className={cn(
-                    "mx-auto flex w-full max-w-[10px] flex-col justify-end overflow-hidden rounded-t-sm",
-                    isSelected && "ring-2 ring-foreground/80 ring-offset-1 ring-offset-background"
+                    "flex min-w-6 flex-1 cursor-pointer touch-manipulation flex-col items-center justify-end rounded-sm py-0.5 outline-none transition-colors",
+                    "hover:bg-muted/70 focus-visible:ring-2 focus-visible:ring-ring/60",
+                    isSelected && "bg-muted",
+                    isHovered && !isSelected && "bg-muted/50"
                   )}
-                  style={{ height: `${px}px` }}
                 >
-                  {day.failed > 0 && (
-                    <div className="w-full bg-red-500" style={{ flex: day.failed }} />
-                  )}
-                  {day.running > 0 && (
-                    <div className="w-full bg-blue-500" style={{ flex: day.running }} />
-                  )}
-                  {day.success > 0 && (
-                    <div className="w-full bg-green-500" style={{ flex: day.success }} />
-                  )}
-                  {day.total === 0 && <div className="w-full flex-1 bg-muted-foreground/25" />}
-                </div>
-              </button>
-            )
-          })}
+                  <div
+                    aria-hidden="true"
+                    className={cn(
+                      "mx-auto flex w-full max-w-[10px] flex-col justify-end overflow-hidden rounded-t-sm",
+                      isSelected && "ring-2 ring-foreground/80 ring-offset-1 ring-offset-background"
+                    )}
+                    style={{ height: `${px}px` }}
+                  >
+                    {day.failed > 0 && (
+                      <div className="w-full bg-red-500" style={{ flex: day.failed }} />
+                    )}
+                    {day.running > 0 && (
+                      <div className="w-full bg-blue-500" style={{ flex: day.running }} />
+                    )}
+                    {day.success > 0 && (
+                      <div className="w-full bg-emerald-500" style={{ flex: day.success }} />
+                    )}
+                    {day.total === 0 && <div className="w-full flex-1 bg-muted-foreground/25" />}
+                  </div>
+                </button>
+              )
+            })}
+          </div>
         </div>
       </div>
       <div className="flex justify-between text-xs text-muted-foreground">
@@ -138,12 +151,18 @@ export function DashboardBackupStatus({
   successRate,
   statusCounts,
   daily,
+  lastSuccess,
+  overdue,
+  timeZone,
 }: {
   days: number
   totalRuns: number
   successRate: number
   statusCounts: { running: number; success: number; failed: number }
   daily: DashboardDaily[]
+  lastSuccess: DashboardLastSuccess | null
+  overdue: { id: string; name: string }[] | null
+  timeZone: string
 }) {
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
   const [hoveredDate, setHoveredDate] = useState<string | null>(null)
@@ -155,15 +174,34 @@ export function DashboardBackupStatus({
         success: selected.success,
         failed: selected.failed,
         total: selected.total,
-        rate: selected.total === 0 ? null : calcSuccessRate(selected.success, selected.total),
+        finished: selected.success + selected.failed,
+        rate:
+          selected.success + selected.failed === 0
+            ? null
+            : calcSuccessRate(selected.success, selected.success + selected.failed),
       }
     : {
         running: statusCounts.running,
         success: statusCounts.success,
         failed: statusCounts.failed,
         total: totalRuns,
-        rate: totalRuns === 0 ? null : successRate,
+        finished: statusCounts.success + statusCounts.failed,
+        rate: statusCounts.success + statusCounts.failed === 0 ? null : successRate,
       }
+
+  const hasChartData = daily.some((d) => d.total > 0)
+  const rateTone =
+    view.failed === 0
+      ? "text-emerald-700 dark:text-emerald-400"
+      : view.rate === 0
+        ? "text-destructive"
+        : "text-amber-700 dark:text-amber-400"
+  const barTone =
+    view.failed === 0
+      ? ""
+      : view.rate === 0
+        ? "[&>[data-slot=progress-indicator]]:bg-destructive"
+        : "[&>[data-slot=progress-indicator]]:bg-amber-500"
 
   const toggleDay = (date: string) => {
     setSelectedDate((prev) => (prev === date ? null : date))
@@ -172,7 +210,9 @@ export function DashboardBackupStatus({
   return (
     <Card className="lg:col-span-3">
       <CardHeader className="pb-2">
-        <CardTitle>Backup status</CardTitle>
+        <CardTitle>
+          <h2 className="text-base font-semibold">Backup status</h2>
+        </CardTitle>
         <CardDescription>
           {selected ? (
             <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -183,7 +223,7 @@ export function DashboardBackupStatus({
               <button
                 type="button"
                 onClick={() => setSelectedDate(null)}
-                className="text-blue-500 hover:underline"
+                className="text-blue-700 hover:underline dark:text-blue-400"
               >
                 Show last {days} days
               </button>
@@ -196,19 +236,77 @@ export function DashboardBackupStatus({
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+          <span className="text-muted-foreground">Last success:</span>
+          {lastSuccess ? (
+            <span
+              className="min-w-0 truncate font-medium"
+              title={formatInTimezone(new Date(lastSuccess.startTime), timeZone)}
+            >
+              {lastSuccess.configName} ·{" "}
+              {formatDistanceToNow(new Date(lastSuccess.startTime), { addSuffix: true })}
+            </span>
+          ) : (
+            <span className="font-medium text-muted-foreground">Never</span>
+          )}
+          <Badge
+            variant={
+              overdue ? (overdue.length > 0 ? "warning" : "success") : "muted"
+            }
+          >
+            {overdue
+              ? overdue.length > 0
+                ? `Overdue: ${overdue.length}`
+                : "On schedule"
+              : "Checking schedules…"}
+          </Badge>
+        </div>
+
+        {overdue && overdue.length > 0 ? (
+          <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3">
+            <p className="text-sm font-medium text-amber-800 dark:text-amber-300">
+              Needs attention
+            </p>
+            <ul className="mt-1 space-y-1 text-sm">
+              {overdue.slice(0, 3).map((item) => (
+                <li key={item.id}>
+                  <Link
+                    href={`/backups/${item.id}`}
+                    className="text-amber-800 underline-offset-2 hover:underline dark:text-amber-300"
+                  >
+                    {item.name}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+            {overdue.length > 3 ? (
+              <Link
+                href="/backups"
+                className="mt-1 inline-block text-sm text-amber-800 underline-offset-2 hover:underline dark:text-amber-300"
+              >
+                +{overdue.length - 3} more overdue
+              </Link>
+            ) : null}
+          </div>
+        ) : null}
+
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             {view.rate == null ? (
               <>
                 <div className="text-4xl font-bold tracking-tight text-muted-foreground">—</div>
                 <div className="text-sm text-muted-foreground">
-                  {selected ? "No runs this day" : "No runs yet"}
+                  {selected ? "No finished runs this day" : "No finished runs yet"}
                 </div>
               </>
             ) : (
               <>
-                <div className="text-4xl font-bold tracking-tight">{view.rate}%</div>
-                <div className="text-sm text-muted-foreground">Success rate</div>
+                <div className={cn("text-4xl font-bold tracking-tight", rateTone)}>
+                  {view.rate}%
+                </div>
+                <div className="text-sm text-muted-foreground">
+                  Success rate of finished runs
+                </div>
               </>
             )}
           </div>
@@ -218,28 +316,34 @@ export function DashboardBackupStatus({
               className="flex items-center gap-1.5 rounded-md transition-opacity hover:opacity-80"
               title={selected ? "Running this day" : "View running backups"}
             >
-              <PlayIcon className="h-4 w-4 text-blue-500" />
-              <span className="font-medium text-blue-500">{view.running}</span>
+              <PlayIcon aria-hidden="true" className="h-4 w-4 text-blue-500" />
+              <span className="font-medium text-blue-700 dark:text-blue-400">
+                {view.running}
+              </span>
             </Link>
             <Link
               href={historyHref(selectedDate, "success")}
               className="flex items-center gap-1.5 rounded-md transition-opacity hover:opacity-80"
               title={selected ? "Successful this day" : "View successful backups"}
             >
-              <CheckCircleIcon className="h-4 w-4 text-green-500" />
-              <span className="font-medium text-green-500">{view.success}</span>
+              <CheckCircleIcon aria-hidden="true" className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+              <span className="font-medium text-emerald-700 dark:text-emerald-400">
+                {view.success}
+              </span>
             </Link>
             <Link
               href={historyHref(selectedDate, "failed")}
               className="flex items-center gap-1.5 rounded-md transition-opacity hover:opacity-80"
               title={selected ? "Failed this day" : "View failed backups"}
             >
-              <XCircleIcon className="h-4 w-4 text-red-500" />
-              <span className="font-medium text-red-500">{view.failed}</span>
+              <XCircleIcon aria-hidden="true" className="h-4 w-4 text-red-600 dark:text-red-400" />
+              <span className="font-medium text-destructive">{view.failed}</span>
             </Link>
           </div>
         </div>
-        {view.rate != null ? <Progress value={view.rate} className="h-2" /> : null}
+        {view.rate != null ? (
+          <Progress value={view.rate} className={cn("h-2", barTone)} />
+        ) : null}
         <DayChart
           daily={daily}
           selectedDate={selectedDate}
@@ -248,16 +352,20 @@ export function DashboardBackupStatus({
           onHover={setHoveredDate}
         />
         <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-          <p className="text-muted-foreground">
-            {hoveredDate
-              ? "Click the bar to filter this card"
-              : selected
-                ? "Click the selected bar again to show all days"
-                : "Hover a day for counts · click to filter"}
-          </p>
+          {hasChartData ? (
+            <p className="text-muted-foreground">
+              {hoveredDate
+                ? "Tap or click the bar to filter this card"
+                : selected
+                  ? "Tap the selected bar again to show all days"
+                  : "Tap or hover a day for counts · tap to filter"}
+            </p>
+          ) : (
+            <span />
+          )}
           <Link
             href={historyHref(selectedDate)}
-            className="text-blue-500 hover:underline"
+            className="text-blue-700 hover:underline dark:text-blue-400"
           >
             {selected
               ? `View ${formatDay(selected.date, "MMM d")} in history`

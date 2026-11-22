@@ -1,7 +1,7 @@
 import { redactSshKey } from '@/lib/api/redact';
 import { db } from '@/lib/db';
-import { servers, sshKeys } from '@/lib/db/schema';
-import { findServersUsingSshKey } from '@/lib/ssh/key-usage';
+import { gitRepos, servers, sshKeys } from '@/lib/db/schema';
+import { findGitReposUsingSshKey, findServersUsingSshKey } from '@/lib/ssh/key-usage';
 import { promises as fs } from 'fs';
 import { nanoid } from 'nanoid';
 import { NextRequest, NextResponse } from 'next/server';
@@ -69,10 +69,14 @@ export async function GET(request: NextRequest) {
     const allServers = await db
       .select({ id: servers.id, name: servers.name, sshKeyId: servers.sshKeyId })
       .from(servers);
+    const allGitRepos = await db
+      .select({ id: gitRepos.id, name: gitRepos.name, sshKeyId: gitRepos.sshKeyId })
+      .from(gitRepos);
 
     const storedKeysWithUsage = storedKeys.map((key) => ({
       ...redactSshKey(key as unknown as Record<string, unknown>),
       usedByServers: findServersUsingSshKey(allServers, key.id),
+      usedByGitRepos: findGitReposUsingSshKey(allGitRepos, key.id),
     }));
 
     // If system keys are requested, find and include them

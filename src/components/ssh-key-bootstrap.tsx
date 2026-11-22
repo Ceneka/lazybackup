@@ -1,6 +1,7 @@
 "use client"
 
 import { Button } from "@/components/ui/button"
+import { copyToClipboard } from "@/lib/clipboard"
 import {
   GeneratedSSHKey,
   SSHKeyInstallCommand,
@@ -9,6 +10,7 @@ import {
 } from "@/lib/hooks/useSSHKeys"
 import { useQueryClient } from "@tanstack/react-query"
 import { CheckIcon, ClipboardIcon, KeyRoundIcon, Loader2Icon } from "lucide-react"
+import Link from "next/link"
 import { useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 
@@ -109,12 +111,12 @@ export function SSHKeyBootstrap({
 
   const handleCopy = async () => {
     if (!install?.installCommand) return
-    try {
-      await navigator.clipboard.writeText(install.installCommand)
+    const copied = await copyToClipboard(install.installCommand)
+    if (copied) {
       setCopied(true)
       toast.success("Install command copied")
       window.setTimeout(() => setCopied(false), 2000)
-    } catch {
+    } else {
       setShowCommand(true)
       window.setTimeout(() => commandRef.current?.select(), 0)
       toast.error("Could not copy — select the command and copy manually")
@@ -127,7 +129,12 @@ export function SSHKeyBootstrap({
         <div className="min-w-0">
           <p className="text-sm font-medium">Authorize without sharing your key</p>
           <p className="text-xs text-muted-foreground">
-            Create a dedicated key, then paste the command on the host.
+            Create a dedicated key, then paste the command on the host. A new key is
+            saved immediately to{" "}
+            <Link href="/settings?tab=ssh-keys" className="underline underline-offset-2">
+              Settings → SSH keys
+            </Link>{" "}
+            even if you cancel this form.
           </p>
         </div>
         <Button

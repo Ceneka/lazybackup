@@ -2,7 +2,8 @@ import { historyBackupConfigWith } from '@/lib/api/history-query';
 import { redactHistoryEntry } from '@/lib/api/redact';
 import { db } from '@/lib/db';
 import { backupConfigs, backupHistory, servers } from '@/lib/db/schema';
-import { localDayRange } from '@/lib/backup/local-date';
+import { zonedDayRange } from '@/lib/backup/local-date';
+import { getAppTimezone } from '@/lib/settings/timezone';
 import { and, desc, eq, gte, inArray, like, lt, or, sql } from 'drizzle-orm';
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -21,7 +22,14 @@ export async function GET(request: NextRequest) {
     const configId = searchParams.get('configId') || searchParams.get('backupId');
     const search = searchParams.get('search')?.trim() || '';
     const day = searchParams.get('day')?.trim() || '';
-    const dayRange = localDayRange(day);
+    // Day keys are calendar days in the app timezone (matches dashboard buckets).
+    const timeZone = await getAppTimezone();
+    const dayRange = zonedDayRange(day, timeZone);
+    // Additive multi-day range: inclusive day keys `from`/`to`.
+    const from = searchParams.get('from')?.trim() || '';
+    const to = searchParams.get('to')?.trim() || '';
+    const fromRange = zonedDayRange(from, timeZone);
+    const toRange = zonedDayRange(to, timeZone);
 
     const conditions = [];
 
@@ -36,6 +44,14 @@ export async function GET(request: NextRequest) {
     if (dayRange) {
       conditions.push(gte(backupHistory.startTime, dayRange.start));
       conditions.push(lt(backupHistory.startTime, dayRange.end));
+    }
+
+    if (fromRange) {
+      conditions.push(gte(backupHistory.startTime, fromRange.start));
+    }
+
+    if (toRange) {
+      conditions.push(lt(backupHistory.startTime, toRange.end));
     }
 
     if (search) {
@@ -63,7 +79,7 @@ export async function GET(request: NextRequest) {
             offset,
             hasMore: false,
           },
-          filters: { status: status || null, configId: configId || null, search, day: dayRange ? day : null },
+          filters: { status: status || null, configId: configId || null, search, day: dayRange ? day : null, from: fromRange ? from : null, to: toRange ? to : null },
         });
       }
       conditions.push(inArray(backupHistory.configId, ids));
@@ -73,6 +89,9 @@ export async function GET(request: NextRequest) {
 
     const history = await db.query.backupHistory.findMany({
       where: whereClause,
+      // The list never renders log output; the detail endpoint is the only
+      // consumer. Skipping it keeps refreshes/SSE invalidation cheap.
+      columns: { logOutput: false },
       with: {
         backupConfig: historyBackupConfigWith,
       },
@@ -113,6 +132,8 @@ export async function GET(request: NextRequest) {
         configName,
         search: search || null,
         day: dayRange ? day : null,
+        from: fromRange ? from : null,
+        to: toRange ? to : null,
       },
     });
   } catch (error) {

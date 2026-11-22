@@ -121,13 +121,12 @@ export function BackupRecipesEmpty() {
       </div>
 
       <div className="flex flex-col items-center gap-3">
-        <Link
-          href="/backups/new"
-          className="inline-flex h-10 items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium ring-offset-background transition-colors hover:bg-accent hover:text-accent-foreground"
-        >
-          <PlusIcon className="mr-2 h-4 w-4" />
-          Start from scratch
-        </Link>
+        <Button asChild>
+          <Link href="/backups/new">
+            <PlusIcon aria-hidden="true" className="h-4 w-4" />
+            Start from scratch
+          </Link>
+        </Button>
         {process.env.NODE_ENV !== "production" ? <DevSeedCta /> : null}
       </div>
     </div>

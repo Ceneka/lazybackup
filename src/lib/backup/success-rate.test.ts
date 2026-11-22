@@ -17,4 +17,13 @@ describe("successRate", () => {
   test("rounds to the nearest percent", () => {
     expect(successRate(1, 3)).toBe(33)
   })
+
+  test("never rounds up to 100 while a run failed", () => {
+    expect(successRate(199, 200)).toBe(99)
+    expect(successRate(9999, 10000)).toBe(99)
+  })
+
+  test("returns 100 when every run succeeded", () => {
+    expect(successRate(4, 4)).toBe(100)
+  })
 })

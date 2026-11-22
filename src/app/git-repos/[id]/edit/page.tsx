@@ -2,9 +2,10 @@
 
 import { ResourceEditLayout } from "@/components/resource-detail-layout"
 import { GitRepoForm } from "@/components/git-repo-form"
+import { DataState } from "@/components/ui/data-state"
+import { ApiError, readApiError } from "@/lib/api/client-error"
 import { gitRepoKeys, useGitRepo, type GitRepoInput } from "@/lib/hooks/useGitRepos"
 import { useQueryClient } from "@tanstack/react-query"
-import { Loader2Icon } from "lucide-react"
 import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
 import { useState } from "react"
@@ -17,61 +18,45 @@ export default function EditGitRepoPage() {
   const queryClient = useQueryClient()
   const repoQuery = useGitRepo(id)
   const [submitting, setSubmitting] = useState(false)
+  const [formError, setFormError] = useState<string | null>(null)
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
+
+  const notFound =
+    repoQuery.isError &&
+    repoQuery.error instanceof ApiError &&
+    repoQuery.error.status === 404
+  const fetchError =
+    repoQuery.isError && !notFound
+      ? repoQuery.error instanceof Error
+        ? repoQuery.error.message
+        : "Failed to fetch Git repository"
+      : null
 
   async function handleSubmit(data: GitRepoInput) {
     setSubmitting(true)
+    setFormError(null)
+    setFieldErrors({})
     try {
       const response = await fetch(`/api/git-repos/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
       })
-      const body = await response.json()
       if (!response.ok) {
-        throw new Error(body.error || "Failed to update Git repository")
+        const { message, fieldErrors } = await readApiError(response)
+        setFormError(message)
+        setFieldErrors(fieldErrors)
+        return
       }
       await queryClient.invalidateQueries({ queryKey: gitRepoKeys.lists() })
       await queryClient.invalidateQueries({ queryKey: gitRepoKeys.detail(id) })
       toast.success("Git repository updated")
       router.push(`/git-repos/${id}`)
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to update Git repository")
+      setFormError(err instanceof Error ? err.message : "Failed to update Git repository")
     } finally {
       setSubmitting(false)
     }
-  }
-
-  if (repoQuery.isLoading) {
-    return (
-      <div className="flex items-center gap-2 text-muted-foreground">
-        <Loader2Icon className="h-4 w-4 animate-spin" />
-        Loading…
-      </div>
-    )
-  }
-
-  if (!repoQuery.data) {
-    return (
-      <div className="py-8 text-center">
-        <h2 className="text-2xl font-bold">Git repository not found</h2>
-        <p className="mt-2 mb-4 text-muted-foreground">
-          The repository you&apos;re trying to edit doesn&apos;t exist or has been deleted.
-        </p>
-        <Link
-          href="/connections?tab=git"
-          className="inline-flex h-10 items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-        >
-          Back to Git repositories
-        </Link>
-      </div>
-    )
-  }
-
-  const repo = repoQuery.data
-  const initial: GitRepoInput = {
-    name: repo.name,
-    url: repo.url,
-    sshKeyId: repo.sshKeyId,
   }
 
   return (
@@ -80,20 +65,49 @@ export default function EditGitRepoPage() {
       backLabel="Back to Git repository"
       title="Edit Git repository"
     >
-      <GitRepoForm
-        initial={initial}
-        submitting={submitting}
-        submitLabel="Save Changes"
-        cancelHref={`/git-repos/${id}`}
-        testStoredRepo={async () => {
-          const response = await fetch(`/api/git-repos/${id}/test`)
-          const body = await response.json()
-          if (!response.ok) {
-            throw new Error(body.error || "Git connection failed")
-          }
-        }}
-        onSubmit={handleSubmit}
-      />
+      <DataState
+        isLoading={repoQuery.isLoading}
+        error={fetchError}
+        isEmpty={notFound}
+        emptyMessage="Git repository not found"
+        emptyDescription="The repository you're trying to edit doesn't exist or has been deleted."
+        emptyAction={
+          <Link
+            href="/connections?tab=git"
+            className="inline-flex h-10 items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+          >
+            Back to Git repositories
+          </Link>
+        }
+        onRetry={() => void repoQuery.refetch()}
+        isRetrying={repoQuery.isFetching}
+      >
+        {repoQuery.data ? (
+          <GitRepoForm
+            initial={{
+              name: repoQuery.data.name,
+              url: repoQuery.data.url,
+              sshKeyId: repoQuery.data.sshKeyId,
+            }}
+            submitting={submitting}
+            submitLabel="Save changes"
+            cancelHref={`/git-repos/${id}`}
+            formError={formError}
+            fieldErrors={fieldErrors}
+            testStoredRepo={async () => {
+              const response = await fetch(`/api/git-repos/${id}/test`)
+              if (!response.ok) {
+                const { message, fieldErrors } = await readApiError(response)
+                throw new ApiError(message, {
+                  status: response.status,
+                  fieldErrors,
+                })
+              }
+            }}
+            onSubmit={handleSubmit}
+          />
+        ) : null}
+      </DataState>
     </ResourceEditLayout>
   )
 }

@@ -10,8 +10,22 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { LoadingButton } from "@/components/ui/loading-button"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import {
+  sourceEndpointName,
+  sourcePathLabel,
+} from "@/lib/backup/endpoint-display"
 import {
   canRestoreBackup,
   restoreEligibilityFromHistory,
@@ -19,6 +33,8 @@ import {
 import { useRestoreBackupHistory } from "@/lib/hooks/useHistory"
 import { useServers } from "@/lib/hooks/useServers"
 import { PEER_RECALL_WAITING_MESSAGE } from "@/lib/peer/recall-pending"
+import { formatBytes } from "@/lib/utils"
+import { format } from "date-fns"
 import { RotateCcwIcon } from "lucide-react"
 import { useEffect, useRef, useState, type ReactNode } from "react"
 
@@ -26,17 +42,51 @@ const LOCAL_HOST_VALUE = "local"
 
 export type HistoryRestoreEntry = {
   id: string
+  startTime?: string | null
+  totalSize?: number | null
   status?: string | null
   artifactPath?: string | null
   artifactRemoved?: boolean | null
+  mailboxPending?: boolean | null
   backupConfig?: {
-    sourceType?: string | null
-    sourceKind?: string | null
+    name?: string | null
+    sourceType?:
+      | "path"
+      | "docker_volume"
+      | "database"
+      | "lazybackup_instance"
+      | "git_repo"
+      | null
+    sourceKind?: "local" | "server" | "s3" | "git" | null
     sourcePath?: string | null
-    destinationKind?: string | null
-    server?: { id?: string | null; name?: string | null } | null
-    destinationServer?: { authType?: string | null } | null
+    destinationKind?: "local" | "server" | "s3" | "peer" | null
+    destinationPath?: string | null
+    dbEngine?: string | null
+    server?: { id?: string | null; name: string } | null
+    destinationServer?: {
+      id?: string | null
+      name: string
+      authType?: string | null
+    } | null
+    sourceS3Profile?: { name: string } | null
+    destinationS3Profile?: { name: string } | null
+    destinationPeer?: { name: string } | null
+    sourceGitRepo?: { name: string } | null
   } | null
+}
+
+/** Outcome shown persistently on the detail page after a restore attempt. */
+export type HistoryRestoreResult = {
+  status: "success" | "failed"
+  message: string
+  log?: string
+}
+
+type RestoreMutationData = {
+  database?: string
+  targetPath?: string
+  volumeName?: string
+  log?: string
 }
 
 type HistoryRestoreButtonProps = {
@@ -47,7 +97,7 @@ type HistoryRestoreButtonProps = {
   className?: string
   /** Custom trigger (e.g. DetailActionButton). Defaults to a compact Button. */
   children?: ReactNode
-  onRestored?: (log: string) => void
+  onRestored?: (result: HistoryRestoreResult) => void
 }
 
 export function HistoryRestoreButton({
@@ -63,6 +113,8 @@ export function HistoryRestoreButton({
   const [open, setOpen] = useState(false)
   const [targetName, setTargetName] = useState(entry.backupConfig?.sourcePath || "")
   const [waitingForBro, setWaitingForBro] = useState(false)
+  const [restoreError, setRestoreError] = useState<string | null>(null)
+  const [retargetAcknowledged, setRetargetAcknowledged] = useState(false)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const inFlightRef = useRef(false)
 
@@ -95,15 +147,13 @@ export function HistoryRestoreButton({
     setTargetHost(defaultHostValue)
   }, [defaultHostValue])
 
-  const stopPolling = () => {
-    if (pollRef.current) {
-      clearInterval(pollRef.current)
-      pollRef.current = null
-    }
-  }
-
   useEffect(() => {
-    return () => stopPolling()
+    return () => {
+      if (pollRef.current) {
+        clearInterval(pollRef.current)
+        pollRef.current = null
+      }
+    }
   }, [])
 
   if (!eligible) {
@@ -119,31 +169,115 @@ export function HistoryRestoreButton({
         : "Restore volume"
   const servers = serversQuery.data || []
   const selectedServerId = targetHost === LOCAL_HOST_VALUE ? null : targetHost || null
+  const selectedServer = selectedServerId
+    ? servers.find((server) => server.id === selectedServerId) || null
+    : null
+  const targetHostLabel = selectedServer
+    ? selectedServer.name
+    : selectedServerId
+      ? selectedServerId === originalServerId
+        ? entry.backupConfig?.server?.name || "Selected server"
+        : "Selected server"
+      : "This host"
   const originalHostId =
     sourceKind === "local" || sourceKind === "git" ? null : originalServerId || null
   const hostChanged = selectedServerId !== originalHostId
 
+  const configuredTarget = entry.backupConfig?.sourcePath || ""
+  const requestedTarget = targetName.trim()
+  const nameChanged = Boolean(
+    requestedTarget && configuredTarget && requestedTarget !== configuredTarget
+  )
+  const retargeting = hostChanged || nameChanged
+  const needsRetargetAck = retargeting && !retargetAcknowledged
+
+  const summaryParts = [
+    entry.backupConfig?.name || "Backup",
+    entry.startTime ? format(new Date(entry.startTime), "PPp") : null,
+    entry.totalSize != null ? formatBytes(entry.totalSize) : null,
+  ].filter((part): part is string => Boolean(part))
+
+  const sourceLabel = entry.backupConfig
+    ? sourceEndpointName(entry.backupConfig)
+    : "—"
+  const sourcePathText = entry.backupConfig
+    ? sourcePathLabel(entry.backupConfig)
+    : ""
+  const targetNameLabel = isDatabase
+    ? `database ${requestedTarget || "…"}`
+    : isPath || isGit
+      ? requestedTarget || "…"
+      : `volume ${requestedTarget || "…"}`
+
+  const retargetReason =
+    hostChanged && nameChanged
+      ? "a different host and target"
+      : hostChanged
+        ? "a different host"
+        : "a different target"
+
+  const stopPolling = () => {
+    if (pollRef.current) {
+      clearInterval(pollRef.current)
+      pollRef.current = null
+    }
+  }
+
+  const resetForm = () => {
+    stopPolling()
+    setTargetName(isGit ? "" : entry.backupConfig?.sourcePath || "")
+    setTargetHost(defaultHostValue)
+    setRetargetAcknowledged(false)
+    setRestoreError(null)
+    setWaitingForBro(false)
+    inFlightRef.current = false
+  }
+
   const handleRestore = () => {
-    const configured = entry.backupConfig?.sourcePath || ""
-    const requested = targetName.trim()
-    const nameChanged = Boolean(requested && configured && requested !== configured)
-    const allowRetarget = Boolean(nameChanged || hostChanged)
+    if (
+      !requestedTarget ||
+      restoreMutation.isPending ||
+      waitingForBro ||
+      needsRetargetAck
+    ) {
+      return
+    }
+    setRestoreError(null)
+    const destinationLabel = targetHostLabel
     const payload = {
       id: entry.id,
-      allowRetarget,
+      allowRetarget: retargeting,
       targetServerId: selectedServerId || undefined,
       ...(isDatabase
-        ? { databaseName: requested || undefined }
+        ? { databaseName: requestedTarget || undefined }
         : isPath || isGit
-          ? { targetPath: requested || undefined }
-          : { volumeName: requested || undefined }),
+          ? { targetPath: requestedTarget || undefined }
+          : { volumeName: requestedTarget || undefined }),
     }
 
-    const onDoneWaiting = (log: string) => {
+    const finish = (data: RestoreMutationData) => {
       stopPolling()
       setWaitingForBro(false)
       setOpen(false)
-      onRestored?.(log)
+      const restoredTarget = data.database
+        ? `database "${data.database}"`
+        : data.targetPath
+          ? `${isGit ? "Git mirror" : "path"} "${data.targetPath}"`
+          : data.volumeName
+            ? `volume "${data.volumeName}"`
+            : "backup"
+      onRestored?.({
+        status: "success",
+        message: `Restored ${restoredTarget} onto ${destinationLabel}`,
+        log: data.log,
+      })
+    }
+
+    const fail = (message: string) => {
+      stopPolling()
+      setWaitingForBro(false)
+      setRestoreError(message)
+      onRestored?.({ status: "failed", message })
     }
 
     restoreMutation.mutate(payload, {
@@ -157,11 +291,12 @@ export function HistoryRestoreButton({
               restoreMutation.mutate(payload, {
                 onSuccess: (again) => {
                   if (again.status === "waiting") return
-                  onDoneWaiting(again.log)
+                  finish(again)
                 },
-                onError: () => {
-                  stopPolling()
-                  setWaitingForBro(false)
+                onError: (error) => {
+                  fail(
+                    error instanceof Error ? error.message : "Failed to restore backup"
+                  )
                 },
                 onSettled: () => {
                   inFlightRef.current = false
@@ -171,7 +306,10 @@ export function HistoryRestoreButton({
           }
           return
         }
-        onDoneWaiting(data.log)
+        finish(data)
+      },
+      onError: (error) => {
+        fail(error instanceof Error ? error.message : "Failed to restore backup")
       },
     })
   }
@@ -180,11 +318,13 @@ export function HistoryRestoreButton({
     <AlertDialog
       open={open}
       onOpenChange={(next) => {
-        setOpen(next)
-        if (!next) {
+        if (next) {
+          resetForm()
+        } else {
           stopPolling()
           setWaitingForBro(false)
         }
+        setOpen(next)
       }}
     >
       <AlertDialogTrigger asChild>
@@ -208,88 +348,176 @@ export function HistoryRestoreButton({
           </AlertDialogTitle>
           <AlertDialogDescription>
             {isDatabase
-              ? "This loads the .sql.gz dump into the target database using the backup’s connection settings. Existing objects may be overwritten or conflict depending on the dump contents. Credentials on a new host may not match — restore will fail clearly rather than using the original box."
+              ? "This loads the .sql.gz dump into the target database using the backup’s connection settings. Credentials on a new host may not match — restore will fail clearly rather than using the original box."
               : isPath
-                ? "This copies the backed-up files back onto the source (local path, SSH host, or S3 prefix). Existing files at the target may be overwritten. Artifacts on S3, Bro, or an SSH destination are pulled onto this host first."
+                ? "This copies the backed-up files back onto the target path (this host, an SSH host, or an S3 prefix). Artifacts on S3, Bro, or an SSH destination are pulled onto this host first."
                 : isGit
-                  ? "This unpacks the bare Git mirror archive into the target directory (this host or an SSH dest). Existing files at that path may be overwritten."
-                  : "This uploads the backup archive to the target host and extracts it into the target volume. Existing files in that volume will be overwritten. Images, networks, and compose config are not restored."}
+                  ? "This unpacks the bare Git mirror archive into the target directory (this host or an SSH dest)."
+                  : "This uploads the backup archive to the target host and extracts it into the target volume. Images, networks, and compose config are not restored."}
           </AlertDialogDescription>
         </AlertDialogHeader>
-        {waitingForBro ? (
-          <p className="text-sm text-amber-700 dark:text-amber-400">
-            {PEER_RECALL_WAITING_MESSAGE}
-          </p>
-        ) : null}
-        <div className="space-y-2 py-2">
-          {showHostPicker ? (
-            <div className="space-y-2">
-              <label htmlFor={`restore-host-${entry.id}`} className="text-sm font-medium">
-                Restore onto
-              </label>
-              <select
-                id={`restore-host-${entry.id}`}
-                value={targetHost}
-                onChange={(e) => setTargetHost(e.target.value)}
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-              >
-                {sourceKind === "local" || sourceKind === "git" ? (
-                  <option value={LOCAL_HOST_VALUE}>This host</option>
-                ) : originalServerId ? (
-                  <option value={originalServerId}>
-                    {entry.backupConfig?.server?.name || "Original server"}
-                  </option>
-                ) : (
-                  <option value={LOCAL_HOST_VALUE}>This host</option>
-                )}
-                {servers
-                  .filter((server) => server.id !== originalServerId)
-                  .map((server) => (
-                    <option
-                      key={server.id}
-                      value={server.id}
-                      disabled={server.authType !== "key"}
-                    >
-                      {server.name} ({server.host})
-                      {server.authType !== "key" ? " — needs SSH key" : ""}
-                    </option>
-                  ))}
-              </select>
-            </div>
-          ) : null}
-          <label htmlFor={`restore-target-${entry.id}`} className="text-sm font-medium">
-            {isDatabase
-              ? "Target database name"
-              : isPath
-                ? "Target path"
-                : isGit
-                  ? "Target directory"
-                  : "Target volume name"}
-          </label>
-          <input
-            id={`restore-target-${entry.id}`}
-            value={targetName}
-            onChange={(e) => setTargetName(e.target.value)}
-            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-            placeholder={
-              isGit
-                ? "/backups/git/restore"
-                : entry.backupConfig?.sourcePath ||
-                  (isDatabase ? "database" : isPath ? "/path/to/restore" : "volume-name")
-            }
-          />
-        </div>
-        <AlertDialogFooter>
-          <AlertDialogCancel disabled={restoreMutation.isPending}>Cancel</AlertDialogCancel>
-          <LoadingButton
-            onClick={handleRestore}
-            isLoading={restoreMutation.isPending || waitingForBro}
-            loadingText={waitingForBro ? PEER_RECALL_WAITING_MESSAGE : "Restoring..."}
-            disabled={!targetName.trim() || restoreMutation.isPending || waitingForBro}
+
+        <form
+          className="space-y-4"
+          onSubmit={(event) => {
+            event.preventDefault()
+            handleRestore()
+          }}
+        >
+          <div
+            className="space-y-1 rounded-md border bg-muted/40 p-3 text-sm"
+            role="group"
+            aria-label="Restore summary"
           >
-            Restore
-          </LoadingButton>
-        </AlertDialogFooter>
+            <p className="font-medium">{summaryParts.join(" · ")}</p>
+            <p className="break-words text-muted-foreground">
+              <span className="font-medium text-foreground">From</span>{" "}
+              {sourceLabel}
+              {sourcePathText ? ` · ${sourcePathText}` : ""}
+            </p>
+            <p className="break-words text-muted-foreground">
+              <span className="font-medium text-foreground">To</span>{" "}
+              {targetHostLabel} · {targetNameLabel}
+            </p>
+            <p className="pt-1 text-xs text-muted-foreground">
+              {isDatabase
+                ? "Existing objects may be overwritten or conflict depending on the dump contents."
+                : "This is a merge: files at the target that are not in the backup are not deleted."}
+            </p>
+          </div>
+
+          {waitingForBro ? (
+            <p
+              className="text-sm text-amber-700 dark:text-amber-400"
+              aria-live="polite"
+            >
+              {PEER_RECALL_WAITING_MESSAGE}
+            </p>
+          ) : null}
+
+          {restoreError ? (
+            <Alert
+              variant="destructive"
+              className="border-destructive/40 bg-destructive/5"
+            >
+              <AlertTitle>Restore failed</AlertTitle>
+              <AlertDescription className="break-words text-foreground">
+                {restoreError}
+              </AlertDescription>
+            </Alert>
+          ) : null}
+
+          <div className="space-y-3">
+            {showHostPicker ? (
+              <div className="space-y-2">
+                <Label htmlFor={`restore-host-${entry.id}`}>Restore onto</Label>
+                <Select value={targetHost} onValueChange={setTargetHost}>
+                  <SelectTrigger
+                    id={`restore-host-${entry.id}`}
+                    className="w-full"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="z-[130]">
+                    {sourceKind === "local" || sourceKind === "git" ? (
+                      <SelectItem value={LOCAL_HOST_VALUE}>This host</SelectItem>
+                    ) : originalServerId ? (
+                      <SelectItem value={originalServerId}>
+                        {entry.backupConfig?.server?.name || "Original server"}
+                      </SelectItem>
+                    ) : (
+                      <SelectItem value={LOCAL_HOST_VALUE}>This host</SelectItem>
+                    )}
+                    {servers
+                      .filter((server) => server.id !== originalServerId)
+                      .map((server) => (
+                        <SelectItem
+                          key={server.id}
+                          value={server.id}
+                          disabled={server.authType !== "key"}
+                        >
+                          {server.name} ({server.host})
+                          {server.authType !== "key" ? " — needs SSH key" : ""}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
+
+            <div className="space-y-2">
+              <Label htmlFor={`restore-target-${entry.id}`}>
+                {isDatabase
+                  ? "Target database name"
+                  : isPath
+                    ? "Target path"
+                    : isGit
+                      ? "Target directory"
+                      : "Target volume name"}
+              </Label>
+              <Input
+                id={`restore-target-${entry.id}`}
+                value={targetName}
+                onChange={(e) => setTargetName(e.target.value)}
+                required
+                aria-describedby={`restore-target-help-${entry.id}`}
+                placeholder={
+                  isGit
+                    ? "/backups/git/restore"
+                    : entry.backupConfig?.sourcePath ||
+                      (isDatabase ? "database" : isPath ? "/path/to/restore" : "volume-name")
+                }
+              />
+              <p
+                id={`restore-target-help-${entry.id}`}
+                className="text-xs text-muted-foreground"
+              >
+                {isDatabase
+                  ? "The dump is loaded into this database name on the selected host."
+                  : isGit
+                    ? "The bare mirror archive is unpacked into this directory."
+                    : "Existing files are overwritten; files absent from the backup are not deleted."}
+              </p>
+            </div>
+          </div>
+
+          {retargeting ? (
+            <label className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-900 dark:text-amber-200">
+              <input
+                type="checkbox"
+                checked={retargetAcknowledged}
+                onChange={(e) => setRetargetAcknowledged(e.target.checked)}
+                className="mt-0.5 size-4 shrink-0 rounded border-input accent-primary"
+              />
+              <span>
+                I understand this restores to {retargetReason} than the backup’s
+                source location.
+              </span>
+            </label>
+          ) : null}
+
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              type="button"
+              disabled={restoreMutation.isPending && !waitingForBro}
+            >
+              Cancel
+            </AlertDialogCancel>
+            <LoadingButton
+              type="submit"
+              isLoading={restoreMutation.isPending || waitingForBro}
+              loadingText={waitingForBro ? "Waiting for Bro…" : "Restoring..."}
+              disabled={
+                !requestedTarget ||
+                restoreMutation.isPending ||
+                waitingForBro ||
+                needsRetargetAck
+              }
+            >
+              Restore
+            </LoadingButton>
+          </AlertDialogFooter>
+        </form>
       </AlertDialogContent>
     </AlertDialog>
   )

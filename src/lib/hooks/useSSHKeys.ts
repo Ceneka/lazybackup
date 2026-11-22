@@ -14,6 +14,7 @@ export interface SSHKey {
   updatedAt: string
   isSystemKey?: boolean // Flag to indicate if this is a system key reference
   usedByServers?: Array<{ id: string; name: string }>
+  usedByGitRepos?: Array<{ id: string; name: string }>
 }
 
 export interface SystemSSHKey {
@@ -52,7 +53,7 @@ export function useSSHKeys(includeSystem = true) {
   const queryClient = useQueryClient()
 
   // Fetch SSH keys
-  const { data, isLoading, error } = useQuery({
+  const query = useQuery({
     queryKey: ['ssh-keys', { includeSystem }],
     queryFn: async () => {
       const response = await fetch(`/api/ssh-keys?includeSystem=${includeSystem}`)
@@ -64,6 +65,7 @@ export function useSSHKeys(includeSystem = true) {
       return response.json()
     }
   })
+  const data = query.data
 
   // Add SSH key
   const addKey = useMutation({
@@ -83,8 +85,8 @@ export function useSSHKeys(includeSystem = true) {
 
       return response.json()
     },
-    onSuccess: () => {
-      toast.success('SSH key added successfully')
+    onSuccess: (_data, variables) => {
+      toast.success(`SSH key “${variables.name}” added`)
       queryClient.invalidateQueries({ queryKey: ['ssh-keys'] })
     },
     onError: (error) => {
@@ -167,8 +169,13 @@ export function useSSHKeys(includeSystem = true) {
     systemKeys: data?.systemKeys || [],
     // Combined keys for selection (both DB and system keys)
     allKeys: [...(data?.storedKeys || []), ...systemKeysWithIds],
-    isLoading,
-    error,
+    /** True once the first successful response has arrived. */
+    hasData: data !== undefined,
+    isLoading: query.isLoading,
+    isFetching: query.isFetching,
+    isError: query.isError,
+    error: query.error,
+    refetch: query.refetch,
     addKey,
     generateKey,
     deleteKey,

@@ -7,6 +7,7 @@ import type {
 
 export type StatusData = {
   generatedAt: string
+  timezone: string
   summary: StatusSummary
   auth: {
     authEnabled: boolean

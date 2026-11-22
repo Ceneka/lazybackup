@@ -1,3 +1,4 @@
+import { cn } from "@/lib/utils"
 import Link from "next/link"
 
 export type UsedByBackup = {
@@ -12,6 +13,43 @@ export function backupRoleLabel(roles: UsedByBackup["roles"]) {
   }
   if (roles.includes("destination")) return "Destination"
   return "Source"
+}
+
+/** Persistent list of backups that blocked a delete (DELETE 409). */
+export function InUseBlockers({
+  blockers,
+  className,
+}: {
+  blockers: UsedByBackup[] | null | undefined
+  className?: string
+}) {
+  if (!blockers?.length) return null
+  return (
+    <div
+      className={cn(
+        "rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm",
+        className
+      )}
+      role="alert"
+    >
+      <p className="font-medium text-destructive">Cannot delete — still used by:</p>
+      <ul className="mt-2 space-y-1">
+        {blockers.map((backup) => (
+          <li key={backup.id}>
+            <Link
+              href={`/backups/${backup.id}`}
+              className="underline underline-offset-2 hover:no-underline"
+            >
+              {backup.name}
+            </Link>
+            <span className="ml-2 text-muted-foreground">
+              ({backupRoleLabel(backup.roles)})
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
 }
 
 export function UsedByBackupsCard({

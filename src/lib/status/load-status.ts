@@ -25,6 +25,7 @@ function daysSince(date: Date | null | undefined): number | null {
 
 export type OperatorStatusPayload = {
   generatedAt: string
+  timezone: string
   summary: ReturnType<typeof summarizeStatusChecks>
   auth: {
     authEnabled: boolean
@@ -280,6 +281,7 @@ export async function loadOperatorStatus(): Promise<OperatorStatusPayload> {
 
   return {
     generatedAt: new Date().toISOString(),
+    timezone: timeZone,
     summary,
     auth: {
       authEnabled,

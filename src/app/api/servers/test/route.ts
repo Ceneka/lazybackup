@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
         // Test the connection and backup capabilities
         const result = await testServerBackupCapabilities(serverData);
 
-        return NextResponse.json(result);
+        return NextResponse.json({ ...result, authType: serverData.authType });
     } catch (error) {
         console.error('Failed to test server connection:', error);
         return NextResponse.json(

@@ -12,9 +12,12 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { QueryState } from "@/components/ui/query-state"
+import { ConfirmActionDialog } from "@/components/settings/confirm-action-dialog"
+import { CopyButton } from "@/components/settings/copy-button"
+import { useSecretReveal } from "@/components/settings/secret-reveal"
 import { usePeers } from "@/lib/hooks/usePeers"
 import { useTailscale } from "@/lib/hooks/useTailscale"
-import { CopyIcon, NetworkIcon, UsersIcon } from "lucide-react"
+import { NetworkIcon, UsersIcon } from "lucide-react"
 import { useEffect, useState } from "react"
 import { toast } from "sonner"
 
@@ -28,10 +31,14 @@ function formatBytes(n: number): string {
 export function BroSpaceSettingsPanel() {
   const peers = usePeers()
   const tailscale = useTailscale()
+  const { reveal, dismiss } = useSecretReveal()
   const [baseUrl, setBaseUrl] = useState("")
   const [label, setLabel] = useState("My LazyBackup")
   const [quotaGb, setQuotaGb] = useState("50")
-  const [inviteCode, setInviteCode] = useState<string | null>(null)
+  const [createdInvite, setCreatedInvite] = useState<{
+    code: string
+    expiresAt: string
+  } | null>(null)
   const [acceptCode, setAcceptCode] = useState("")
   const [acceptLabel, setAcceptLabel] = useState("My LazyBackup")
   const [authKey, setAuthKey] = useState("")
@@ -49,10 +56,20 @@ export function BroSpaceSettingsPanel() {
   }, [tailscale.data?.instanceBaseUrl])
 
   const ts = tailscale.data
+  const pendingInvites = (peers.data?.invites ?? []).filter(
+    (invite) => invite.status === "pending"
+  )
+  const pairedPeers = peers.data?.peers ?? []
+
+  const dismissCreatedInvite = (code?: string) => {
+    if (!code) return
+    dismiss(`bro-invite:${code}`)
+    if (createdInvite?.code === code) setCreatedInvite(null)
+  }
 
   return (
     <div className="space-y-6">
-      <Card>
+      <Card id="bro-space" className="scroll-mt-24">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <UsersIcon className="h-5 w-5" />
@@ -66,7 +83,13 @@ export function BroSpaceSettingsPanel() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <QueryState query={peers} dataLabel="Bro Space">
+          <QueryState
+            query={peers}
+            dataLabel="Bro Space"
+            transformError={(error) =>
+              error instanceof Error ? error.message : "Couldn’t load Bro Space settings"
+            }
+          >
             <div className="space-y-2">
               <Label htmlFor="instanceBaseUrl">Your LazyBackup address</Label>
               <div className="flex flex-col gap-2 sm:flex-row">
@@ -106,94 +129,103 @@ export function BroSpaceSettingsPanel() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {tailscale.isLoading ? (
-            <p className="text-sm text-muted-foreground">Checking Tailscale…</p>
-          ) : ts?.available ? (
-            <div className="space-y-3 rounded-md border p-3 text-sm">
-              <div>
-                <span className="text-muted-foreground">Status: </span>
-                {ts.backendState || "connected"}
-                {ts.via !== "none" ? ` (via ${ts.via})` : ""}
+          <QueryState
+            query={tailscale}
+            dataLabel="Tailscale status"
+            errorMessage="Couldn’t check Tailscale on this machine"
+            transformError={(error) =>
+              error instanceof Error ? error.message : "Couldn’t check Tailscale"
+            }
+            isDataEmpty={() => false}
+          >
+            {ts?.available ? (
+              <div className="space-y-3 rounded-md border p-3 text-sm">
+                <div>
+                  <span className="text-muted-foreground">Status: </span>
+                  {ts.backendState || "connected"}
+                  {ts.via !== "none" ? ` (via ${ts.via})` : ""}
+                </div>
+                {ts.ipv4 && (
+                  <div>
+                    <span className="text-muted-foreground">Address: </span>
+                    <code>{ts.ipv4}</code>
+                  </div>
+                )}
+                {ts.dnsName && (
+                  <div>
+                    <span className="text-muted-foreground">Name: </span>
+                    <code>{ts.dnsName}</code>
+                  </div>
+                )}
+                {ts.suggestedBaseUrl && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <code className="text-xs break-all">{ts.suggestedBaseUrl}</code>
+                    <LoadingButton
+                      type="button"
+                      size="sm"
+                      isLoading={tailscale.useSuggestedUrl.isPending}
+                      onClick={() => {
+                        tailscale.useSuggestedUrl.mutate(undefined, {
+                          onSuccess: (data) => setBaseUrl(data.instanceBaseUrl),
+                        })
+                      }}
+                    >
+                      Use as LazyBackup address
+                    </LoadingButton>
+                  </div>
+                )}
               </div>
-              {ts.ipv4 && (
-                <div>
-                  <span className="text-muted-foreground">Address: </span>
-                  <code>{ts.ipv4}</code>
-                </div>
-              )}
-              {ts.dnsName && (
-                <div>
-                  <span className="text-muted-foreground">Name: </span>
-                  <code>{ts.dnsName}</code>
-                </div>
-              )}
-              {ts.suggestedBaseUrl && (
-                <div className="flex flex-wrap items-center gap-2">
-                  <code className="text-xs break-all">{ts.suggestedBaseUrl}</code>
-                  <LoadingButton
-                    type="button"
-                    size="sm"
-                    isLoading={tailscale.useSuggestedUrl.isPending}
-                    onClick={() => {
-                      tailscale.useSuggestedUrl.mutate(undefined, {
-                        onSuccess: (data) => setBaseUrl(data.instanceBaseUrl),
-                      })
-                    }}
-                  >
-                    Use as LazyBackup address
-                  </LoadingButton>
-                </div>
-              )}
-            </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              {ts?.hint ||
-                "Tailscale not detected on this machine. If friends can’t connect, see the README for setup options."}
-            </p>
-          )}
-
-          {ts?.cliAvailable && (
-            <div className="space-y-2 border-t pt-4">
-              <Label htmlFor="tsAuthKey">Connect this machine with an auth key</Label>
-              <p className="text-xs text-muted-foreground">
-                Paste a key from your Tailscale admin console to bring this host
-                onto your tailnet.
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                {ts?.hint ||
+                  "Tailscale not detected on this machine. If friends can’t connect, see the README for setup options."}
               </p>
-              <Input
-                id="tsAuthKey"
-                type="password"
-                autoComplete="off"
-                placeholder="tskey-auth-…"
-                value={authKey}
-                onChange={(e) => setAuthKey(e.target.value)}
-              />
-              <LoadingButton
-                type="button"
-                isLoading={tailscale.join.isPending}
-                disabled={!authKey.trim()}
-                onClick={() =>
-                  tailscale.join.mutate(authKey.trim(), {
-                    onSuccess: (data) => {
-                      setAuthKey("")
-                      if (data.instanceBaseUrl) setBaseUrl(data.instanceBaseUrl)
-                    },
-                  })
-                }
-              >
-                Connect Tailscale
-              </LoadingButton>
-            </div>
-          )}
+            )}
+
+            {ts?.cliAvailable && (
+              <div className="space-y-2 border-t pt-4">
+                <Label htmlFor="tsAuthKey">Connect this machine with an auth key</Label>
+                <p className="text-xs text-muted-foreground">
+                  Paste a key from your Tailscale admin console to bring this host
+                  onto your tailnet.
+                </p>
+                <Input
+                  id="tsAuthKey"
+                  type="password"
+                  autoComplete="off"
+                  placeholder="tskey-auth-…"
+                  value={authKey}
+                  onChange={(e) => setAuthKey(e.target.value)}
+                />
+                <LoadingButton
+                  type="button"
+                  isLoading={tailscale.join.isPending}
+                  disabled={!authKey.trim()}
+                  onClick={() =>
+                    tailscale.join.mutate(authKey.trim(), {
+                      onSuccess: (data) => {
+                        setAuthKey("")
+                        if (data.instanceBaseUrl) setBaseUrl(data.instanceBaseUrl)
+                      },
+                    })
+                  }
+                >
+                  Connect Tailscale
+                </LoadingButton>
+              </div>
+            )}
+          </QueryState>
         </CardContent>
       </Card>
 
-      <Card>
+      <Card id="bro-invite" className="scroll-mt-24">
         <CardHeader>
           <CardTitle>Invite a bro</CardTitle>
           <CardDescription>
             Choose how much space you’ll each share, then send them the invite.
             They paste it in the LazyBro app (or Accept below if they also run
-            LazyBackup).
+            LazyBackup). Invite codes expire after 72 hours and are shown only
+            once.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -228,8 +260,27 @@ export function BroSpaceSettingsPanel() {
                   label: label.trim() || "LazyBackup",
                   quotaGb: Number(quotaGb),
                 })
-                setInviteCode(result.inviteCode)
-                toast.success("Invite ready — send the code to your bro")
+                setCreatedInvite({
+                  code: result.inviteCode,
+                  expiresAt: result.expiresAt,
+                })
+                reveal({
+                  id: `bro-invite:${result.inviteCode}`,
+                  title: "New Bro invite code",
+                  description:
+                    "Send this to your bro now. It expires automatically, and this banner is discarded when you hide it or leave Settings. You can copy the code again from the pending invite until it is used or cancelled.",
+                  value: result.inviteCode,
+                  copyLabel: "Invite code",
+                  extra: (
+                    <p className="text-sm">
+                      Expires{" "}
+                      <strong>{new Date(result.expiresAt).toLocaleString()}</strong>
+                      . You can copy it again from the pending invite below until
+                      it is used or cancelled.
+                    </p>
+                  ),
+                })
+                toast.success("Invite ready — copy it from the banner at the top")
               } catch {
                 /* toast in hook */
               }
@@ -238,57 +289,67 @@ export function BroSpaceSettingsPanel() {
             Create invite
           </LoadingButton>
 
-          {inviteCode && (
-            <div className="space-y-2 rounded-md border p-3">
-              <Label>Invite code (send this)</Label>
-              <textarea
-                readOnly
-                className="w-full min-h-[100px] rounded-md border bg-background p-2 font-mono text-xs"
-                value={inviteCode}
-              />
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  void navigator.clipboard.writeText(inviteCode)
-                  toast.success("Invite code copied")
-                }}
-              >
-                <CopyIcon className="mr-2 h-4 w-4" />
-                Copy invite code
-              </Button>
-            </div>
-          )}
-
-          {peers.data?.invites.filter((i) => i.status === "pending").length ? (
+          <QueryState
+            query={{
+              data: peers.data ? pendingInvites : undefined,
+              isLoading: peers.isLoading,
+              isFetching: peers.isFetching,
+              isError: peers.isError,
+              error: peers.error,
+              refetch: peers.refetch,
+            }}
+            dataLabel="pending invites"
+            emptyMessage="No pending invites"
+            emptyDescription="Create an invite above and send the code to your bro."
+            emptyIcon={<UsersIcon className="h-12 w-12 text-muted-foreground" />}
+          >
             <div className="space-y-2">
-              <Label>Pending invites</Label>
+              <h4 className="text-sm font-medium">Pending invites</h4>
               <ul className="space-y-2 text-sm">
-                {peers.data.invites
-                  .filter((i) => i.status === "pending")
-                  .map((i) => (
-                    <li
-                      key={i.id}
-                      className="flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2"
+                {pendingInvites.map((invite) => (
+                  <li
+                    key={invite.id}
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2"
+                  >
+                    <div className="min-w-0 space-y-1">
+                      <p>
+                        {invite.label} · {invite.quotaGb} GB · expires{" "}
+                        {new Date(invite.expiresAt).toLocaleString()}
+                      </p>
+                      {invite.code ? (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <code className="min-w-0 break-all font-mono text-xs">
+                            {invite.code}
+                          </code>
+                          <CopyButton
+                            value={invite.code}
+                            label={`Invite code for ${invite.label}`}
+                            size="sm"
+                            variant="ghost"
+                          />
+                        </div>
+                      ) : null}
+                    </div>
+                    <ConfirmActionDialog
+                      title={`Cancel the invite for “${invite.label}”?`}
+                      description="The code stops working immediately and its pending slot is removed. You can create a new invite later."
+                      confirmLabel="Cancel invite"
+                      pendingLabel="Cancelling…"
+                      variant="destructive"
+                      onConfirm={async () => {
+                        await peers.cancelInvite.mutateAsync(invite.id)
+                        dismissCreatedInvite(invite.code)
+                      }}
                     >
-                      <span>
-                        {i.label} · {i.quotaGb} GB · expires{" "}
-                        {new Date(i.expiresAt).toLocaleString()}
-                      </span>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => peers.cancelInvite.mutate(i.id)}
-                      >
+                      <Button type="button" variant="ghost" size="sm">
                         Cancel
                       </Button>
-                    </li>
-                  ))}
+                    </ConfirmActionDialog>
+                  </li>
+                ))}
               </ul>
             </div>
-          ) : null}
+          </QueryState>
         </CardContent>
       </Card>
 
@@ -314,7 +375,7 @@ export function BroSpaceSettingsPanel() {
             <Label htmlFor="acceptCode">Invite code</Label>
             <textarea
               id="acceptCode"
-              className="mt-1 w-full min-h-[100px] rounded-md border bg-background p-2 font-mono text-xs"
+              className="mt-1 min-h-[100px] w-full rounded-md border bg-background p-2 font-mono text-xs"
               placeholder="lb1.…"
               value={acceptCode}
               onChange={(e) => setAcceptCode(e.target.value)}
@@ -325,10 +386,13 @@ export function BroSpaceSettingsPanel() {
             isLoading={peers.acceptInvite.isPending}
             disabled={!acceptCode.trim()}
             onClick={() =>
-              peers.acceptInvite.mutate({
-                inviteCode: acceptCode.trim(),
-                label: acceptLabel.trim() || "LazyBackup",
-              })
+              peers.acceptInvite.mutate(
+                {
+                  inviteCode: acceptCode.trim(),
+                  label: acceptLabel.trim() || "LazyBackup",
+                },
+                { onSuccess: () => setAcceptCode("") }
+              )
             }
           >
             Accept &amp; pair
@@ -336,7 +400,7 @@ export function BroSpaceSettingsPanel() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card id="bro-peers" className="scroll-mt-24">
         <CardHeader>
           <CardTitle>Paired bros</CardTitle>
           <CardDescription>
@@ -345,53 +409,72 @@ export function BroSpaceSettingsPanel() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {!peers.data?.peers.length ? (
-            <p className="text-sm text-muted-foreground">No peers yet.</p>
-          ) : (
+          <QueryState
+            query={{
+              data: peers.data ? pairedPeers : undefined,
+              isLoading: peers.isLoading,
+              isFetching: peers.isFetching,
+              isError: peers.isError,
+              error: peers.error,
+              refetch: peers.refetch,
+            }}
+            dataLabel="peers"
+            emptyMessage="No peers yet"
+            emptyDescription="Pair with another LazyBackup or a LazyBro app using the invite flow above."
+            emptyIcon={<UsersIcon className="h-12 w-12 text-muted-foreground" />}
+          >
             <ul className="space-y-3">
-              {peers.data.peers.map((p) => (
+              {pairedPeers.map((peer) => (
                 <li
-                  key={p.id}
+                  key={peer.id}
                   className="flex flex-wrap items-center justify-between gap-3 rounded-md border px-3 py-3"
                 >
                   <div>
-                    <div className="font-medium">{p.name}</div>
+                    <div className="font-medium">{peer.name}</div>
                     <div className="text-sm text-muted-foreground">
-                      {p.remoteBaseUrl ? "LazyBackup" : "LazyBro app"}
-                      {p.status !== "active" ? ` · ${p.status}` : ""}
+                      {peer.remoteBaseUrl ? "LazyBackup" : "LazyBro app"}
+                      {peer.status !== "active" ? ` · ${peer.status}` : ""}
                     </div>
                     <div className="text-sm">
-                      Using {formatBytes(p.usedBytes)} of {p.quotaGb} GB
-                      {typeof p.pendingSyncCount === "number" &&
-                      p.pendingSyncCount > 0
-                        ? ` · ${p.pendingSyncCount} waiting to sync`
+                      Using {formatBytes(peer.usedBytes)} of {peer.quotaGb} GB
+                      {typeof peer.pendingSyncCount === "number" &&
+                      peer.pendingSyncCount > 0
+                        ? ` · ${peer.pendingSyncCount} waiting to sync`
                         : ""}
                     </div>
                     <div className="text-xs text-muted-foreground">
                       Last seen:{" "}
-                      {p.lastSeenAt
-                        ? new Date(p.lastSeenAt).toLocaleString()
+                      {peer.lastSeenAt
+                        ? new Date(peer.lastSeenAt).toLocaleString()
                         : "not yet"}
                     </div>
                   </div>
-                  {p.status === "active" && (
-                    <Button
-                      type="button"
+                  {peer.status === "active" && (
+                    <ConfirmActionDialog
+                      title={`Revoke peer “${peer.name}”?`}
+                      description="Syncing stops immediately and the pairing token is cleared. Backups already stored on that peer become unreachable from this instance until you pair again. Files already on their disk are not deleted remotely; the usage record stays listed here."
+                      confirmLabel="Revoke peer"
+                      pendingLabel="Revoking…"
                       variant="destructive"
-                      size="sm"
-                      onClick={() => {
-                        if (confirm(`Revoke peer ${p.name}?`)) {
-                          peers.revokePeer.mutate(p.id)
-                        }
+                      onConfirm={async () => {
+                        await peers.revokePeer.mutateAsync(peer.id)
                       }}
+                      disabled={peers.revokePeer.isPending}
                     >
-                      Revoke
-                    </Button>
+                      <Button
+                        type="button"
+                        variant="destructive"
+                        size="sm"
+                        disabled={peers.revokePeer.isPending}
+                      >
+                        Revoke
+                      </Button>
+                    </ConfirmActionDialog>
                   )}
                 </li>
               ))}
             </ul>
-          )}
+          </QueryState>
         </CardContent>
       </Card>
     </div>

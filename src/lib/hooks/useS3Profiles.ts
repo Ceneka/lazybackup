@@ -1,3 +1,4 @@
+import { ApiError, readApiError } from "@/lib/api/client-error"
 import { resourceInUseFromResponse } from "@/lib/api/resource-in-use"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
@@ -44,7 +45,8 @@ export function useS3Profiles() {
     queryFn: async () => {
       const response = await fetch("/api/s3-profiles")
       if (!response.ok) {
-        throw new Error(`Failed to fetch S3 profiles: ${response.status}`)
+        const { message } = await readApiError(response)
+        throw new ApiError(message, { status: response.status })
       }
       const data = await response.json()
       if (!Array.isArray(data)) {
@@ -61,8 +63,8 @@ export function useS3Profile(id: string) {
     queryFn: async () => {
       const response = await fetch(`/api/s3-profiles/${id}`)
       if (!response.ok) {
-        if (response.status === 404) throw new Error("S3 profile not found")
-        throw new Error("Failed to fetch S3 profile")
+        const { message } = await readApiError(response)
+        throw new ApiError(message, { status: response.status })
       }
       return (await response.json()) as S3Profile
     },
@@ -107,9 +109,9 @@ export async function testS3ProfileConnection(data: S3ProfileInput) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   })
-  const body = await response.json()
   if (!response.ok) {
-    throw new Error(body.error || "S3 connection failed")
+    const { message, fieldErrors } = await readApiError(response)
+    throw new ApiError(message, { status: response.status, fieldErrors })
   }
-  return body as { success: boolean; message?: string }
+  return (await response.json()) as { success: boolean; message?: string }
 }
