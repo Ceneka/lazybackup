@@ -73,6 +73,23 @@ body {
   }
 }
 
+/* Hero routing diagram: dashes travel along the active route. */
+@keyframes flow-dash {
+  to {
+    stroke-dashoffset: -28;
+  }
+}
+
+.flow-dash {
+  animation: flow-dash 0.9s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flow-dash {
+    animation: none;
+  }
+}
+
 .animate-float-slow {
   animation: float-slow 14s ease-in-out infinite;
 }

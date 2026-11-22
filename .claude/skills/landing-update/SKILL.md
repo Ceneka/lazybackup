@@ -20,7 +20,8 @@ Pieces that already exist — reuse them, don't rebuild:
 | Shot list as data | `landing/scripts/screenshots.config.ts` |
 | Playwright capture (locks the instance with a demo password + logs in, seeds, masks the scratch storage path as `/backups`, themes, per-shot actions, mocks fake-host probes) | `landing/scripts/capture-screenshots.ts` — exact commands in `landing/README.md` → "Screenshots" (`mktemp -d` dev instance on port 3917, then `bunx --package playwright …`; `SHOTS=a,b` for a subset) |
 | Screenshots | `landing/public/screenshots/*.png` (1440×900 light unless noted) |
-| Home / features copy | `landing/src/app/page.tsx`, `features/page.tsx`, `components/landing/features-data.tsx`, `screenshots-gallery.tsx` |
+| Home page sections | `landing/src/app/page.tsx` (hero copy, "works with", deploy), `components/landing/flow-hero.tsx` (From → To diagram + example routes), `dashboard-showcase.tsx` (dashboard.png + numbered pins as % of the image — re-place them when the shot changes), `cron-vs-lazy.tsx`, `feature-bento.tsx` (feature cards with small product visuals + "Also included"), `screenshots-gallery.tsx` |
+| Features page | `landing/src/app/features/page.tsx`, `components/landing/features-data.tsx` (`detailedFeatures`) |
 | Blog | `landing/src/lib/blog/posts.ts` (typed blocks; drives index + sitemap) |
 | Compare | `landing/src/app/compare/page.tsx` |
 | Changelog page | generated from repo `CHANGELOG.md` by `bun run sync-changelog` (prebuild) |
