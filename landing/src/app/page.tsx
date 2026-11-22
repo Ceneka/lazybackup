@@ -25,14 +25,14 @@ export const metadata: Metadata = {
     absolute: "LazyBackup — From → To backups for your servers",
   },
   description:
-    "Self-hosted From→To backups: local, SSH, S3; path, Docker volume, database; validate before run, failure webhooks, age vault, Bro Space, passkeys, MCP.",
+    "Self-hosted From→To backups for local, SSH, and S3: paths, Docker volumes, databases—health at a glance, pause/resume, safer restores, age vault, Bro Space, MCP.",
   alternates: {
     canonical: "/",
   },
   openGraph: {
     title: "LazyBackup — From → To backups for your servers",
     description:
-      "Endpoints, validate before run, failure webhooks, age vault, Bro Space, passkeys, MCP—self-hosted.",
+      "From→To backups with health at a glance, pause/resume, safer restores, age vault, Bro Space, and MCP—self-hosted.",
     url: SITE_URL,
     images: [OG_IMAGE],
   },
@@ -40,7 +40,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "LazyBackup — From → To backups for your servers",
     description:
-      "Self-hosted From→To backups with validate, failure webhooks, age encryption, and MCP.",
+      "Self-hosted From→To backups with backup health, pause/resume, safer restores, age encryption, and MCP.",
     images: [OG_IMAGE.url],
   },
 };
@@ -54,12 +54,12 @@ const steps = [
   {
     step: 2,
     title: "Pick From → To",
-    desc: "Local, server, or S3 endpoints; path, volume, database, or instance source. Enable age encryption or Bro when you need ciphertext.",
+    desc: "Local, server, or S3 endpoints; path, volume, database, Git mirror, or instance source. Enable age encryption or Bro when you need ciphertext.",
   },
   {
     step: 3,
-    title: "Validate & notify",
-    desc: "Validate SSH/S3/DB before a real run, then History, Status posture, failure webhooks, passkeys, and optional MCP.",
+    title: "Watch & restore",
+    desc: "Health at a glance, validate SSH/S3/DB before a real run, and pause/resume without editing. Restore with a From → To summary; History, Status, webhooks, passkeys, and MCP when you need them.",
   },
 ] as const;
 
@@ -79,6 +79,29 @@ const envVars = [
   { name: "SSH_KEYS_PATH", default: "~/.ssh" },
   { name: "AUTH_SECRET", default: "(auto in settings)" },
   { name: "AUTH_COOKIE_SECURE", default: "unset (false)" },
+] as const;
+
+const whatsNew = [
+  {
+    title: "Health at a glance",
+    desc: "every card shows last run, next run or Paused, and validation warnings; the dashboard highlights last success and overdue schedules.",
+  },
+  {
+    title: "Pause / Resume",
+    desc: "one click from the card menu or detail page, with validation results kept.",
+  },
+  {
+    title: "Safer restores",
+    desc: "the dialog shows the run and From → To, notes the merge, and asks again when retargeting. History filters live in the URL with date chips and a stats chart.",
+  },
+  {
+    title: "Connection readiness",
+    desc: "password-only servers are flagged, key names are shown, and tests use what's on screen and stay visible.",
+  },
+  {
+    title: "Settings & tokens",
+    desc: "one-time secrets survive tab switches, General changes need an explicit Save, and tokens list their access level—Full access is labelled.",
+  },
 ] as const;
 
 const dockerCommand = `docker run -d \\
@@ -147,9 +170,11 @@ export default function Home() {
             <p className="mt-6 max-w-xl text-lg leading-relaxed text-slate-400">
               Move paths, Docker volumes, and database dumps between this host,
               SSH servers, and S3—plus Bro peer storage and an instance
-              meta-backup. Validate before you transfer, ping Discord/ntfy/Kuma
-              on failure, optional age vault, passkeys, Status posture, and MCP
-              for Cursor/Claude. No agents on your VPS, no cloud lock-in.
+              meta-backup. Health at a glance, one-click pause/resume, safer
+              restores with a clear From → To summary, validate before you
+              transfer, failure webhooks, optional age vault, Status posture,
+              and MCP for Cursor/Claude. No agents on your VPS, no cloud
+              lock-in.
             </p>
             <div className="mt-9 flex flex-wrap items-center gap-4">
               <Link
@@ -179,7 +204,7 @@ export default function Home() {
                   Sources
                 </dt>
                 <dd className="mt-1 text-2xl font-semibold text-slate-100">
-                  Path · vol · DB
+                  Path · vol · DB · Git
                 </dd>
               </div>
               <div>
@@ -196,6 +221,57 @@ export default function Home() {
         </div>
       </section>
 
+      <section
+        id="whats-new"
+        className="relative border-b border-white/[0.06] bg-white/[0.02]"
+      >
+        <div className="container mx-auto px-5 py-10 md:px-8 md:py-12">
+          <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:gap-12">
+            <div className="lg:w-64 lg:shrink-0">
+              <p className="flex flex-wrap items-center gap-2 text-xs font-medium text-emerald-300/90">
+                <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 font-mono">
+                  v0.3.0
+                </span>
+                What&rsquo;s new
+              </p>
+              <h2 className="mt-3 text-xl font-semibold tracking-tight text-slate-100">
+                A UI/UX pass across the app
+              </h2>
+              <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-sm">
+                <Link
+                  href="/blog/lazybackup-0-3-0-ui-ux"
+                  className="font-medium text-emerald-300 transition hover:text-emerald-200"
+                >
+                  Read the 0.3.0 notes <span aria-hidden>→</span>
+                </Link>
+                <Link
+                  href="/changelog"
+                  className="font-medium text-slate-400 transition hover:text-slate-200"
+                >
+                  Changelog
+                </Link>
+              </div>
+            </div>
+            <ul className="grid flex-1 gap-x-8 gap-y-2.5 text-sm leading-relaxed text-slate-400 sm:grid-cols-2 lg:grid-cols-3">
+              {whatsNew.map((item) => (
+                <li key={item.title} className="flex gap-2">
+                  <span
+                    className="mt-2 h-1 w-1 shrink-0 rounded-full bg-emerald-400"
+                    aria-hidden
+                  />
+                  <span>
+                    <span className="font-medium text-slate-200">
+                      {item.title}.
+                    </span>{" "}
+                    {item.desc}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      </section>
+
       <section id="features" className="relative py-24 md:py-32">
         <div className="container mx-auto px-5 md:px-8">
           <div className="mx-auto max-w-2xl text-center">
@@ -203,8 +279,9 @@ export default function Home() {
               Built for operators who read logs
             </h2>
             <p className="mt-4 text-lg text-slate-400">
-              Endpoints, validate before run, failure webhooks, age vault, Bro
-              Space, Status checks, and MCP—see the full reference on Features.
+              Endpoints, backup health, pause/resume, safer restores, validate
+              before run, connection readiness, age vault, Bro Space, and
+              MCP—see the full reference on Features.
             </p>
           </div>
           <div className="mt-16 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">

@@ -20,7 +20,7 @@ export const metadata: Metadata = {
     template: "%s · LazyBackup",
   },
   description:
-    "Self-hosted From→To backups: local, SSH, S3; path, Docker volume, database, instance meta-backup; validate before run, failure webhooks, age vault, Bro Space, passkeys, Status posture, MCP.",
+    "Self-hosted From→To backups for local, SSH, and S3: paths, Docker volumes, databases—health at a glance, pause/resume, safer restores, age vault, Bro Space, MCP.",
   icons: {
     icon: [
       { url: "/favicon.ico" },
@@ -31,7 +31,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: "LazyBackup — From → To backups for your servers",
     description:
-      "Endpoints, validate before run, failure webhooks, age vault, Bro Space, passkeys, MCP—self-hosted.",
+      "From→To backups with health at a glance, pause/resume, safer restores, age vault, Bro Space, passkeys, and MCP—self-hosted.",
     type: "website",
     url: SITE_URL,
     siteName: "LazyBackup",
@@ -42,7 +42,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "LazyBackup — From → To backups for your servers",
     description:
-      "Self-hosted From→To backups with validate, failure webhooks, age encryption, and MCP.",
+      "Self-hosted From→To backups with backup health, pause/resume, safer restores, age encryption, and MCP.",
     images: [OG_IMAGE.url],
   },
   keywords: [
@@ -50,6 +50,9 @@ export const metadata: Metadata = {
     "server to server backup",
     "ssh docker volume backup",
     "docker volume restore",
+    "backup health dashboard",
+    "pause backup schedule",
+    "safe restore",
     "age encryption backup",
     "s3 backup self hosted",
     "backup failure webhook",

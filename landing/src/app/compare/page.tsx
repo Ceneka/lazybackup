@@ -61,7 +61,7 @@ const vsRsyncRows = [
   {
     topic: "Agents / API",
     rsync: "Shell only.",
-    lazy: "Streamable HTTP MCP at /mcp + Bearer API tokens (opt-in remote_exec or read_only; validate_backup and get_status).",
+    lazy: "Streamable HTTP MCP at /mcp + Bearer API tokens with Read only / Read & write / shell access levels; validate_backup and get_status.",
   },
   {
     topic: "When rsync wins",
@@ -91,7 +91,7 @@ const wedge = [
   },
   {
     title: "Docker volumes + DB dumps",
-    desc: "Named-volume alpine packs (source server or this host’s Docker socket) and logical dumps. Restore from History—local, S3, Bro, or SSH dest with a key; retarget onto a different host.",
+    desc: "Named-volume alpine packs (source server or this host’s Docker socket) and logical dumps. Restore from History—local, S3, Bro, or SSH dest with a key; retarget onto a different host with an explicit confirmation.",
     Icon: IconDocker,
   },
   {
@@ -106,7 +106,7 @@ const wedge = [
   },
   {
     title: "MCP for agents",
-    desc: "Point Cursor/Claude at /mcp with a Bearer token. validate_backup and get_status; opt-in read_only or remote_exec. Destructive tools require confirm=true.",
+    desc: "Point Cursor/Claude at /mcp with a Bearer token. Read only / Read & write / shell access levels; validate_backup and get_status. Destructive tools require confirm=true.",
     Icon: IconMcp,
   },
   {
