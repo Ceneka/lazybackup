@@ -11,6 +11,12 @@ Versions before a formal `v*` tag are dated unreleased / pre-release notes.
 
 ## [Unreleased]
 
+### Security
+
+- **Next.js 15.5.29** — cross-client response injection and disclosure in
+  self-hosted apps that forward fetched responses, an SVG rejection bypass in
+  image optimization, and HttpOnly cookie exposure on Edge runtime routes.
+
 ## [0.3.0] - 2026-11-21
 
 An app-wide UI/UX pass: every screen was audited and roughly 90 issues fixed.
