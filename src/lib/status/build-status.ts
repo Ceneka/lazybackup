@@ -342,7 +342,7 @@ export function buildStatusChecks(s: StatusSnapshot): StatusCheck[] {
       id: 'servers-password-only',
       severity: 'warn',
       title: 'Servers using password-only SSH',
-      detail: `${s.servers.passwordOnlyCount} server${s.servers.passwordOnlyCount === 1 ? '' : 's'} lack an SSH key — path transfers need a key on each endpoint.`,
+      detail: `${s.servers.passwordOnlyCount} ${s.servers.passwordOnlyCount === 1 ? 'server lacks' : 'servers lack'} an SSH key — path transfers need a key on each endpoint.`,
       href: '/servers',
     })
   } else if (s.servers.total > 0) {
