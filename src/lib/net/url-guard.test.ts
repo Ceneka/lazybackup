@@ -58,6 +58,23 @@ describe('validatePeerUrl', () => {
     expect(validatePeerUrl('http://[fd7a:115c:a1e0::1]:3000').ok).toBe(true);
   });
 
+  test('requires https for public addresses', () => {
+    const result = validatePeerUrl('http://backup.example.com:3000');
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toContain('https://');
+      expect(result.error).toContain('LAN/Tailscale');
+    }
+    expect(validatePeerUrl('https://backup.example.com:3000').ok).toBe(true);
+  });
+
+  test('still allows http to LAN and Tailscale addresses', () => {
+    const lanPolicy = { ...peerUrlPolicy(), allowPrivate: true };
+    expect(validateHttpUrl('http://192.168.1.5:3000', lanPolicy).ok).toBe(true);
+    expect(validateHttpUrl('http://127.0.0.1:3000', lanPolicy).ok).toBe(true);
+    expect(validateHttpUrl('http://100.64.1.20:3000', peerUrlPolicy()).ok).toBe(true);
+  });
+
   test('allows RFC1918 when allowPrivate is on', () => {
     const policy = { ...peerUrlPolicy(), allowPrivate: true };
     expect(validateHttpUrl('http://192.168.1.5:3000', policy).ok).toBe(true);

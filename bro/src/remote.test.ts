@@ -1,7 +1,25 @@
 import { describe, expect, test } from 'bun:test';
 import http from 'node:http';
 import os from 'node:os';
-import { resolveSafeRemoteUrl, safeRemoteFetch } from './remote';
+import { assertPeerHostUrl, resolveSafeRemoteUrl, safeRemoteFetch } from './remote';
+
+describe('LazyBro peer URL scheme policy', () => {
+  test('requires https for public addresses', async () => {
+    expect(() => assertPeerHostUrl('http://backup.example.com:3000')).toThrow(
+      /https:\/\/.*LAN\/Tailscale/i
+    );
+    expect(() => assertPeerHostUrl('http://8.8.8.8:3000')).toThrow(/https:/i);
+    await expect(resolveSafeRemoteUrl('http://8.8.8.8:3000')).rejects.toThrow(/https:/i);
+  });
+
+  test('keeps http for LAN, loopback, and Tailscale addresses', () => {
+    expect(() => assertPeerHostUrl('http://192.168.1.20:3000')).not.toThrow();
+    expect(() => assertPeerHostUrl('http://127.0.0.1:3000')).not.toThrow();
+    expect(() => assertPeerHostUrl('http://100.64.1.2:3000')).not.toThrow();
+    expect(() => assertPeerHostUrl('http://[fd7a:115c:a1e0::1]:3000')).not.toThrow();
+    expect(() => assertPeerHostUrl('https://backup.example.com')).not.toThrow();
+  });
+});
 
 describe('LazyBro remote URL guard', () => {
   test('preserves intended LAN and Tailscale endpoints', async () => {

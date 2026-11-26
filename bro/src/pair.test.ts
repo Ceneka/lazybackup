@@ -25,4 +25,14 @@ describe('parsePairingResponse', () => {
       /URL/i
     );
   });
+
+  test('requires https for a public pairing URL', () => {
+    expect(() =>
+      parsePairingResponse({ ...valid, baseUrl: 'http://backup.example.com' }, valid.baseUrl)
+    ).toThrow(/https:\/\/.*LAN\/Tailscale/i);
+    expect(
+      parsePairingResponse({ ...valid, baseUrl: 'http://192.168.1.20:3000' }, valid.baseUrl)
+        .baseUrl
+    ).toBe('http://192.168.1.20:3000');
+  });
 });

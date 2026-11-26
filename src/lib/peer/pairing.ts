@@ -45,7 +45,7 @@ export async function getInstanceBaseUrl(): Promise<string | null> {
 export async function setInstanceBaseUrl(url: string): Promise<void> {
   const trimmed = assertPeerUrlOrThrow(
     url.trim().replace(/\/+$/, ''),
-    'Instance URL must be a public http(s) address (or Tailscale). Set ALLOW_PRIVATE_PEER_URLS=true for LAN.'
+    'Instance URL must use https:// for a public address, or a LAN/Tailscale address. Set ALLOW_PRIVATE_PEER_URLS=true for LAN.'
   );
   const existing = await db.query.settings.findFirst({
     where: eq(settings.key, INSTANCE_BASE_URL_KEY),
