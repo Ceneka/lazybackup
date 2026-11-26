@@ -1,4 +1,5 @@
 import fs from 'fs/promises';
+import pkg from '../package.json';
 import type { BroConfig } from './config';
 import {
   MAX_BRO_OBJECTS,
@@ -22,6 +23,10 @@ export type SyncStatus = {
   lastSyncAt: string | null;
   lastError: string | null;
   hostReachable: boolean;
+  /** The host said 401/403: the friend removed this connection. */
+  authRevoked: boolean;
+  /** Per-item failures (quota, bad ACK) need a human look, not a reconnect. */
+  needsAttention: boolean;
   pendingPulls: number;
   pendingRecalls: number;
   usedBytes: number;
@@ -33,6 +38,8 @@ let status: SyncStatus = {
   lastSyncAt: null,
   lastError: null,
   hostReachable: false,
+  authRevoked: false,
+  needsAttention: false,
   pendingPulls: 0,
   pendingRecalls: 0,
   usedBytes: 0,
@@ -77,6 +84,87 @@ async function hostFetch(
   });
 }
 
+export type ControlFailure = {
+  hostReachable: boolean;
+  authRevoked: boolean;
+  needsAttention: boolean;
+  lastError: string;
+};
+
+const AUTH_REVOKED_MESSAGE =
+  'Your friend removed this connection. Ask them for a new invite.';
+
+/**
+ * Classify a non-OK ping/work response.
+ * - 401/403 = the friend revoked the pair, not a network problem.
+ * - 5xx = host unreachable/broken (retry with backoff).
+ * - other 4xx = reachable but this client needs attention.
+ */
+export function classifyControlResponse(
+  operation: 'ping' | 'work' | 'report',
+  statusCode: number
+): ControlFailure {
+  const label =
+    operation === 'ping' ? 'Ping' : operation === 'work' ? 'Work' : 'Status report';
+  if (statusCode === 401 || statusCode === 403) {
+    return {
+      hostReachable: true,
+      authRevoked: true,
+      needsAttention: false,
+      lastError: AUTH_REVOKED_MESSAGE,
+    };
+  }
+  if (statusCode >= 500) {
+    return {
+      hostReachable: false,
+      authRevoked: false,
+      needsAttention: false,
+      lastError: `${label} failed (${statusCode})`,
+    };
+  }
+  return {
+    hostReachable: true,
+    authRevoked: false,
+    needsAttention: true,
+    lastError: `${label} failed (${statusCode})`,
+  };
+}
+
+export function classifyTransportFailure(
+  operation: 'ping' | 'work' | 'report',
+  error: unknown
+): ControlFailure {
+  const label =
+    operation === 'ping' ? 'Ping' : operation === 'work' ? 'Work' : 'Status report';
+  const message = error instanceof Error ? error.message : String(error);
+  return {
+    hostReachable: false,
+    authRevoked: false,
+    needsAttention: false,
+    lastError: `${label} failed: ${message}`,
+  };
+}
+
+/** Per-item failures (quota, corrupt pull, bad ACK) are not connectivity issues. */
+export function summarizeItemErrors(errors: string[]): {
+  needsAttention: boolean;
+  lastError: string | null;
+} {
+  if (errors.length === 0) return { needsAttention: false, lastError: null };
+  const text = errors.join('; ');
+  return {
+    needsAttention: true,
+    lastError: text.length > 500 ? `${text.slice(0, 500)}…` : text,
+  };
+}
+
+function applyFailure(next: ControlFailure): void {
+  status.hostReachable = next.hostReachable;
+  status.authRevoked = next.authRevoked;
+  status.needsAttention = next.needsAttention;
+  status.lastError = next.lastError;
+}
+
 async function assertQuota(
   cfg: BroConfig,
   additional: number,
@@ -104,20 +192,59 @@ async function assertQuota(
  * Serialized via createSingleFlight at the bottom of this file so timer ticks
  * cannot overlap and double-write partial downloads.
  */
+async function sendStatusReport(cfg: BroConfig): Promise<void> {
+  try {
+    const res = await hostFetch(cfg, '/api/peers/agent/ping', {
+      method: 'POST',
+      signal: AbortSignal.timeout(5_000),
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        usedBytes: usedBytes(cfg),
+        quotaBytes: cfg.quotaBytes,
+        pendingPulls: status.pendingPulls,
+        pendingRecalls: status.pendingRecalls,
+        lastSyncAt: status.lastSyncAt,
+        lastError: status.lastError,
+        appVersion: pkg.version,
+      }),
+    });
+    if (res.status === 401 || res.status === 403) {
+      applyFailure(classifyControlResponse('report', res.status));
+    } else if (!res.ok && res.status !== 404 && res.status !== 405) {
+      // Older hosts have no POST report; anything else is worth a log line
+      // but must not turn a successful sync into "host unreachable".
+      console.warn(`[lazybro] status report failed (${res.status})`);
+    }
+  } catch (err) {
+    console.warn(
+      '[lazybro] status report:',
+      err instanceof Error ? err.message : String(err)
+    );
+  }
+}
+
 async function runSyncOnce(cfg: BroConfig): Promise<SyncStatus> {
   if (!cfg.hostBaseUrl || !cfg.outboundToken) {
     status.hostReachable = false;
+    status.authRevoked = false;
+    status.needsAttention = false;
     status.lastError = null;
     return getSyncStatus(cfg);
   }
 
+  status.authRevoked = false;
+  status.needsAttention = false;
+
   try {
     const ping = await hostFetch(cfg, '/api/peers/agent/ping', {
       signal: AbortSignal.timeout(CONTROL_TIMEOUT_MS),
+    }).catch((err) => {
+      applyFailure(classifyTransportFailure('ping', err));
+      return null;
     });
+    if (!ping) return getSyncStatus(cfg);
     if (!ping.ok) {
-      status.hostReachable = false;
-      status.lastError = `Ping failed (${ping.status})`;
+      applyFailure(classifyControlResponse('ping', ping.status));
       return getSyncStatus(cfg);
     }
     status.hostReachable = true;
@@ -126,9 +253,14 @@ async function runSyncOnce(cfg: BroConfig): Promise<SyncStatus> {
 
     const workRes = await hostFetch(cfg, '/api/peers/agent/work', {
       signal: AbortSignal.timeout(CONTROL_TIMEOUT_MS),
+    }).catch((err) => {
+      applyFailure(classifyTransportFailure('work', err));
+      return null;
     });
+    if (!workRes) return getSyncStatus(cfg);
     if (!workRes.ok) {
-      status.lastError = `Work failed (${workRes.status})`;
+      applyFailure(classifyControlResponse('work', workRes.status));
+      await sendStatusReport(cfg);
       return getSyncStatus(cfg);
     }
 
@@ -144,6 +276,7 @@ async function runSyncOnce(cfg: BroConfig): Promise<SyncStatus> {
     // Failures are per item: one oversized/corrupt object must not block
     // recalls (restores) or retention deletes for the rest of the pass.
     const errors: string[] = [];
+    let pullFailures = 0;
 
     for (const pull of work.pulls || []) {
       try {
@@ -152,6 +285,10 @@ async function runSyncOnce(cfg: BroConfig): Promise<SyncStatus> {
           `/api/peers/agent/pending?key=${encodeURIComponent(pull.key)}`
         );
         if (!getRes.ok) {
+          if (getRes.status === 401 || getRes.status === 403) {
+            status.authRevoked = true;
+          }
+          pullFailures += 1;
           errors.push(`Pull ${pull.key}: HTTP ${getRes.status}`);
           continue;
         }
@@ -175,9 +312,14 @@ async function runSyncOnce(cfg: BroConfig): Promise<SyncStatus> {
           }),
         });
         if (!ackRes.ok) {
+          if (ackRes.status === 401 || ackRes.status === 403) {
+            status.authRevoked = true;
+          }
+          pullFailures += 1;
           errors.push(`ACK ${pull.key}: HTTP ${ackRes.status}`);
         }
       } catch (err) {
+        pullFailures += 1;
         errors.push(
           `Pull ${pull.key}: ${err instanceof Error ? err.message : String(err)}`
         );
@@ -239,12 +381,18 @@ async function runSyncOnce(cfg: BroConfig): Promise<SyncStatus> {
     }
 
     status.lastSyncAt = new Date().toISOString();
-    status.pendingPulls = 0;
+    status.pendingPulls = pullFailures;
     status.pendingRecalls = remainingRecalls;
     // Keep hostReachable true: the host answered, individual items failed.
-    status.lastError = errors.length ? errors.join('; ') : null;
+    const itemSummary = summarizeItemErrors(errors);
+    status.needsAttention = itemSummary.needsAttention;
+    status.lastError = itemSummary.lastError;
+
+    await sendStatusReport(cfg);
   } catch (err) {
-    status.hostReachable = false;
+    // Reached but unexpected (bad work JSON, etc.): retryable, not offline.
+    status.hostReachable = true;
+    status.needsAttention = true;
     status.lastError = err instanceof Error ? err.message : String(err);
   }
 
