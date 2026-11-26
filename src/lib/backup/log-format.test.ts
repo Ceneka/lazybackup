@@ -6,6 +6,8 @@ import {
   buildPreBackupLog,
   combineBackupLog,
   formatPreBackupCommandLog,
+  isArchiveTransferMethod,
+  parseArchiveTransferStats,
   splitBackupLog,
 } from './log-format';
 
@@ -228,5 +230,35 @@ describe('splitBackupLog', () => {
     expect(combined).toContain(LOG_SECTION.transferDatabase);
     const parts = splitBackupLog(combined);
     expect(parts.transfer).toContain('Engine: postgres');
+  });
+});
+
+describe('archive transfer stats', () => {
+  test('encrypted path archives count as single-file transfers', () => {
+    expect(isArchiveTransferMethod('path-file-peer-mailbox-age')).toBe(true);
+    expect(isArchiveTransferMethod('path-file-local-age')).toBe(true);
+    expect(isArchiveTransferMethod('docker-file-peer-mailbox-age')).toBe(true);
+    expect(isArchiveTransferMethod('database-file-s3-age')).toBe(true);
+    expect(isArchiveTransferMethod('local-rsync')).toBe(false);
+    expect(isArchiveTransferMethod('push-rsync')).toBe(false);
+  });
+
+  test('reads Size from land output', () => {
+    const stdout = [
+      'Archive: app.tar.gz.age',
+      'Peer: bro',
+      'Object: srv1/app.tar.gz.age',
+      'Size: 31470781 bytes',
+      'SHA-256: abc',
+    ].join('\n');
+    expect(parseArchiveTransferStats(stdout)).toEqual({
+      fileCount: 1,
+      totalSize: 31470781,
+      transferredSize: 31470781,
+    });
+  });
+
+  test('returns null when no Size line exists', () => {
+    expect(parseArchiveTransferStats('Archive: x\nRemote path: /x')).toBeNull();
   });
 });

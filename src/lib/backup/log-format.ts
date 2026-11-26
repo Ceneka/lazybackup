@@ -101,6 +101,36 @@ export function buildPeerRetentionLog(objectKeys: string[]): string {
   ].join('\n');
 }
 
+export type ArchiveTransferStats = {
+  fileCount: number;
+  totalSize: number;
+  transferredSize: number;
+};
+
+/**
+ * Single-archive transfers (database dumps, volume tars, encrypted path archives,
+ * instance/ Git packs) log `Size: N bytes` from landLocalFileArtifact. rsync stats
+ * do not apply to them, so history would otherwise show 0 files / 0 B.
+ */
+export function parseArchiveTransferStats(stdout: string): ArchiveTransferStats | null {
+  const match = /(?:^|\n)Size: (\d+) bytes(?:\n|$)/.exec(stdout);
+  if (!match?.[1]) return null;
+  const size = Number(match[1]);
+  if (!Number.isSafeInteger(size) || size < 0) return null;
+  return { fileCount: 1, totalSize: size, transferredSize: size };
+}
+
+/** Methods that land exactly one archive file (not an rsync directory tree). */
+export function isArchiveTransferMethod(method: string): boolean {
+  return (
+    method.startsWith('docker') ||
+    method.startsWith('database') ||
+    method.startsWith('lazybackup-instance') ||
+    method.startsWith('git-mirror') ||
+    (method.startsWith('path-') && method.endsWith('-age'))
+  );
+}
+
 export function splitBackupLog(logOutput: string): {
   preBackup?: string;
   transfer: string;

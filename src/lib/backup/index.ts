@@ -93,7 +93,9 @@ import {
   buildPreBackupLog,
   combineBackupLog,
   formatPreBackupCommandLog,
+  isArchiveTransferMethod,
   LOG_SECTION,
+  parseArchiveTransferStats,
 } from './log-format';
 import { execFile } from 'child_process';
 import dayjs from 'dayjs';
@@ -1819,11 +1821,10 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
       }
     }
 
-    const isArchiveTransfer =
-      usedMethod.startsWith('docker') ||
-      usedMethod.startsWith('database') ||
-      usedMethod.startsWith('lazybackup-instance') ||
-      usedMethod.startsWith('git-mirror');
+    const isArchiveTransfer = isArchiveTransferMethod(usedMethod);
+    const archiveStats = isArchiveTransfer
+      ? parseArchiveTransferStats(backupResult.stdout)
+      : null;
     const parsedOutput =
       isArchiveTransfer && destinationKind === 'local'
         ? {
@@ -1831,13 +1832,7 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
             totalSize: (await fs.stat(artifactPath)).size,
             transferredSize: (await fs.stat(artifactPath)).size,
           }
-        : isArchiveTransfer && destinationKind === 's3'
-          ? {
-              fileCount: 1,
-              totalSize: Number(/Size: (\d+) bytes/.exec(backupResult.stdout)?.[1] || 0),
-              transferredSize: Number(/Size: (\d+) bytes/.exec(backupResult.stdout)?.[1] || 0),
-            }
-          : parseRsyncOutput(backupResult.stdout);
+        : archiveStats ?? parseRsyncOutput(backupResult.stdout);
 
     await updateBackupHistorySuccess(historyId, {
       ...parsedOutput,
