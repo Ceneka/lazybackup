@@ -3,7 +3,11 @@ import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
 import type { BroConfig } from './config';
-import * as realRemote from './remote';
+import * as remoteModule from './remote';
+
+// Bun patches the namespace object in place when mocking, so snapshot the real
+// exports first and restore from the snapshot.
+const realRemote = { ...remoteModule };
 
 type Call = { url: string; init?: { method?: string } };
 

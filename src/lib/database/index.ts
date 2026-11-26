@@ -616,7 +616,7 @@ async function withRemotePasswordFile<T>(
       `${REMOTE_STANDARD_PATH} mktemp -d /tmp/lazybackup-dbpw-XXXXXX`
     );
     const remoteDir = made.stdout.trim();
-    if (isFailedExit(made.code) || !remoteDir) {
+    if (isFailedExit(made) || !remoteDir) {
       throw new Error(
         `Failed to create remote password file: ${made.stderr || made.stdout}`
       );

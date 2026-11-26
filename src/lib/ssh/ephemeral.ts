@@ -7,7 +7,13 @@ import type { NodeSSH } from 'node-ssh';
 import { isBackupArtifactFileName } from '@/lib/backup/file-retention';
 import { assertSafePathString } from '@/lib/backup/local-paths';
 import { ensureKnownHostsFile, sshStrictHostKeyCliOptions } from './known-hosts';
-import { shellSingleQuote, sshUserHost, assertSshPort, assertSafePositionalPath } from './rsync';
+import {
+  shellSingleQuote,
+  sshUserHost,
+  assertSshPort,
+  assertSafeCliToken,
+  assertSafePositionalPath,
+} from './rsync';
 import { ensureSshTempDir } from './temp-dir';
 
 const execFileAsync = promisify(execFile);
