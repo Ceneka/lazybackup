@@ -4,6 +4,8 @@ import {
   hasRestoreConfirm,
   restoreHistorySchema,
 } from '@/lib/backup/history-schema';
+import { httpStatusForRestoreError } from '@/lib/backup/restore-errors';
+import { parseRestoreSnapshot } from '@/lib/backup/restore-snapshot';
 import { isValidDockerVolumeName } from '@/lib/docker/volumes';
 import { DB_NAME_RE, assertValidSqlitePath } from '@/lib/database';
 import { db } from '@/lib/db';
@@ -47,10 +49,12 @@ export async function POST(
       return NextResponse.json({ error: 'Backup history entry not found' }, { status: 404 });
     }
 
-    const sourceType = historyEntry.backupConfig?.sourceType || 'path';
+    const snapshot = parseRestoreSnapshot(historyEntry.configSnapshot);
+    const sourceType = snapshot?.sourceType || historyEntry.backupConfig?.sourceType || 'path';
+    const dbEngine = snapshot?.dbEngine ?? historyEntry.backupConfig?.dbEngine;
 
     if (sourceType === 'database') {
-      if (databaseName && historyEntry.backupConfig?.dbEngine === 'sqlite') {
+      if (databaseName && dbEngine === 'sqlite') {
         // SQLite targets are filesystem paths, not SQL identifiers.
         try {
           assertValidSqlitePath(databaseName);
@@ -147,17 +151,6 @@ export async function POST(
     }
 
     const message = error instanceof Error ? error.message : 'Failed to restore backup';
-    const status =
-      message.includes('not found') ||
-      message.includes('Only successful') ||
-      message.includes('only supported') ||
-      message.includes('only for path') ||
-      message.includes('Refusing to restore') ||
-      message.includes('re-pair before restoring') ||
-      message.includes('artifact removed by retention')
-        ? 400
-        : 500;
-
-    return NextResponse.json({ error: message }, { status });
+    return NextResponse.json({ error: message }, { status: httpStatusForRestoreError(error) });
   }
 }

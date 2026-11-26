@@ -14,15 +14,21 @@ mock.module('@/lib/db', () => ({
     query: {
       backupHistory: {
         findFirst: async () => historyFixture,
+        findMany: async () => [],
       },
       peerDeletes: { findFirst: async () => null },
       servers: { findFirst: async () => null },
+      s3Profiles: { findFirst: async () => null },
+      peers: { findFirst: async () => null },
       peerRecalls: { findFirst: async () => null },
     },
   },
 }));
 
 const { POST } = await import('@/app/api/history/[id]/restore/route');
+const { beginRestore, resetRestoreLocksForTests } = await import(
+  '@/lib/backup/concurrent-run'
+);
 
 function request(id: string, body: unknown): NextRequest {
   return new NextRequest(`http://127.0.0.1/api/history/${id}/restore`, {
@@ -87,5 +93,82 @@ describe('POST /api/history/[id]/restore — sqlite targets', () => {
 
     expect(res.status).toBe(400);
     expect(body.error).toMatch(/Invalid database name/i);
+  });
+});
+
+describe('POST /api/history/[id]/restore — error status codes', () => {
+  test('retarget without allowRetarget is a 400, not a 500', async () => {
+    historyFixture = {
+      id: 'h-retarget',
+      status: 'success',
+      artifactPath: '/tmp/does-not-matter',
+      backupConfig: {
+        sourceType: 'path',
+        sourceKind: 'server',
+        serverId: 's1',
+        sourcePath: '/srv/app',
+        destinationKind: 'local',
+      },
+    };
+
+    const res = await POST(
+      request('h-retarget', { confirm: true, targetServerId: 's2' }),
+      { params: Promise.resolve({ id: 'h-retarget' }) }
+    );
+    const body = (await res.json()) as { error?: string };
+
+    expect(res.status).toBe(400);
+    expect(body.error).toMatch(/allowRetarget/i);
+  });
+
+  test('git restore without targetPath is a 400', async () => {
+    historyFixture = {
+      id: 'h-git',
+      status: 'success',
+      artifactPath: '/tmp/missing-git.tar.gz',
+      backupConfig: {
+        sourceType: 'git_repo',
+        sourceKind: 'git',
+        sourcePath: 'git-mirror',
+        destinationKind: 'local',
+      },
+    };
+
+    const res = await POST(request('h-git', { confirm: true }), {
+      params: Promise.resolve({ id: 'h-git' }),
+    });
+    const body = (await res.json()) as { error?: string };
+
+    expect(res.status).toBe(400);
+    expect(body.error).toMatch(/targetPath/i);
+  });
+
+  test('a concurrent restore of the same history row is a 409', async () => {
+    historyFixture = {
+      id: 'h-lock',
+      status: 'success',
+      artifactPath: '/tmp/missing.sql.gz',
+      backupConfig: {
+        sourceType: 'database',
+        sourceKind: 'local',
+        sourcePath: 'app',
+        dbEngine: 'postgres',
+        dbClient: 'native',
+        destinationKind: 'local',
+      },
+    };
+
+    const release = await beginRestore({ historyId: 'h-lock', configId: 'cfg-1' });
+    try {
+      const res = await POST(request('h-lock', { confirm: true }), {
+        params: Promise.resolve({ id: 'h-lock' }),
+      });
+      const body = (await res.json()) as { error?: string };
+      expect(res.status).toBe(409);
+      expect(body.error).toMatch(/already running/i);
+    } finally {
+      release();
+      resetRestoreLocksForTests();
+    }
   });
 });

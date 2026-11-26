@@ -6,6 +6,7 @@ import {
   restoreBlockedReason,
   restoreEligibilityFromHistory,
 } from '@/lib/backup/restore-eligibility';
+import { httpStatusForRestoreError } from '@/lib/backup/restore-errors';
 import { db } from '@/lib/db';
 import { backupHistory } from '@/lib/db/schema';
 import { PeerRecallPendingError, peerRecallWaitingResponse } from '@/lib/peer/recall';
@@ -149,12 +150,9 @@ export async function GET(
     console.error(`Failed to download backup ${id}:`, error);
     const message =
       error instanceof Error ? error.message : 'Failed to download artifact';
-    const status =
-      message.includes('not found') ||
-      message.includes('Only successful') ||
-      message.includes('only supported')
-        ? 400
-        : 500;
-    return NextResponse.json({ error: message }, { status });
+    return NextResponse.json(
+      { error: message },
+      { status: httpStatusForRestoreError(error) }
+    );
   }
 }

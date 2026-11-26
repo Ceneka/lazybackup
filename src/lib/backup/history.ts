@@ -2,6 +2,7 @@ import { db } from '@/lib/db';
 import { backupConfigs, backupHistory } from '@/lib/db/schema';
 import { emitBackupEvent } from '@/lib/events/backup-events';
 import { and, eq } from 'drizzle-orm';
+import { buildRestoreSnapshot } from './restore-snapshot';
 
 async function backupNameForConfig(configId: string): Promise<string> {
   const row = await db.query.backupConfigs.findFirst({
@@ -50,7 +51,16 @@ export async function createBackupHistoryEntry(
   options?: { backupName?: string }
 ) {
   const id = crypto.randomUUID();
-  const backupName = options?.backupName ?? (await backupNameForConfig(configId));
+  const config = await db.query.backupConfigs.findFirst({
+    where: eq(backupConfigs.id, configId),
+  });
+  if (!config) {
+    throw new Error(`Backup configuration with ID ${configId} not found`);
+  }
+  const backupName = options?.backupName ?? config.name ?? 'Backup';
+  // Freeze the restore-relevant config now: later edits must not redirect
+  // restores of this run. Legacy rows keep configSnapshot null (live config).
+  const configSnapshot = JSON.stringify(buildRestoreSnapshot(config));
 
   const newEntry = await db
     .insert(backupHistory)
@@ -59,6 +69,7 @@ export async function createBackupHistoryEntry(
       configId,
       startTime: new Date(),
       status: 'running',
+      configSnapshot,
     })
     .returning();
 

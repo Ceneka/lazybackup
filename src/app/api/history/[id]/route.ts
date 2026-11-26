@@ -1,5 +1,9 @@
 import { historyBackupConfigWith } from '@/lib/api/history-query';
 import { redactHistoryEntry } from '@/lib/api/redact';
+import {
+  parseRestoreSnapshot,
+  restoreDefaultsFromSnapshot,
+} from '@/lib/backup/restore-snapshot';
 import { db } from '@/lib/db';
 import { backupHistory } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
@@ -28,9 +32,15 @@ export async function GET(
       );
     }
     
-    return NextResponse.json(
-      redactHistoryEntry(historyEntry as unknown as Record<string, unknown>)
-    );
+    const snapshot = parseRestoreSnapshot(historyEntry.configSnapshot);
+    const restoreDefaults = historyEntry.backupConfig
+      ? restoreDefaultsFromSnapshot(snapshot, historyEntry.backupConfig)
+      : null;
+
+    return NextResponse.json({
+      ...redactHistoryEntry(historyEntry as unknown as Record<string, unknown>),
+      restoreDefaults,
+    });
   } catch (error) {
     console.error('Error fetching backup history entry:', error);
     return NextResponse.json(
