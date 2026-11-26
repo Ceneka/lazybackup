@@ -93,17 +93,25 @@ export async function unlinkObject(cfg: BroConfig, key: string): Promise<void> {
 }
 
 /**
- * Unpair: drop every stored object file and its row. Only touches
- * `shareDir/objects`; the friend's own files elsewhere are untouched.
+ * Unpair: drop every tracked object file and its row. Only files recorded in
+ * the DB are removed, so an unrelated file that happened to live under
+ * `shareDir/objects` is never deleted. The friend's own files elsewhere are
+ * untouched.
  */
 export async function deleteAllObjects(
   cfg: BroConfig
 ): Promise<{ count: number; bytes: number }> {
   const rows = listObjects(cfg);
-  const bytes = rows.reduce((sum, row) => sum + row.size, 0);
-  const dir = path.resolve(objectsDir(cfg));
-  await fs.rm(dir, { recursive: true, force: true });
-  await fs.mkdir(dir, { recursive: true, mode: 0o700 });
+  let bytes = 0;
+  for (const row of rows) {
+    bytes += row.size;
+    try {
+      await fs.unlink(objectFilePath(cfg, row.key));
+    } catch {
+      /* already gone or invalid key; drop the row anyway */
+    }
+  }
   getDb(cfg).query(`DELETE FROM objects`).run();
+  await fs.mkdir(objectsDir(cfg), { recursive: true, mode: 0o700 }).catch(() => {});
   return { count: rows.length, bytes };
 }

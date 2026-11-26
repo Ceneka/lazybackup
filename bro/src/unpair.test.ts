@@ -81,6 +81,7 @@ describe('deleteAllObjects (unpair)', () => {
       upsertObject(cfg, key, 10, new Date().toISOString());
     }
     await fs.writeFile(path.join(cfg.shareDir, 'notes.txt'), 'mine');
+    await fs.writeFile(path.join(cfg.shareDir, 'objects', 'unrelated.txt'), 'keep me');
     expect(usedBytes(cfg)).toBe(20);
 
     const removed = await deleteAllObjects(cfg);
@@ -90,6 +91,9 @@ describe('deleteAllObjects (unpair)', () => {
     expect(usedBytes(cfg)).toBe(0);
     await expect(fs.access(objectFilePath(cfg, keys[0]!))).rejects.toThrow();
     await fs.access(path.join(cfg.shareDir, 'objects'));
+    expect(await fs.readFile(path.join(cfg.shareDir, 'objects', 'unrelated.txt'), 'utf8')).toBe(
+      'keep me'
+    );
     expect(await fs.readFile(path.join(cfg.shareDir, 'notes.txt'), 'utf8')).toBe('mine');
   });
 });
