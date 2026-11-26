@@ -135,8 +135,9 @@ export function BroSpaceSettingsPanel() {
               Bro Space
             </CardTitle>
             <CardDescription>
-              Share a folder on a friend’s computer. Everything is encrypted
-              before it leaves this machine — your friend can’t open it.
+              Share disk with a friend. They install LazyBro; everything is
+              encrypted before it leaves this machine — your friend can’t open
+              it.
             </CardDescription>
           </div>
           <Button

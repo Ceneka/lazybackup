@@ -215,7 +215,7 @@ export function buildAddressCandidates(
   }
 
   if (port) {
-    push("loopback", buildUrl("http", "127.0.0.1", port))
+    push("loopback", buildUrl(protocol, "127.0.0.1", port))
   }
 
   return candidates

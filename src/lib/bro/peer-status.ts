@@ -107,7 +107,8 @@ export function humanizePeerError(
 ): string | null {
   const message = (raw ?? "").trim()
   if (!message) return null
-  const friend = friendName.trim() || "Your friend"
+  const rawFriend = friendName.trim() || "your friend"
+  const friend = rawFriend.charAt(0).toUpperCase() + rawFriend.slice(1)
 
   if (FULL_PATTERNS.some((pattern) => pattern.test(message))) {
     return `${friend}’s folder is full`
