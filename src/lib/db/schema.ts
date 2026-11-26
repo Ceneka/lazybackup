@@ -166,9 +166,18 @@ export const backupHistory = sqliteTable('backup_history', {
   mailboxPending: integer('mailbox_pending', { mode: 'boolean' }).notNull().default(false),
   /**
    * Bro retention: object was deleted on the peer after a verified delete ACK.
+   * Also set when local/SSH/S3 version or file retention deletes this run's artifact.
    * Restore must fail clearly instead of hanging on recall.
    */
   artifactRemoved: integer('artifact_removed', { mode: 'boolean' }).notNull().default(false),
+  /** Why the artifact is gone, e.g. "removed by version retention". */
+  artifactRemovedReason: text('artifact_removed_reason'),
+  /**
+   * JSON restore-relevant config snapshot captured at run start (source and
+   * destination endpoints/paths, type, db/volume name). Restores use this
+   * instead of the live config. Null on legacy rows.
+   */
+  configSnapshot: text('config_snapshot'),
 });
 
 /** Machine API tokens for MCP / Bearer auth (hash only; plaintext shown once) */

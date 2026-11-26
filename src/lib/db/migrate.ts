@@ -526,6 +526,20 @@ export async function runMigration() {
       await db.run(sql`DELETE FROM settings WHERE key IN ('ageIdentity', 'ageRecipient')`);
     }
 
+    // --- restore-core wave 2: run-start config snapshot + retention reason ---
+    const backupHistoryRestoreCore = await db.run(sql`PRAGMA table_info(backup_history)`);
+    const historyRestoreCoreColumns = backupHistoryRestoreCore.rows.map(
+      (row: any) => row.name
+    );
+    if (!historyRestoreCoreColumns.includes('config_snapshot')) {
+      await db.run(sql`ALTER TABLE backup_history ADD COLUMN config_snapshot TEXT`);
+    }
+    if (!historyRestoreCoreColumns.includes('artifact_removed_reason')) {
+      await db.run(
+        sql`ALTER TABLE backup_history ADD COLUMN artifact_removed_reason TEXT`
+      );
+    }
+
     // DB holds SSH/S3/DB credentials and tokens; keep it owner-only.
     await restrictSqliteFilePermissions();
 

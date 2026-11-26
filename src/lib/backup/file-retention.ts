@@ -1,3 +1,5 @@
+import { VERSION_DIR_PATTERN, compareVersionDirNames } from './version-dirs';
+
 export type RetentionAgeUnit = 'days' | 'months';
 
 export type FileCandidate = {
@@ -55,8 +57,8 @@ export type PeerObjectCandidate = {
   mtimeMs: number;
 };
 
-/** Timestamp version folder names: YYYY-MM-DD_HH-mm-ss */
-export const PEER_VERSION_DIR_RE = /^\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}$/;
+/** Timestamp version folder names: YYYY-MM-DD_HH-mm-ss (plus `-2`, `-3`, …). */
+export const PEER_VERSION_DIR_RE = VERSION_DIR_PATTERN;
 
 export function relativeKeyUnderPrefix(key: string, prefix: string): string | null {
   const normalizedKey = key.replace(/^\/+/, '');
@@ -127,7 +129,8 @@ export function selectPeerKeysForVersionRetention(
   if (versions.length <= versionsToKeep) return [];
 
   versions.sort((a, b) => {
-    if (a.name !== b.name) return a.name.localeCompare(b.name);
+    const byName = compareVersionDirNames(a.name, b.name);
+    if (byName !== 0) return byName;
     return a.lastModifiedMs - b.lastModifiedMs;
   });
   const toRemove = versions.slice(0, Math.max(0, versions.length - versionsToKeep));

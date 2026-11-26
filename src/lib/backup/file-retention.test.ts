@@ -177,6 +177,17 @@ describe('selectPeerKeysForVersionRetention', () => {
     ];
     expect(selectPeerKeysForVersionRetention(objects, '', 2)).toEqual([]);
   });
+
+  test('orders collision-suffixed versions numerically', () => {
+    const objects = [
+      { key: '2026-08-01_00-00-00/vol.tar.gz.age', mtimeMs: 1 },
+      { key: '2026-08-01_00-00-00-2/vol.tar.gz.age', mtimeMs: 2 },
+      { key: '2026-08-01_00-00-00-10/vol.tar.gz.age', mtimeMs: 3 },
+    ];
+    expect(selectPeerKeysForVersionRetention(objects, '', 2)).toEqual([
+      '2026-08-01_00-00-00/vol.tar.gz.age',
+    ]);
+  });
 });
 
 describe('relativeKeyUnderPrefix', () => {
