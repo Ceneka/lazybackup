@@ -144,6 +144,29 @@ describe('csrfDecisionForSessionRequest', () => {
     ).toBe(false)
   })
 
+  test('LAN Host still works when AUTH_PUBLIC_URL names the public host', () => {
+    // Plain-HTTP LAN: no Sec-Fetch-Site, Origin is the LAN address.
+    process.env.AUTH_PUBLIC_URL = 'https://backup.example.com'
+    expect(
+      csrfDecisionForSessionRequest({
+        method: 'POST',
+        headers: headers({
+          host: '192.168.1.10:3000',
+          origin: 'http://192.168.1.10:3000',
+        }),
+      })
+    ).toEqual({ ok: true })
+    expect(
+      csrfDecisionForSessionRequest({
+        method: 'POST',
+        headers: headers({
+          host: '192.168.1.10:3000',
+          origin: 'http://evil.example',
+        }),
+      }).ok
+    ).toBe(false)
+  })
+
   test('host comparison is case-insensitive', () => {
     expect(
       csrfDecisionForSessionRequest({

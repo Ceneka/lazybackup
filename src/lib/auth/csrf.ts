@@ -55,6 +55,38 @@ export function trustedRequestHost(headers: {
 }
 
 /**
+ * Every host this instance may legitimately be reached on for this request:
+ * AUTH_PUBLIC_URL, the trusted forwarded host, and the Host header. A
+ * browser cannot forge Host cross-site, so matching any of them is safe, and
+ * accepting all of them keeps the LAN address working when AUTH_PUBLIC_URL
+ * points at the public name (Sec-Fetch-Site is not sent over plain HTTP).
+ */
+export function acceptableOriginHosts(headers: {
+  get(name: string): string | null
+}): Set<string> {
+  const hosts = new Set<string>()
+  const configured = process.env.AUTH_PUBLIC_URL?.trim()
+  if (configured) {
+    try {
+      const url = new URL(configured)
+      if (url.protocol === 'http:' || url.protocol === 'https:') {
+        const host = normalizedHost(url.host)
+        if (host) hosts.add(host)
+      }
+    } catch {
+      // ignore malformed AUTH_PUBLIC_URL
+    }
+  }
+  if (process.env.AUTH_TRUST_PROXY === 'true') {
+    const forwarded = normalizedHost(headers.get('x-forwarded-host')?.split(',')[0])
+    if (forwarded) hosts.add(forwarded)
+  }
+  const host = normalizedHost(headers.get('host'))
+  if (host) hosts.add(host)
+  return hosts
+}
+
+/**
  * Decide whether an unsafe (state-changing) request authenticated by the
  * session cookie may proceed.
  */
@@ -88,8 +120,7 @@ export function csrfDecisionForSessionRequest(input: {
     return { ok: false, reason: 'Cross-site request blocked (invalid Origin)' }
   }
 
-  const expectedHost = trustedRequestHost(input.headers)
-  if (!expectedHost || originHost !== expectedHost) {
+  if (!acceptableOriginHosts(input.headers).has(originHost)) {
     return {
       ok: false,
       reason: 'Cross-site request blocked (Origin does not match Host)',
