@@ -822,9 +822,16 @@
         return /quota/i.test(raw);
       }
 
+      function isDiskFullError(raw) {
+        return /enospc|no space left/i.test(raw);
+      }
+
       function humanizeSyncError(raw, name) {
+        if (isDiskFullError(raw)) {
+          return "Needs attention: This disk is full. Free up space on it so " + name + "'s backups can continue.";
+        }
         if (isQuotaError(raw)) {
-          return "Needs attention: Your folder is full. Free up space, or ask " + name + " to lower the limit.";
+          return "Needs attention: " + name + "'s backups need more space than you agreed to lend. Ask " + name + " to keep fewer backups, or agree on a bigger limit.";
         }
         if (/object limit/i.test(raw)) {
           return "Needs attention: This folder has too many files. Ask " + name + " to remove some old backups.";
@@ -884,7 +891,7 @@
         const revoked = issue.revoked;
         const offline = issue.offline;
         const attention = issue.attention || (over
-          ? "Needs attention: Your folder is full. Free up space, or ask " + name + " to lower the limit."
+          ? "Needs attention: " + name + "'s backups need more space than you agreed to lend. Ask " + name + " to keep fewer backups, or agree on a bigger limit."
           : "");
 
         setText("lead", revoked ? "Sharing stopped." : "Lending a folder to " + name + ".");
@@ -992,9 +999,12 @@
         } else if (polls > 0) {
           activity = "Receiving " + polls + (polls === 1 ? " backup…" : " backups…");
           hint = "Keep LazyBro open until it finishes.";
+        } else if (issue.attention && isDiskFullError(issue.raw)) {
+          activity = "You're not receiving new backups until this disk has space.";
+          hint = "Free up space on this disk. LazyBro will try again automatically.";
         } else if (over || (issue.attention && isQuotaError(issue.raw))) {
-          activity = "You're not receiving new backups until there's space.";
-          hint = "Free up space, or ask " + name + " to lower the limit.";
+          activity = "You're not receiving new backups: the space you lend is used up.";
+          hint = "Ask " + name + " to keep fewer backups, or agree on a bigger limit.";
         } else if (issue.attention) {
           activity = issue.attention;
           hint = "LazyBro will try again automatically.";

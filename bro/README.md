@@ -60,7 +60,8 @@ Once backups are stored, changing the folder is locked: moving the folder withou
 
 - **“That invite doesn’t look right”** — copy the whole message from your friend. The code inside starts with `lb1.`
 - **“Can’t reach your friend’s LazyBackup”** — your friend’s address is wrong, their LazyBackup is off, or you’re on a different network. Ask them to check the address and send a new invite.
-- **“Your folder is full”** — free up space on that disk, or ask your friend to lower the space limit they set. LazyBro won’t receive new backups until there is room.
+- **“…need more space than you agreed to lend”** — your friend’s backups reached the limit you agreed on. Ask them to keep fewer backups, or agree on a bigger limit (they create a new invite). LazyBro won’t receive new backups until there is room.
+- **“This disk is full”** — the disk holding your folder ran out of space. Free some up; LazyBro retries automatically.
 - **“Your friend removed this connection”** — ask them for a new invite, then disconnect here and connect again.
 
 Data lives in `~/.local/share/lazybro` (Linux), `~/Library/Application Support/LazyBro` (macOS), or `%APPDATA%\LazyBro` (Windows). The folder you share is separate and is the only place backup files are stored.

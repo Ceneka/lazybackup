@@ -48,7 +48,8 @@ describe('LazyBro UI — paired state', () => {
     expect(html).toContain('needsAttention');
     expect(html).toContain("removed this connection");
     expect(html).toContain("we'll keep trying");
-    expect(html).toContain('Your folder is full');
+    expect(html).toContain('need more space than you agreed to lend');
+    expect(html).toContain('This disk is full');
     expect(html).toContain('over the limit');
   });
 
