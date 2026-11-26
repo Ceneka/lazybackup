@@ -1,7 +1,7 @@
 import { and, eq } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { db } from '@/lib/db';
-import { peerInvites, peers, settings } from '@/lib/db/schema';
+import { backupHistory, peerInvites, peers, settings } from '@/lib/db/schema';
 import {
   PEER_PAIR_RESPONSE_JSON_LIMIT,
   readCappedResponseJson,
@@ -68,17 +68,44 @@ export async function setInstanceBaseUrl(url: string): Promise<void> {
 
 export async function listPeers(): Promise<PeerPublic[]> {
   const rows = await db.query.peers.findMany();
+  // History rows can still be `mailboxPending` for a few ms after the ACK
+  // removed the staged file (ACK wins the race before the success row exists).
+  const pendingHistory = await db.query.backupHistory
+    .findMany({ where: eq(backupHistory.mailboxPending, true) })
+    .catch(() => []);
   const out: PeerPublic[] = [];
   for (const row of rows) {
-    let pendingSyncCount = 0;
+    const pending = new Map<string, { size: number; at: string }>();
     if (row.transport !== 'direct') {
       try {
-        pendingSyncCount = (await listStagedObjects(row.id)).length;
+        for (const staged of await listStagedObjects(row.id)) {
+          pending.set(staged.key, { size: staged.size, at: staged.mtime });
+        }
       } catch {
-        pendingSyncCount = 0;
+        // Missing staging dir = nothing waiting.
       }
     }
-    out.push(redactPeer(row, { pendingSyncCount }));
+    const prefix = `peer://${row.id}/`;
+    for (const history of pendingHistory) {
+      const artifactPath = history.artifactPath;
+      if (!artifactPath?.startsWith(prefix)) continue;
+      const key = artifactPath.slice(prefix.length);
+      if (!key || pending.has(key)) continue;
+      pending.set(key, {
+        size: history.totalSize ?? history.transferredSize ?? 0,
+        at: new Date(history.startTime).toISOString(),
+      });
+    }
+    const pendingBytes = [...pending.values()].reduce((sum, item) => sum + item.size, 0);
+    const oldestPendingAt =
+      [...pending.values()].map((item) => item.at).sort()[0] ?? null;
+    out.push(
+      redactPeer(row, {
+        pendingSyncCount: pending.size,
+        pendingBytes,
+        oldestPendingAt,
+      })
+    );
   }
   return out;
 }
