@@ -3,6 +3,7 @@ import {
   addressReachForUrl,
   buildAddressCandidates,
   isCandidateUsable,
+  isPublicHttpUrl,
   normalizeAddressUrl,
   validateAddressInput,
 } from "./addresses"
@@ -113,7 +114,7 @@ describe("buildAddressCandidates", () => {
 })
 
 describe("validateAddressInput", () => {
-  test("accepts public and Tailscale addresses", () => {
+  test("accepts public HTTPS and Tailscale addresses", () => {
     expect(
       validateAddressInput("https://backup.example.com", {
         allowPrivatePeerUrls: false,
@@ -124,6 +125,16 @@ describe("validateAddressInput", () => {
         allowPrivatePeerUrls: false,
       })
     ).toMatchObject({ ok: true, reach: "tailnet" })
+  })
+
+  test("rejects plain HTTP for a public address", () => {
+    const result = validateAddressInput("http://backup.example.com", {
+      allowPrivatePeerUrls: false,
+    })
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.error).toContain("https://")
+    }
   })
 
   test("rejects loopback with the audit copy", () => {
@@ -179,5 +190,11 @@ describe("isCandidateUsable", () => {
     expect(
       isCandidateUsable({ ...lan, reach: "this-computer" }, true)
     ).toBe(false)
+  })
+
+  test("public HTTP candidates are not usable", () => {
+    expect(isPublicHttpUrl("http://backup.example.com")).toBe(true)
+    expect(isPublicHttpUrl("https://backup.example.com")).toBe(false)
+    expect(isPublicHttpUrl("http://192.168.0.36:3141")).toBe(false)
   })
 })

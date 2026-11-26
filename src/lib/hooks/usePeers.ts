@@ -69,7 +69,10 @@ export function friendlyPeerError(message: string, fallback: string): string {
   if (/fetch failed|failed to fetch|networkerror/i.test(text)) {
     return "Couldn’t reach that address. Check it and try again."
   }
-  if (/targets a disallowed address|must use https|private/i.test(text)) {
+  if (/must use https|use https:\/\//i.test(text)) {
+    return "Public addresses must use https://. Pick an HTTPS address, Tailscale, or an allowed home-network address."
+  }
+  if (/targets a disallowed address|private/i.test(text)) {
     return "That address can’t be used for invites. Pick a public, Tailscale, or allowed home-network address."
   }
   return text

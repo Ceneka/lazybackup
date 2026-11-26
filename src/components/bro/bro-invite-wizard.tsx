@@ -36,6 +36,7 @@ import { Label } from "@/components/ui/label"
 import { LoadingButton } from "@/components/ui/loading-button"
 import {
   isCandidateUsable,
+  isPublicHttpUrl,
   normalizeAddressUrl,
   validateAddressInput,
   type AddressCandidate,
@@ -973,6 +974,7 @@ function AddressOption({
 }) {
   const Icon = reachIcon(candidate.reach)
   const loopback = candidate.reach === "this-computer"
+  const publicHttp = isPublicHttpUrl(candidate.url)
 
   return (
     <label
@@ -981,7 +983,7 @@ function AddressOption({
         selected
           ? "border-primary ring-1 ring-primary"
           : "hover:bg-muted/40",
-        loopback && "border-destructive/40 bg-destructive/5"
+        (loopback || publicHttp) && "border-destructive/40 bg-destructive/5"
       )}
     >
       <input
@@ -1006,12 +1008,12 @@ function AddressOption({
           <span
             className={cn(
               "inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-normal",
-              loopback
+              loopback || publicHttp
                 ? "border-transparent bg-destructive text-white"
                 : "border-transparent bg-secondary text-secondary-foreground"
             )}
           >
-            {reachBadge(candidate.reach)}
+            {publicHttp ? "Needs HTTPS" : reachBadge(candidate.reach)}
           </span>
           {candidate.kind === "saved" ? (
             <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-normal">
@@ -1025,10 +1027,12 @@ function AddressOption({
         <span
           className={cn(
             "block text-xs",
-            loopback ? "text-destructive" : "text-muted-foreground"
+            loopback || publicHttp ? "text-destructive" : "text-muted-foreground"
           )}
         >
-          {candidate.note}
+          {publicHttp
+            ? "Public addresses must use https:// — invites carry secrets."
+            : candidate.note}
         </span>
       </span>
     </label>

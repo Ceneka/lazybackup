@@ -221,6 +221,16 @@ export function buildAddressCandidates(
   return candidates
 }
 
+/** Public addresses must be https; invites carry secrets. */
+export function isPublicHttpUrl(raw: string): boolean {
+  try {
+    const parsed = new URL(raw)
+    return parsed.protocol === "http:" && addressReachForUrl(raw) === "anywhere"
+  } catch {
+    return false
+  }
+}
+
 /** A candidate the wizard can actually save and hand to a friend. */
 export function isCandidateUsable(
   candidate: AddressCandidate,
@@ -228,6 +238,7 @@ export function isCandidateUsable(
 ): boolean {
   if (candidate.reach === "this-computer") return false
   if (candidate.reach === "same-network" && !allowPrivatePeerUrls) return false
+  if (isPublicHttpUrl(candidate.url)) return false
   return true
 }
 
@@ -275,6 +286,14 @@ export function validateAddressInput(
       ok: false,
       error:
         "This address is private. To use it, set ALLOW_PRIVATE_PEER_URLS=true on this LazyBackup host, or use Tailscale or a public address.",
+      reach,
+    }
+  }
+  if (isPublicHttpUrl(url)) {
+    return {
+      ok: false,
+      error:
+        "Public addresses must use https://. Invites carry secrets, so use HTTPS, Tailscale, or an allowed home-network address.",
       reach,
     }
   }
