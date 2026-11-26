@@ -14,6 +14,7 @@ import {
   setPasswordHash,
   verifyPassword,
 } from '@/lib/auth'
+import { hasJsonContentType } from '@/lib/auth/request-content'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 
@@ -36,6 +37,13 @@ const passwordSchema = z.discriminatedUnion('action', [
 // POST /api/auth/password — set / change / remove app password
 export async function POST(request: NextRequest) {
   try {
+    if (!hasJsonContentType(request.headers)) {
+      return NextResponse.json(
+        { error: 'Content-Type must be application/json' },
+        { status: 415 }
+      )
+    }
+
     const body = await request.json()
     const data = passwordSchema.parse(body)
     const existingHash = await getPasswordHash()
