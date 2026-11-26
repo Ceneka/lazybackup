@@ -89,8 +89,18 @@ export function useHistoryList(
       return res.json()
     },
     refetchInterval: (query) => {
-      const rows = query.state.data?.history as { status?: string }[] | undefined
-      return rows?.some((h) => h.status === "running") ? 15_000 : false
+      const rows = query.state.data?.history as
+        | { status?: string; mailboxPending?: boolean; deliveryState?: string | null }[]
+        | undefined
+      // Keep waiting Bro Space rows fresh so they flip to "stored" after the
+      // friend's app pulls the artifact (no SSE event for delivery acks).
+      const active = rows?.some(
+        (h) =>
+          h.status === "running" ||
+          h.mailboxPending === true ||
+          h.deliveryState === "waiting"
+      )
+      return active ? 15_000 : false
     },
   })
 }
@@ -105,6 +115,21 @@ export function useHistoryDetail(id: string) {
       return res.json()
     },
     enabled: !!id,
+    refetchInterval: (query) => {
+      const row = query.state.data as
+        | {
+            status?: string
+            mailboxPending?: boolean
+            deliveryState?: string | null
+          }
+        | undefined
+      if (!row) return false
+      return row.status === "running" ||
+        row.mailboxPending === true ||
+        row.deliveryState === "waiting"
+        ? 15_000
+        : false
+    },
   })
 }
 
