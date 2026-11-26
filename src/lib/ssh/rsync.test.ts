@@ -3,6 +3,7 @@ import {
   buildFindCommand,
   buildRsyncArgv,
   buildRsyncCommand,
+  remotePathShellWord,
   shellSingleQuote,
   sshUserHost,
 } from './rsync';
@@ -96,6 +97,15 @@ describe('buildRsyncCommand', () => {
   });
 });
 
+describe('remotePathShellWord', () => {
+  test('expands ~ consistently with rsync/scp and quotes the rest', () => {
+    expect(remotePathShellWord('~/rest dir')).toBe(`"$HOME"/'rest dir'`);
+    expect(remotePathShellWord('~')).toBe('"$HOME"');
+    expect(remotePathShellWord('/srv/backups')).toBe(`'/srv/backups'`);
+    expect(() => remotePathShellWord('')).toThrow();
+  });
+});
+
 describe('buildFindCommand', () => {
   test('quotes remote path and does not interpolate excludes into double quotes', () => {
     const cmd = buildFindCommand('/var/www', ['*.log', 'secret"file']);
@@ -104,6 +114,11 @@ describe('buildFindCommand', () => {
     expect(cmd).toContain(shellSingleQuote('./*.log'));
     expect(cmd).not.toContain('find "/var/www"');
     expect(cmd).not.toContain('| sed');
+  });
+
+  test('expands ~ server-side like rsync', () => {
+    const cmd = buildFindCommand('~/www');
+    expect(cmd).toContain(`cd "$HOME"/'www'`);
   });
 
   test('rejects newline in remote path', () => {

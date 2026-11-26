@@ -184,3 +184,19 @@ export function sshStrictHostKeyCliOptions(knownHostsPath: string): string[] {
     'LogLevel=ERROR',
   ];
 }
+
+/**
+ * OpenSSH CLI options that only accept host keys already pinned in the given
+ * known_hosts file (`StrictHostKeyChecking=yes`). Used when a direct
+ * server-to-server transfer copies known_hosts to the source: an unknown
+ * destination key must fail (and fall back to the relay) instead of TOFU-ing
+ * a key on a host we have not verified.
+ */
+export function sshStrictHostKeyPinnedCliOptions(knownHostsPath: string): string[] {
+  const options = sshStrictHostKeyCliOptions(knownHostsPath);
+  const index = options.indexOf('StrictHostKeyChecking=accept-new');
+  if (index !== -1) {
+    options[index] = 'StrictHostKeyChecking=yes';
+  }
+  return options;
+}

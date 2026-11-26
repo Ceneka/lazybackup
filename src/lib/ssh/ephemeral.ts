@@ -6,13 +6,14 @@ import { promisify } from 'util';
 import type { NodeSSH } from 'node-ssh';
 import { isBackupArtifactFileName } from '@/lib/backup/file-retention';
 import { assertSafePathString } from '@/lib/backup/local-paths';
-import { ensureKnownHostsFile, sshStrictHostKeyCliOptions } from './known-hosts';
+import { ensureKnownHostsFile, sshStrictHostKeyPinnedCliOptions } from './known-hosts';
 import {
   shellSingleQuote,
   sshUserHost,
   assertSshPort,
   assertSafeCliToken,
   assertSafePositionalPath,
+  remotePathShellWord,
 } from './rsync';
 import { ensureSshTempDir } from './temp-dir';
 
@@ -193,7 +194,10 @@ export async function runEphemeralDirectRsync(options: {
       remoteKeyPath,
       '-F',
       '/dev/null',
-      ...sshStrictHostKeyCliOptions(remoteKnownHosts),
+      // The copied known_hosts holds the destination's pinned key (the app
+      // verified it when connecting). Unknown keys must fail here -> caller
+      // falls back to relay instead of trusting a key on first sight.
+      ...sshStrictHostKeyPinnedCliOptions(remoteKnownHosts),
     ];
     const sshOptsQuoted = sshOptParts
       .map((part) => (part.startsWith('-') && !part.includes('=') ? part : shellSingleQuote(part)))
@@ -223,7 +227,7 @@ export async function runEphemeralDirectRsync(options: {
  */
 export async function ensureRemoteDirectory(ssh: NodeSSH, remotePath: string): Promise<void> {
   const result = await ssh.execCommand(
-    `${REMOTE_STANDARD_PATH} mkdir -p ${shellSingleQuote(remotePath)}`
+    `${REMOTE_STANDARD_PATH} mkdir -p -- ${remotePathShellWord(remotePath)}`
   );
   if (result.code !== 0 && result.code !== null && result.code !== undefined) {
     throw new Error(`Failed to create remote directory ${remotePath}: ${result.stderr || result.stdout}`);
@@ -239,7 +243,7 @@ export async function cleanupRemoteOldVersions(
   versionsToKeep: number
 ): Promise<void> {
   const list = await ssh.execCommand(
-    `${REMOTE_STANDARD_PATH} ls -1 ${shellSingleQuote(baseDir)} 2>/dev/null || true`
+    `${REMOTE_STANDARD_PATH} ls -1 -- ${remotePathShellWord(baseDir)} 2>/dev/null || true`
   );
   const dirs = (list.stdout || '')
     .split('\n')
@@ -255,7 +259,7 @@ export async function cleanupRemoteOldVersions(
   for (const dir of dirs.slice(versionsToKeep)) {
     const full = `${baseDir.replace(/\/+$/, '')}/${dir}`;
     console.log(`Deleting old remote backup version: ${full}`);
-    await ssh.execCommand(`${REMOTE_STANDARD_PATH} rm -rf ${shellSingleQuote(full)}`);
+    await ssh.execCommand(`${REMOTE_STANDARD_PATH} rm -rf -- ${remotePathShellWord(full)}`);
   }
 }
 
@@ -271,7 +275,7 @@ export async function cleanupRemoteOldFiles(
 ): Promise<string[]> {
   // List top-level files with mtime epoch seconds
   const list = await ssh.execCommand(
-    `${REMOTE_STANDARD_PATH} find ${shellSingleQuote(destinationPath)} -maxdepth 1 -type f -printf '%T@ %f\\n' 2>/dev/null || true`
+    `${REMOTE_STANDARD_PATH} find ${remotePathShellWord(destinationPath)} -maxdepth 1 -type f -printf '%T@ %f\\n' 2>/dev/null || true`
   );
   const files: { name: string; mtimeMs: number }[] = [];
   for (const line of (list.stdout || '').split('\n')) {
@@ -296,7 +300,7 @@ export async function cleanupRemoteOldFiles(
   for (const name of toDelete) {
     const full = `${destinationPath.replace(/\/+$/, '')}/${name}`;
     console.log(`Deleting old remote backup file (retention): ${name}`);
-    await ssh.execCommand(`${REMOTE_STANDARD_PATH} rm -f ${shellSingleQuote(full)}`);
+    await ssh.execCommand(`${REMOTE_STANDARD_PATH} rm -f -- ${remotePathShellWord(full)}`);
   }
 
   return toDelete;
