@@ -98,6 +98,26 @@ describe('redactBackup', () => {
       redactGitRepo({ id: 'g1', name: 'app', url: 'git@host:org/app.git' })
     );
   });
+
+  test('redacts the destination peer bearer token', () => {
+    const result = redactBackup({
+      id: 'b1',
+      destinationPeer: {
+        id: 'p1',
+        name: 'Bro',
+        outboundToken: 'lbpeer_plaintext-secret',
+        inboundTokenHash: 'deadbeef',
+        inboundTokenPrefix: 'lbpeer_aaaa…',
+        quotaBytes: 1024,
+        usedBytes: 0,
+        transport: 'mailbox',
+        status: 'active',
+      },
+    });
+    expect(result.destinationPeer).toMatchObject({ id: 'p1', name: 'Bro' });
+    expect(result.destinationPeer).not.toHaveProperty('outboundToken');
+    expect(result.destinationPeer).not.toHaveProperty('inboundTokenHash');
+  });
 });
 
 describe('redactHistoryEntry', () => {
