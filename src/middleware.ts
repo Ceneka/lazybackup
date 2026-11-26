@@ -2,6 +2,7 @@ import {
   getAuthStatus,
   maybeRefreshSessionCookie,
 } from '@/lib/auth'
+import { MIDDLEWARE_MATCHER } from '@/lib/peer/body-routes'
 import { NextRequest, NextResponse } from 'next/server'
 
 const PUBLIC_EXACT = new Set([
@@ -106,5 +107,7 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   runtime: 'nodejs',
-  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
+  // Peer store/agent routes stream large request bodies and must not be
+  // body-cloned by Node middleware (10 MiB default limit + async finalize).
+  matcher: [MIDDLEWARE_MATCHER],
 }
