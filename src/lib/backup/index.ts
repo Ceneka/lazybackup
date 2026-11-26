@@ -82,6 +82,10 @@ import { assertCanStartBackup } from './concurrent-run';
 import { assertTransferServersHaveKeys } from './assert-transfer-keys';
 import { resolveRestoreHost, type ResolvedRestoreHost } from './restore-target';
 import { assertSafeTarGzArchive } from './archive-safety';
+import {
+  buildRemotePathKindCommand,
+  parseRemotePathKind,
+} from './remote-path-probe';
 import { createBackupHistoryEntry, updateBackupHistoryFailure, updateBackupHistorySuccess } from './history';
 import {
   buildFileRetentionLog,
@@ -316,13 +320,8 @@ async function probeRemotePathKind(
   ssh: Awaited<ReturnType<typeof connectToServer>>,
   remotePath: string
 ): Promise<'file' | 'dir' | 'missing'> {
-  const quoted = remotePath.replace(/'/g, `'\\''`);
-  const probe = await ssh.execCommand(
-    `bash -lc 'p='"'"'${quoted}'"'"'; if test -d "$p"; then echo dir; elif test -e "$p"; then echo file; else echo missing; fi'`
-  );
-  const kind = (probe.stdout || '').trim();
-  if (kind === 'dir' || kind === 'file') return kind;
-  return 'missing';
+  const probe = await ssh.execCommand(buildRemotePathKindCommand(remotePath));
+  return parseRemotePathKind(probe.stdout);
 }
 
 function assertServerDestPullable(

@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { execFileSync } from 'child_process';
 import { promises as fs } from 'fs';
 import os from 'os';
 import path from 'path';
 import {
   buildAuthorizedKeysEntry,
   buildEphemeralKeyMarker,
+  buildReachabilityProbeCommand,
   buildRemoveAuthorizedKeysCommand,
   EPHEMERAL_KEY_MARKER_PREFIX,
   runEphemeralDirectRsync,
@@ -47,6 +49,21 @@ describe('ephemeral authorized_keys helpers', () => {
     const cmd = buildRemoveAuthorizedKeysCommand('lazybackup-ephemeral:abc');
     expect(cmd).toContain("sed -i '/lazybackup-ephemeral:abc/d'");
     expect(cmd).toContain('authorized_keys');
+  });
+
+  test('reachability probe is valid POSIX shell syntax', () => {
+    const cmd = buildReachabilityProbeCommand('box.example', 2222);
+    // `PATH=… ( … )` used to be a syntax error, which forced every S2S transfer to relay.
+    expect(() => execFileSync('sh', ['-n', '-c', cmd], { stdio: 'pipe' })).not.toThrow();
+    expect(cmd).toContain('export PATH=');
+    expect(cmd).not.toMatch(/PATH="[^"]*"\s+\(/);
+  });
+
+  test('reachability probe quotes the destination host', () => {
+    const cmd = buildReachabilityProbeCommand("evil'; touch /tmp/pwn; '", 22);
+    expect(cmd).toContain(`'evil'\\''; touch /tmp/pwn; '\\'''`);
+    expect(cmd).toContain('exec 3<>/dev/tcp/"$1"/"$2"');
+    expect(() => execFileSync('sh', ['-n', '-c', cmd], { stdio: 'pipe' })).not.toThrow();
   });
 });
 

@@ -129,7 +129,11 @@ function readKnownHostsSync(filePath: string): string {
  * ssh2 hostVerifier: pin unknown keys, reject mismatches.
  * Must be synchronous (ssh2 handshake).
  */
-export function createHostVerifier(host: string, port: number): (key: Buffer) => boolean {
+export function createHostVerifier(
+  host: string,
+  port: number,
+  onReject?: (reason: string) => void
+): (key: Buffer) => boolean {
   return (key: Buffer) => {
     try {
       const filePath = getKnownHostsPath();
@@ -137,6 +141,7 @@ export function createHostVerifier(host: string, port: number): (key: Buffer) =>
       const current = readKnownHostsSync(filePath);
       const result = verifyOrPinHostKey(current, host, port, key);
       if (!result.ok) {
+        onReject?.(result.reason);
         console.error(result.reason);
         return false;
       }

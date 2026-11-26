@@ -105,6 +105,28 @@ export async function removeEphemeralAuthorizedKey(destSsh: NodeSSH, marker: str
 }
 
 /**
+ * Remote shell snippet that probes a TCP connection to destHost:destPort.
+ * Exported for tests: `PATH=… ( … )` is invalid shell syntax, and the
+ * /dev/tcp fallback must pass the host as an argv value (never interpolated).
+ */
+export function buildReachabilityProbeCommand(
+  destHost: string,
+  destPort: number,
+  timeoutSeconds = 5
+): string {
+  const port = assertSshPort(destPort);
+  assertSafeCliToken(destHost, 'SSH host');
+  const hostQ = shellSingleQuote(destHost);
+  return [
+    `export ${REMOTE_STANDARD_PATH};`,
+    `(command -v nc >/dev/null 2>&1 && nc -z -w ${timeoutSeconds} ${hostQ} ${port})`,
+    '||',
+    `(command -v timeout >/dev/null 2>&1 && command -v bash >/dev/null 2>&1 && timeout ${timeoutSeconds} bash -c 'exec 3<>/dev/tcp/"$1"/"$2"' _ ${hostQ} ${port})`,
+    '|| false',
+  ].join(' ');
+}
+
+/**
  * Probe whether the source host can open a TCP connection to dest host:port.
  */
 export async function probeSourceCanReachDest(
@@ -113,8 +135,7 @@ export async function probeSourceCanReachDest(
   destPort: number,
   timeoutSeconds = 5
 ): Promise<boolean> {
-  const hostQ = shellSingleQuote(destHost);
-  const cmd = `${REMOTE_STANDARD_PATH} (command -v nc >/dev/null 2>&1 && nc -z -w ${timeoutSeconds} ${hostQ} ${destPort}) || (command -v timeout >/dev/null 2>&1 && timeout ${timeoutSeconds} bash -c 'echo >/dev/tcp/${destHost.replace(/'/g, '')}/${destPort}') || false`;
+  const cmd = buildReachabilityProbeCommand(destHost, destPort, timeoutSeconds);
   const result = await sourceSsh.execCommand(cmd);
   return result.code === 0 || result.code === null;
 }
