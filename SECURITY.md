@@ -19,6 +19,18 @@ Include:
 
 You should get an acknowledgement within a few days. Please give a reasonable window before public disclosure.
 
+## Hardening checklist
+
+Full checklist and deployment notes: [README → Hardening checklist](./README.md#hardening-checklist). The essentials:
+
+- A fresh instance is **open until an app password or passkey is set**. Bind the published port to loopback (`127.0.0.1:3000`) or firewall it before first start.
+- Mount a **dedicated SSH key directory**, not all of `~/.ssh`.
+- A mounted **Docker socket is root-equivalent** on the host.
+- `AUTH_COOKIE_SECURE=true` and `ENABLE_HSTS=true` only when every request is HTTPS. `AUTH_TRUST_PROXY=true` only behind a proxy that overwrites `X-Forwarded-*`; set `AUTH_PUBLIC_URL` for passkeys.
+- **Pre-backup command output is stored in history logs** — never echo secrets there.
+- Bro Space: public peer URLs must be `https://` (plain `http://` is accepted only for Tailscale, or for LAN with `ALLOW_PRIVATE_PEER_URLS=true`). Tunnel/reverse-proxy request-size limits can be far below the 32 GiB peer-upload ceiling.
+- The SSH `known_hosts` TOFU file defaults next to `DATABASE_URL`; keep it on persistent storage with `LAZYBACKUP_KNOWN_HOSTS`.
+
 ## Operator notes
 
 - Prefer an **app password** and/or **passkeys** on any instance exposed beyond localhost.
