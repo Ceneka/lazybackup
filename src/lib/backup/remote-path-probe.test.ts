@@ -9,9 +9,17 @@ import {
   parseRemotePathKind,
 } from './remote-path-probe';
 
-function runShell(command: string, cwd?: string): { code: number; stdout: string } {
+function runShell(
+  command: string,
+  cwd?: string,
+  env?: Record<string, string>
+): { code: number; stdout: string } {
   try {
-    const stdout = execFileSync('bash', ['-c', command], { encoding: 'utf8', cwd });
+    const stdout = execFileSync('bash', ['-c', command], {
+      encoding: 'utf8',
+      cwd,
+      env: { ...process.env, ...env },
+    });
     return { code: 0, stdout };
   } catch (error) {
     const err = error as { status?: number; stdout?: string };
@@ -62,6 +70,22 @@ describe('remote path probe quoting', () => {
     expect(parseRemotePathKind('missing\n')).toBe('missing');
     expect(parseRemotePathKind('bash: p: No such file')).toBe('missing');
     expect(parseRemotePathKind(null)).toBe('missing');
+  });
+
+  test('expands a leading ~ on the remote host like rsync/scp', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'lbprobe-home-'));
+    await fs.mkdir(path.join(root, 'backups'));
+    try {
+      expect(
+        runShell(buildRemotePathKindCommand('~/backups'), undefined, { HOME: root })
+          .stdout.trim()
+      ).toBe('dir');
+      expect(
+        runShell(buildRemoteDestWritableCommand('~/new-dir'), undefined, { HOME: root }).code
+      ).toBe(0);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
   });
 
   test('dest writable command accepts an existing path and a creatable child', async () => {

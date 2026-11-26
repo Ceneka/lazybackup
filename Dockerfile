@@ -12,7 +12,7 @@ RUN bun install --frozen-lockfile
 # Unit tests on Alpine/musl (same libc as the published image).
 FROM builder-dependencies AS test
 WORKDIR /app
-RUN apk add --no-cache openssh-client rsync git
+RUN apk add --no-cache openssh-client rsync git sqlite
 COPY . /app
 ENV DATABASE_URL=file:/tmp/lazybackup-test.db
 CMD ["bun", "test"]
@@ -79,8 +79,10 @@ ENV NODE_ENV=production
 # loopback healthcheck below could never connect. Bind all interfaces.
 ENV HOSTNAME=0.0.0.0
 
-# rsync/scp on the app host; curl for compose healthcheck
-RUN apk add --no-cache openssh-client rsync curl git
+# rsync/scp on the app host; sqlite3 gives database dumps a consistent
+# `.backup` snapshot (without it, SQLite falls back to copying a live file);
+# curl for compose healthcheck
+RUN apk add --no-cache openssh-client rsync curl git sqlite
 
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
