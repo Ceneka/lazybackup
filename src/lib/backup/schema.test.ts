@@ -307,13 +307,27 @@ describe('backupConfigSchema', () => {
       destinationPath: '/backups/_lazybackup',
       schedule: '0 0 * * *',
       enableEncryption: true,
-      instanceBackupPassphrase: 'secret-pass',
+      instanceBackupPassphrase: 'secret-pass-12',
     });
     expect(parsed.sourceKind).toBe('local');
     expect(parsed.sourcePath).toBe('lazybackup-instance');
     expect(parsed.enableEncryption).toBe(false);
-    expect(parsed.instanceBackupPassphrase).toBe('secret-pass');
+    expect(parsed.instanceBackupPassphrase).toBe('secret-pass-12');
     expect(parsed.serverId).toBeNull();
+  });
+
+  test('rejects short instance meta-backup passphrases', () => {
+    const result = backupConfigSchema.safeParse({
+      sourceKind: 'local',
+      destinationKind: 'local',
+      name: 'LB data',
+      sourceType: 'lazybackup_instance',
+      sourcePath: '',
+      destinationPath: '/backups/_lazybackup',
+      schedule: '0 0 * * *',
+      instanceBackupPassphrase: 'short',
+    });
+    expect(result.success).toBe(false);
   });
 
   test('accepts deleteExtraneous for unencrypted path transfers', () => {

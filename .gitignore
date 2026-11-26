@@ -27,6 +27,10 @@
 *.pem
 *.db
 *.db.bk
+*.db-wal
+*.db-shm
+# TOFU SSH host-key pins written next to DATABASE_URL (repo root in local dev)
+ssh_known_hosts
 
 # debug
 npm-debug.log*

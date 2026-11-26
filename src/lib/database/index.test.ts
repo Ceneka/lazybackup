@@ -98,6 +98,10 @@ describe('database command builders', () => {
     expect(cmd).toContain('gzip >');
     expect(cmd).toContain('$(cat');
     expect(cmd).not.toContain("s'ecret");
+    // Password reaches docker via its environment, never its argv (`ps` visible).
+    expect(cmd).toContain(`PGPASSWORD="$(cat '/tmp/pw')" docker exec`);
+    expect(cmd).toContain('-e PGPASSWORD ');
+    expect(cmd).not.toContain('-e PGPASSWORD=');
   });
 
   test('docker pack honors a custom host inside the container', () => {
@@ -138,6 +142,33 @@ describe('database command builders', () => {
     expect(cmd).toContain("-h 'db.internal'");
     expect(cmd).toContain('$(cat');
     expect(cmd).not.toContain('-e MYSQL_PWD=pw');
+    expect(cmd).toContain(`MYSQL_PWD="$(cat '/tmp/pw')" docker exec -i`);
+    expect(cmd).toContain('-e MYSQL_PWD ');
+    expect(cmd).not.toContain('-e MYSQL_PWD=');
+  });
+
+  test('docker password stays out of docker exec argv in every command', () => {
+    const conn: DatabaseConnection = {
+      engine: 'postgres',
+      client: 'docker',
+      container: 'postgres_1',
+      host: '127.0.0.1',
+      port: 5432,
+      user: 'app',
+      password: 'P@ss with spaces',
+      database: 'appdb',
+    };
+    const commands = [
+      buildPackDatabaseCommand(conn, '/tmp/out/appdb.sql.gz', { passwordFile: '/tmp/pw' }),
+      buildRestoreDatabaseCommand(conn, '/tmp/out/appdb.sql.gz', { passwordFile: '/tmp/pw' }),
+      buildDatabaseTestCommand(conn, { passwordFile: '/tmp/pw' }),
+    ];
+    for (const cmd of commands) {
+      expect(cmd).not.toContain('P@ss with spaces');
+      expect(cmd).not.toContain(conn.password!);
+      expect(cmd).toContain('-e PGPASSWORD ');
+      expect(cmd).not.toContain('-e PGPASSWORD=');
+    }
   });
 
   test('test command runs SELECT 1', () => {

@@ -1,3 +1,4 @@
+import { MIN_WRAP_PASSPHRASE_LENGTH } from '@/lib/crypto/constants';
 import { DOCKER_VOLUME_NAME_RE } from '@/lib/docker/volumes';
 import { assertValidSqlitePath } from '@/lib/database';
 import { z } from 'zod';
@@ -168,6 +169,14 @@ export const backupConfigSchema = z
           code: z.ZodIssueCode.custom,
           message: 'LazyBackup instance backup requires a local source',
           path: ['sourceKind'],
+        });
+      }
+      const passphrase = data.instanceBackupPassphrase?.trim();
+      if (passphrase && passphrase.length < MIN_WRAP_PASSPHRASE_LENGTH) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `Passphrase must be at least ${MIN_WRAP_PASSPHRASE_LENGTH} characters`,
+          path: ['instanceBackupPassphrase'],
         });
       }
       if (data.destinationKind === 'peer') {

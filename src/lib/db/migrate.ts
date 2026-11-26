@@ -1,4 +1,5 @@
 import { db } from '@/lib/db';
+import { restrictSqliteFilePermissions } from '@/lib/db/sqlite-path';
 import { sql } from 'drizzle-orm';
 
 // Run migration
@@ -524,6 +525,9 @@ export async function runMigration() {
       }
       await db.run(sql`DELETE FROM settings WHERE key IN ('ageIdentity', 'ageRecipient')`);
     }
+
+    // DB holds SSH/S3/DB credentials and tokens; keep it owner-only.
+    await restrictSqliteFilePermissions();
 
     console.log('Migration completed successfully');
   } catch (error) {

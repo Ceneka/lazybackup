@@ -259,9 +259,18 @@ function requireContainer(conn: DatabaseConnection): string {
   return container;
 }
 
-function dockerPasswordFromFileFlag(engine: DbEngine, passwordFile: string): string {
-  const envName = passwordEnvName(engine);
-  return `-e ${envName}="$(cat ${shellSingleQuote(passwordFile)})"`;
+/**
+ * `docker exec -e NAME` (no `=value`) forwards the variable from the docker
+ * CLI's own environment. Keep the value out of argv: `ps` is world-readable,
+ * `/proc/<pid>/environ` is only readable by the process owner (and root).
+ */
+function dockerPasswordEnvFlag(engine: DbEngine): string {
+  return `-e ${passwordEnvName(engine)}`;
+}
+
+/** Export the password into the docker CLI env from the chmod-600 file. */
+function dockerPasswordPrefix(engine: DbEngine, passwordFile: string): string {
+  return `${passwordEnvName(engine)}="$(cat ${shellSingleQuote(passwordFile)})"`;
 }
 
 function nativePasswordPrefix(conn: DatabaseConnection, passwordFile: string): string {
@@ -299,11 +308,15 @@ export function buildPackDatabaseCommand(
   let dumpPart: string;
   if (conn.client === 'docker') {
     const container = requireContainer(conn);
-    const envFlag = passwordFile ? dockerPasswordFromFileFlag(conn.engine, passwordFile) : '';
-    dumpPart = `docker exec ${envFlag} ${shellSingleQuote(container)} ${dumpArgs}`.replace(
-      /  +/g,
-      ' '
-    );
+    const envFlag = passwordFile ? dockerPasswordEnvFlag(conn.engine) : '';
+    const envPrefix = passwordFile
+      ? `${dockerPasswordPrefix(conn.engine, passwordFile)} `
+      : '';
+    dumpPart =
+      `${envPrefix}docker exec ${envFlag} ${shellSingleQuote(container)} ${dumpArgs}`.replace(
+        /  +/g,
+        ' '
+      );
   } else if (passwordFile && conn.engine === 'postgres') {
     dumpPart = `${nativePasswordPrefix(conn, passwordFile)} ${dumpArgs}`;
   } else if (passwordFile) {
@@ -331,11 +344,15 @@ export function buildRestoreDatabaseCommand(
   let restorePart: string;
   if (conn.client === 'docker') {
     const container = requireContainer(conn);
-    const envFlag = passwordFile ? dockerPasswordFromFileFlag(conn.engine, passwordFile) : '';
-    restorePart = `docker exec -i ${envFlag} ${shellSingleQuote(container)} ${clientArgs}`.replace(
-      /  +/g,
-      ' '
-    );
+    const envFlag = passwordFile ? dockerPasswordEnvFlag(conn.engine) : '';
+    const envPrefix = passwordFile
+      ? `${dockerPasswordPrefix(conn.engine, passwordFile)} `
+      : '';
+    restorePart =
+      `${envPrefix}docker exec -i ${envFlag} ${shellSingleQuote(container)} ${clientArgs}`.replace(
+        /  +/g,
+        ' '
+      );
   } else if (passwordFile && conn.engine === 'postgres') {
     restorePart = `${nativePasswordPrefix(conn, passwordFile)} ${clientArgs}`;
   } else if (passwordFile) {
@@ -368,9 +385,12 @@ export function buildDatabaseTestCommand(
 
   if (conn.client === 'docker') {
     const container = requireContainer(conn);
-    const envFlag = passwordFile ? dockerPasswordFromFileFlag(conn.engine, passwordFile) : '';
+    const envFlag = passwordFile ? dockerPasswordEnvFlag(conn.engine) : '';
+    const envPrefix = passwordFile
+      ? `${dockerPasswordPrefix(conn.engine, passwordFile)} `
+      : '';
     return [
-      REMOTE_STANDARD_PATH,
+      `${envPrefix}${REMOTE_STANDARD_PATH}`,
       'docker exec',
       envFlag,
       shellSingleQuote(container),
@@ -590,13 +610,28 @@ async function withRemotePasswordFile<T>(
   fn: (passwordFile: string) => Promise<T>
 ): Promise<T> {
   return withLocalPasswordFile(conn, async (localFile) => {
-    const remote = `/tmp/lazybackup-dbpw-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    // mktemp gives a 0700 dir, so the SFTP-created file is not world-readable
+    // even before the chmod below lands.
+    const made = await ssh.execCommand(
+      `${REMOTE_STANDARD_PATH} mktemp -d /tmp/lazybackup-dbpw-XXXXXX`
+    );
+    const remoteDir = made.stdout.trim();
+    if (isFailedExit(made.code) || !remoteDir) {
+      throw new Error(
+        `Failed to create remote password file: ${made.stderr || made.stdout}`
+      );
+    }
+    const remote = `${remoteDir}/pw`;
     try {
       await ssh.putFile(localFile, remote);
-      await ssh.execCommand(`chmod 600 ${shellSingleQuote(remote)}`);
+      await ssh.execCommand(
+        `chmod 700 ${shellSingleQuote(remoteDir)} && chmod 600 ${shellSingleQuote(remote)}`
+      );
       return await fn(remote);
     } finally {
-      await ssh.execCommand(`rm -f ${shellSingleQuote(remote)}`).catch(() => {});
+      await ssh
+        .execCommand(`rm -rf ${shellSingleQuote(remoteDir)}`)
+        .catch(() => {});
     }
   });
 }
@@ -704,6 +739,9 @@ export async function packDatabaseDumpLocal(
     if (result.code !== 0) {
       throw new Error((result.stderr || result.stdout).trim() || `exit ${result.code}`);
     }
+    // Shell redirects (docker/sqlite paths) create with the process umask; the
+    // archive holds full DB contents, so always restrict it to the owner.
+    await fs.chmod(archivePath, 0o600).catch(() => undefined);
     return {
       archivePath,
       tmpDir,
