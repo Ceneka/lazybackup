@@ -30,7 +30,7 @@ import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Suspense, useEffect, useState } from "react"
 
-const HISTORY_STATUSES = new Set(["running", "success", "failed"])
+const HISTORY_STATUSES = new Set(["running", "success", "failed", "waiting"])
 
 function HistoryPageContent() {
   const router = useRouter()
@@ -209,6 +209,7 @@ function HistoryPageContent() {
             <SelectItem value="running">Running</SelectItem>
             <SelectItem value="success">Success</SelectItem>
             <SelectItem value="failed">Failed</SelectItem>
+            <SelectItem value="waiting">Waiting for a friend</SelectItem>
           </SelectContent>
         </Select>
       </div>

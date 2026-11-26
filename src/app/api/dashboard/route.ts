@@ -140,10 +140,12 @@ export async function GET(request: NextRequest) {
         status: true,
         startTime: true,
         errorMessage: true,
+        mailboxPending: true,
+        artifactPath: true,
       },
       with: {
         backupConfig: {
-          columns: { name: true },
+          columns: { name: true, destinationKind: true },
         },
       },
     })
@@ -152,7 +154,11 @@ export async function GET(request: NextRequest) {
       status: row.status,
       startTime: new Date(row.startTime).toISOString(),
       errorSnippet: errorSnippet(row.errorMessage),
-      backupConfig: row.backupConfig ? { name: row.backupConfig.name } : null,
+      mailboxPending: row.mailboxPending,
+      artifactPath: row.artifactPath,
+      backupConfig: row.backupConfig
+        ? { name: row.backupConfig.name, destinationKind: row.backupConfig.destinationKind }
+        : null,
     }))
 
     const lastFailedRow = await db.query.backupHistory.findFirst({

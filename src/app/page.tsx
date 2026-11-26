@@ -2,11 +2,16 @@
 
 import { BackupRecipesEmpty } from "@/components/backup-recipes-empty"
 import { DashboardBackupStatus } from "@/components/dashboard-backup-status"
+import { DashboardFriendStorage } from "@/components/dashboard-friend-storage"
 import { DashboardQuickActions } from "@/components/dashboard-quick-actions"
+import { DeliveryBadge } from "@/components/peer/delivery-badge"
 import { PageHeader, PageLayout } from "@/components/page-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { QueryState } from "@/components/ui/query-state"
+import { deriveDeliveryState } from "@/lib/backup/delivery-state"
 import { useDashboard, type DashboardLastFailure } from "@/lib/hooks/useDashboard"
+import { usePeers } from "@/lib/hooks/usePeers"
+import { peerIdFromArtifactPath, resolveFriendName } from "@/lib/peer/friend-copy"
 import { useStatus } from "@/lib/hooks/useStatus"
 import { cn, formatBytes } from "@/lib/utils"
 import {
@@ -85,6 +90,8 @@ function LastFailureCard({
 
 export default function Dashboard() {
   const query = useDashboard(30)
+  const peersQuery = usePeers()
+  const peers = peersQuery.data?.peers || []
   const [isClient, setIsClient] = useState(false)
 
   useEffect(() => {
@@ -228,13 +235,27 @@ export default function Dashboard() {
               backups={query.data.backupList ?? []}
             />
 
+            <DashboardFriendStorage />
+
             {query.data.backups > 0 ? (
             <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
               <div className="overflow-hidden rounded-lg border bg-card p-6 text-card-foreground shadow">
                 <h2 className="mb-4 text-xl font-semibold">Recent Activity</h2>
                 {query.data.recentHistory.length > 0 ? (
                   <div className="space-y-3">
-                    {query.data.recentHistory.map((item) => (
+                    {query.data.recentHistory.map((item) => {
+                      const deliveryState = deriveDeliveryState({
+                        status: item.status,
+                        deliveryState: item.deliveryState,
+                        mailboxPending: item.mailboxPending,
+                        artifactPath: item.artifactPath,
+                        destinationKind: item.backupConfig?.destinationKind,
+                      })
+                      const friendName = resolveFriendName(
+                        peers,
+                        peerIdFromArtifactPath(item.artifactPath)
+                      )
+                      return (
                       <Link
                         href={`/history/${item.id}`}
                         key={item.id}
@@ -244,16 +265,29 @@ export default function Dashboard() {
                           <div className="flex min-w-0 items-center space-x-2">
                             <div
                               className={`h-2 w-2 shrink-0 rounded-full ${
-                                item.status === "running"
-                                  ? "bg-blue-500"
-                                  : item.status === "success"
+                                deliveryState === "waiting"
+                                  ? "bg-amber-500"
+                                  : deliveryState === "stored"
                                     ? "bg-green-500"
-                                    : "bg-red-500"
+                                    : deliveryState === "failed"
+                                      ? "bg-red-500"
+                                      : item.status === "running"
+                                        ? "bg-blue-500"
+                                        : item.status === "success"
+                                          ? "bg-green-500"
+                                          : "bg-red-500"
                               }`}
                             />
                             <span className="truncate">
                               {item.backupConfig?.name || "Unnamed Backup"}
                             </span>
+                            {deliveryState ? (
+                              <DeliveryBadge
+                                state={deliveryState}
+                                friendName={friendName}
+                                className="hidden sm:inline-flex"
+                              />
+                            ) : null}
                           </div>
                           <span className="shrink-0 text-sm text-muted-foreground">
                             {isClient ? new Date(item.startTime).toLocaleString() : ""}
@@ -267,8 +301,14 @@ export default function Dashboard() {
                             {item.errorSnippet}
                           </p>
                         ) : null}
+                        {deliveryState === "waiting" ? (
+                          <p className="mt-1 pl-4 text-xs text-amber-700 dark:text-amber-400">
+                            Saved on this server — not yet on {friendName}&apos;s disk.
+                          </p>
+                        ) : null}
                       </Link>
-                    ))}
+                      )
+                    })}
                     <div className="mt-4 text-center">
                       <Link href="/history" className="text-sm text-blue-500 hover:underline">
                         View all activity

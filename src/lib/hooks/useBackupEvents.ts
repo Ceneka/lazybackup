@@ -1,7 +1,15 @@
 "use client"
 
-import { backupKeys } from "@/lib/hooks/useBackups"
+import { backupKeys, type Backup } from "@/lib/hooks/useBackups"
 import { useAuthStatus } from "@/lib/hooks/useAuth"
+import { peerKeys, type PeersResponse } from "@/lib/hooks/usePeers"
+import { backupFinishedToast } from "@/lib/backup/delivery-state"
+import {
+  friendAppKind,
+  resolveFriendName,
+  resolvePeer,
+  type FriendAppKind,
+} from "@/lib/peer/friend-copy"
 import { useQueryClient } from "@tanstack/react-query"
 import { useRouter } from "next/navigation"
 import { useEffect, useRef } from "react"
@@ -16,7 +24,31 @@ function invalidateBackupQueries(queryClient: ReturnType<typeof useQueryClient>)
   void queryClient.invalidateQueries({ queryKey: ["status"] })
 }
 
-function toastFinished(event: BackupEvent, onView: (historyId: string) => void) {
+/**
+ * Resolve the friend behind a config from cached queries. The event only
+ * carries the config id + mailboxPending, so this avoids an extra fetch on
+ * every finished run (and falls back to a lone active peer).
+ */
+function friendForConfig(
+  queryClient: ReturnType<typeof useQueryClient>,
+  configId: string
+): { name: string; kind: FriendAppKind | null } {
+  const backups = queryClient.getQueryData<Backup[]>(backupKeys.lists())
+  const config = backups?.find((backup) => backup.id === configId)
+  const peers = queryClient.getQueryData<PeersResponse>(peerKeys.all)?.peers
+  const peerId = config?.destinationPeerId || null
+  const peer = resolvePeer(peers, peerId)
+  return {
+    name: resolveFriendName(peers, peerId),
+    kind: peer ? friendAppKind(peer) : null,
+  }
+}
+
+function toastFinished(
+  event: BackupEvent,
+  queryClient: ReturnType<typeof useQueryClient>,
+  onView: (historyId: string) => void
+) {
   const action = {
     label: "View",
     onClick: () => onView(event.historyId),
@@ -28,12 +60,20 @@ function toastFinished(event: BackupEvent, onView: (historyId: string) => void) 
     })
     return
   }
-  toast.success(
-    event.mailboxPending
-      ? `Backup ${event.backupName} finished (waiting for bro)`
-      : `Backup ${event.backupName} finished`,
-    { action }
-  )
+  if (event.mailboxPending) {
+    const friend = friendForConfig(queryClient, event.configId)
+    const copy = backupFinishedToast({
+      state: "waiting",
+      friendName: friend.name,
+      kind: friend.kind,
+    })
+    toast.info(copy?.title || `Saved on this server — waiting for ${friend.name}`, {
+      description: copy?.description,
+      action,
+    })
+    return
+  }
+  toast.success(`Backup ${event.backupName} finished`, { action })
 }
 
 /**
@@ -62,7 +102,7 @@ export function BackupEventsProvider() {
       }
       invalidateBackupQueries(queryClient)
       if (event.type === "backup.finished") {
-        toastFinished(event, (id) => router.push(`/history/${id}`))
+        toastFinished(event, queryClient, (id) => router.push(`/history/${id}`))
       }
     }
 

@@ -25,7 +25,11 @@ export async function GET(request: NextRequest) {
 
     const conditions = [];
 
-    if (status && (status === 'running' || status === 'success' || status === 'failed')) {
+    if (status === 'waiting') {
+      // Bro Space UI filter: staged on this host, not yet on the friend's disk.
+      // Kept on `mailbox_pending` so it works before/without C4 deliveryState.
+      conditions.push(eq(backupHistory.mailboxPending, true));
+    } else if (status && (status === 'running' || status === 'success' || status === 'failed')) {
       conditions.push(eq(backupHistory.status, status));
     }
 
