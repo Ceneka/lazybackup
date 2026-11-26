@@ -7,7 +7,7 @@ import type { NodeSSH } from 'node-ssh';
 import { isBackupArtifactFileName } from '@/lib/backup/file-retention';
 import { assertSafePathString } from '@/lib/backup/local-paths';
 import { ensureKnownHostsFile, sshStrictHostKeyCliOptions } from './known-hosts';
-import { shellSingleQuote, sshUserHost, assertSshPort, assertSafeCliToken } from './rsync';
+import { shellSingleQuote, sshUserHost, assertSshPort, assertSafePositionalPath } from './rsync';
 import { ensureSshTempDir } from './temp-dir';
 
 const execFileAsync = promisify(execFile);
@@ -134,8 +134,8 @@ export async function runEphemeralDirectRsync(options: {
   deleteExtraneous?: boolean;
 }): Promise<{ stdout: string; stderr: string }> {
   const destPort = assertSshPort(options.destPort);
-  assertSafeCliToken(options.sourcePath, 'Source path');
-  assertSafeCliToken(options.destPath, 'Destination path');
+  assertSafePositionalPath(options.sourcePath, 'Source path');
+  assertSafePositionalPath(options.destPath, 'Destination path');
   const destUserHost = sshUserHost(options.destUsername, options.destHost);
   const remoteKeyPath = `/tmp/lazybackup-eph-${randomBytes(8).toString('hex')}`;
   const knownHostsPath = await ensureKnownHostsFile();

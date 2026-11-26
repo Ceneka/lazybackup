@@ -26,6 +26,13 @@ describe('classifyIpAddress', () => {
     expect(classifyIpAddress('100.64.1.1')).toBe('private');
   });
 
+  test('IPv6 unspecified and multicast are never public', () => {
+    // Connecting to :: reaches loopback on Linux, so it must not be public.
+    expect(classifyIpAddress('::')).toBe('loopback');
+    expect(classifyIpAddress('0:0:0:0:0:0:0:0')).toBe('loopback');
+    expect(classifyIpAddress('ff02::1')).not.toBe('public');
+  });
+
   test('public', () => {
     expect(classifyIpAddress('1.1.1.1')).toBe('public');
     expect(classifyIpAddress('8.8.8.8')).toBe('public');
@@ -52,6 +59,13 @@ describe('assertS3EndpointHostSync', () => {
     expect(() =>
       assertS3EndpointHostSync('http://127.0.0.1:9000', { allowPrivate: true })
     ).not.toThrow();
+  });
+
+  test('blocks the IPv6 unspecified address (reaches loopback on Linux)', () => {
+    expect(() => assertS3EndpointHostSync('http://[::]:9000')).toThrow(/private|loopback/i);
+    expect(() => assertS3EndpointHostSync('http://[0:0:0:0:0:0:0:0]:9000')).toThrow(
+      /private|loopback/i
+    );
   });
 
   test('allows public HTTPS hostnames without resolving', () => {

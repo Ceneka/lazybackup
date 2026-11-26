@@ -5,6 +5,7 @@ import { restoreDatabaseBackup, restoreDockerVolumeBackup, restoreGitRepoBackup,
 import {
   READ_ONLY_DENIED,
   REMOTE_EXEC_DENIED,
+  assertCanRetargetPreBackupCommands,
   assertCanSetPreBackupCommands,
 } from '@/lib/auth/permissions'
 import { writeAuditLog, type AuditActor } from '@/lib/auth/audit'
@@ -126,6 +127,24 @@ function assertMcpCanSetPreBackup(
   )
 }
 
+function assertMcpCanRetargetPreBackup(
+  ctx: McpOpsContext,
+  incoming: string | null | undefined,
+  existing: string | null | undefined,
+  sourceEndpointChanged: boolean
+) {
+  assertCanRetargetPreBackupCommands(
+    {
+      authorized: true,
+      via: ctx.canRemoteExec ? 'session' : 'bearer',
+      apiToken: ctx.canRemoteExec ? undefined : { permissions: [] },
+    },
+    incoming,
+    existing,
+    sourceEndpointChanged
+  )
+}
+
 export async function listBackupsOp(_ctx: McpOpsContext) {
   const configs = await db.query.backupConfigs.findMany({
     with: backupWithEndpoints,
@@ -198,6 +217,15 @@ export async function updateBackupOp(ctx: McpOpsContext, id: string, input: unkn
     })
     if (!existing) throw new Error(`Backup not found: ${id}`)
     assertMcpCanSetPreBackup(ctx, validatedData.preBackupCommands, existing.preBackupCommands)
+    const sourceEndpointChanged =
+      (validatedData.sourceKind ?? 'server') !== (existing.sourceKind ?? 'server') ||
+      (validatedData.serverId ?? null) !== (existing.serverId ?? null)
+    assertMcpCanRetargetPreBackup(
+      ctx,
+      validatedData.preBackupCommands,
+      existing.preBackupCommands,
+      sourceEndpointChanged
+    )
     await assertTransferServersHaveKeys(validatedData)
 
     const conflictingBackup = await findExactDestinationConflict(

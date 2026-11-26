@@ -17,6 +17,19 @@ export function assertSafeCliToken(value: string, label: string): string {
   return assertSafePathString(value, label);
 }
 
+/**
+ * Positional path/token that a CLI (rsync, scp, ssh) must not mistake for an
+ * option. Leading `-` is an option injection: e.g. a "path" of
+ * `--rsync-path=<cmd>` makes rsync run `<cmd>` on the remote host.
+ */
+export function assertSafePositionalPath(value: string, label: string): string {
+  const safe = assertSafePathString(value, label);
+  if (safe.startsWith('-')) {
+    throw new Error(`${label} must not start with "-"`);
+  }
+  return safe;
+}
+
 export function assertSshPort(port: number): number {
   const n = Number(port);
   if (!Number.isInteger(n) || n < 1 || n > 65535) {
@@ -26,7 +39,7 @@ export function assertSshPort(port: number): number {
 }
 
 export function sshUserHost(username: string, host: string): string {
-  assertSafeCliToken(username, 'SSH username');
+  assertSafePositionalPath(username, 'SSH username');
   assertSafeCliToken(host, 'SSH host');
   if (username.includes('@') || /[\s:]/.test(username) || /[\s]/.test(host)) {
     throw new Error('Invalid SSH username or host');
@@ -69,8 +82,8 @@ export function buildRsyncArgv(options: {
   /** Remove dest files that no longer exist at source (rsync --delete, not --delete-excluded) */
   deleteExtraneous?: boolean;
 }): string[] {
-  const sourcePath = assertSafeCliToken(options.sourcePath, 'Source path');
-  const destinationPath = assertSafeCliToken(options.destinationPath, 'Destination path');
+  const sourcePath = assertSafePositionalPath(options.sourcePath, 'Source path');
+  const destinationPath = assertSafePositionalPath(options.destinationPath, 'Destination path');
   const args = ['-avz', '--stats', '--safe-links'];
   if (options.deleteExtraneous) {
     args.push('--delete');

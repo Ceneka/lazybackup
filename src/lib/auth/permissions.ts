@@ -169,6 +169,47 @@ export function assertCanSetPreBackupCommands(
   }
 }
 
+/**
+ * Moving a job that still carries pre-backup commands to another source host
+ * (or from an SSH host to this host) runs those commands somewhere new. The
+ * command text is unchanged, but the effect is still remote execution.
+ */
+export function preBackupRetargetRequiresRemoteExec(input: {
+  incomingCommands: string | null | undefined
+  existingCommands: string | null | undefined
+  sourceEndpointChanged: boolean
+}): boolean {
+  if (!input.sourceEndpointChanged) return false
+  // undefined = field omitted from a full-config PUT, so the stored value stays.
+  const effective =
+    input.incomingCommands === undefined
+      ? input.existingCommands
+      : input.incomingCommands
+  return Boolean((effective ?? '').trim())
+}
+
+export function assertCanRetargetPreBackupCommands(
+  auth: AuthPermissionView,
+  incoming: string | null | undefined,
+  existing: string | null | undefined,
+  sourceEndpointChanged: boolean
+): void {
+  if (
+    !preBackupRetargetRequiresRemoteExec({
+      incomingCommands: incoming,
+      existingCommands: existing,
+      sourceEndpointChanged,
+    })
+  ) {
+    return
+  }
+  if (!authAllowsRemoteExec(auth)) {
+    throw new RemoteExecPermissionError(
+      'API token lacks remote_exec permission. Moving a backup with pre-backup commands to another source host would run those commands on the new host.'
+    )
+  }
+}
+
 export class RemoteExecPermissionError extends Error {
   readonly status = 403
 

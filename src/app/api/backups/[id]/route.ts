@@ -1,6 +1,7 @@
 import { redactBackup } from '@/lib/api/redact';
 import {
   RemoteExecPermissionError,
+  assertCanRetargetPreBackupCommands,
   assertCanSetPreBackupCommands,
   resolveAuth,
 } from '@/lib/auth';
@@ -113,6 +114,15 @@ export async function PUT(
       auth,
       validatedData.preBackupCommands,
       existing.preBackupCommands
+    );
+    const sourceEndpointChanged =
+      (validatedData.sourceKind ?? 'server') !== (existing.sourceKind ?? 'server') ||
+      (validatedData.serverId ?? null) !== (existing.serverId ?? null);
+    assertCanRetargetPreBackupCommands(
+      auth,
+      validatedData.preBackupCommands,
+      existing.preBackupCommands,
+      sourceEndpointChanged
     );
     await assertTransferServersHaveKeys(validatedData);
 

@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import {
   REMOTE_EXEC_DENIED,
   RemoteExecPermissionError,
+  assertCanRetargetPreBackupCommands,
   assertCanSetPreBackupCommands,
   authAllowsAuthorizeKeys,
   authAllowsRemoteExec,
@@ -167,6 +168,51 @@ describe('assertCanSetPreBackupCommands', () => {
           apiToken: { permissions: ['remote_exec'] },
         },
         'echo ok'
+      )
+    ).not.toThrow()
+  })
+})
+
+describe('assertCanRetargetPreBackupCommands', () => {
+  const noExec = {
+    authorized: true,
+    via: 'bearer' as const,
+    apiToken: { permissions: [] },
+  }
+
+  test('blocks retargeting stored commands to another source host', () => {
+    expect(() =>
+      assertCanRetargetPreBackupCommands(noExec, undefined, 'systemctl stop app', true)
+    ).toThrow(RemoteExecPermissionError)
+    expect(() =>
+      assertCanRetargetPreBackupCommands(noExec, 'systemctl stop app', 'systemctl stop app', true)
+    ).toThrow(RemoteExecPermissionError)
+  })
+
+  test('does not block unchanged endpoints or cleared commands', () => {
+    expect(() =>
+      assertCanRetargetPreBackupCommands(noExec, undefined, 'systemctl stop app', false)
+    ).not.toThrow()
+    expect(() =>
+      assertCanRetargetPreBackupCommands(noExec, '', 'systemctl stop app', true)
+    ).not.toThrow()
+  })
+
+  test('allows sessions and remote_exec tokens', () => {
+    expect(() =>
+      assertCanRetargetPreBackupCommands(
+        { authorized: true, via: 'session' },
+        undefined,
+        'systemctl stop app',
+        true
+      )
+    ).not.toThrow()
+    expect(() =>
+      assertCanRetargetPreBackupCommands(
+        { authorized: true, via: 'bearer', apiToken: { permissions: ['remote_exec'] } },
+        undefined,
+        'systemctl stop app',
+        true
       )
     ).not.toThrow()
   })
