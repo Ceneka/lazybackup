@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
-import { writeCappedResponseToFile } from './capped-body';
+import { sweepOrphanPeerUploadTemps, writeCappedResponseToFile } from './capped-body';
 
 const cleanup: string[] = [];
 afterEach(async () => {
@@ -42,5 +42,21 @@ describe('writeCappedResponseToFile', () => {
         maxBytes: 10,
       })
     ).rejects.toThrow(/maximum/i);
+  });
+});
+
+describe('sweepOrphanPeerUploadTemps', () => {
+  test('removes upload temp dirs older than one hour and keeps active ones', async () => {
+    const oldDir = await fs.mkdtemp(path.join(os.tmpdir(), 'lb-peer-upload-old-'));
+    const freshDir = await fs.mkdtemp(path.join(os.tmpdir(), 'lb-peer-upload-fresh-'));
+    cleanup.push(oldDir, freshDir);
+    const oldTime = new Date(Date.now() - 2 * 3600_000);
+    await fs.utimes(oldDir, oldTime, oldTime);
+
+    const removed = await sweepOrphanPeerUploadTemps(3600_000);
+
+    expect(removed).toBeGreaterThanOrEqual(1);
+    expect(await fs.stat(oldDir).catch(() => null)).toBeNull();
+    expect(await fs.stat(freshDir).catch(() => null)).not.toBeNull();
   });
 });

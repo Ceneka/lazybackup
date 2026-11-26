@@ -235,6 +235,15 @@ export async function DELETE(
     // First stop any existing cron job
     stopBackup(id);
 
+    // Peer artifacts live on the friend's disk: queue deletes for every object
+    // this config left there before its history rows cascade away.
+    try {
+      const { enqueuePeerDeletesForConfig } = await import('@/lib/peer/retention');
+      await enqueuePeerDeletesForConfig(id);
+    } catch (peerError) {
+      console.warn('Failed to queue peer deletes for backup config:', peerError);
+    }
+
     // Delete the backup configuration
     await db.delete(backupConfigs).where(eq(backupConfigs.id, id));
 

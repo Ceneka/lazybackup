@@ -169,6 +169,8 @@ export const backupHistory = sqliteTable('backup_history', {
    * Restore must fail clearly instead of hanging on recall.
    */
   artifactRemoved: integer('artifact_removed', { mode: 'boolean' }).notNull().default(false),
+  /** Why artifactRemoved was set (retention vs non-versioned overwrite). */
+  artifactRemovedReason: text('artifact_removed_reason'),
 });
 
 /** Machine API tokens for MCP / Bearer auth (hash only; plaintext shown once) */

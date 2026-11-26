@@ -1,7 +1,7 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, ne } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { db } from '@/lib/db';
-import { backupHistory, peerDeletes } from '@/lib/db/schema';
+import { backupHistory, peerDeletes, peers } from '@/lib/db/schema';
 import {
   selectPeerKeysForFileRetention,
   selectPeerKeysForVersionRetention,
@@ -10,7 +10,7 @@ import {
 } from '@/lib/backup/file-retention';
 import { normalizeS3Prefix } from '@/lib/backup/destination';
 import { deletePeerObject } from './client';
-import { listObjectKeysWithOpenRecalls } from './recall';
+import { expireRecallsForObject, listObjectKeysWithOpenRecalls } from './recall';
 import { deleteStagedObject } from './staging';
 import { assertSafePeerObjectKey } from './storage';
 import type { PeerRow } from './types';
@@ -22,6 +22,9 @@ import {
 export { advertiseMailboxDeletes, parsePeerArtifactPath };
 
 export const ARTIFACT_REMOVED_BY_RETENTION = 'artifact removed by retention';
+/** A non-versioned destination reused this object key for a newer run. */
+export const ARTIFACT_SUPERSEDED_MESSAGE =
+  'This backup was replaced by a newer run (versioning is off for this backup)';
 
 export async function assertPeerArtifactRestorable(
   artifactPath: string,
@@ -30,10 +33,12 @@ export async function assertPeerArtifactRestorable(
   if (historyId) {
     const row = await db.query.backupHistory.findFirst({
       where: eq(backupHistory.id, historyId),
-      columns: { artifactRemoved: true },
+      columns: { artifactRemoved: true, artifactRemovedReason: true },
     });
     if (row?.artifactRemoved) {
-      throw new Error(ARTIFACT_REMOVED_BY_RETENTION);
+      throw new Error(
+        row.artifactRemovedReason?.trim() || ARTIFACT_REMOVED_BY_RETENTION
+      );
     }
     // The per-run flag is authoritative: markPeerArtifactRemoved() sets it on
     // every row that existed at ACK time. A row that still says false was
@@ -155,13 +160,64 @@ export async function enqueueMailboxDeletes(
 
 export async function markPeerArtifactRemoved(
   peerId: string,
-  objectKey: string
+  objectKey: string,
+  reason: string = ARTIFACT_REMOVED_BY_RETENTION
 ): Promise<void> {
   const artifactPath = `peer://${peerId}/${objectKey}`;
   await db
     .update(backupHistory)
-    .set({ artifactRemoved: true, mailboxPending: false })
+    .set({
+      artifactRemoved: true,
+      artifactRemovedReason: reason,
+      mailboxPending: false,
+    })
     .where(eq(backupHistory.artifactPath, artifactPath));
+}
+
+/**
+ * Non-versioned peer destinations reuse the same object key. When a new run
+ * lands there, older history rows point at bytes that no longer exist on the
+ * friend's disk: mark them removed with a clear reason instead of letting a
+ * restore fail later with a confusing SHA-256 mismatch.
+ */
+export async function markSupersededPeerHistory(options: {
+  peerId: string;
+  objectKey: string;
+  currentHistoryId: string;
+}): Promise<number> {
+  const artifactPath = `peer://${options.peerId}/${options.objectKey}`;
+  const updated = await db
+    .update(backupHistory)
+    .set({
+      artifactRemoved: true,
+      artifactRemovedReason: ARTIFACT_SUPERSEDED_MESSAGE,
+      mailboxPending: false,
+    })
+    .where(
+      and(
+        eq(backupHistory.artifactPath, artifactPath),
+        eq(backupHistory.artifactRemoved, false),
+        ne(backupHistory.id, options.currentHistoryId)
+      )
+    )
+    .returning({ id: backupHistory.id });
+  return updated.length;
+}
+
+/**
+ * A fresh artifact is landing on this key: every delete recorded for the old
+ * object is obsolete. Clearing acked rows too matters for recalls — otherwise
+ * an old acked delete would keep blocking restores of the reused key.
+ */
+export async function clearPeerDeletesForNewLanding(
+  peerId: string,
+  objectKey: string
+): Promise<void> {
+  await db
+    .delete(peerDeletes)
+    .where(
+      and(eq(peerDeletes.peerId, peerId), eq(peerDeletes.objectKey, objectKey))
+    );
 }
 
 export async function completePeerDeleteAck(
@@ -240,4 +296,87 @@ export async function applyPeerDestinationRetention(options: {
 
   const queued = await enqueueMailboxDeletes(options.peer.id, selected);
   return { keys: queued };
+}
+
+/**
+ * Queue a deletion for one peer artifact, unless another history row still
+ * points at the same object key (non-versioned destinations share keys).
+ */
+async function queuePeerDeleteForArtifact(options: {
+  artifactPath: string;
+  excludeHistoryId?: string | null;
+  excludeConfigId?: string | null;
+}): Promise<boolean> {
+  const parsed = parsePeerArtifactPath(options.artifactPath);
+  if (!parsed) return false;
+
+  const refs = await db.query.backupHistory.findMany({
+    where: eq(backupHistory.artifactPath, options.artifactPath),
+    columns: { id: true, configId: true, artifactRemoved: true },
+  });
+  const stillReferenced = refs.some(
+    (row) =>
+      !row.artifactRemoved &&
+      row.id !== options.excludeHistoryId &&
+      row.configId !== options.excludeConfigId
+  );
+  if (stillReferenced) return false;
+
+  const peer = await db.query.peers.findFirst({ where: eq(peers.id, parsed.peerId) });
+  if (!peer) return false;
+
+  // An open recall for a disappearing object blocks the mailbox delete; close it.
+  await expireRecallsForObject(parsed.peerId, parsed.objectKey);
+
+  if (peer.transport === 'direct') {
+    if (peer.status !== 'active') return false;
+    try {
+      await deletePeerObject(peer, parsed.objectKey);
+      await markPeerArtifactRemoved(parsed.peerId, parsed.objectKey);
+      return true;
+    } catch (error) {
+      console.warn(
+        `[peer-retention] direct delete ${parsed.objectKey}:`,
+        error instanceof Error ? error.message : error
+      );
+      return false;
+    }
+  }
+
+  await enqueueMailboxDeletes(parsed.peerId, [parsed.objectKey]);
+  return true;
+}
+
+/** History row deleted by the user: free its object on the friend's disk. */
+export async function enqueuePeerDeleteForHistory(row: {
+  id: string;
+  artifactPath: string | null;
+  artifactRemoved?: boolean | null;
+}): Promise<boolean> {
+  if (!row.artifactPath || row.artifactRemoved) return false;
+  return queuePeerDeleteForArtifact({
+    artifactPath: row.artifactPath,
+    excludeHistoryId: row.id,
+  });
+}
+
+/** Backup config deleted by the user: free every object its runs left on peers. */
+export async function enqueuePeerDeletesForConfig(configId: string): Promise<number> {
+  const rows = await db.query.backupHistory.findMany({
+    where: eq(backupHistory.configId, configId),
+    columns: { artifactPath: true, artifactRemoved: true },
+  });
+  const seen = new Set<string>();
+  let queued = 0;
+  for (const row of rows) {
+    if (!row.artifactPath || row.artifactRemoved) continue;
+    if (seen.has(row.artifactPath)) continue;
+    seen.add(row.artifactPath);
+    const didQueue = await queuePeerDeleteForArtifact({
+      artifactPath: row.artifactPath,
+      excludeConfigId: configId,
+    });
+    if (didQueue) queued += 1;
+  }
+  return queued;
 }

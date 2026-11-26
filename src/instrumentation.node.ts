@@ -19,6 +19,11 @@ export async function registerNode(): Promise<void> {
   }
 
   console.log('🚀 Initializing server components...');
+  const { sweepOrphanPeerUploadTemps } = await import('./lib/peer/capped-body');
+  const swept = await sweepOrphanPeerUploadTemps().catch(() => 0);
+  if (swept > 0) {
+    console.log(`🧹 Removed ${swept} stale peer upload temp dir(s)`);
+  }
   await initializeScheduler();
   startPeerSyncWorker();
   console.log('✅ Server components initialized successfully');
