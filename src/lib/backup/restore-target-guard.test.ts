@@ -20,7 +20,7 @@ mock.module('@/lib/db', () => ({
   },
 }));
 
-const { restorePathBackup } = await import('@/lib/backup');
+const { restorePathBackup, restoreDatabaseBackup } = await import('@/lib/backup');
 
 describe('local path restore target validation', () => {
   test('refuses to restore onto a system pseudo-filesystem path', async () => {
@@ -49,6 +49,42 @@ describe('local path restore target validation', () => {
         })
       ).rejects.toThrow(/refus|unsafe|not allowed/i);
     } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('refuses to restore a SQLite dump onto the instance data directory', async () => {
+    const prevDb = process.env.DATABASE_URL;
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'lbtest-restore-sqlite-'));
+    const artifact = path.join(dir, 'app.sqlite.gz');
+    const instanceDb = path.join(dir, 'instance', 'data.db');
+    try {
+      await fs.writeFile(artifact, 'not really gzip');
+      process.env.DATABASE_URL = `file:${instanceDb}`;
+      historyFixture = {
+        id: 'h-sqlite-target',
+        status: 'success',
+        artifactPath: artifact,
+        backupConfig: {
+          sourceType: 'database',
+          sourceKind: 'local',
+          sourcePath: path.join(dir, 'source.db'),
+          dbEngine: 'sqlite',
+          dbClient: 'native',
+          destinationKind: 'local',
+        },
+      };
+
+      await expect(
+        restoreDatabaseBackup('h-sqlite-target', {
+          confirm: true,
+          allowRetarget: true,
+          databaseName: instanceDb,
+        })
+      ).rejects.toThrow(/Refusing to restore/);
+    } finally {
+      if (prevDb === undefined) delete process.env.DATABASE_URL;
+      else process.env.DATABASE_URL = prevDb;
       await fs.rm(dir, { recursive: true, force: true });
     }
   });

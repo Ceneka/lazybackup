@@ -120,11 +120,6 @@ const FORBIDDEN_RESTORE_TARGETS = [
   '/proc',
   '/sys',
   '/boot',
-  '/bin',
-  '/sbin',
-  '/lib',
-  '/lib64',
-  '/usr',
   '/run',
   '/var/lib/docker',
 ];

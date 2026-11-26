@@ -119,11 +119,21 @@ describe('assertRestorableLocalTarget', () => {
   test('refuses the filesystem root and system directories', () => {
     process.env.BACKUP_STORAGE_PATH = '/backups';
     expect(() => assertRestorableLocalTarget('/')).toThrow(/Refusing to restore/);
-    expect(() => assertRestorableLocalTarget('/usr/local/bin')).toThrow(
+    expect(() => assertRestorableLocalTarget('/boot/efi')).toThrow(
       /Refusing to restore/
     );
     expect(() => assertRestorableLocalTarget('/proc/self')).toThrow(
       /Refusing to restore/
+    );
+  });
+
+  test('still allows /etc and application trees (config / app recovery)', () => {
+    process.env.BACKUP_STORAGE_PATH = '/backups';
+    expect(assertRestorableLocalTarget('/etc/nginx')).toBe(
+      path.resolve('/etc/nginx')
+    );
+    expect(assertRestorableLocalTarget('/usr/local/share/app')).toBe(
+      path.resolve('/usr/local/share/app')
     );
   });
 

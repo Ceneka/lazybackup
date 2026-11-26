@@ -2434,7 +2434,12 @@ export async function restoreDatabaseBackup(
 
   const dbConn = connectionFromConfig({
     ...config,
-    sourcePath: targetDatabase,
+    // SQLite "databases" are filesystem paths: a restore writes over a file.
+    // Apply the same target guard as path restores on this host.
+    sourcePath:
+      (config.dbEngine || '') === 'sqlite' && host.kind === 'local'
+        ? assertRestorableLocalTarget(targetDatabase)
+        : targetDatabase,
   });
 
   try {
@@ -2799,7 +2804,10 @@ export async function restoreGitRepoBackup(
         const extract = await ssh.execCommand(
           `tar -xzf ${posixQuote(remoteTar)} -C ${posixQuote(targetPath)} && rm -f ${posixQuote(remoteTar)}`
         );
-        if (extract.code !== 0 && extract.code !== null && extract.code !== undefined) {
+        if (
+          extract.signal ||
+          (extract.code !== 0 && extract.code !== null && extract.code !== undefined)
+        ) {
           throw restoreRetargetHostError(
             targetServer.name,
             extract.stderr || extract.stdout || `exit ${extract.code}`

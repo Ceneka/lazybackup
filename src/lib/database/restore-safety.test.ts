@@ -7,6 +7,7 @@ import {
   buildRestoreDatabaseCommand,
   buildRestoreSqliteCommand,
   restoreDatabaseLocal,
+  restoreDatabaseRemote,
   type DatabaseConnection,
 } from './index';
 
@@ -84,5 +85,28 @@ describe('non-sqlite restores verify the archive before touching the database', 
       '/tmp/app.sql.gz'
     );
     expect(cmd).toMatch(/gzip -t/);
+  });
+});
+
+describe('remote restore exit status', () => {
+  test('a client killed by a signal is not reported as success', async () => {
+    const ssh = {
+      putFile: async () => {},
+      execCommand: async (cmd: string) => {
+        if (cmd.includes('chmod') || cmd.startsWith('rm ')) {
+          return { code: 0, signal: null, stdout: '', stderr: '' };
+        }
+        // psql was OOM-killed mid-restore: node-ssh reports code=null.
+        return { code: null, signal: 'SIGKILL', stdout: '', stderr: '' };
+      },
+    };
+
+    await expect(
+      restoreDatabaseRemote(
+        ssh as never,
+        postgresConn(),
+        '/tmp/app.sql.gz'
+      )
+    ).rejects.toThrow();
   });
 });

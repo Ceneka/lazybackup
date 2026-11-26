@@ -491,7 +491,15 @@ export function connectionFromConfig(config: {
   };
 }
 
-function isFailedExit(code: number | null | undefined): boolean {
+function isFailedExit(result: {
+  code?: number | null;
+  signal?: string | null;
+}): boolean {
+  // node-ssh reports code=null when the remote command is killed; a signal
+  // means the command did not finish, so the operation must not be called a
+  // success (a SIGKILLed psql leaves a partially restored database).
+  if (result.signal) return true;
+  const code = result.code;
   return code !== 0 && code !== null && code !== undefined;
 }
 
@@ -720,7 +728,7 @@ export async function packDatabaseDumpRemote(
   const mktemp = await ssh.execCommand(
     `${REMOTE_STANDARD_PATH} mktemp -d /tmp/lazybackup-db-XXXXXX`
   );
-  if (isFailedExit(mktemp.code) || !mktemp.stdout.trim()) {
+  if (isFailedExit(mktemp) || !mktemp.stdout.trim()) {
     throw new Error(`Failed to create remote temp directory: ${mktemp.stderr || mktemp.stdout}`);
   }
   const tmpDir = mktemp.stdout.trim();
@@ -734,7 +742,7 @@ export async function packDatabaseDumpRemote(
             const cmd = buildPackDatabaseCommand(conn, archivePath, { passwordFile });
             return ssh.execCommand(cmd);
           });
-    if (isFailedExit(packResult.code)) {
+    if (isFailedExit(packResult)) {
       throw new Error((packResult.stderr || packResult.stdout).trim() || 'dump failed');
     }
     return {
@@ -809,7 +817,7 @@ export async function restoreDatabaseRemote(
           const cmd = buildRestoreDatabaseCommand(conn, remoteArchivePath, { passwordFile });
           return ssh.execCommand(cmd);
         });
-  if (isFailedExit(result.code)) {
+  if (isFailedExit(result)) {
     throw new Error(
       `Failed to restore database ${conn.database}: ${(result.stderr || result.stdout).trim()}`
     );
@@ -849,7 +857,7 @@ export async function testDatabaseConnectionRemote(
           const cmd = buildDatabaseTestCommand(conn, { passwordFile });
           return ssh.execCommand(cmd);
         });
-  if (isFailedExit(result.code)) {
+  if (isFailedExit(result)) {
     throw new Error(`Database connection failed: ${(result.stderr || result.stdout).trim()}`);
   }
   return { ok: true, stdout: (result.stdout || '').trim() };
