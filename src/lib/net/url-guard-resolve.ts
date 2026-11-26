@@ -1,6 +1,7 @@
 import { lookup as dnsLookup } from 'node:dns/promises';
 import {
   classifyIp,
+  httpAllowedToAddresses,
   ipAllowed,
   normalizeHostname,
   peerUrlPolicy,
@@ -54,6 +55,8 @@ export async function validateHttpUrlResolved(
       return { ok: false, error: `${policy.label} targets a disallowed address` };
     }
   }
+  const httpDenied = httpAllowedToAddresses(parsed.protocol, addresses, policy);
+  if (httpDenied) return httpDenied;
 
   return first;
 }
@@ -92,6 +95,8 @@ export async function resolveHttpUrlAddresses(
       return { ok: false, error: `${policy.label} targets a disallowed address` };
     }
   }
+  const httpDenied = httpAllowedToAddresses(parsed.protocol, addresses, policy);
+  if (httpDenied) return httpDenied;
   return { ok: true, url: first.url, addresses };
 }
 

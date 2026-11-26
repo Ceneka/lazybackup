@@ -2,7 +2,12 @@ import {
   getAuthStatus,
   maybeRefreshSessionCookie,
 } from '@/lib/auth'
+import { csrfDecisionForSessionRequest } from '@/lib/auth/csrf'
 import { isPublicPath } from '@/lib/auth/public-paths'
+import {
+  hasJsonContentType,
+  requiresJsonMutationContentType,
+} from '@/lib/auth/request-content'
 import { NextRequest, NextResponse } from 'next/server'
 
 /**
@@ -44,6 +49,19 @@ export async function middleware(request: NextRequest) {
       cookieHeader,
       request.headers.get('authorization')
     )
+
+    // Cookie sessions are ambient credentials: reject cross-site mutations.
+    // Bearer tokens are explicit and exempt; peer routes bypass this matcher.
+    if (status.authEnabled && resolved.via === 'session') {
+      const csrf = csrfDecisionForSessionRequest({
+        method: request.method,
+        headers: request.headers,
+      })
+      if (!csrf.ok) {
+        return NextResponse.json({ error: csrf.reason }, { status: 403 })
+      }
+    }
+
     if (
       status.authEnabled &&
       resolved.via === 'bearer' &&
@@ -53,6 +71,20 @@ export async function middleware(request: NextRequest) {
       return NextResponse.json(
         { error: 'API token is read_only' },
         { status: 403 }
+      )
+    }
+
+    if (
+      requiresJsonMutationContentType(
+        request.method,
+        pathname,
+        request.headers
+      ) &&
+      !hasJsonContentType(request.headers)
+    ) {
+      return NextResponse.json(
+        { error: 'Content-Type must be application/json' },
+        { status: 415 }
       )
     }
 

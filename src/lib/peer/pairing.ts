@@ -1,7 +1,8 @@
 import { and, eq } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
+import { timingSafeEqual } from 'crypto';
 import { db } from '@/lib/db';
-import { peerInvites, peers, settings } from '@/lib/db/schema';
+import { backupHistory, peerInvites, peers, settings } from '@/lib/db/schema';
 import {
   PEER_PAIR_RESPONSE_JSON_LIMIT,
   readCappedResponseJson,
@@ -45,7 +46,7 @@ export async function getInstanceBaseUrl(): Promise<string | null> {
 export async function setInstanceBaseUrl(url: string): Promise<void> {
   const trimmed = assertPeerUrlOrThrow(
     url.trim().replace(/\/+$/, ''),
-    'Instance URL must be a public http(s) address (or Tailscale). Set ALLOW_PRIVATE_PEER_URLS=true for LAN.'
+    'Instance URL must use https:// for a public address, or a LAN/Tailscale address. Set ALLOW_PRIVATE_PEER_URLS=true for LAN.'
   );
   const existing = await db.query.settings.findFirst({
     where: eq(settings.key, INSTANCE_BASE_URL_KEY),
@@ -68,17 +69,44 @@ export async function setInstanceBaseUrl(url: string): Promise<void> {
 
 export async function listPeers(): Promise<PeerPublic[]> {
   const rows = await db.query.peers.findMany();
+  // History rows can still be `mailboxPending` for a few ms after the ACK
+  // removed the staged file (ACK wins the race before the success row exists).
+  const pendingHistory = await db.query.backupHistory
+    .findMany({ where: eq(backupHistory.mailboxPending, true) })
+    .catch(() => []);
   const out: PeerPublic[] = [];
   for (const row of rows) {
-    let pendingSyncCount = 0;
+    const pending = new Map<string, { size: number; at: string }>();
     if (row.transport !== 'direct') {
       try {
-        pendingSyncCount = (await listStagedObjects(row.id)).length;
+        for (const staged of await listStagedObjects(row.id)) {
+          pending.set(staged.key, { size: staged.size, at: staged.mtime });
+        }
       } catch {
-        pendingSyncCount = 0;
+        // Missing staging dir = nothing waiting.
       }
     }
-    out.push(redactPeer(row, { pendingSyncCount }));
+    const prefix = `peer://${row.id}/`;
+    for (const history of pendingHistory) {
+      const artifactPath = history.artifactPath;
+      if (!artifactPath?.startsWith(prefix)) continue;
+      const key = artifactPath.slice(prefix.length);
+      if (!key || pending.has(key)) continue;
+      pending.set(key, {
+        size: history.totalSize ?? history.transferredSize ?? 0,
+        at: new Date(history.startTime).toISOString(),
+      });
+    }
+    const pendingBytes = [...pending.values()].reduce((sum, item) => sum + item.size, 0);
+    const oldestPendingAt =
+      [...pending.values()].map((item) => item.at).sort()[0] ?? null;
+    out.push(
+      redactPeer(row, {
+        pendingSyncCount: pending.size,
+        pendingBytes,
+        oldestPendingAt,
+      })
+    );
   }
   return out;
 }
@@ -284,7 +312,12 @@ export async function completePairFromAcceptor(body: {
   }
   // Verify the secret before revealing anything about the invite state
   // (expired vs missing) so this endpoint is not an invite oracle.
-  if (hashInviteSecret(body.secret) !== invite.secretHash) {
+  const presented = Buffer.from(hashInviteSecret(body.secret), 'utf8')
+  const expected = Buffer.from(invite.secretHash, 'utf8')
+  if (
+    presented.length !== expected.length ||
+    !timingSafeEqual(presented, expected)
+  ) {
     throw new Error(PAIRING_FAILED_MESSAGE);
   }
   if (invite.expiresAt.getTime() < Date.now()) {

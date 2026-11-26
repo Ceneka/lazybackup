@@ -115,7 +115,7 @@ export function registerLazyBackupTools(
     {
       title: 'Test database connection',
       description:
-        'Run SELECT 1 via native client or docker exec without saving a backup. Call after get_container_db_hints and before create_backup for database sources.',
+        'Run SELECT 1 via native client or docker exec without saving a backup. Call after get_container_db_hints and before create_backup for database sources. Ad-hoc credentials are not available to read_only tokens — use validate_backup on a stored config instead.',
       inputSchema: z.object({
         sourceKind: z.enum(['local', 'server']).default('server'),
         serverId: z.string().optional(),

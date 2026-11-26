@@ -7,6 +7,7 @@ import {
   redactGitRepo,
   redactHistoryEntry,
   redactS3,
+  redactS3ForAudience,
   redactServer,
   redactSettingsForBearer,
   redactSshKey,
@@ -58,6 +59,35 @@ describe('redactS3', () => {
       { maskAccessKeyId: true }
     );
     expect(result.accessKeyId).toBe('AKIA…');
+  });
+});
+
+describe('redactS3ForAudience', () => {
+  test('cookie sessions keep the full access key id', () => {
+    const result = redactS3ForAudience(
+      { accessKeyId: 'AKIA123456', secretAccessKey: 'x' },
+      'session'
+    );
+    expect(result.accessKeyId).toBe('AKIA123456');
+    expect(result).not.toHaveProperty('secretAccessKey');
+  });
+
+  test('Bearer callers get the MCP-masked access key id', () => {
+    const result = redactS3ForAudience(
+      { accessKeyId: 'AKIA123456', secretAccessKey: 'x' },
+      'bearer'
+    );
+    expect(result.accessKeyId).toBe('AKIA…');
+  });
+
+  test('unlocked / unauthenticated keep the full key (no Bearer header)', () => {
+    for (const via of ['unlocked', 'none']) {
+      const result = redactS3ForAudience(
+        { accessKeyId: 'AKIA123456', secretAccessKey: 'x' },
+        via
+      );
+      expect(result.accessKeyId).toBe('AKIA123456');
+    }
   });
 });
 

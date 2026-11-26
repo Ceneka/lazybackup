@@ -97,7 +97,7 @@ export function authAllowsAuthorizeKeys(auth: AuthPermissionView): boolean {
 
 /**
  * Session/unlocked always write. Bearer tokens with read_only cannot mutate
- * (except allowlisted probes: validate_backup / test_*).
+ * (except by-id probes: validate_backup / test of a stored endpoint).
  */
 export function authAllowsWrite(auth: AuthPermissionView): boolean {
   if (!auth.authorized) return false
@@ -120,7 +120,12 @@ export class ReadOnlyPermissionError extends Error {
   }
 }
 
-/** GET always; POST probes (validate / test_*) and /mcp for read_only bearers. */
+/**
+ * GET always; by-id probes (validate / test configured resource) and /mcp for
+ * read_only bearers. Ad-hoc probes with caller-supplied targets are denied:
+ * they would let a read_only token SSRF/port-scan from this host or a
+ * configured SSH server.
+ */
 export function isReadOnlyApiException(method: string, pathname: string): boolean {
   const m = method.toUpperCase()
   if (m === 'GET' || m === 'HEAD' || m === 'OPTIONS') return true
@@ -130,9 +135,9 @@ export function isReadOnlyApiException(method: string, pathname: string): boolea
     return true
   }
   if (m !== 'POST') return false
-  if (pathname === '/api/backups/database/test') return true
-  if (pathname === '/api/servers/test') return true
-  if (pathname === '/api/s3-profiles/test') return true
+  // Only tests that use already-stored endpoints. `POST /api/servers/test`,
+  // `/api/s3-profiles/test`, `/api/git-repos/test`, and
+  // `/api/backups/database/test` accept arbitrary hosts/URLs and are excluded.
   if (/^\/api\/backups\/[^/]+\/validate$/.test(pathname)) return true
   if (/^\/api\/servers\/[^/]+\/test$/.test(pathname)) return true
   if (/^\/api\/s3-profiles\/[^/]+\/test$/.test(pathname)) return true

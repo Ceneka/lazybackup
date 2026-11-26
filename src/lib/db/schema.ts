@@ -236,6 +236,17 @@ export const peers = sqliteTable('peers', {
   /** Last successful agent ping/work from this peer (soft presence) */
   lastSeenAt: integer('last_seen_at', { mode: 'timestamp' }),
   lastActivityAt: integer('last_activity_at', { mode: 'timestamp' }),
+  /**
+   * Peer-reported status (C3): how much OUR backups use on THEIR disk.
+   * `usedBytes` above remains the opposite direction (bytes they store here).
+   */
+  remoteUsedBytes: integer('remote_used_bytes'),
+  remoteQuotaBytes: integer('remote_quota_bytes'),
+  /** Truncated last error reported by the peer (per-item failure, not secrets) */
+  remoteLastError: text('remote_last_error'),
+  remoteLastSyncAt: integer('remote_last_sync_at', { mode: 'timestamp' }),
+  remoteAppVersion: text('remote_app_version'),
+  remoteReportedAt: integer('remote_reported_at', { mode: 'timestamp' }),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
 });

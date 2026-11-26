@@ -86,6 +86,21 @@ export async function GET(request: NextRequest) {
       { running: 0, success: 0, failed: 0 }
     )
 
+    // A peer backup is `success` once staged locally; it is not off-site until
+    // the friend ACKs. Keep those out of "delivered" success counts.
+    const [waitingDeliveryRow] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(backupHistory)
+      .where(
+        and(
+          windowWhere,
+          eq(backupHistory.status, "success"),
+          eq(backupHistory.mailboxPending, true)
+        )
+      )
+    const waitingDelivery = Number(waitingDeliveryRow?.count || 0)
+    const deliveredSuccess = Math.max(0, statusCounts.success - waitingDelivery)
+
     const totalInWindow =
       statusCounts.running + statusCounts.success + statusCounts.failed
     const successRate = calcSuccessRate(statusCounts.success, totalInWindow)
@@ -140,6 +155,7 @@ export async function GET(request: NextRequest) {
         status: true,
         startTime: true,
         errorMessage: true,
+        mailboxPending: true,
       },
       with: {
         backupConfig: {
@@ -150,6 +166,7 @@ export async function GET(request: NextRequest) {
     const recentHistory = recentHistoryRows.map((row) => ({
       id: row.id,
       status: row.status,
+      mailboxPending: row.mailboxPending,
       startTime: new Date(row.startTime).toISOString(),
       errorSnippet: errorSnippet(row.errorMessage),
       backupConfig: row.backupConfig ? { name: row.backupConfig.name } : null,
@@ -207,6 +224,8 @@ export async function GET(request: NextRequest) {
       statusCounts,
       totalRuns: totalInWindow,
       successRate,
+      waitingDelivery,
+      deliveredSuccess,
       transferredBytes: Number(sizeAgg?.totalTransferred || 0),
       reportedBackupBytes: Number(sizeAgg?.totalSize || 0),
       avgBackupBytes: Math.round(Number(sizeAgg?.avgSize || 0)),

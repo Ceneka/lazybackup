@@ -2,6 +2,7 @@ import { historyBackupConfigWith } from '@/lib/api/history-query';
 import { redactHistoryEntry } from '@/lib/api/redact';
 import { db } from '@/lib/db';
 import { backupHistory } from '@/lib/db/schema';
+import { deliveryStateForHistoryRow } from '@/lib/peer/delivery-state';
 import { eq } from 'drizzle-orm';
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -28,9 +29,10 @@ export async function GET(
       );
     }
     
-    return NextResponse.json(
-      redactHistoryEntry(historyEntry as unknown as Record<string, unknown>)
-    );
+    return NextResponse.json({
+      ...redactHistoryEntry(historyEntry as unknown as Record<string, unknown>),
+      deliveryState: deliveryStateForHistoryRow(historyEntry),
+    });
   } catch (error) {
     console.error('Error fetching backup history entry:', error);
     return NextResponse.json(

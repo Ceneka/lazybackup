@@ -6,6 +6,7 @@ import {
   testDatabaseConnectionRemote,
 } from '@/lib/database'
 import { writeAuditLog, type AuditActor } from '@/lib/auth/audit'
+import { READ_ONLY_DENIED } from '@/lib/auth/permissions'
 import { db } from '@/lib/db'
 import { servers } from '@/lib/db/schema'
 import { inspectContainerDatabaseHints, listDockerContainers } from '@/lib/docker/containers'
@@ -15,6 +16,8 @@ import { eq } from 'drizzle-orm'
 
 export type McpOpsContext = {
   actor?: AuditActor
+  /** Session/unlocked always; Bearer false when token has read_only. */
+  canWrite?: boolean
   /** Auth audience. Bearer omits live DB passwords from get_container_db_hints. */
   via?: 'unlocked' | 'session' | 'bearer' | 'none'
 }
@@ -189,6 +192,8 @@ export async function getContainerDbHintsOp(
 }
 
 export async function testServerOp(ctx: McpOpsContext, serverId: string) {
+  // Only targets an already-stored server id (no caller-supplied host), so a
+  // read_only token cannot use this as an arbitrary SSRF/port-scan primitive.
   return audited(ctx.actor, 'test_server', serverId, async () => {
     const server = await loadServer(serverId)
     const { testServerBackupCapabilities } = await import('@/lib/ssh')
@@ -204,6 +209,12 @@ export async function testServerOp(ctx: McpOpsContext, serverId: string) {
 }
 
 export async function testDatabaseOp(ctx: McpOpsContext, input: unknown) {
+  // Ad-hoc connection tests accept caller-supplied hosts, so a read_only token
+  // could use them to SSRF / port-scan from this host or a configured server.
+  // Use validate_backup (stored config) instead.
+  if (ctx.canWrite === false) {
+    return errorResult(READ_ONLY_DENIED)
+  }
   return audited(ctx.actor, 'test_database', undefined, async () => {
     const data = databaseConnectionTestSchema.parse(input)
     const conn = connectionFromConfig({

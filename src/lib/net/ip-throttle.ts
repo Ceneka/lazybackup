@@ -8,10 +8,17 @@ const DEFAULT_MAX = 10;
 const PRUNE_THRESHOLD = 5_000;
 const MAX_BUCKETS = 10_000;
 
+/** Full expiry sweeps are O(n); run at most once per second of (logical) time. */
+const SWEEP_INTERVAL_MS = 1_000;
+let lastSweepAt = Number.NEGATIVE_INFINITY;
+
 function pruneExpired(now: number): void {
   if (buckets.size < PRUNE_THRESHOLD) return;
-  for (const [key, bucket] of buckets) {
-    if (now >= bucket.resetAt) buckets.delete(key);
+  if (now - lastSweepAt >= SWEEP_INTERVAL_MS) {
+    lastSweepAt = now;
+    for (const [key, bucket] of buckets) {
+      if (now >= bucket.resetAt) buckets.delete(key);
+    }
   }
   // Spoofed keys can all be live inside one window; evict the oldest so
   // memory stays bounded. Rate limiting is best-effort, not an auth boundary.
@@ -48,6 +55,7 @@ export function consumeIpRateLimit(
 
 export function resetIpRateLimitForTests(): void {
   buckets.clear();
+  lastSweepAt = Number.NEGATIVE_INFINITY;
 }
 
 /** Test-only visibility into map size (unbounded-map regression). */

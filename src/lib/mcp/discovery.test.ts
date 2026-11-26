@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { mcpIncludeDbHintPassword, scoreServerMatch } from './discovery'
+import { mcpIncludeDbHintPassword, scoreServerMatch, testDatabaseOp } from './discovery'
 
 describe('scoreServerMatch', () => {
   const server = {
@@ -40,5 +40,22 @@ describe('mcpIncludeDbHintPassword', () => {
   test('Bearer and missing via omit the password', () => {
     expect(mcpIncludeDbHintPassword('bearer')).toBe(false)
     expect(mcpIncludeDbHintPassword(undefined)).toBe(false)
+  })
+})
+
+describe('testDatabaseOp (read_only)', () => {
+  test('read_only tokens cannot run ad-hoc database probes', async () => {
+    const result = (await testDatabaseOp(
+      { canWrite: false, via: 'bearer' },
+      {
+        sourceKind: 'local',
+        dbEngine: 'postgres',
+        dbClient: 'native',
+        sourcePath: 'postgres',
+      }
+    )) as { isError?: boolean; content: Array<{ text: string }> }
+
+    expect(result.isError).toBe(true)
+    expect(result.content[0]?.text).toMatch(/read_only/i)
   })
 })

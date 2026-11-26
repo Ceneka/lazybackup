@@ -60,6 +60,19 @@ Open [http://localhost:3000](http://localhost:3000) (or `http://<lan-ip>:3000` o
 
 > **HTTP vs HTTPS:** On plain HTTP (typical LAN), leave `AUTH_COOKIE_SECURE` unset so the app password session cookie works. Set `AUTH_COOKIE_SECURE=true` only when the UI is served over HTTPS.
 
+### Hardening checklist
+
+Do these before the instance is reachable from anything you do not trust:
+
+- **Close the door first.** Compose publishes port 3000 on all interfaces and a fresh instance has **no password** until you set one. Bind loopback only (`-p 127.0.0.1:3000:3000`) or firewall the port before the first start, then add an app password and/or a passkey in **Settings → General**.
+- **Mount only the SSH keys backups need.** Point `SSH_KEYS_PATH` at a dedicated directory (e.g. `./lazybackup-ssh`) instead of `~/.ssh`; the container can read every key in that directory.
+- **The Docker socket is root-equivalent.** Only mount `/var/run/docker.sock` if you need local Docker-volume packing or `docker exec` database dumps, and treat the instance as having host root.
+- **HTTPS settings only behind HTTPS.** Set `AUTH_COOKIE_SECURE=true` and `ENABLE_HSTS=true` only when every request is HTTPS (HSTS is usually better at the reverse proxy). On plain HTTP they break login or pin browsers to a broken origin.
+- **Proxy trust is opt-in.** Set `AUTH_TRUST_PROXY=true` only behind a proxy that **overwrites** `X-Forwarded-Host` / `X-Forwarded-Proto` / `X-Forwarded-For`, and set `AUTH_PUBLIC_URL=https://backup.example.com` so passkeys use the right origin.
+- **Never echo secrets in pre-backup commands.** Their output is stored in the run's history log (readable from History and by `remote_exec` API tokens). Use credentials already stored in the app instead.
+- **Bro Space through a tunnel.** Peer uploads stream up to 32 GiB, while Cloudflare (Free/Pro/Business) and many proxies cap request bodies near 100 MB — raise the limit or keep Bro Space on Tailscale/LAN. Public peer URLs must be `https://`; plain `http://` is accepted only for Tailscale, or for LAN when `ALLOW_PRIVATE_PEER_URLS=true`.
+- **Keep the TOFU pins.** The SSH `known_hosts` file defaults next to `DATABASE_URL` (`ssh_known_hosts`); set `LAZYBACKUP_KNOWN_HOSTS` to put it on persistent storage.
+
 ### Install catalogs
 
 - **Unraid** — Community Applications XML: [`deploy/unraid/lazybackup.xml`](./deploy/unraid/lazybackup.xml) (`ghcr.io/ceneka/lazybackup:latest`, port 3000, data / backups / SSH mounts).
@@ -97,7 +110,7 @@ Set `DATABASE_URL` if you want a custom SQLite path (default: `file:./data.db`).
 - **Path restore** — One-click restore of path trees from History (local / S3 / Bro artifacts) back to the source path, SSH host, or S3 prefix
 - **Validate before run** — Probe SSH/S3/paths/DB without transferring (backup detail → Validate); last result is stored with a timestamp so you can see status without re-running
 - **Failure webhooks** — Customizable HTTPS webhook on backup failure (method, headers, `{{tag}}` body/URL templates; Discord / Telegram / Kuma / ntfy / Slack presets)
-- **Success pings** — Optional Healthchecks.io / Uptime Kuma-style GET (or POST) when a backup succeeds
+- **Success pings** — Optional Healthchecks.io / Uptime Kuma-style GET (or POST) when a backup is actually delivered (Bro Space: after your friend confirms it stored it)
 - **Optional app password** — Single-operator lock (set on first run or later in Settings); session cookie lasts 30 days
 - **MCP / API tokens** — Let Cursor, Claude, or other agents manage backups via Streamable HTTP MCP at `/mcp` (Settings → API / MCP)
 - **Encryption** — Age vault (active / retired / compromised keys), recovery recipients, passphrase-wrapped export (Settings → Encryption); works with local, server, and S3 destinations
@@ -117,7 +130,7 @@ Set `DATABASE_URL` if you want a custom SQLite path (default: `file:./data.db`).
 
 ## Usage
 
-1. **Optional password** — On first visit, set an app password or skip. Change or remove it later under Settings.
+1. **Optional password** — On first visit, set an app password or skip. Skipping leaves the dashboard and API open to anyone who can reach the address (the app warns before you skip); set or change it later under Settings → General.
 2. **Add a server** — Connections → Servers → add host, user, and SSH credentials. Use **Test connection** to verify rsync/scp (and Docker) availability. Prefer an SSH key for any server you will back up from or to.
 3. **(Optional) S3 profile** — Connections → S3 → endpoint, bucket, and keys (path-style for MinIO/R2/B2 as needed).
 4. **(Optional) Git repository** — Connections → Git → remote URL and an SSH key from Settings for private remotes. Backups clone a bare mirror on this host and store `.tar.gz` at the destination.
@@ -170,7 +183,9 @@ Example `mcp.json` (replace host and token):
 }
 ```
 
-Tokens can manage backups and servers. **Remote shell** (`exec_command` / `POST /api/servers/:id/exec`) and **setting or changing pre-backup commands** require the opt-in **Allow remote command execution** permission when creating the token (browser sessions always have it). Prefer HTTPS or a trusted LAN. Revoke tokens anytime from the same Settings tab. Destructive MCP tools (`delete_*`, `restore_history`, `exec_command`) require `confirm: true`.
+Tokens can manage backups and servers. Creating a token requires a fresh step-up — your **current password** or a **passkey check** — when the instance is locked, because tokens are durable credentials. **Remote shell** (`exec_command` / `POST /api/servers/:id/exec`) and **setting or changing pre-backup commands** require the opt-in **Allow remote command execution** permission when creating the token (browser sessions always have it). Prefer HTTPS or a trusted LAN. Revoke tokens anytime from the same Settings tab. Destructive MCP tools (`delete_*`, `restore_history`, `exec_command`) require `confirm: true`.
+
+A **read_only** token can list/inspect, run `validate_backup`, and test endpoints that are already stored (by id). It cannot create/run/delete backups, cannot call ad-hoc probe endpoints that accept a caller-supplied host or URL (`POST /api/servers/test`, `/api/s3-profiles/test`, `/api/git-repos/test`, `/api/backups/database/test`, MCP `test_database`) — those would otherwise be usable for SSRF / port scanning. Registering a new passkey also requires a fresh password/passkey check.
 
 ### Failure notifications
 
@@ -203,13 +218,20 @@ Also under **Settings → General**, optionally configure a **success ping** (He
 - Same URL rules and optional `{{tags}}` (`{{event}}`, `{{backupName}}`, `{{configId}}`, `{{historyId}}`, `{{endedAt}}`)
 - Presets — Healthchecks.io, Uptime Kuma (up), Default JSON (POST)
 - Empty URL disables pings; failures never fail the backup (fire-and-forget)
+- For **Bro Space** destinations, the ping is deferred until the friend's LazyBro confirms it stored the backup (verified ACK). A backup that is only staged is `waiting`, not delivered; an offline friend is soft status, never a failure webhook.
 - Use **Send test ping** to verify
 
 POST/PUT with an empty body sends `{"event":"backup.succeeded",…}`.
 
 ### Secrets in the API
 
-`GET` responses for servers, S3 profiles, and backups **never include** passwords, SSH private keys, S3 secret keys, or DB passwords. Flags such as `hasPassword` / `hasPrivateKey` / `hasSecretAccessKey` / `hasDbPassword` tell the UI a secret is stored. On edit, leave those fields blank to keep the existing value.
+`GET` responses for servers, S3 profiles, and backups **never include** passwords, SSH private keys, S3 secret keys, or DB passwords. SSH key responses never include the PEM (`hasPrivateKeyContent` is a flag only). Bearer/MCP callers get a masked S3 `accessKeyId` (cookie sessions keep it for the edit form). Flags such as `hasPassword` / `hasPrivateKey` / `hasSecretAccessKey` / `hasDbPassword` tell the UI a secret is stored. On edit, leave those fields blank to keep the existing value.
+
+`GET /api/settings/export` is advertised as non-secret: it drops auth/age secrets, masks webhook headers, and reduces webhook/success-ping URLs to scheme + host (their paths/queries often contain bot tokens or check UUIDs) and bodies to `***`.
+
+### CSRF and request rules
+
+Cookie-authenticated mutations are same-origin only. The server rejects `POST`/`PUT`/`PATCH`/`DELETE` when the browser says `Sec-Fetch-Site` is cross-site/same-site, or (without that header) when an `Origin` host does not match the host the instance is served on (`AUTH_PUBLIC_URL`, then `X-Forwarded-Host` when `AUTH_TRUST_PROXY=true`, then `Host`). Bearer API tokens are exempt because they are not ambient credentials. API mutations that carry a body must use `Content-Type: application/json` (bodyless calls such as `POST /api/backups/:id/run` are unaffected).
 
 ### Docker volume notes
 
@@ -233,8 +255,9 @@ POST/PUT with an empty body sends `{"event":"backup.succeeded",…}`.
 | `AUTH_PUBLIC_URL` | unset | Public origin for WebAuthn (overrides Host / forwarded headers), e.g. `https://backup.example.com` |
 | `ALLOW_ARBITRARY_LOCAL_PATHS` | unset (`false`) | Allow local backup destinations outside `BACKUP_STORAGE_PATH`. Default denies paths outside the storage root. |
 | `ALLOW_PRIVATE_S3_ENDPOINTS` | unset (`false`) | Allow S3-compatible endpoints on loopback/private IPs (LAN MinIO). Default denies loopback, RFC1918, link-local, and cloud metadata addresses. |
-| `ALLOW_PRIVATE_PEER_URLS` | unset (`false`) | Allow Bro Space pairing/sync to RFC1918 and loopback URLs. Default allows public http(s) and Tailscale only. IMDS/link-local are always blocked. |
+| `ALLOW_PRIVATE_PEER_URLS` | unset (`false`) | Allow Bro Space pairing/sync to RFC1918 and loopback URLs. Default allows `https://` anywhere and `http://` only for Tailscale (public `http://` is rejected). IMDS/link-local are always blocked. |
 | `ALLOW_LAN_WEBHOOKS` | unset (`true`) | Allow HTTP webhooks/pings to localhost and RFC1918 (LAN ntfy/Kuma). IMDS/link-local are always blocked. Set `false` for public HTTPS only. |
+| `LAZYBACKUP_KNOWN_HOSTS` | next to `DATABASE_URL` | SSH TOFU `known_hosts` file path (`ssh_known_hosts` in the data directory by default). |
 
 See [`.env.example`](./.env.example) for a copy-paste template.
 
