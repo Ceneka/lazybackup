@@ -130,7 +130,7 @@ Set `DATABASE_URL` if you want a custom SQLite path (default: `file:./data.db`).
 
 ## Usage
 
-1. **Optional password** — On first visit, set an app password or skip. Change or remove it later under Settings.
+1. **Optional password** — On first visit, set an app password or skip. Skipping leaves the dashboard and API open to anyone who can reach the address (the app warns before you skip); set or change it later under Settings → General.
 2. **Add a server** — Connections → Servers → add host, user, and SSH credentials. Use **Test connection** to verify rsync/scp (and Docker) availability. Prefer an SSH key for any server you will back up from or to.
 3. **(Optional) S3 profile** — Connections → S3 → endpoint, bucket, and keys (path-style for MinIO/R2/B2 as needed).
 4. **(Optional) Git repository** — Connections → Git → remote URL and an SSH key from Settings for private remotes. Backups clone a bare mirror on this host and store `.tar.gz` at the destination.
@@ -183,7 +183,9 @@ Example `mcp.json` (replace host and token):
 }
 ```
 
-Tokens can manage backups and servers. **Remote shell** (`exec_command` / `POST /api/servers/:id/exec`) and **setting or changing pre-backup commands** require the opt-in **Allow remote command execution** permission when creating the token (browser sessions always have it). Prefer HTTPS or a trusted LAN. Revoke tokens anytime from the same Settings tab. Destructive MCP tools (`delete_*`, `restore_history`, `exec_command`) require `confirm: true`.
+Tokens can manage backups and servers. Creating a token requires a fresh step-up — your **current password** or a **passkey check** — when the instance is locked, because tokens are durable credentials. **Remote shell** (`exec_command` / `POST /api/servers/:id/exec`) and **setting or changing pre-backup commands** require the opt-in **Allow remote command execution** permission when creating the token (browser sessions always have it). Prefer HTTPS or a trusted LAN. Revoke tokens anytime from the same Settings tab. Destructive MCP tools (`delete_*`, `restore_history`, `exec_command`) require `confirm: true`.
+
+A **read_only** token can list/inspect, run `validate_backup`, and test endpoints that are already stored (by id). It cannot create/run/delete backups, cannot call ad-hoc probe endpoints that accept a caller-supplied host or URL (`POST /api/servers/test`, `/api/s3-profiles/test`, `/api/git-repos/test`, `/api/backups/database/test`, MCP `test_database`) — those would otherwise be usable for SSRF / port scanning. Registering a new passkey also requires a fresh password/passkey check.
 
 ### Failure notifications
 
@@ -223,7 +225,13 @@ POST/PUT with an empty body sends `{"event":"backup.succeeded",…}`.
 
 ### Secrets in the API
 
-`GET` responses for servers, S3 profiles, and backups **never include** passwords, SSH private keys, S3 secret keys, or DB passwords. Flags such as `hasPassword` / `hasPrivateKey` / `hasSecretAccessKey` / `hasDbPassword` tell the UI a secret is stored. On edit, leave those fields blank to keep the existing value.
+`GET` responses for servers, S3 profiles, and backups **never include** passwords, SSH private keys, S3 secret keys, or DB passwords. SSH key responses never include the PEM (`hasPrivateKeyContent` is a flag only). Bearer/MCP callers get a masked S3 `accessKeyId` (cookie sessions keep it for the edit form). Flags such as `hasPassword` / `hasPrivateKey` / `hasSecretAccessKey` / `hasDbPassword` tell the UI a secret is stored. On edit, leave those fields blank to keep the existing value.
+
+`GET /api/settings/export` is advertised as non-secret: it drops auth/age secrets, masks webhook headers, and reduces webhook/success-ping URLs to scheme + host (their paths/queries often contain bot tokens or check UUIDs) and bodies to `***`.
+
+### CSRF and request rules
+
+Cookie-authenticated mutations are same-origin only. The server rejects `POST`/`PUT`/`PATCH`/`DELETE` when the browser says `Sec-Fetch-Site` is cross-site/same-site, or (without that header) when an `Origin` host does not match the host the instance is served on (`AUTH_PUBLIC_URL`, then `X-Forwarded-Host` when `AUTH_TRUST_PROXY=true`, then `Host`). Bearer API tokens are exempt because they are not ambient credentials. API mutations that carry a body must use `Content-Type: application/json` (bodyless calls such as `POST /api/backups/:id/run` are unaffected).
 
 ### Docker volume notes
 

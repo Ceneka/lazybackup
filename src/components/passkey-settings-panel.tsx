@@ -12,11 +12,12 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { startRegistration } from "@simplewebauthn/browser"
-import { KeyRoundIcon } from "lucide-react"
+import { FingerprintIcon, KeyRoundIcon } from "lucide-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 import { toast } from "sonner"
-import { authStatusKey } from "@/lib/hooks/useAuth"
+import { authStatusKey, useAuth } from "@/lib/hooks/useAuth"
+import { performVaultPasskeyStepUp } from "@/lib/hooks/useEncryption"
 
 type PasskeyRow = {
   id: string
@@ -28,7 +29,19 @@ type PasskeyRow = {
 
 export function PasskeySettingsPanel() {
   const queryClient = useQueryClient()
+  const auth = useAuth()
   const [name, setName] = useState("")
+  const [currentPassword, setCurrentPassword] = useState("")
+  const [stepUpToken, setStepUpToken] = useState("")
+  const [verifyingPasskey, setVerifyingPasskey] = useState(false)
+
+  const hasPassword = Boolean(auth.data?.hasPassword)
+  const hasPasskeys = Boolean(auth.data?.hasPasskeys)
+  const locked = Boolean(auth.data?.authEnabled)
+  const stepUpReady =
+    !locked ||
+    Boolean(stepUpToken) ||
+    (hasPassword && currentPassword.length > 0)
 
   const listQuery = useQuery({
     queryKey: ["passkeys"],
@@ -43,6 +56,21 @@ export function PasskeySettingsPanel() {
     },
   })
 
+  const verifyPasskey = async () => {
+    setVerifyingPasskey(true)
+    try {
+      const proof = await performVaultPasskeyStepUp()
+      setStepUpToken(proof.stepUpToken ?? "")
+      toast.success("Passkey verified — valid for 2 minutes")
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Passkey verification failed"
+      )
+    } finally {
+      setVerifyingPasskey(false)
+    }
+  }
+
   const register = useMutation({
     mutationFn: async () => {
       const optRes = await fetch("/api/auth/webauthn/register")
@@ -55,7 +83,12 @@ export function PasskeySettingsPanel() {
       const verifyRes = await fetch("/api/auth/webauthn/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ response, name: name.trim() || undefined }),
+        body: JSON.stringify({
+          response,
+          name: name.trim() || undefined,
+          currentPassword: currentPassword || undefined,
+          stepUpToken: stepUpToken || undefined,
+        }),
       })
       if (!verifyRes.ok) {
         const err = await verifyRes.json().catch(() => ({}))
@@ -65,6 +98,8 @@ export function PasskeySettingsPanel() {
     },
     onSuccess: () => {
       setName("")
+      setCurrentPassword("")
+      setStepUpToken("")
       void queryClient.invalidateQueries({ queryKey: ["passkeys"] })
       void queryClient.invalidateQueries({ queryKey: authStatusKey })
       toast.success("Passkey registered")
@@ -136,7 +171,7 @@ export function PasskeySettingsPanel() {
           </ul>
         )}
 
-        <div className="space-y-2 max-w-md">
+        <div className="space-y-3 max-w-md">
           <Label htmlFor="passkey-name">Name (optional)</Label>
           <Input
             id="passkey-name"
@@ -144,9 +179,61 @@ export function PasskeySettingsPanel() {
             onChange={(e) => setName(e.target.value)}
             placeholder="e.g. Laptop"
           />
+
+          {!locked && (
+            <p className="rounded-md border border-amber-500/40 bg-amber-500/5 p-2 text-sm">
+              Set an app password first, then add passkeys. Unprotected instances
+              cannot register authenticators.
+            </p>
+          )}
+
+          {locked && (
+            <div className="space-y-2 rounded-md border p-3">
+              <p className="text-sm font-medium">
+                Confirm it&apos;s you before registering a passkey
+              </p>
+              {hasPassword && (
+                <div className="space-y-2">
+                  <Label htmlFor="passkey-current-password">Current password</Label>
+                  <Input
+                    id="passkey-current-password"
+                    type="password"
+                    autoComplete="current-password"
+                    value={currentPassword}
+                    onChange={(e) => {
+                      setCurrentPassword(e.target.value)
+                      if (e.target.value) setStepUpToken("")
+                    }}
+                    placeholder="Required unless you verify a passkey"
+                  />
+                </div>
+              )}
+              {hasPasskeys && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={verifyingPasskey}
+                    onClick={() => void verifyPasskey()}
+                  >
+                    <FingerprintIcon className="mr-2 h-4 w-4" />
+                    {verifyingPasskey ? "Waiting for passkey…" : "Verify with passkey"}
+                  </Button>
+                  {stepUpToken && (
+                    <span className="text-xs text-emerald-600 dark:text-emerald-400">
+                      Passkey verified (valid for 2 minutes)
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           <LoadingButton
             type="button"
             isLoading={register.isPending}
+            disabled={!locked || !stepUpReady}
             onClick={() => register.mutate()}
           >
             Register passkey

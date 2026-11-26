@@ -283,13 +283,17 @@ describe('isReadOnlyApiException', () => {
     expect(isReadOnlyApiException('DELETE', '/mcp')).toBe(true)
   })
 
-  test('allows validate and test probes', () => {
+  test('allows validate and tests of stored endpoints by id', () => {
     expect(isReadOnlyApiException('POST', '/api/backups/abc/validate')).toBe(true)
-    expect(isReadOnlyApiException('POST', '/api/backups/database/test')).toBe(true)
-    expect(isReadOnlyApiException('POST', '/api/servers/test')).toBe(true)
     expect(isReadOnlyApiException('POST', '/api/servers/abc/test')).toBe(true)
-    expect(isReadOnlyApiException('POST', '/api/s3-profiles/test')).toBe(true)
     expect(isReadOnlyApiException('POST', '/api/s3-profiles/abc/test')).toBe(true)
+  })
+
+  test('blocks ad-hoc probes with caller-supplied targets (SSRF)', () => {
+    expect(isReadOnlyApiException('POST', '/api/backups/database/test')).toBe(false)
+    expect(isReadOnlyApiException('POST', '/api/servers/test')).toBe(false)
+    expect(isReadOnlyApiException('POST', '/api/s3-profiles/test')).toBe(false)
+    expect(isReadOnlyApiException('POST', '/api/git-repos/test')).toBe(false)
   })
 
   test('blocks mutating REST', () => {

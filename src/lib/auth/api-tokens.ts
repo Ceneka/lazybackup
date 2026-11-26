@@ -100,6 +100,17 @@ export async function revokeApiToken(id: string): Promise<PublicApiToken | null>
   return toPublic({ ...existing, revokedAt })
 }
 
+/** Revoke every active token (e.g. after a password change). */
+export async function revokeAllApiTokens(): Promise<number> {
+  const revokedAt = new Date()
+  const rows = await db
+    .update(apiTokens)
+    .set({ revokedAt })
+    .where(isNull(apiTokens.revokedAt))
+    .returning({ id: apiTokens.id })
+  return rows.length
+}
+
 export type VerifiedApiToken = {
   id: string
   name: string

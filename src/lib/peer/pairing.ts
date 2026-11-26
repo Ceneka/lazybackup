@@ -1,5 +1,6 @@
 import { and, eq } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
+import { timingSafeEqual } from 'crypto';
 import { db } from '@/lib/db';
 import { backupHistory, peerInvites, peers, settings } from '@/lib/db/schema';
 import {
@@ -311,7 +312,12 @@ export async function completePairFromAcceptor(body: {
   }
   // Verify the secret before revealing anything about the invite state
   // (expired vs missing) so this endpoint is not an invite oracle.
-  if (hashInviteSecret(body.secret) !== invite.secretHash) {
+  const presented = Buffer.from(hashInviteSecret(body.secret), 'utf8')
+  const expected = Buffer.from(invite.secretHash, 'utf8')
+  if (
+    presented.length !== expected.length ||
+    !timingSafeEqual(presented, expected)
+  ) {
     throw new Error(PAIRING_FAILED_MESSAGE);
   }
   if (invite.expiresAt.getTime() < Date.now()) {

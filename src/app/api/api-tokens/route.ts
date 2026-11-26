@@ -5,12 +5,18 @@ import {
   normalizeApiTokenPermissionsInput,
   requireLockedBrowserSession,
 } from '@/lib/auth'
+import {
+  requireCredentialStepUp,
+  VaultStepUpError,
+} from '@/lib/crypto/vault-step-up'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 
 const createSchema = z.object({
   name: z.string().min(1, 'Name is required').max(100),
   permissions: z.array(z.string()).optional(),
+  currentPassword: z.string().optional(),
+  stepUpToken: z.string().min(20).optional(),
 })
 
 async function requireSession(request: NextRequest) {
@@ -51,12 +57,32 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json()
-    const { name, permissions: rawPermissions } = createSchema.parse(body)
+    const { name, permissions: rawPermissions, currentPassword, stepUpToken } =
+      createSchema.parse(body)
+
+    // Minting a durable credential needs fresh proof beyond the session cookie.
+    await requireCredentialStepUp(
+      { currentPassword, stepUpToken },
+      request.headers.get('cookie'),
+      request
+    )
+
     const permissions = normalizeApiTokenPermissionsInput(rawPermissions)
     const { token, plaintext } = await createApiToken(name, permissions)
     return NextResponse.json({ ...token, token: plaintext }, { status: 201 })
   } catch (error) {
     console.error('Failed to create API token:', error)
+    if (error instanceof VaultStepUpError) {
+      return NextResponse.json(
+        { error: error.message },
+        {
+          status: error.status,
+          headers: error.retryAfterSec
+            ? { 'Retry-After': String(error.retryAfterSec) }
+            : undefined,
+        }
+      )
+    }
     if (error instanceof z.ZodError) {
       return NextResponse.json(
         { error: 'Validation error', details: error.issues },

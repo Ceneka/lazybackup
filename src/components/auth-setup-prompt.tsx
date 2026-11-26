@@ -26,6 +26,10 @@ export function AuthSetupPrompt() {
     !auth.data!.authEnabled
 
   const handleSkip = async () => {
+    const ok = window.confirm(
+      "Skip protection?\n\nAnyone who can reach this address can see your servers and keys and can set a password before you do. You can enable a password later in Settings → General."
+    )
+    if (!ok) return
     try {
       await auth.setup.mutateAsync({ skip: true })
       toast.success("Skipped — you can enable a password later in Settings")
@@ -62,6 +66,10 @@ export function AuthSetupPrompt() {
             Optionally set a password to lock the dashboard and APIs. You can
             skip now and enable this later in Settings.
           </AlertDialogDescription>
+          <p className="text-sm text-amber-700 dark:text-amber-400">
+            If you skip, anyone who can reach this address can see your servers
+            and keys and can set a password before you do.
+          </p>
         </AlertDialogHeader>
 
         <div className="space-y-3 py-2">

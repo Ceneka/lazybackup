@@ -19,6 +19,12 @@ const HEADER_SETTING_KEYS = new Set([
   'successPingHeaders',
 ])
 
+/** Webhook / ping URLs embed bot tokens and per-check UUIDs in the path. */
+const URL_SETTING_KEYS = new Set(['failureWebhookUrl', 'successPingUrl'])
+
+/** Bodies are operator-authored templates and may contain secrets. */
+const BODY_SETTING_KEYS = new Set(['failureWebhookBody', 'successPingBody'])
+
 /** Header names whose values are not treated as credentials. */
 const PASSTHROUGH_HEADER_NAMES = new Set(['content-type', 'accept'])
 
@@ -221,6 +227,27 @@ export function redactExportHeaderSetting(raw: string | null): string | null {
   return lines.join('\n')
 }
 
+/**
+ * Keep only scheme + host from webhook/ping URLs. The path often carries a
+ * bot token or Healthchecks UUID, and the query can carry secrets too.
+ */
+export function redactExportUrl(raw: string | null): string | null {
+  if (raw == null) return null
+  if (!raw.trim()) return raw
+  try {
+    const url = new URL(raw.trim())
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return '***'
+    return `${url.protocol}//${url.host}`
+  } catch {
+    return '***'
+  }
+}
+
+export function redactExportBody(raw: string | null): string | null {
+  if (raw == null) return null
+  return raw.trim() ? '***' : raw
+}
+
 export function exportSettingsMap(
   rows: ExportSettingRow[]
 ): Record<string, string | null> {
@@ -229,6 +256,14 @@ export function exportSettingsMap(
     if (isSecretSettingKey(row.key)) continue
     if (HEADER_SETTING_KEYS.has(row.key)) {
       out[row.key] = redactExportHeaderSetting(row.value)
+      continue
+    }
+    if (URL_SETTING_KEYS.has(row.key)) {
+      out[row.key] = redactExportUrl(row.value)
+      continue
+    }
+    if (BODY_SETTING_KEYS.has(row.key)) {
+      out[row.key] = redactExportBody(row.value)
       continue
     }
     out[row.key] = row.value

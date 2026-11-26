@@ -1,10 +1,19 @@
-import { redactS3 } from '@/lib/api/redact';
+import { redactS3ForAudience } from '@/lib/api/redact';
+import { resolveAuth } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { backupConfigs, s3Profiles } from '@/lib/db/schema';
 import { s3ProfileUpdateSchema } from '@/lib/s3/schema';
 import { eq, or } from 'drizzle-orm';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+
+async function audience(request: NextRequest) {
+  const auth = await resolveAuth(
+    request.headers.get('cookie'),
+    request.headers.get('authorization')
+  );
+  return auth.via;
+}
 
 function backupRolesForProfile(
   backup: {
@@ -21,11 +30,12 @@ function backupRolesForProfile(
 
 // GET /api/s3-profiles/:id
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { id } = await params;
+    const via = await audience(request);
     const profile = await db.query.s3Profiles.findFirst({
       where: eq(s3Profiles.id, id),
     });
@@ -48,7 +58,7 @@ export async function GET(
     });
 
     return NextResponse.json({
-      ...redactS3(profile as unknown as Record<string, unknown>),
+      ...redactS3ForAudience(profile as unknown as Record<string, unknown>, via),
       usedByBackups: referencingBackups.map((backup) => ({
         id: backup.id,
         name: backup.name,
@@ -68,6 +78,7 @@ export async function PUT(
 ) {
   try {
     const { id } = await params;
+    const via = await audience(request);
     const body = await request.json();
     const validatedData = s3ProfileUpdateSchema.parse(body);
 
@@ -101,7 +112,9 @@ export async function PUT(
       where: eq(s3Profiles.id, id),
     });
     return NextResponse.json(
-      updated ? redactS3(updated as unknown as Record<string, unknown>) : updated
+      updated
+        ? redactS3ForAudience(updated as unknown as Record<string, unknown>, via)
+        : updated
     );
   } catch (error) {
     console.error('Failed to update S3 profile:', error);

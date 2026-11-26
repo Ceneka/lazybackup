@@ -1,3 +1,6 @@
+import { createHash } from 'crypto'
+import { SESSION_COOKIE_NAME, parseCookieValue } from './session'
+
 type Bucket = {
   failures: number
   lastAt: number
@@ -38,6 +41,23 @@ export function clientKeyFromRequest(request: { headers: Headers }): string {
 
 export function rateLimitKey(scope: string, clientKey: string): string {
   return `${scope}:${clientKey}`
+}
+
+/** Stable, non-reversible suffix for the current session cookie. */
+export function sessionKeyFromCookieHeader(
+  cookieHeader: string | null | undefined
+): string {
+  const token = parseCookieValue(cookieHeader ?? null, SESSION_COOKIE_NAME)
+  if (!token) return 'no-session'
+  return createHash('sha256').update(token).digest('hex').slice(0, 16)
+}
+
+/** Keyed per browser session and (when trusted) per client IP. */
+export function clientKeyFromSessionOrRequest(
+  request: { headers: Headers },
+  cookieHeader: string | null | undefined
+): string {
+  return `${sessionKeyFromCookieHeader(cookieHeader)}:${clientKeyFromRequest(request)}`
 }
 
 export type RateLimitDecision =
