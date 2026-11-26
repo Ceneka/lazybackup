@@ -20,6 +20,15 @@ Or download a binary from the [LazyBro release](https://github.com/Ceneka/lazyba
 - macOS Intel: https://github.com/Ceneka/lazybackup/releases/download/lazybro/lazybro-darwin-x64
 - Windows: https://github.com/Ceneka/lazybackup/releases/download/lazybro/lazybro-windows-x64.exe
 
+Every release also publishes a `SHA256SUMS` file. Verify your download from the same folder (only the files you downloaded are checked):
+
+```bash
+curl -fsSLO https://github.com/Ceneka/lazybackup/releases/download/lazybro/SHA256SUMS
+sha256sum -c SHA256SUMS --ignore-missing
+```
+
+On macOS use `shasum -a 256 -c SHA256SUMS --ignore-missing`; on Windows compare `certutil -hashfile lazybro-windows-x64.exe SHA256` with the matching line.
+
 A small page opens on your computer (`http://127.0.0.1:3789`). If LazyBro is already running, a second launch prints that URL and exits.
 
 ## Setup

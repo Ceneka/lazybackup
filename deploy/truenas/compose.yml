@@ -13,6 +13,10 @@ services:
     environment:
       DATABASE_URL: file:/app/data/data.db
       BACKUP_STORAGE_PATH: /backups
+      # Next.js standalone binds process.env.HOSTNAME (server.js), and Docker
+      # injects the container hostname; pin 0.0.0.0 so the 127.0.0.1 healthcheck
+      # below reaches the same listener as the published port.
+      HOSTNAME: "0.0.0.0"
     volumes:
       - lazybackup_data:/app/data
       - "${BACKUP_STORAGE_PATH:-./backups}:/backups"

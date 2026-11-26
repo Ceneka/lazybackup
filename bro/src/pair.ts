@@ -3,7 +3,7 @@ import type { BroConfig } from './config';
 import { saveConfig } from './config';
 import { readCappedJson } from './json-limit';
 import { decodeInvitePayload, generatePeerToken } from './tokens';
-import { safeRemoteFetch } from './remote';
+import { assertPeerHostUrl, safeRemoteFetch } from './remote';
 
 const PAIR_RESPONSE_JSON_LIMIT = 256 * 1024;
 
@@ -58,6 +58,7 @@ export function parsePairingResponse(value: unknown, fallbackBaseUrl: string): P
   ) {
     throw new Error('Pairing response URL was invalid');
   }
+  assertPeerHostUrl(baseUrl);
   return {
     peerId: row.peerId.trim(),
     label: row.label.trim(),

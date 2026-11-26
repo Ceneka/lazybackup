@@ -9,6 +9,8 @@ export type UrlGuardPolicy = {
   allowHttp: boolean | 'private-only';
   /** Error prefix, e.g. "Webhook URL" / "Peer URL". */
   label: string;
+  /** Optional message when `allowHttp: 'private-only'` rejects a public http:// URL. */
+  httpError?: string;
 };
 
 const LOOPBACK_V4: Cidr4 = ['127.0.0.0', 8];
@@ -196,8 +198,12 @@ export function peerUrlPolicy(): UrlGuardPolicy {
   return {
     allowPrivate: privatePeerUrlsAllowed(),
     allowCgnat: true,
-    allowHttp: true,
+    allowHttp: 'private-only',
     label: 'Peer URL',
+    // Invite secrets and peer bearer tokens travel in these requests; cleartext
+    // over the public internet is never acceptable.
+    httpError:
+      'Peer URL: Use https:// for a public address, or a LAN/Tailscale address',
   };
 }
 
@@ -385,7 +391,9 @@ export function validateHttpUrl(
     if (policy.allowHttp === 'private-only' && !hostIsPrivateish(parsed.hostname)) {
       return {
         ok: false,
-        error: `${policy.label} must use HTTPS (http is only allowed for localhost/LAN)`,
+        error:
+          policy.httpError ??
+          `${policy.label} must use HTTPS (http is only allowed for localhost/LAN)`,
       };
     }
   }

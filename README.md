@@ -60,6 +60,19 @@ Open [http://localhost:3000](http://localhost:3000) (or `http://<lan-ip>:3000` o
 
 > **HTTP vs HTTPS:** On plain HTTP (typical LAN), leave `AUTH_COOKIE_SECURE` unset so the app password session cookie works. Set `AUTH_COOKIE_SECURE=true` only when the UI is served over HTTPS.
 
+### Hardening checklist
+
+Do these before the instance is reachable from anything you do not trust:
+
+- **Close the door first.** Compose publishes port 3000 on all interfaces and a fresh instance has **no password** until you set one. Bind loopback only (`-p 127.0.0.1:3000:3000`) or firewall the port before the first start, then add an app password and/or a passkey in **Settings → General**.
+- **Mount only the SSH keys backups need.** Point `SSH_KEYS_PATH` at a dedicated directory (e.g. `./lazybackup-ssh`) instead of `~/.ssh`; the container can read every key in that directory.
+- **The Docker socket is root-equivalent.** Only mount `/var/run/docker.sock` if you need local Docker-volume packing or `docker exec` database dumps, and treat the instance as having host root.
+- **HTTPS settings only behind HTTPS.** Set `AUTH_COOKIE_SECURE=true` and `ENABLE_HSTS=true` only when every request is HTTPS (HSTS is usually better at the reverse proxy). On plain HTTP they break login or pin browsers to a broken origin.
+- **Proxy trust is opt-in.** Set `AUTH_TRUST_PROXY=true` only behind a proxy that **overwrites** `X-Forwarded-Host` / `X-Forwarded-Proto` / `X-Forwarded-For`, and set `AUTH_PUBLIC_URL=https://backup.example.com` so passkeys use the right origin.
+- **Never echo secrets in pre-backup commands.** Their output is stored in the run's history log (readable from History and by `remote_exec` API tokens). Use credentials already stored in the app instead.
+- **Bro Space through a tunnel.** Peer uploads stream up to 32 GiB, while Cloudflare (Free/Pro/Business) and many proxies cap request bodies near 100 MB — raise the limit or keep Bro Space on Tailscale/LAN. Public peer URLs must be `https://`; plain `http://` is accepted only for Tailscale, or for LAN when `ALLOW_PRIVATE_PEER_URLS=true`.
+- **Keep the TOFU pins.** The SSH `known_hosts` file defaults next to `DATABASE_URL` (`ssh_known_hosts`); set `LAZYBACKUP_KNOWN_HOSTS` to put it on persistent storage.
+
 ### Install catalogs
 
 - **Unraid** — Community Applications XML: [`deploy/unraid/lazybackup.xml`](./deploy/unraid/lazybackup.xml) (`ghcr.io/ceneka/lazybackup:latest`, port 3000, data / backups / SSH mounts).
@@ -233,8 +246,9 @@ POST/PUT with an empty body sends `{"event":"backup.succeeded",…}`.
 | `AUTH_PUBLIC_URL` | unset | Public origin for WebAuthn (overrides Host / forwarded headers), e.g. `https://backup.example.com` |
 | `ALLOW_ARBITRARY_LOCAL_PATHS` | unset (`false`) | Allow local backup destinations outside `BACKUP_STORAGE_PATH`. Default denies paths outside the storage root. |
 | `ALLOW_PRIVATE_S3_ENDPOINTS` | unset (`false`) | Allow S3-compatible endpoints on loopback/private IPs (LAN MinIO). Default denies loopback, RFC1918, link-local, and cloud metadata addresses. |
-| `ALLOW_PRIVATE_PEER_URLS` | unset (`false`) | Allow Bro Space pairing/sync to RFC1918 and loopback URLs. Default allows public http(s) and Tailscale only. IMDS/link-local are always blocked. |
+| `ALLOW_PRIVATE_PEER_URLS` | unset (`false`) | Allow Bro Space pairing/sync to RFC1918 and loopback URLs. Default allows `https://` anywhere and `http://` only for Tailscale (public `http://` is rejected). IMDS/link-local are always blocked. |
 | `ALLOW_LAN_WEBHOOKS` | unset (`true`) | Allow HTTP webhooks/pings to localhost and RFC1918 (LAN ntfy/Kuma). IMDS/link-local are always blocked. Set `false` for public HTTPS only. |
+| `LAZYBACKUP_KNOWN_HOSTS` | next to `DATABASE_URL` | SSH TOFU `known_hosts` file path (`ssh_known_hosts` in the data directory by default). |
 
 See [`.env.example`](./.env.example) for a copy-paste template.
 

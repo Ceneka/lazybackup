@@ -8,6 +8,64 @@ import { pipeline } from 'stream/promises';
 type RemoteBody = RequestInit['body'] | NodeJS.ReadableStream;
 export type RemoteRequestInit = Omit<RequestInit, 'body'> & { body?: RemoteBody };
 
+const PEER_HTTPS_ERROR = 'Use https:// for a public address, or a LAN/Tailscale address';
+
+type AddressClass = 'public' | 'private' | 'loopback' | 'cgnat' | 'tailscale';
+
+function ipv4Class(ip: string): AddressClass {
+  const [a, b] = ip.split('.').map(Number) as [number, number, number, number];
+  if (a === 127) return 'loopback';
+  if (a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168)) return 'private';
+  // Tailscale CGNAT. Exclude the Alibaba metadata address (100.100.100.200),
+  // which lives inside 100.64/10 but is never a peer host.
+  if (a === 100 && b >= 64 && b <= 127) {
+    return ip === '100.100.100.200' ? 'public' : 'cgnat';
+  }
+  return 'public';
+}
+
+function ipv6Class(ip: string): AddressClass {
+  const value = ip.toLowerCase();
+  if (value === '::1') return 'loopback';
+  if (/^fd7a:115c:a1e0:/.test(value)) return 'tailscale';
+  if (/^f[cd][0-9a-f]{2}:/.test(value)) return 'private'; // fc00::/7 ULA
+  return 'public';
+}
+
+/** Mirror of the host peer URL scheme policy (src/lib/net/url-guard.ts). */
+function addressClass(address: string): AddressClass {
+  if (net.isIPv4(address)) return ipv4Class(address);
+  if (net.isIPv6(address)) return ipv6Class(address);
+  return 'public';
+}
+
+function hostnameAllowsHttp(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '');
+  if (net.isIP(host)) return addressClass(host) !== 'public';
+  return host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local');
+}
+
+/**
+ * Reject plain http:// to a public address: invite secrets and bearer tokens
+ * must never cross the internet in cleartext. LAN, loopback (when reachable),
+ * and Tailscale addresses may stay on http.
+ */
+export function assertPeerHostUrl(raw: string | URL): void {
+  let url: URL;
+  try {
+    url = raw instanceof URL ? raw : new URL(raw);
+  } catch {
+    throw new Error('Remote URL is invalid');
+  }
+  if (!['http:', 'https:'].includes(url.protocol)) {
+    throw new Error('Remote URL must be http(s) without credentials or fragments');
+  }
+  if (url.protocol === 'https:') return;
+  if (!hostnameAllowsHttp(url.hostname)) {
+    throw new Error(PEER_HTTPS_ERROR);
+  }
+}
+
 function blockedAddress(address: string): boolean {
   let ip = address.toLowerCase();
   if (ip.startsWith('::ffff:')) {
@@ -79,6 +137,11 @@ export async function resolveSafeRemoteUrl(raw: string): Promise<{
     : (await dnsLookup(host, { all: true, verbatim: true })).map((row) => row.address);
   if (!addresses.length || addresses.some(blockedAddress)) {
     throw new Error('Remote URL targets a blocked address');
+  }
+  // DNS-resolved names get the same scheme policy: http is never allowed to a
+  // public address, even if the name itself looks private.
+  if (url.protocol === 'http:' && addresses.some((address) => addressClass(address) === 'public')) {
+    throw new Error(PEER_HTTPS_ERROR);
   }
   return { url, addresses: [...new Set(addresses)] };
 }
