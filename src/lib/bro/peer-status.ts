@@ -38,7 +38,7 @@ export function formatRelativeTime(
   if (time === null) return null
   const elapsed = Math.max(0, now - time)
   const seconds = Math.floor(elapsed / 1000)
-  if (seconds < 45) return "just now"
+  if (seconds < 60) return "just now"
   const minutes = Math.floor(seconds / 60)
   if (minutes < 60) return `${minutes} minute${minutes === 1 ? "" : "s"} ago`
   const hours = Math.floor(minutes / 60)

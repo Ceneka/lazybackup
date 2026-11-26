@@ -80,6 +80,22 @@ export function normalizeAddressUrl(raw: string | null | undefined): string | nu
  * - `same-network`: RFC1918/ULA/.local
  * - `this-computer`: loopback/localhost
  */
+const LOOPBACK_NAMES = new Set([
+  "localhost",
+  "localhost.localdomain",
+  "localhost6",
+  "ip6-localhost",
+  "ip6-loopback",
+])
+
+const METADATA_NAMES = new Set([
+  "metadata",
+  "metadata.google.internal",
+  "metadata.goog",
+  "metadata.internal",
+  "instance-data",
+])
+
 export function addressReachForUrl(raw: string | null | undefined): AddressReach | null {
   const url = normalizeAddressUrl(raw)
   if (!url) return null
@@ -91,8 +107,14 @@ export function addressReachForUrl(raw: string | null | undefined): AddressReach
     return null
   }
 
-  if (hostname === "localhost" || hostname.endsWith(".localhost")) {
+  if (LOOPBACK_NAMES.has(hostname) || hostname.endsWith(".localhost")) {
     return "this-computer"
+  }
+  if (
+    METADATA_NAMES.has(hostname) ||
+    hostname.endsWith(".metadata.google.internal")
+  ) {
+    return null
   }
   if (hostname.endsWith(".local")) {
     return "same-network"

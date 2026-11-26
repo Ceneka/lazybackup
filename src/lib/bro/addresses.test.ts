@@ -14,10 +14,14 @@ describe("addressReachForUrl", () => {
     expect(addressReachForUrl("http://192.168.0.36:3141")).toBe("same-network")
     expect(addressReachForUrl("http://127.0.0.1:3141")).toBe("this-computer")
     expect(addressReachForUrl("http://localhost:3141")).toBe("this-computer")
+    expect(addressReachForUrl("http://localhost.localdomain:3141")).toBe(
+      "this-computer"
+    )
   })
 
-  test("rejects link-local and non-http URLs", () => {
+  test("rejects link-local, metadata, and non-http URLs", () => {
     expect(addressReachForUrl("http://169.254.1.1:3141")).toBeNull()
+    expect(addressReachForUrl("http://metadata.google.internal")).toBeNull()
     expect(addressReachForUrl("ftp://example.com")).toBeNull()
     expect(addressReachForUrl("not a url")).toBeNull()
   })

@@ -347,7 +347,7 @@ export function PeerHealthCard({
             <Trash2Icon className="h-4 w-4" />
             Remove
           </Button>
-          {revokeFallback && onRevoke ? (
+          {revokeFallback && onRevoke && active ? (
             <Button
               type="button"
               variant="outline"

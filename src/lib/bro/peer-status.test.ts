@@ -62,6 +62,7 @@ describe("derivePeerStatus", () => {
 describe("formatRelativeTime", () => {
   test("formats minutes, hours, days", () => {
     expect(formatRelativeTime(new Date(NOW - 10_000), NOW)).toBe("just now")
+    expect(formatRelativeTime(new Date(NOW - 59_000), NOW)).toBe("just now")
     expect(formatRelativeTime(new Date(NOW - 60_000), NOW)).toBe("1 minute ago")
     expect(formatRelativeTime(new Date(NOW - 2 * 3_600_000), NOW)).toBe(
       "2 hours ago"

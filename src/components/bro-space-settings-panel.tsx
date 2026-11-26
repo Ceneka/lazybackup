@@ -207,7 +207,7 @@ export function BroSpaceSettingsPanel() {
           setWizardSeed((seed) => seed + 1)
           setWizardOpen(true)
         }}
-        onCancel={(inviteId) => peers.cancelInvite.mutateAsync(inviteId)}
+        onCancel={(inviteId) => peers.cancelInvite.mutate(inviteId)}
         cancelling={peers.cancelInvite.isPending}
       />
 

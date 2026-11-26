@@ -608,21 +608,21 @@ export function BroInviteWizard({ open, onOpenChange }: BroInviteWizardProps) {
                     </span>
                   </span>
                 </label>
-
-                {useManual ? (
-                  <Input
-                    value={manualAddress}
-                    onChange={(event) => {
-                      setManualAddress(event.target.value)
-                      setAddressError(null)
-                    }}
-                    placeholder="https://lazybackup.example.com"
-                    autoFocus
-                    inputMode="url"
-                    aria-label="Your LazyBackup address"
-                  />
-                ) : null}
               </div>
+
+              {useManual ? (
+                <Input
+                  value={manualAddress}
+                  onChange={(event) => {
+                    setManualAddress(event.target.value)
+                    setAddressError(null)
+                  }}
+                  placeholder="https://lazybackup.example.com"
+                  autoFocus
+                  inputMode="url"
+                  aria-label="Your LazyBackup address"
+                />
+              ) : null}
 
               {sameNetworkBlocked ? (
                 <Alert className="border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
