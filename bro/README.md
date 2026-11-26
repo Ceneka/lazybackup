@@ -1,6 +1,6 @@
 # LazyBro
 
-Share some of your disk with a friend who runs LazyBackup. Install LazyBro, paste their invite, leave it running. That’s it.
+Lend a folder to a friend who runs LazyBackup. Install LazyBro, paste their invite, choose a folder, leave it running. Everything your friend stores is encrypted before it reaches your computer — you can’t open it.
 
 ## Install
 
@@ -29,22 +29,41 @@ sha256sum -c SHA256SUMS --ignore-missing
 
 On macOS use `shasum -a 256 -c SHA256SUMS --ignore-missing`; on Windows compare `certutil -hashfile lazybro-windows-x64.exe SHA256` with the matching line.
 
-A small page opens on your computer (`http://127.0.0.1:3789`). If LazyBro is already running, a second launch prints that URL and exits.
+A page opens on your computer (`http://127.0.0.1:3789`). If LazyBro is already running, a second launch prints that URL and exits.
 
 ## Setup
 
-1. Choose a **folder** on your computer where their backups can live
-2. Paste the **invite** they sent you
-3. Turn on **Start when I log in** when asked
-4. Leave LazyBro open (or running in the background)
+1. **Your name** — so your friend knows it’s you.
+2. **Paste the invite your friend sent you** — the whole message is fine; it contains a code that starts with `lb1.`
+3. **Choose a folder** — LazyBro suggests your home folder, Documents, Desktop, and any external disks, with free space for each. You can also type a full path. The folder is created if it doesn’t exist.
 
-Data lives in `~/.local/share/lazybro` (Linux), `~/Library/Application Support/LazyBro` (macOS), or `%APPDATA%\LazyBro` (Windows).
+When you’re connected, LazyBro shows how much space you’re lending, how much is in use, and when it last checked in. Turn on **Start LazyBro when I log in** so your friend’s backups keep working after a restart.
 
-## Tips
+## Everyday use
 
-- Keep LazyBro running so space stays available and restores can finish
-- If their LazyBackup is offline for a bit, LazyBro will quietly retry
-- Your friend never sees the contents of what’s stored — only encrypted files
+- Keep LazyBro running (or let it start at login). Restores and new backups only move while it’s open.
+- The **Activity** card tells you when a backup is arriving, when your friend is restoring one, or when everything is caught up.
+- Your friend never sees the contents of what’s stored — only encrypted files.
+- If your friend’s LazyBackup is offline for a bit, LazyBro quietly retries.
+
+## Changing the folder
+
+You can change the folder while nothing is stored yet; LazyBro checks that it can write there first.
+
+Once backups are stored, changing the folder is locked: moving the folder without moving the encrypted files would make those backups unreachable. **Disconnect first**, or move the files yourself to the new folder before changing the setting.
+
+## Disconnect
+
+**Disconnect from …** at the bottom of the page removes the copies of your friend’s backups stored on this computer, forgets the connection, and stops sharing the folder. The folder itself stays where it is. Ask your friend first — they may still need those copies. Keep the invite message if you want to connect again later; otherwise your friend can send a new invite.
+
+## Troubleshooting
+
+- **“That invite doesn’t look right”** — copy the whole message from your friend. The code inside starts with `lb1.`
+- **“Can’t reach your friend’s LazyBackup”** — your friend’s address is wrong, their LazyBackup is off, or you’re on a different network. Ask them to check the address and send a new invite.
+- **“Your folder is full”** — free up space on that disk, or ask your friend to lower the space limit they set. LazyBro won’t receive new backups until there is room.
+- **“Your friend removed this connection”** — ask them for a new invite, then disconnect here and connect again.
+
+Data lives in `~/.local/share/lazybro` (Linux), `~/Library/Application Support/LazyBro` (macOS), or `%APPDATA%\LazyBro` (Windows). The folder you share is separate and is the only place backup files are stored.
 
 ## Build binaries
 
