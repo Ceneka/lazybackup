@@ -68,6 +68,7 @@ export {
 export {
   createApiToken,
   listApiTokens,
+  revokeAllApiTokens,
   revokeApiToken,
   verifyApiToken,
   parseBearerToken,

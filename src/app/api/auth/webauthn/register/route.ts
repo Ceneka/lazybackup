@@ -17,6 +17,10 @@ import {
   verifyAndStoreRegistration,
   webauthnRpFromRequest,
 } from '@/lib/auth/webauthn'
+import {
+  requireCredentialStepUp,
+  VaultStepUpError,
+} from '@/lib/crypto/vault-step-up'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 
@@ -58,6 +62,8 @@ export async function GET(request: NextRequest) {
 const verifySchema = z.object({
   response: z.unknown(),
   name: z.string().optional(),
+  currentPassword: z.string().optional(),
+  stepUpToken: z.string().min(20).optional(),
 })
 
 /** POST /api/auth/webauthn/register — verify + store credential */
@@ -71,6 +77,12 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = verifySchema.parse(await request.json())
+    // Registering a durable authenticator needs fresh proof beyond the session.
+    await requireCredentialStepUp(
+      { currentPassword: body.currentPassword, stepUpToken: body.stepUpToken },
+      request.headers.get('cookie'),
+      request
+    )
     const { rpID, origin } = webauthnRpFromRequest(request)
     const passkey = await verifyAndStoreRegistration({
       response: body.response as never,
@@ -89,6 +101,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: 'Validation error', details: error.issues },
         { status: 400 }
+      )
+    }
+    if (error instanceof VaultStepUpError) {
+      return NextResponse.json(
+        { error: error.message },
+        {
+          status: error.status,
+          headers: error.retryAfterSec
+            ? { 'Retry-After': String(error.retryAfterSec) }
+            : undefined,
+        }
       )
     }
     recordAuthFailure(limitKey)

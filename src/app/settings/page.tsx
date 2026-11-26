@@ -57,6 +57,7 @@ function SettingsPageInner() {
   const [newPassword, setNewPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
   const [currentPassword, setCurrentPassword] = useState("")
+  const [revokeTokensOnChange, setRevokeTokensOnChange] = useState(false)
 
   const timezoneOptions = useMemo(() => {
     const all = listTimezones()
@@ -130,7 +131,9 @@ function SettingsPageInner() {
         action: "change",
         currentPassword,
         password: newPassword,
+        revokeApiTokens: revokeTokensOnChange,
       })
+      setRevokeTokensOnChange(false)
       clearPasswordFields()
     } catch {
       // toast in hook
@@ -374,7 +377,7 @@ function SettingsPageInner() {
             </CardContent>
           </Card>
 
-          <Card className="w-full">
+          <Card className="w-full" id="app-password">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <LockIcon className="h-5 w-5" />
@@ -463,6 +466,21 @@ function SettingsPageInner() {
                       onChange={(e) => setConfirmPassword(e.target.value)}
                     />
                   </div>
+                  <label className="flex items-start gap-2 text-sm cursor-pointer">
+                    <input
+                      type="checkbox"
+                      className="mt-1"
+                      checked={revokeTokensOnChange}
+                      onChange={(e) => setRevokeTokensOnChange(e.target.checked)}
+                    />
+                    <span>
+                      <span className="font-medium">Revoke all API tokens</span>
+                      <span className="block text-muted-foreground">
+                        Use this if the old password may have leaked. Agents using
+                        existing tokens lose access immediately.
+                      </span>
+                    </span>
+                  </label>
                   <div className="flex flex-wrap gap-2">
                     <LoadingButton
                       onClick={() => void handleChangePassword()}

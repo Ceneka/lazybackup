@@ -20,6 +20,9 @@ export type CreatedApiToken = ApiToken & { token: string }
 export type CreateApiTokenInput = {
   name: string
   permissions?: ApiTokenPermission[]
+  /** Fresh step-up proof when the instance is locked. */
+  currentPassword?: string
+  stepUpToken?: string
 }
 
 export const apiTokenKeys = {

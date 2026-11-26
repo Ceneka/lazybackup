@@ -3,6 +3,7 @@ import {
   assertPasswordStrength,
   hashPassword,
 } from '@/lib/auth/password'
+import { resetRateLimitForTests } from '@/lib/auth/rate-limit'
 import * as authSettings from '@/lib/auth/settings'
 
 const getPasswordHash = mock(async (): Promise<string | null> => null)
@@ -26,6 +27,7 @@ mock.module('@/lib/auth/webauthn', () => ({
 
 const {
   issueVaultStepUpToken,
+  requireSensitiveStepUp,
   requireVaultStepUp,
   resetVaultStepUpTokens,
   vaultActionRequiresStepUp,
@@ -58,6 +60,7 @@ describe('requireVaultStepUp', () => {
     verifyPassword.mockResolvedValue(false)
     countPasskeys.mockResolvedValue(0)
     resetVaultStepUpTokens()
+    resetRateLimitForTests()
   })
 
   test('reveal without currentPassword fails when a password is set', async () => {
@@ -140,5 +143,87 @@ describe('requireVaultStepUp', () => {
     getPasswordHash.mockResolvedValue(null)
     countPasskeys.mockResolvedValue(0)
     await requireVaultStepUp({})
+    await requireSensitiveStepUp({}, undefined, { purpose: 'credentials' })
+  })
+})
+
+describe('requireSensitiveStepUp (durable credentials)', () => {
+  beforeEach(() => {
+    getPasswordHash.mockReset()
+    verifyPassword.mockReset()
+    countPasskeys.mockReset()
+    getPasswordHash.mockResolvedValue('argon2-hash')
+    verifyPassword.mockResolvedValue(false)
+    countPasskeys.mockResolvedValue(0)
+    resetVaultStepUpTokens()
+    resetRateLimitForTests()
+  })
+
+  test('uses credential-specific wording', async () => {
+    await expect(
+      requireSensitiveStepUp({}, 'lb_session=a', { purpose: 'credentials' })
+    ).rejects.toThrow(/create API tokens or register passkeys/)
+  })
+
+  test('passkey-only instances require a fresh assertion', async () => {
+    getPasswordHash.mockResolvedValue(null)
+    countPasskeys.mockResolvedValue(1)
+    try {
+      await requireSensitiveStepUp({}, 'lb_session=a', { purpose: 'credentials' })
+      throw new Error('expected VaultStepUpError')
+    } catch (error) {
+      expect(error).toBeInstanceOf(VaultStepUpError)
+      expect((error as VaultStepUpError).status).toBe(403)
+      expect((error as VaultStepUpError).message).toMatch(/Fresh passkey authentication/)
+    }
+  })
+
+  test('throttles repeated wrong passwords per session/IP', async () => {
+    const cookie = 'lb_session=throttle-a'
+    for (let i = 0; i < 5; i++) {
+      await expect(
+        requireSensitiveStepUp(
+          { currentPassword: 'wrong' },
+          cookie,
+          { purpose: 'credentials', clientKey: '192.0.2.10' }
+        )
+      ).rejects.toThrow(/incorrect/)
+    }
+
+    try {
+      await requireSensitiveStepUp(
+        { currentPassword: 'wrong' },
+        cookie,
+        { purpose: 'credentials', clientKey: '192.0.2.10' }
+      )
+      throw new Error('expected rate limit')
+    } catch (error) {
+      expect(error).toBeInstanceOf(VaultStepUpError)
+      expect((error as VaultStepUpError).status).toBe(429)
+      expect((error as VaultStepUpError).retryAfterSec).toBeGreaterThanOrEqual(1)
+    }
+  })
+
+  test('a correct password resets the throttle bucket', async () => {
+    const cookie = 'lb_session=throttle-b'
+    const opts = { purpose: 'credentials' as const, clientKey: '192.0.2.11' }
+    for (let i = 0; i < 4; i++) {
+      await expect(
+        requireSensitiveStepUp({ currentPassword: 'wrong' }, cookie, opts)
+      ).rejects.toThrow(/incorrect/)
+    }
+
+    verifyPassword.mockResolvedValue(true)
+    await requireSensitiveStepUp({ currentPassword: 'right' }, cookie, opts)
+
+    verifyPassword.mockResolvedValue(false)
+    for (let i = 0; i < 5; i++) {
+      await expect(
+        requireSensitiveStepUp({ currentPassword: 'wrong' }, cookie, opts)
+      ).rejects.toThrow(/incorrect/)
+    }
+    await expect(
+      requireSensitiveStepUp({ currentPassword: 'wrong' }, cookie, opts)
+    ).rejects.toMatchObject({ status: 429 })
   })
 })
