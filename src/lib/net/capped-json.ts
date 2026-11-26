@@ -20,6 +20,8 @@ export class CappedJsonError extends Error {
 export const PEER_CONTROL_JSON_LIMIT = 4 * 1024 * 1024;
 export const PEER_PAIR_JSON_LIMIT = 64 * 1024;
 export const PEER_PAIR_RESPONSE_JSON_LIMIT = 256 * 1024;
+/** Small status report body (C3); anything bigger is not a real peer. */
+export const PEER_STATUS_JSON_LIMIT = 4 * 1024;
 
 function declaredLength(headers: Headers): number | null {
   const raw = headers.get('content-length')?.trim();
