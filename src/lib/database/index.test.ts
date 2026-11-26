@@ -1,19 +1,24 @@
 import { describe, expect, test } from 'bun:test';
-import { execFile } from 'child_process';
+import { execFile, execFileSync } from 'child_process';
 import { promises as fs } from 'fs';
 import os from 'os';
 import path from 'path';
 import { promisify } from 'util';
+import { gunzipSync } from 'zlib';
 import {
   archiveFileNameForDatabase,
   buildDatabaseTestCommand,
   buildDumpArgs,
+  buildMysqlDefinerStripCommand,
   buildPackDatabaseCommand,
   buildPackSqliteCommand,
   buildRestoreDatabaseCommand,
   buildRestoreSqliteCommand,
+  buildSqliteVacuumIntoStatement,
   defaultPortForEngine,
+  MYSQL_DEFINER_STRIP_SED_EXPRESSIONS,
   packDatabaseDumpLocal,
+  packSqliteSnapshotLocal,
   restoreDatabaseLocal,
   type DatabaseConnection,
 } from './index';
@@ -181,6 +186,137 @@ describe('database command builders', () => {
     expect(() =>
       buildPackDatabaseCommand({ ...basePostgres, database: '../evil' }, '/tmp/x.sql.gz')
     ).toThrow();
+  });
+});
+
+describe('postgres restore atomicity', () => {
+  test('native/docker/remote restore command uses ON_ERROR_STOP and --single-transaction', () => {
+    const native = buildRestoreDatabaseCommand(basePostgres, '/backups/appdb.sql.gz');
+    expect(native).toContain('ON_ERROR_STOP=1');
+    expect(native).toContain('--single-transaction');
+    expect(native).toMatch(/gzip -t .* && gzip -dc .* \| psql /);
+
+    const docker = buildRestoreDatabaseCommand(
+      { ...basePostgres, client: 'docker', container: 'postgres_1' },
+      '/tmp/appdb.sql.gz',
+      { passwordFile: '/tmp/pw' }
+    );
+    expect(docker).toContain('--single-transaction');
+    expect(docker).toContain('docker exec -i');
+  });
+
+  test('mysql/mariadb are not wrapped in --single-transaction (they strip DEFINERs instead)', () => {
+    const cmd = buildRestoreDatabaseCommand(baseMysql, '/tmp/shop.sql.gz');
+    expect(cmd).not.toContain('--single-transaction');
+  });
+});
+
+describe('mysql/mariadb DEFINER stripping at restore time', () => {
+  const dumpSample = [
+    '/*!50003 CREATE*/ /*!50017 DEFINER=`root`@`localhost`*/ /*!50003 TRIGGER trg BEFORE INSERT ON t FOR EACH ROW SET NEW.v = 1 */;',
+    'CREATE DEFINER=`root`@`localhost` PROCEDURE `p`()',
+    'SELECT 1',
+    '/*!50013 DEFINER=`root`@`%` SQL SECURITY DEFINER */',
+    '/*!50001 VIEW `vw` AS select 1 */;',
+    "INSERT INTO t VALUES ('DEFINER=`not`@`stripped`');",
+  ].join('\n');
+
+  test('restore command pipes gunzip through sed before the client', () => {
+    for (const engine of ['mysql', 'mariadb'] as const) {
+      const cmd = buildRestoreDatabaseCommand({ ...baseMysql, engine }, '/tmp/shop.sql.gz');
+      expect(cmd).toContain('gzip -t');
+      expect(cmd).toMatch(/gzip -dc .* \| sed .* \| (mysql|mariadb) /);
+      expect(cmd).toContain('DEFINER=');
+    }
+  });
+
+  test('sed expressions remove all dump DEFINER forms but keep data literals', () => {
+    const out = execFileSync(
+      'sed',
+      MYSQL_DEFINER_STRIP_SED_EXPRESSIONS.flatMap((expression) => ['-e', expression]),
+      { input: dumpSample, encoding: 'utf8' }
+    );
+
+    expect(out).not.toContain('DEFINER=`root`');
+    expect(out).not.toContain('50017 DEFINER=');
+    expect(out).not.toContain('50013 DEFINER=');
+    expect(out).toContain('TRIGGER trg');
+    expect(out).toContain('PROCEDURE `p`');
+    expect(out).toContain('VIEW `vw`');
+    // INSERT data that happens to look like a DEFINER must be left untouched.
+    expect(out).toContain("INSERT INTO t VALUES ('DEFINER=`not`@`stripped`');");
+  });
+
+  test('definer strip command is shell-quotable', () => {
+    const cmd = buildMysqlDefinerStripCommand();
+    expect(cmd.startsWith('sed ')).toBe(true);
+    expect(cmd.match(/-e /g)?.length).toBe(MYSQL_DEFINER_STRIP_SED_EXPRESSIONS.length);
+  });
+});
+
+describe('sqlite snapshot without the sqlite3 CLI', () => {
+  test('VACUUM INTO statement escapes single quotes', () => {
+    expect(buildSqliteVacuumIntoStatement("/tmp/it's.db")).toBe(
+      "VACUUM INTO '/tmp/it''s.db'"
+    );
+    expect(() => buildSqliteVacuumIntoStatement('  ')).toThrow();
+  });
+
+  test('bun:sqlite snapshot produces a readable gzip that includes WAL data', async () => {
+    const { Database } = await import('bun:sqlite');
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'lbtest-sqlite-snap-'));
+    const dbPath = path.join(dir, 'live.db');
+    const archive = path.join(dir, 'snap.sqlite.gz');
+    try {
+      const db = new Database(dbPath, { create: true });
+      db.run('PRAGMA journal_mode = WAL');
+      db.run('CREATE TABLE t (x INTEGER)');
+      db.run('INSERT INTO t VALUES (1), (2)');
+      db.close();
+
+      const result = await packSqliteSnapshotLocal(dbPath, archive);
+      expect(result.code).toBe(0);
+
+      const restored = path.join(dir, 'restored.db');
+      await fs.writeFile(restored, gunzipSync(await fs.readFile(archive)));
+      const check = new Database(restored, { readonly: true });
+      const row = check.query('SELECT SUM(x) AS s FROM t').get() as { s: number };
+      check.close();
+      expect(row.s).toBe(3);
+
+      const mode = (await fs.stat(archive)).mode & 0o777;
+      expect(mode).toBe(0o600);
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('packDatabaseDumpLocal restores a consistent sqlite archive', async () => {
+    const { Database } = await import('bun:sqlite');
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'lbtest-sqlite-pack-'));
+    const dbPath = path.join(dir, 'live.db');
+    try {
+      const db = new Database(dbPath, { create: true });
+      db.run('CREATE TABLE t (x INTEGER)');
+      db.run('INSERT INTO t VALUES (7)');
+      db.close();
+
+      const packed = await packDatabaseDumpLocal({
+        engine: 'sqlite',
+        client: 'native',
+        user: 'sqlite',
+        database: dbPath,
+      });
+      const restored = path.join(dir, 'restored.db');
+      await fs.writeFile(restored, gunzipSync(await fs.readFile(packed.archivePath)));
+      const check = new Database(restored, { readonly: true });
+      const row = check.query('SELECT x FROM t').get() as { x: number };
+      check.close();
+      expect(row.x).toBe(7);
+      await fs.rm(packed.tmpDir, { recursive: true, force: true });
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
   });
 });
 

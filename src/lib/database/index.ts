@@ -1,11 +1,16 @@
 import { shellSingleQuote } from '@/lib/ssh/rsync';
 import { DOCKER_VOLUME_NAME_RE } from '@/lib/docker/volumes';
-import { spawn, type ChildProcess } from 'child_process';
-import { createWriteStream } from 'fs';
+import { spawn, execFile, type ChildProcess } from 'child_process';
+import { createReadStream, createWriteStream } from 'fs';
 import { promises as fs } from 'fs';
 import os from 'os';
 import path from 'path';
+import { pipeline } from 'stream/promises';
+import { promisify } from 'util';
+import { createGzip } from 'zlib';
 import type { NodeSSH } from 'node-ssh';
+
+const execFileAsync = promisify(execFile);
 
 const REMOTE_STANDARD_PATH =
   'PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"';
@@ -191,6 +196,40 @@ export function buildDumpArgs(conn: DatabaseConnection): string {
   ].join(' ');
 }
 
+/**
+ * MySQL/MariaDB dumps carry `DEFINER=`user`@`host`` clauses for triggers,
+ * procedures and views. Restoring them as a non-superuser fails with
+ * ERROR 1227 even when the user owns the target database, and the client
+ * aborts halfway through (partial restore). Strip the clauses on the way
+ * into the client so restored objects belong to the restoring user.
+ *
+ * Covered dump forms:
+ *   CREATE DEFINER=`root`@`localhost` PROCEDURE ...
+ *   /*!50017 DEFINER=`root`@`localhost`*\/ /*!50003 TRIGGER ...
+ *   /*!50013 DEFINER=`root`@`localhost` SQL SECURITY DEFINER *\/
+ * The version comment number varies between dump versions, so match any.
+ * POSIX BRE keeps this portable to BusyBox sed on Alpine hosts.
+ */
+export const MYSQL_DEFINER_STRIP_SED_EXPRESSIONS: readonly string[] = [
+  's#/\\*![0-9][0-9]* DEFINER=`[^`]*`@`[^`]*` *SQL SECURITY DEFINER *\\*/##g',
+  's#/\\*![0-9][0-9]* DEFINER=`[^`]*`@`[^`]*` *\\*/##g',
+  // Plain CREATE/ALTER DEFINER clauses are scoped to lines that start with
+  // CREATE/ALTER so DEFINER-looking text inside INSERT data is left alone.
+  '/^CREATE/s#DEFINER=`[^`]*`@`[^`]*`##g',
+  '/^ALTER/s#DEFINER=`[^`]*`@`[^`]*`##g',
+];
+
+/** `sed -e … | ` stage used between gunzip and the MySQL/MariaDB client. */
+export function buildMysqlDefinerStripCommand(): string {
+  return [
+    'sed',
+    ...MYSQL_DEFINER_STRIP_SED_EXPRESSIONS.flatMap((expression) => [
+      '-e',
+      shellSingleQuote(expression),
+    ]),
+  ].join(' ');
+}
+
 /** psql / mysql client that reads SQL from stdin. */
 export function buildRestoreClientArgs(conn: DatabaseConnection): string {
   assertValidDatabaseName(conn.database);
@@ -207,6 +246,7 @@ export function buildRestoreClientArgs(conn: DatabaseConnection): string {
       `-U ${shellSingleQuote(user)}`,
       `-d ${shellSingleQuote(db)}`,
       '-v ON_ERROR_STOP=1',
+      '--single-transaction',
     ].join(' ');
   }
 
@@ -366,10 +406,18 @@ export function buildRestoreDatabaseCommand(
     restorePart = clientArgs;
   }
 
+  // MySQL/MariaDB dumps embed the dumping user's DEFINER; restoring them as a
+  // non-superuser fails with ERROR 1227 and leaves a partial restore. Strip
+  // the clauses before the client parses them so objects use the restore user.
+  const definerStrip =
+    conn.engine === 'mysql' || conn.engine === 'mariadb'
+      ? `${buildMysqlDefinerStripCommand()} | `
+      : '';
+
   // Verify the whole archive before the client sees a byte: `gzip -dc | client`
   // reports only the client's exit status, so a truncated/corrupt dump would
   // otherwise be restored partially and reported as success.
-  return `${REMOTE_STANDARD_PATH} gzip -t ${quotedIn} && gzip -dc ${quotedIn} | ${restorePart}`;
+  return `${REMOTE_STANDARD_PATH} gzip -t ${quotedIn} && gzip -dc ${quotedIn} | ${definerStrip}${restorePart}`;
 }
 
 export function buildDatabaseTestCommand(
@@ -435,10 +483,74 @@ export function buildPackSqliteCommand(dbPath: string, archiveFilePath: string):
   return [
     REMOTE_STANDARD_PATH,
     'tmp=$(mktemp /tmp/lazybackup-sqlite-XXXXXX)',
-    `; if command -v sqlite3 >/dev/null 2>&1; then sqlite3 ${quotedDb} ".backup $tmp"; else cp ${quotedDb} "$tmp"; fi`,
+    `; if command -v sqlite3 >/dev/null 2>&1; then sqlite3 ${quotedDb} ".backup $tmp"; else echo ${shellSingleQuote(
+      'WARNING: sqlite3 is not installed on the source host; falling back to cp of the live SQLite file. The backup can be inconsistent if the database is being written. Install sqlite3 for a consistent snapshot.'
+    )} >&2; cp ${quotedDb} "$tmp"; fi`,
     `&& gzip -c "$tmp" > ${quotedOut}`,
     '; ec=$?; rm -f "$tmp"; exit $ec',
   ].join(' ');
+}
+
+/** `VACUUM INTO` statement for a consistent SQLite snapshot (quoting is SQL, not shell). */
+export function buildSqliteVacuumIntoStatement(targetPath: string): string {
+  const t = targetPath.trim();
+  if (!t) {
+    throw new Error('SQLite snapshot path is required');
+  }
+  return `VACUUM INTO '${t.replace(/'/g, "''")}'`;
+}
+
+async function localSqlite3Available(): Promise<boolean> {
+  try {
+    await execFileAsync('sqlite3', ['-version'], { timeout: 5000 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Consistent local SQLite snapshot without the sqlite3 CLI, used when the
+ * Docker image/dev host has no sqlite3 binary. Runs Bun's bundled SQLite in a
+ * short-lived `bun -e` process (`VACUUM INTO` is transactional) and gzips the
+ * result, so a live database is never copied mid-write.
+ */
+export async function packSqliteSnapshotLocal(
+  dbPath: string,
+  archiveFilePath: string
+): Promise<{ stdout: string; stderr: string; code: number }> {
+  assertValidSqlitePath(dbPath);
+  const source = dbPath.trim();
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'lazybackup-sqlite-'));
+  const snapshotPath = path.join(tmpDir, 'snapshot.db');
+  try {
+    const script = `
+import { Database } from 'bun:sqlite';
+const db = new Database(process.env.LAZYBACKUP_SQLITE_SOURCE, { readonly: true });
+try {
+  db.run(process.env.LAZYBACKUP_SQLITE_VACUUM_SQL);
+} finally {
+  db.close();
+}
+`;
+    const result = await runArgv([process.execPath, '-e', script], {
+      ...process.env,
+      LAZYBACKUP_SQLITE_SOURCE: source,
+      LAZYBACKUP_SQLITE_VACUUM_SQL: buildSqliteVacuumIntoStatement(snapshotPath),
+    });
+    if (result.code !== 0) {
+      throw new Error((result.stderr || result.stdout).trim() || `exit ${result.code}`);
+    }
+    await pipeline(
+      createReadStream(snapshotPath),
+      createGzip(),
+      createWriteStream(archiveFilePath, { mode: 0o600 })
+    );
+    await fs.chmod(archiveFilePath, 0o600).catch(() => undefined);
+    return { ...result, stderr: result.stderr };
+  } finally {
+    await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+  }
 }
 
 export function buildRestoreSqliteCommand(dbPath: string, archiveFilePath: string): string {
@@ -636,37 +748,6 @@ async function withRemotePasswordFile<T>(
   });
 }
 
-function restoreClientArgv(conn: DatabaseConnection): string[] {
-  assertValidDatabaseName(conn.database);
-  const host = effectiveHost(conn);
-  const port = resolveDbPort(conn);
-  if (conn.engine === 'postgres') {
-    return [
-      clientBinary(conn.engine),
-      '-h',
-      host,
-      '-p',
-      String(port),
-      '-U',
-      conn.user,
-      '-d',
-      conn.database,
-      '-v',
-      'ON_ERROR_STOP=1',
-    ];
-  }
-  return [
-    clientBinary(conn.engine),
-    '-h',
-    host,
-    '-P',
-    String(port),
-    '-u',
-    conn.user,
-    conn.database,
-  ];
-}
-
 function testClientArgv(conn: DatabaseConnection): string[] {
   assertValidDatabaseName(conn.database);
   const host = effectiveHost(conn);
@@ -726,8 +807,28 @@ export async function packDatabaseDumpLocal(
   try {
     let result: { stdout: string; stderr: string; code: number };
     if (conn.engine === 'sqlite') {
-      const cmd = buildPackDatabaseCommand(conn, archivePath);
-      result = await runArgv(['/bin/sh', '-c', cmd], { ...process.env });
+      if (await localSqlite3Available()) {
+        const cmd = buildPackDatabaseCommand(conn, archivePath);
+        result = await runArgv(['/bin/sh', '-c', cmd], { ...process.env });
+      } else {
+        try {
+          result = await packSqliteSnapshotLocal(conn.database, archivePath);
+        } catch (snapshotError) {
+          // Non-Bun runtime (or an SQLite too old for VACUUM INTO): the shell
+          // command warns and copies the live file. Keep that warning in the
+          // dump stderr so it reaches the backup log, and say why.
+          const fallback = await runArgv(
+            ['/bin/sh', '-c', buildPackDatabaseCommand(conn, archivePath)],
+            { ...process.env }
+          );
+          const reason =
+            snapshotError instanceof Error ? snapshotError.message : 'snapshot failed';
+          result = {
+            ...fallback,
+            stderr: `SQLite consistent snapshot unavailable (${reason}); using cp fallback\n${fallback.stderr}`,
+          };
+        }
+      }
     } else if (conn.client === 'docker') {
       result = await withLocalPasswordFile(conn, async (passwordFile) => {
         const cmd = buildPackDatabaseCommand(conn, archivePath, { passwordFile });
@@ -826,21 +927,20 @@ export async function restoreDatabaseLocal(
     return { stdout: result.stdout, stderr: result.stderr };
   }
 
-  const gzip = spawn('gzip', ['-dc', archiveFilePath], { stdio: ['ignore', 'pipe', 'pipe'] });
-  const client = spawn(restoreClientArgv(conn)[0], restoreClientArgv(conn).slice(1), {
-    env: localPasswordEnv(conn),
-    stdio: ['pipe', 'pipe', 'pipe'],
-  });
-  gzip.stdout.pipe(client.stdin);
-  const gzipStd = collectStd(gzip);
-  const clientStd = collectStd(client);
-  const [gzipCode, clientCode] = await Promise.all([waitChild(gzip), waitChild(client)]);
-  if (gzipCode !== 0 || clientCode !== 0) {
+  // Native restore runs the same verified pipeline as remote/docker restores:
+  // gzip integrity check, MySQL/MariaDB DEFINER stripping, and
+  // ON_ERROR_STOP + --single-transaction for PostgreSQL. Passwords still come
+  // from the environment (PGPASSWORD / MYSQL_PWD), never argv.
+  const result = await runArgv(
+    ['/bin/sh', '-c', buildRestoreDatabaseCommand(conn, archiveFilePath)],
+    localPasswordEnv(conn)
+  );
+  if (result.code !== 0) {
     throw new Error(
-      `Failed to restore database ${conn.database}: ${(clientStd.stderr || gzipStd.stderr).trim()}`
+      `Failed to restore database ${conn.database}: ${(result.stderr || result.stdout).trim()}`
     );
   }
-  return { stdout: clientStd.stdout, stderr: clientStd.stderr };
+  return { stdout: result.stdout, stderr: result.stderr };
 }
 
 export async function restoreDatabaseRemote(
