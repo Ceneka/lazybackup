@@ -2029,10 +2029,26 @@ async function extractTarGzArchive(
 ): Promise<{ treePath: string; tempDir: string }> {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'lazybackup-path-extract-'));
   try {
-    await assertSafeTarGzArchive(archivePath);
+    const externalSymlinks = await assertSafeTarGzArchive(archivePath, {
+      allowExternalSymlinks: true,
+    });
     await execFileAsync('tar', ['-xzf', archivePath, '-C', tempDir], {
       maxBuffer: 10 * 1024 * 1024,
     });
+    // Drop symlinks that point outside the extracted tree (same data-loss semantics as
+    // rsync --safe-links on plain path backups, but without failing the whole restore).
+    for (const member of externalSymlinks) {
+      const name = member.name.replace(/^\.\//, '').replace(/\/+$/, '');
+      if (!name || name === '.') continue;
+      const target = path.join(tempDir, name);
+      const stat = await fs.lstat(target).catch(() => null);
+      if (stat?.isSymbolicLink()) {
+        console.warn(
+          `Skipping external symlink during restore: ${name} -> ${member.linkTarget}`
+        );
+        await fs.rm(target, { force: true });
+      }
+    }
   } catch (error) {
     await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
     throw error;

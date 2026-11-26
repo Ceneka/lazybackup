@@ -58,6 +58,44 @@ describe('validateTarMembers', () => {
       validateTarMembers([{ type: 'h', name: 'copy', linkTarget: 'missing' }])
     ).toThrow(/not in archive/i);
   });
+
+  test('reports external symlinks instead of throwing when restoring', () => {
+    const members = [
+      { type: 'd', name: 'app/' },
+      { type: 'l', name: 'app/abs', linkTarget: '/etc/passwd' },
+      { type: 'l', name: 'app/up', linkTarget: '../../outside' },
+      { type: 'l', name: 'app/ok', linkTarget: 'data.txt' },
+    ];
+    expect(() => validateTarMembers(members)).toThrow(/symlink/i);
+    expect(
+      validateTarMembers(members, { allowExternalSymlinks: true }).map((m) => m.name)
+    ).toEqual(['app/abs', 'app/up']);
+  });
+
+  test('still rejects unsafe member names and hardlinks when tolerating symlinks', () => {
+    const options = { allowExternalSymlinks: true };
+    expect(() =>
+      validateTarMembers([{ type: '-', name: '/etc/passwd' }], options)
+    ).toThrow(/absolute/i);
+    expect(() =>
+      validateTarMembers([{ type: '-', name: '../outside' }], options)
+    ).toThrow(/traversal/i);
+    expect(() =>
+      validateTarMembers(
+        [
+          { type: '-', name: 'app/data.txt' },
+          { type: 'h', name: 'copy', linkTarget: '../outside' },
+        ],
+        options
+      )
+    ).toThrow(/hardlink|traversal/i);
+    expect(() =>
+      validateTarMembers(
+        [{ type: 'h', name: 'copy', linkTarget: 'missing' }],
+        options
+      )
+    ).toThrow(/not in archive/i);
+  });
 });
 
 describe('assertSafeTarGzArchive', () => {
@@ -76,7 +114,7 @@ describe('assertSafeTarGzArchive', () => {
           },
         },
       ]);
-      await expect(assertSafeTarGzArchive(archive)).resolves.toBeUndefined();
+      await expect(assertSafeTarGzArchive(archive)).resolves.toEqual([]);
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }
@@ -90,6 +128,26 @@ describe('assertSafeTarGzArchive', () => {
         { header: { type: 'file', name: '/etc/passwd' }, body: 'bad' },
       ]);
       await expect(assertSafeTarGzArchive(archive)).rejects.toThrow(/absolute/i);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('returns external symlinks when allowed (absolute and escaping)', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'lazybackup-tar-inspect-'));
+    const archive = path.join(root, 'symlinks.tar.gz');
+    try {
+      await writeTarGz(archive, [
+        { header: { type: 'directory', name: 'app/' } },
+        { header: { type: 'file', name: 'app/data.txt' }, body: 'ok' },
+        { header: { type: 'symlink', name: 'app/abs', linkname: '/etc/hostname' } },
+        { header: { type: 'symlink', name: 'app/up', linkname: '../../outside' } },
+        { header: { type: 'symlink', name: 'app/ok', linkname: 'data.txt' } },
+      ]);
+      const external = await assertSafeTarGzArchive(archive, {
+        allowExternalSymlinks: true,
+      });
+      expect(external.map((m) => m.name)).toEqual(['app/abs', 'app/up']);
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }
