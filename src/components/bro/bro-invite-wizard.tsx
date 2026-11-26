@@ -797,7 +797,7 @@ export function BroInviteWizard({ open, onOpenChange }: BroInviteWizardProps) {
                   <span className="font-medium text-foreground">
                     {quotaLabel} GB
                   </span>
-                  . You can change this later.
+                  .
                 </p>
               </div>
 
