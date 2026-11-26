@@ -72,6 +72,8 @@ export function buildPackDockerVolumeCommand(
 
 export function buildTarMemberSafetyCheck(archiveInContainer: string): string {
   const quoted = shellSingleQuote(archiveInContainer);
+  // Newline-join: the case statements need statement separators (a plain space produces
+  // `esac case …`, which is a shell syntax error and broke every volume restore).
   return [
     `tar tzf ${quoted} | while IFS= read -r member || [ -n "$member" ]; do`,
     `  case "$member" in`,
@@ -81,6 +83,19 @@ export function buildTarMemberSafetyCheck(archiveInContainer: string): string {
     `    */../*) echo "Refusing tar member path traversal: $member" >&2; exit 1 ;;`,
     `  esac`,
     `done`,
+  ].join('\n');
+}
+
+/** Alpine-side script for volume restore: member safety check + extract (testable in isolation). */
+export function buildDockerVolumeRestoreScript(archiveInContainer: string): string {
+  return [
+    buildTarMemberSafetyCheck(archiveInContainer),
+    '&&',
+    'tar_extra=""',
+    '&&',
+    'if tar --help 2>&1 | grep -q -- --no-absolute-names; then tar_extra=--no-absolute-names; fi',
+    '&&',
+    `tar xzf ${shellSingleQuote(archiveInContainer)} $tar_extra -C /to`,
   ].join(' ');
 }
 
@@ -95,7 +110,7 @@ export function buildRestoreDockerVolumeCommand(
     throw new Error('Invalid remote tar path');
   }
   const archiveInContainer = `/from/${archiveName}`;
-  const safety = buildTarMemberSafetyCheck(archiveInContainer);
+  const safety = buildDockerVolumeRestoreScript(archiveInContainer);
   // BusyBox tar (alpine) strips leading '/' by default and has no --no-absolute-names.
   // GNU tar: add the flag when advertised. Always pre-check members for `..` / absolute names.
   const inner = [
@@ -106,16 +121,7 @@ export function buildRestoreDockerVolumeCommand(
     `-v ${shellSingleQuote(`${remoteTmpDir}:/from:ro`)}`,
     HELPER_IMAGE,
     'sh -c',
-    shellSingleQuote(
-      [
-        safety,
-        '&&',
-        'tar_extra=',
-        'if tar --help 2>&1 | grep -q -- --no-absolute-names; then tar_extra=--no-absolute-names; fi',
-        '&&',
-        `tar xzf ${shellSingleQuote(archiveInContainer)} $tar_extra -C /to`,
-      ].join(' ')
-    ),
+    shellSingleQuote(safety),
   ].join(' ');
 
   return `${REMOTE_STANDARD_PATH} sh -c ${shellSingleQuote(inner)}`;
