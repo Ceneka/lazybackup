@@ -5,7 +5,7 @@ import {
   restoreHistorySchema,
 } from '@/lib/backup/history-schema';
 import { isValidDockerVolumeName } from '@/lib/docker/volumes';
-import { DB_NAME_RE } from '@/lib/database';
+import { DB_NAME_RE, assertValidSqlitePath } from '@/lib/database';
 import { db } from '@/lib/db';
 import { backupHistory } from '@/lib/db/schema';
 import { PeerRecallPendingError, peerRecallWaitingResponse } from '@/lib/peer/recall';
@@ -40,7 +40,7 @@ export async function POST(
 
     const historyEntry = await db.query.backupHistory.findFirst({
       where: eq(backupHistory.id, id),
-      with: { backupConfig: { columns: { sourceType: true } } },
+      with: { backupConfig: { columns: { sourceType: true, dbEngine: true } } },
     });
 
     if (!historyEntry) {
@@ -50,7 +50,17 @@ export async function POST(
     const sourceType = historyEntry.backupConfig?.sourceType || 'path';
 
     if (sourceType === 'database') {
-      if (databaseName && !DB_NAME_RE.test(databaseName)) {
+      if (databaseName && historyEntry.backupConfig?.dbEngine === 'sqlite') {
+        // SQLite targets are filesystem paths, not SQL identifiers.
+        try {
+          assertValidSqlitePath(databaseName);
+        } catch {
+          return NextResponse.json(
+            { error: 'Invalid SQLite database path' },
+            { status: 400 }
+          );
+        }
+      } else if (databaseName && !DB_NAME_RE.test(databaseName)) {
         return NextResponse.json({ error: 'Invalid database name' }, { status: 400 });
       }
       const result = await restoreDatabaseBackup(id, {

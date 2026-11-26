@@ -73,6 +73,7 @@ import { VERSION_DIR_PATTERN } from '@/lib/backup/storage-stats';
 import {
   assertLocalDestinationPath,
   assertLocalSourcePath,
+  assertRestorableLocalTarget,
   confineRelativePath,
   isUnderBackupStoragePath,
 } from '@/lib/backup/local-paths';
@@ -2615,7 +2616,7 @@ export async function restorePathBackup(
 
   try {
     if (host.kind === 'local') {
-      const dest = expandLocalPath(targetPath);
+      const dest = assertRestorableLocalTarget(targetPath);
       const copied = await localPathCopy(treePath, dest, []);
       transferLines.push(
         `Local restore: ${treePath} → ${dest}`,
@@ -2736,6 +2737,9 @@ export async function restoreGitRepoBackup(
   if (!requested) {
     throw new Error('Git restore requires targetPath (directory to unpack the bare mirror into)');
   }
+  if (requested.replace(/\/+$/, '') === '') {
+    throw new Error('Refusing to restore into the filesystem root');
+  }
   const targetPath = resolveRestoreTarget(requested, requested, options, 'path');
   const host = resolveRestoreHost({
     sourceKind: config.sourceKind || 'git',
@@ -2758,8 +2762,12 @@ export async function restoreGitRepoBackup(
   const transferLines: string[] = [];
 
   try {
+    // The mirror archive is extracted as root on this host or an SSH target.
+    // Apply the same member checks as path restores before any extraction.
+    await assertSafeTarGzArchive(localPath);
+
     if (host.kind === 'local') {
-      const dest = expandLocalPath(targetPath);
+      const dest = assertRestorableLocalTarget(targetPath);
       await fs.mkdir(dest, { recursive: true });
       await execFileAsync('tar', ['-xzf', localPath, '-C', dest]);
       transferLines.push(`Local Git restore: ${localPath} → ${dest}`);

@@ -108,3 +108,72 @@ export function assertLocalDestinationPath(dest: string): string {
 export function assertLocalSourcePath(src: string): string {
   return expandLocalPath(src);
 }
+
+/**
+ * Paths a restore must never write to: they are the running system, the
+ * instance's own state, or backup storage. Restoring onto these is always a
+ * mistake and, on a bad day, unrecoverable.
+ */
+const FORBIDDEN_RESTORE_TARGETS = [
+  '/',
+  '/dev',
+  '/proc',
+  '/sys',
+  '/boot',
+  '/bin',
+  '/sbin',
+  '/lib',
+  '/lib64',
+  '/usr',
+  '/run',
+  '/var/lib/docker',
+];
+
+function instanceDataDir(): string | null {
+  const raw = (process.env.DATABASE_URL || '').trim();
+  if (!raw.startsWith('file:')) return null;
+  const dbFile = raw.slice('file:'.length).trim();
+  if (!dbFile || dbFile === ':memory:') return null;
+  return path.dirname(path.resolve(dbFile));
+}
+
+/**
+ * Validate a local restore destination. Restores intentionally may land
+ * outside BACKUP_STORAGE_PATH (they usually target the original source), but
+ * never on the running system, the instance's own data, or backup storage.
+ * `ALLOW_ARBITRARY_LOCAL_PATHS` does not override this: it widens *backup*
+ * destinations, not restores.
+ */
+export function assertRestorableLocalTarget(dest: string): string {
+  const resolved = expandLocalPath(dest);
+  const forbidden = new Set(FORBIDDEN_RESTORE_TARGETS);
+
+  const dataDir = instanceDataDir();
+  if (dataDir && dataDir !== '/') forbidden.add(dataDir);
+
+  const dbFile = (process.env.DATABASE_URL || '').trim().replace(/^file:/, '');
+  if (dbFile && dbFile !== ':memory:') {
+    forbidden.add(path.resolve(dbFile));
+  }
+
+  for (const root of getAllowedLocalStorageRoots()) {
+    forbidden.add(root);
+  }
+
+  const home = process.env.HOME || os.homedir();
+  if (home) forbidden.add(path.join(home, '.ssh'));
+
+  for (const blocked of forbidden) {
+    const matches =
+      resolved === blocked ||
+      (blocked !== '/' && isPathInside(blocked, resolved));
+    if (matches) {
+      throw new Error(
+        `Refusing to restore onto ${resolved}: this path holds the running system, the LazyBackup instance's own data, or backup storage. Choose a different target.`
+      );
+    }
+  }
+
+  return resolved;
+}
+
