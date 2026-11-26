@@ -1,3 +1,7 @@
 [install]
 # Required: libsql/tailwind/lightningcss ship platform natives as optionalDependencies
 optional = true
+
+[test]
+# Keep TOFU SSH host-key pins out of the repo root during `bun test`.
+preload = ["./scripts/test-preload.ts"]
