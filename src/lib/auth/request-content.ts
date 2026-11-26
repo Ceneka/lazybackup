@@ -17,3 +17,30 @@ export function hasJsonContentType(headers: {
   const mediaType = raw.split(';', 1)[0]?.trim().toLowerCase()
   return mediaType === 'application/json'
 }
+
+/** True when the request advertises a body (does not read it). */
+export function hasRequestBody(headers: {
+  get(name: string): string | null
+}): boolean {
+  const length = headers.get('content-length')?.trim()
+  if (length && length !== '0') return true
+  return Boolean(headers.get('transfer-encoding')?.trim())
+}
+
+/**
+ * JSON-only rule for API mutations: unsafe methods on `/api/*` (and `/mcp`)
+ * that carry a body must declare `application/json`. Bodyless calls such as
+ * `POST /api/backups/:id/run` or `DELETE /api/…` stay allowed.
+ */
+export function requiresJsonMutationContentType(
+  method: string,
+  pathname: string,
+  headers: { get(name: string): string | null }
+): boolean {
+  const m = method.toUpperCase()
+  if (m === 'GET' || m === 'HEAD' || m === 'OPTIONS') return false
+  const isApi = pathname.startsWith('/api/')
+  const isMcp = pathname === '/mcp' || pathname.startsWith('/mcp/')
+  if (!isApi && !isMcp) return false
+  return hasRequestBody(headers)
+}
