@@ -137,13 +137,23 @@ describe('assertRestorableLocalTarget', () => {
     );
   });
 
-  test('refuses BACKUP_STORAGE_PATH and anything inside it', () => {
+  test('refuses the storage root and the backup\'s own destination, not other subfolders', () => {
     tmp = path.join(os.tmpdir(), `lbtest-storage-${Date.now()}`);
     process.env.BACKUP_STORAGE_PATH = tmp;
-    expect(() => assertRestorableLocalTarget(tmp)).toThrow(/Refusing to restore/);
-    expect(() => assertRestorableLocalTarget(path.join(tmp, 'app'))).toThrow(
-      /Refusing to restore/
+    const ownDest = path.join(tmp, 'server', 'job');
+    expect(() => assertRestorableLocalTarget(tmp)).toThrow(/storage root/);
+    // Docker: /backups is often the only host mount, so a restore subfolder is fine.
+    expect(assertRestorableLocalTarget(path.join(tmp, 'restores', 'app'))).toBe(
+      path.join(tmp, 'restores', 'app')
     );
+    expect(() =>
+      assertRestorableLocalTarget(ownDest, { protectedPaths: [ownDest] })
+    ).toThrow(/Refusing to restore/);
+    expect(() =>
+      assertRestorableLocalTarget(path.join(ownDest, '2026-01-01_00-00-00'), {
+        protectedPaths: [ownDest],
+      })
+    ).toThrow(/Refusing to restore/);
   });
 
   test('refuses the instance database and its directory', () => {

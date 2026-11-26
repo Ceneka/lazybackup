@@ -139,9 +139,16 @@ function instanceDataDir(): string | null {
  * `ALLOW_ARBITRARY_LOCAL_PATHS` does not override this: it widens *backup*
  * destinations, not restores.
  */
-export function assertRestorableLocalTarget(dest: string): string {
+export function assertRestorableLocalTarget(
+  dest: string,
+  options: { protectedPaths?: Array<string | null | undefined> } = {}
+): string {
   const resolved = expandLocalPath(dest);
   const forbidden = new Set(FORBIDDEN_RESTORE_TARGETS);
+  // Exact match only: restoring *into* a storage root would mix restored files
+  // with every backup, but a subfolder (e.g. /backups/restores/x in Docker,
+  // where /backups is often the only host mount) is a legitimate target.
+  const exactOnly = new Set<string>();
 
   const dataDir = instanceDataDir();
   if (dataDir && dataDir !== '/') forbidden.add(dataDir);
@@ -152,11 +159,22 @@ export function assertRestorableLocalTarget(dest: string): string {
   }
 
   for (const root of getAllowedLocalStorageRoots()) {
-    forbidden.add(root);
+    exactOnly.add(root);
+  }
+
+  // The backup's own destination (where the artifact being restored lives).
+  for (const raw of options.protectedPaths || []) {
+    if (raw && raw.trim()) forbidden.add(expandLocalPath(raw));
   }
 
   const home = process.env.HOME || os.homedir();
   if (home) forbidden.add(path.join(home, '.ssh'));
+
+  if (exactOnly.has(resolved)) {
+    throw new Error(
+      `Refusing to restore onto ${resolved}: this is the backup storage root. Choose a subfolder or a different target.`
+    );
+  }
 
   for (const blocked of forbidden) {
     const matches =

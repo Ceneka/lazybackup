@@ -2647,7 +2647,9 @@ export async function restorePathBackup(
 
   try {
     if (host.kind === 'local') {
-      const dest = assertRestorableLocalTarget(targetPath);
+      const dest = assertRestorableLocalTarget(targetPath, {
+        protectedPaths: [config.destinationKind === 'local' ? config.destinationPath : null],
+      });
       const copied = await localPathCopy(treePath, dest, []);
       transferLines.push(
         `Local restore: ${treePath} → ${dest}`,
@@ -2798,7 +2800,9 @@ export async function restoreGitRepoBackup(
     await assertSafeTarGzArchive(localPath);
 
     if (host.kind === 'local') {
-      const dest = assertRestorableLocalTarget(targetPath);
+      const dest = assertRestorableLocalTarget(targetPath, {
+        protectedPaths: [config.destinationKind === 'local' ? config.destinationPath : null],
+      });
       await fs.mkdir(dest, { recursive: true });
       await execFileAsync('tar', ['-xzf', localPath, '-C', dest]);
       transferLines.push(`Local Git restore: ${localPath} → ${dest}`);
