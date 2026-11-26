@@ -1,6 +1,11 @@
 import { describe, expect, test } from 'bun:test'
 import { APP_VERSION } from '@/lib/app-version'
-import { buildConfigExport, redactExportHeaderSetting } from './export-config'
+import {
+  buildConfigExport,
+  redactExportBody,
+  redactExportHeaderSetting,
+  redactExportUrl,
+} from './export-config'
 
 const PLANTED_SERVER_PASSWORD = 'super-secret-ssh-password'
 const PLANTED_PRIVATE_KEY = '-----BEGIN OPENSSH PRIVATE KEY-----\nplanted-pem\n'
@@ -88,6 +93,9 @@ function fakeExport() {
         key: 'failureWebhookHeaders',
         value: `Authorization: ${PLANTED_HEADER_TOKEN}\nContent-Type: application/json`,
       },
+      { key: 'failureWebhookBody', value: '{"text":"{{errorMessage}}"}' },
+      { key: 'successPingUrl', value: 'https://hc-ping.com/11111111-2222-3333' },
+      { key: 'successPingBody', value: '{"ok":true,"secret":"ping-body-secret"}' },
     ],
     exportedAt: new Date('2026-09-02T12:00:00.000Z'),
     version: APP_VERSION,
@@ -159,12 +167,25 @@ describe('buildConfigExport', () => {
     expect(snapshot.settings).not.toHaveProperty('sessionSecret')
     expect(snapshot.settings).not.toHaveProperty('ageIdentity')
     expect(snapshot.settings.timezone).toBe('UTC')
-    expect(snapshot.settings.failureWebhookUrl).toBe('https://hooks.example.com/notify')
     expect(snapshot.settings.failureWebhookHeaders).toContain('***')
     expect(snapshot.settings.failureWebhookHeaders).toContain('Content-Type: application/json')
     expect(snapshot.metadata.version).toBe(APP_VERSION)
     expect(snapshot.metadata.exportedAt).toBe('2026-09-02T12:00:00.000Z')
     expect(snapshot.gitRepos).toEqual([])
+  })
+
+  test('masks webhook / success-ping URL paths, queries, and bodies', () => {
+    const snapshot = fakeExport()
+    const json = JSON.stringify(snapshot)
+
+    expect(snapshot.settings.failureWebhookUrl).toBe('https://hooks.example.com')
+    expect(snapshot.settings.successPingUrl).toBe('https://hc-ping.com')
+    expect(snapshot.settings.failureWebhookBody).toBe('***')
+    expect(snapshot.settings.successPingBody).toBe('***')
+    expect(json).not.toContain('/notify')
+    expect(json).not.toContain('11111111-2222-3333')
+    expect(json).not.toContain('ping-body-secret')
+    expect(json).not.toContain('{{errorMessage}}')
   })
 })
 
@@ -189,5 +210,30 @@ describe('redactExportHeaderSetting', () => {
 
   test('unparseable header blobs become stars', () => {
     expect(redactExportHeaderSetting('Host: evil')).toBe('***')
+  })
+})
+
+describe('redactExportUrl', () => {
+  test('keeps scheme and host, drops path/query/userinfo', () => {
+    expect(
+      redactExportUrl('https://user:pass@hooks.example.com:8443/bot123/send?token=x')
+    ).toBe('https://hooks.example.com:8443')
+    expect(redactExportUrl('http://localhost:9000/hook')).toBe('http://localhost:9000')
+  })
+
+  test('handles null/empty and rejects non-http values', () => {
+    expect(redactExportUrl(null)).toBeNull()
+    expect(redactExportUrl('')).toBe('')
+    expect(redactExportUrl('   ')).toBe('   ')
+    expect(redactExportUrl('javascript:alert(1)')).toBe('***')
+    expect(redactExportUrl('not a url')).toBe('***')
+  })
+})
+
+describe('redactExportBody', () => {
+  test('masks non-empty bodies and keeps empty ones', () => {
+    expect(redactExportBody('{"text":"secret"}')).toBe('***')
+    expect(redactExportBody('')).toBe('')
+    expect(redactExportBody(null)).toBeNull()
   })
 })

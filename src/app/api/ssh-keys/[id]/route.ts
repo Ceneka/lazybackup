@@ -1,5 +1,4 @@
-import { isBearerAudience, redactSshKey } from '@/lib/api/redact';
-import { resolveAuth } from '@/lib/auth';
+import { redactSshKey } from '@/lib/api/redact';
 import { db } from '@/lib/db';
 import { sshKeys } from '@/lib/db/schema';
 import { findGitReposUsingSshKey, findServersUsingSshKey } from '@/lib/ssh/key-usage';
@@ -44,16 +43,10 @@ export async function GET(
     });
     const usedByGitRepos = findGitReposUsingSshKey(allGitRepos, id);
 
-    const auth = await resolveAuth(
-      request.headers.get('cookie'),
-      request.headers.get('authorization')
-    );
-    const includePrivateKeyContent = !isBearerAudience(auth.via);
-
+    // Never return PEM material over the API; the UI only needs metadata and
+    // `hasPrivateKeyContent`. Use the install-command endpoint for host setup.
     return NextResponse.json({
-      ...redactSshKey(key as unknown as Record<string, unknown>, {
-        includePrivateKeyContent,
-      }),
+      ...redactSshKey(key as unknown as Record<string, unknown>),
       usedByServers,
       usedByGitRepos,
     });

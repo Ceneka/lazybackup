@@ -41,6 +41,17 @@ export function redactS3<T extends Record<string, unknown>>(
   };
 }
 
+/**
+ * REST variant: cookie sessions (Settings forms) keep the full access key id,
+ * Bearer/MCP callers get the same masked view as `list_s3_profiles`.
+ */
+export function redactS3ForAudience<T extends Record<string, unknown>>(
+  profile: T,
+  via: string
+) {
+  return redactS3(profile, { maskAccessKeyId: isBearerAudience(via) });
+}
+
 /** Peer rows carry the bearer we present to the remote; never serialize it. */
 export function redactPeerRow<T extends Record<string, unknown>>(peer: T) {
   const { outboundToken: _token, inboundTokenHash: _hash, ...rest } =
