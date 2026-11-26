@@ -73,6 +73,9 @@ export function DashboardFriendStorage() {
   }
 
   const onlineCount = peers.filter((peer) => friendIsOnline(peer) === true).length
+  const peerError = peers
+    .map((peer) => peer.remoteLastError?.trim())
+    .find((value): value is string => Boolean(value))
   const historyRows = (historyQuery.data?.history || []) as HistoryRowLike[]
   const waitingFromHistory = historyRows.filter(
     (row) => rowDeliveryState(row) === "waiting"
@@ -84,6 +87,7 @@ export function DashboardFriendStorage() {
   const waitingCount = Math.max(pendingFromPeers, waitingFromHistory)
 
   const storedRows = historyRows.filter((row) => rowDeliveryState(row) === "stored")
+  const failedCount = historyRows.filter((row) => rowDeliveryState(row) === "failed").length
   const lastStored = storedRows[0]
   const friend = peers[0]!
   const friendName = resolveFriendName(peers, friend.id)
@@ -128,9 +132,22 @@ export function DashboardFriendStorage() {
         </p>
         <p className={waitingCount > 0 ? "text-amber-700 dark:text-amber-400" : "text-muted-foreground"}>
           {waitingCount === 0
-            ? "Everything is delivered"
+            ? failedCount > 0
+              ? "No backups are waiting"
+              : "Everything is delivered"
             : `${waitingCount} backup${waitingCount === 1 ? "" : "s"} waiting to reach a friend`}
         </p>
+        {failedCount > 0 ? (
+          <p className="text-red-600 dark:text-red-400">
+            {failedCount} recent backup{failedCount === 1 ? "" : "s"} could not be
+            delivered
+          </p>
+        ) : null}
+        {peerError ? (
+          <p className="text-red-600 dark:text-red-400" title={peerError}>
+            A friend&apos;s app reported a delivery problem
+          </p>
+        ) : null}
         <p className="text-muted-foreground" suppressHydrationWarning>
           Last off-site copy:{" "}
           {lastStored
