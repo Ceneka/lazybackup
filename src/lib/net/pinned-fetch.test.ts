@@ -46,6 +46,30 @@ describe('pinnedFetch', () => {
     ).rejects.toThrow(/disallowed/i);
   });
 
+  test('aborts a peer that accepts the connection and never responds', async () => {
+    const server = http.createServer(() => {
+      /* intentionally never respond */
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('Expected TCP address');
+    try {
+      await expect(
+        pinnedFetch(
+          `http://silent.test:${address.port}/`,
+          policy,
+          {},
+          { lookup: async () => ['127.0.0.1'], timeoutMs: 150 }
+        )
+      ).rejects.toThrow(/timed out/i);
+    } finally {
+      server.closeAllConnections?.();
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve()))
+      );
+    }
+  });
+
   test('supports successful no-content webhook responses', async () => {
     const server = http.createServer((_request, response) => {
       response.writeHead(204);

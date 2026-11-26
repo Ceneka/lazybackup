@@ -3,6 +3,7 @@ import os from 'os';
 import path from 'path';
 import type { BroConfig } from '../config';
 import { saveConfig } from '../config';
+import { readCappedJson } from '../json-limit';
 import { ensureAgeKeys, encryptFile, packFolderTarGz } from './pack';
 import { BRO_OBJECT_HARD_CAP_BYTES } from '../stream';
 import { safeRemoteFetch } from '../remote';
@@ -52,7 +53,7 @@ export async function pushFolderBackup(cfg: BroConfig): Promise<{ key: string; s
       }
     );
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
+      const err = await readCappedJson(res, 64 * 1024).catch(() => ({}));
       throw new Error(
         (err as { error?: string }).error || `Upload failed (${res.status})`
       );

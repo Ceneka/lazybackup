@@ -1,4 +1,9 @@
 import { clearMailboxPendingForArtifact } from '@/lib/backup/history';
+import {
+  CappedJsonError,
+  PEER_PAIR_JSON_LIMIT,
+  readCappedRequestJson,
+} from '@/lib/net/capped-json';
 import { decideMailboxAck, decideMailboxDeleteAck } from '@/lib/peer/mailbox-ack';
 import { touchPeerSeen, verifyPeerBearer } from '@/lib/peer/pairing';
 import { listObjectKeysWithOpenRecalls } from '@/lib/peer/recall';
@@ -30,7 +35,9 @@ export async function POST(request: NextRequest) {
   await touchPeerSeen(peer.id);
 
   try {
-    const body = ackSchema.parse(await request.json());
+    const body = ackSchema.parse(
+      await readCappedRequestJson(request, PEER_PAIR_JSON_LIMIT)
+    );
     const key = assertSafePeerObjectKey(body.key);
 
     if (body.exists === false) {
@@ -105,6 +112,9 @@ export async function POST(request: NextRequest) {
       sha256: staged.sha256,
     });
   } catch (error) {
+    if (error instanceof CappedJsonError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     if (error instanceof z.ZodError) {
       return NextResponse.json(
         { error: 'Validation error', details: error.issues },

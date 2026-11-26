@@ -115,11 +115,15 @@ async function sendBody(request: http.ClientRequest, body: RemoteBody | null | u
 
 export async function safeRemoteFetch(
   rawUrl: string,
-  init: RemoteRequestInit = {}
+  init: RemoteRequestInit = {},
+  options: { timeoutMs?: number } = {}
 ): Promise<Response> {
   const resolved = await resolveSafeRemoteUrl(rawUrl);
   const transport = resolved.url.protocol === 'https:' ? https : http;
   const headers = new Headers(init.headers);
+  // Socket-idle ceiling: a malicious host that goes silent must not hang the
+  // friend's sync loop forever. Streaming transfers keep the socket busy.
+  const timeoutMs = options.timeoutMs ?? 60_000;
   return new Promise<Response>((resolve, reject) => {
     const request = transport.request(
       resolved.url,
@@ -154,6 +158,11 @@ export async function safeRemoteFetch(
       }
     );
     request.once('error', reject);
+    request.setTimeout(timeoutMs, () => {
+      request.destroy(
+        new Error(`Remote request to ${resolved.url.host} timed out after ${timeoutMs}ms`)
+      );
+    });
     void sendBody(request, init.body).catch((error) =>
       request.destroy(error instanceof Error ? error : new Error(String(error)))
     );

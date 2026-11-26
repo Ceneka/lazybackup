@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'bun:test';
-import { resolveSafeRemoteUrl } from './remote';
+import http from 'node:http';
+import os from 'node:os';
+import { resolveSafeRemoteUrl, safeRemoteFetch } from './remote';
 
 describe('LazyBro remote URL guard', () => {
   test('preserves intended LAN and Tailscale endpoints', async () => {
@@ -18,5 +20,29 @@ describe('LazyBro remote URL guard', () => {
     await expect(resolveSafeRemoteUrl('http://[fd00:ec2::254]/')).rejects.toThrow(/blocked/);
     await expect(resolveSafeRemoteUrl('http://[::1]/')).rejects.toThrow(/blocked/);
     await expect(resolveSafeRemoteUrl('http://[::ffff:127.0.0.1]/')).rejects.toThrow(/blocked/);
+  });
+
+  test('times out a host that accepts the connection and never responds', async () => {
+    const lanIp = Object.values(os.networkInterfaces())
+      .flat()
+      .find((row) => row && row.family === 'IPv4' && !row.internal)?.address;
+    if (!lanIp) return; // no non-loopback interface (rare CI container)
+
+    const server = http.createServer(() => {
+      /* intentionally never respond */
+    });
+    await new Promise<void>((resolve) => server.listen(0, '0.0.0.0', resolve));
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('Expected TCP address');
+    try {
+      await expect(
+        safeRemoteFetch(`http://${lanIp}:${address.port}/`, {}, { timeoutMs: 150 })
+      ).rejects.toThrow(/timed out/i);
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve()))
+      );
+    }
   });
 });

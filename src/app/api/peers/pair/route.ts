@@ -1,4 +1,9 @@
 import { completePairFromAcceptor, PAIRING_FAILED_MESSAGE } from '@/lib/peer/pairing';
+import {
+  CappedJsonError,
+  PEER_PAIR_JSON_LIMIT,
+  readCappedRequestJson,
+} from '@/lib/net/capped-json';
 import { consumeIpRateLimit } from '@/lib/net/ip-throttle';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
@@ -36,7 +41,9 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const body = pairSchema.parse(await request.json());
+    const body = pairSchema.parse(
+      await readCappedRequestJson(request, PEER_PAIR_JSON_LIMIT)
+    );
     const result = await completePairFromAcceptor({
       code: body.code,
       secret: body.secret,
@@ -51,6 +58,9 @@ export async function POST(request: NextRequest) {
     });
     return NextResponse.json(result);
   } catch (error) {
+    if (error instanceof CappedJsonError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     if (error instanceof z.ZodError) {
       return NextResponse.json(
         { error: 'Validation error', details: error.issues },

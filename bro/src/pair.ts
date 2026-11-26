@@ -1,8 +1,11 @@
 import { nanoid } from 'nanoid';
 import type { BroConfig } from './config';
 import { saveConfig } from './config';
+import { readCappedJson } from './json-limit';
 import { decodeInvitePayload, generatePeerToken } from './tokens';
 import { safeRemoteFetch } from './remote';
+
+const PAIR_RESPONSE_JSON_LIMIT = 256 * 1024;
 
 export type PairingResponse = {
   peerId: string;
@@ -79,6 +82,7 @@ export async function acceptInvite(
 
   const res = await safeRemoteFetch(pairUrl, {
     method: 'POST',
+    signal: AbortSignal.timeout(30_000),
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       code: payload.c,
@@ -94,13 +98,16 @@ export async function acceptInvite(
   });
 
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
+    const err = await readCappedJson(res, PAIR_RESPONSE_JSON_LIMIT).catch(() => ({}));
     throw new Error(
       (err as { error?: string }).error || `Pairing failed (${res.status})`
     );
   }
 
-  const remote = parsePairingResponse(await res.json(), payload.u);
+  const remote = parsePairingResponse(
+    await readCappedJson(res, PAIR_RESPONSE_JSON_LIMIT),
+    payload.u
+  );
 
   cfg.hostBaseUrl = remote.baseUrl;
   cfg.outboundToken = remote.inboundToken;

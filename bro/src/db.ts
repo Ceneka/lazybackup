@@ -67,6 +67,14 @@ export function usedBytes(cfg: BroConfig): number {
   return Number(row.s || 0);
 }
 
+/** Hard cap on object rows/files in one LazyBro share (inode DoS guard). */
+export const MAX_BRO_OBJECTS = 100_000;
+
+export function objectCount(cfg: BroConfig): number {
+  const row = getDb(cfg).query(`SELECT COUNT(*) AS n FROM objects`).get() as { n: number };
+  return Number(row.n || 0);
+}
+
 export function objectFilePath(cfg: BroConfig, key: string): string {
   const safe = key.replace(/\\/g, '/').replace(/^\/+/, '');
   if (!safe || safe.includes('..')) throw new Error('Invalid object key');

@@ -3,6 +3,10 @@ import fs from 'fs/promises';
 import { createReadStream } from 'fs';
 import { db } from '@/lib/db';
 import { peers } from '@/lib/db/schema';
+import {
+  PEER_CONTROL_JSON_LIMIT,
+  readCappedResponseJson,
+} from '@/lib/net/capped-json';
 import { pinnedFetch, type PinnedRequestInit } from '@/lib/net/pinned-fetch';
 import { peerUrlPolicy } from '@/lib/net/url-guard';
 import { ingestPeerObjectUpload } from './storage';
@@ -13,9 +17,12 @@ import {
 import type { PeerRow } from './types';
 
 const DEFAULT_INTERVAL_MS = 45_000;
+/** Control-plane (ping/work/ack) calls must not hang a sync worker. */
+const CONTROL_TIMEOUT_MS = 30_000;
 
 let timer: ReturnType<typeof setInterval> | null = null;
-let running = false;
+/** Peer IDs with a sync pass already running. */
+const inFlight = new Set<string>();
 
 function peerApi(baseUrl: string, apiPath: string): string {
   const base = baseUrl.replace(/\/+$/, '');
@@ -50,15 +57,22 @@ export async function syncPeerOnce(peer: PeerRow): Promise<void> {
   if (peer.transport === 'direct') return;
 
   // Cheap presence
-  await peerFetch(peer, '/api/peers/agent/ping').catch(() => null);
+  await peerFetch(peer, '/api/peers/agent/ping', {
+    signal: AbortSignal.timeout(CONTROL_TIMEOUT_MS),
+  }).catch(() => null);
 
-  const workRes = await peerFetch(peer, '/api/peers/agent/work');
+  const workRes = await peerFetch(peer, '/api/peers/agent/work', {
+    signal: AbortSignal.timeout(CONTROL_TIMEOUT_MS),
+  });
   if (!workRes.ok) {
     console.warn(`[peer-sync] work failed for ${peer.name}: ${workRes.status}`);
     return;
   }
 
-  const work = (await workRes.json()) as {
+  const work = (await readCappedResponseJson(
+    workRes,
+    PEER_CONTROL_JSON_LIMIT
+  )) as {
     pulls: Array<{ key: string; size: number }>;
     recalls: Array<{ id: string; objectKey: string }>;
     deletes?: Array<{ key: string }>;
@@ -94,6 +108,7 @@ export async function syncPeerOnce(peer: PeerRow): Promise<void> {
       });
       const ackRes = await peerFetch(peer, '/api/peers/agent/ack', {
         method: 'POST',
+        signal: AbortSignal.timeout(CONTROL_TIMEOUT_MS),
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           key: pull.key,
@@ -147,6 +162,7 @@ export async function syncPeerOnce(peer: PeerRow): Promise<void> {
       await deletePeerObjectFile(peer.id, del.key);
       const ackRes = await peerFetch(peer, '/api/peers/agent/ack', {
         method: 'POST',
+        signal: AbortSignal.timeout(CONTROL_TIMEOUT_MS),
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           key: del.key,
@@ -167,14 +183,18 @@ export async function syncPeerOnce(peer: PeerRow): Promise<void> {
 }
 
 export async function runPeerSyncPass(): Promise<void> {
-  if (running) return;
-  running = true;
-  try {
-    const rows = await db.query.peers.findMany({
-      where: and(eq(peers.status, 'active'), ne(peers.remoteBaseUrl, '')),
-    });
-    for (const peer of rows) {
-      if (!peer.remoteBaseUrl?.trim()) continue;
+  const rows = await db.query.peers.findMany({
+    where: and(eq(peers.status, 'active'), ne(peers.remoteBaseUrl, '')),
+  });
+
+  // Each peer runs independently: a malicious or stalled peer must not stop
+  // mailbox sync for everyone else (previously one hung HTTP call kept the
+  // global `running` flag set forever).
+  await Promise.allSettled(
+    rows.map(async (peer) => {
+      if (!peer.remoteBaseUrl?.trim()) return;
+      if (inFlight.has(peer.id)) return;
+      inFlight.add(peer.id);
       try {
         await syncPeerOnce(peer);
       } catch (err) {
@@ -182,11 +202,11 @@ export async function runPeerSyncPass(): Promise<void> {
           `[peer-sync] ${peer.name}:`,
           err instanceof Error ? err.message : err
         );
+      } finally {
+        inFlight.delete(peer.id);
       }
-    }
-  } finally {
-    running = false;
-  }
+    })
+  );
 }
 
 export function startPeerSyncWorker(intervalMs = DEFAULT_INTERVAL_MS): void {

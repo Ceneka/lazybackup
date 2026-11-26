@@ -6,6 +6,7 @@ import type { BroConfig } from './config';
 import {
   closeDb,
   getObject,
+  objectCount,
   objectFilePath,
   unlinkObject,
   upsertObject,
@@ -96,5 +97,32 @@ describe('unlinkObject', () => {
 
   test('refuses to unlink a traversal key', async () => {
     await expect(unlinkObject(cfg, '../outside.bin')).rejects.toThrow(/Invalid object key/);
+  });
+});
+
+describe('objectCount', () => {
+  let tmp: string;
+  let cfg: BroConfig;
+
+  beforeEach(async () => {
+    tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'lazybro-count-'));
+    cfg = testCfg(tmp);
+    await fs.mkdir(path.join(cfg.shareDir, 'objects'), { recursive: true });
+  });
+
+  afterEach(async () => {
+    closeDb();
+    await fs.rm(tmp, { recursive: true, force: true });
+  });
+
+  test('counts rows and drops deleted keys', async () => {
+    expect(objectCount(cfg)).toBe(0);
+    upsertObject(cfg, 'a.age', 1, new Date().toISOString());
+    upsertObject(cfg, 'b.age', 2, new Date().toISOString());
+    expect(objectCount(cfg)).toBe(2);
+    upsertObject(cfg, 'a.age', 3, new Date().toISOString());
+    expect(objectCount(cfg)).toBe(2);
+    await unlinkObject(cfg, 'a.age');
+    expect(objectCount(cfg)).toBe(1);
   });
 });

@@ -1,8 +1,21 @@
 import fs from 'fs/promises';
 import type { BroConfig } from './config';
-import { getObject, objectFilePath, unlinkObject, upsertObject, usedBytes } from './db';
+import {
+  MAX_BRO_OBJECTS,
+  getObject,
+  objectCount,
+  objectFilePath,
+  unlinkObject,
+  upsertObject,
+  usedBytes,
+} from './db';
+import { readCappedJson } from './json-limit';
+import { createSingleFlight } from './single-flight';
 import { BRO_OBJECT_HARD_CAP_BYTES, streamResponseToFile } from './stream';
 import { safeRemoteFetch, type RemoteRequestInit } from './remote';
+
+export const PEER_CONTROL_JSON_LIMIT = 4 * 1024 * 1024;
+const CONTROL_TIMEOUT_MS = 30_000;
 
 export type SyncStatus = {
   lastPingAt: string | null;
@@ -69,10 +82,16 @@ async function assertQuota(
   additional: number,
   replacingKey?: string
 ): Promise<void> {
+  const count = objectCount(cfg);
+  const replacing = replacingKey ? getObject(cfg, replacingKey) : null;
+  if (count - (replacing ? 1 : 0) >= MAX_BRO_OBJECTS) {
+    throw new Error(
+      `Object limit reached (${MAX_BRO_OBJECTS}); delete old objects before pulling more`
+    );
+  }
   // A re-pull (lost ACK, restart) replaces the existing object of the same key,
   // so only the net growth counts against the quota.
-  const replaced = replacingKey ? (getObject(cfg, replacingKey)?.size ?? 0) : 0;
-  const used = Math.max(0, usedBytes(cfg) - replaced);
+  const used = Math.max(0, usedBytes(cfg) - (replacing?.size ?? 0));
   if (cfg.quotaBytes > 0 && used + additional > cfg.quotaBytes) {
     throw new Error(
       `Quota exceeded: need ${additional} bytes, used ${used} of ${cfg.quotaBytes}`
@@ -82,8 +101,10 @@ async function assertQuota(
 
 /**
  * One sync pass: ping, pull staged objects, fulfill recalls.
+ * Serialized via createSingleFlight at the bottom of this file so timer ticks
+ * cannot overlap and double-write partial downloads.
  */
-export async function syncOnce(cfg: BroConfig): Promise<SyncStatus> {
+async function runSyncOnce(cfg: BroConfig): Promise<SyncStatus> {
   if (!cfg.hostBaseUrl || !cfg.outboundToken) {
     status.hostReachable = false;
     status.lastError = null;
@@ -91,7 +112,9 @@ export async function syncOnce(cfg: BroConfig): Promise<SyncStatus> {
   }
 
   try {
-    const ping = await hostFetch(cfg, '/api/peers/agent/ping');
+    const ping = await hostFetch(cfg, '/api/peers/agent/ping', {
+      signal: AbortSignal.timeout(CONTROL_TIMEOUT_MS),
+    });
     if (!ping.ok) {
       status.hostReachable = false;
       status.lastError = `Ping failed (${ping.status})`;
@@ -101,13 +124,15 @@ export async function syncOnce(cfg: BroConfig): Promise<SyncStatus> {
     status.lastPingAt = new Date().toISOString();
     status.lastError = null;
 
-    const workRes = await hostFetch(cfg, '/api/peers/agent/work');
+    const workRes = await hostFetch(cfg, '/api/peers/agent/work', {
+      signal: AbortSignal.timeout(CONTROL_TIMEOUT_MS),
+    });
     if (!workRes.ok) {
       status.lastError = `Work failed (${workRes.status})`;
       return getSyncStatus(cfg);
     }
 
-    const work = (await workRes.json()) as {
+    const work = (await readCappedJson(workRes, PEER_CONTROL_JSON_LIMIT)) as {
       pulls: Array<{ key: string; size: number }>;
       recalls: Array<{ id: string; objectKey: string }>;
       deletes?: Array<{ key: string }>;
@@ -141,6 +166,7 @@ export async function syncOnce(cfg: BroConfig): Promise<SyncStatus> {
         upsertObject(cfg, pull.key, downloaded.size, new Date().toISOString());
         const ackRes = await hostFetch(cfg, '/api/peers/agent/ack', {
           method: 'POST',
+          signal: AbortSignal.timeout(CONTROL_TIMEOUT_MS),
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             key: pull.key,
@@ -193,6 +219,7 @@ export async function syncOnce(cfg: BroConfig): Promise<SyncStatus> {
         await unlinkObject(cfg, del.key);
         const delRes = await hostFetch(cfg, '/api/peers/agent/ack', {
           method: 'POST',
+          signal: AbortSignal.timeout(CONTROL_TIMEOUT_MS),
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             key: del.key,
@@ -223,6 +250,9 @@ export async function syncOnce(cfg: BroConfig): Promise<SyncStatus> {
 
   return getSyncStatus(cfg);
 }
+
+/** Serialized sync pass (one at a time; overlapping ticks reuse the run). */
+export const syncOnce = createSingleFlight(runSyncOnce);
 
 export function startSyncLoop(cfg: BroConfig, getCfg: () => BroConfig): void {
   const tick = async () => {

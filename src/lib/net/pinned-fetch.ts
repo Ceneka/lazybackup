@@ -90,7 +90,7 @@ export async function pinnedFetch(
   rawUrl: string,
   policy: UrlGuardPolicy,
   init: PinnedRequestInit = {},
-  options: { lookup?: LookupFn } = {}
+  options: { lookup?: LookupFn; timeoutMs?: number } = {}
 ): Promise<Response> {
   const resolved = await resolveHttpUrlAddresses(
     rawUrl,
@@ -103,6 +103,10 @@ export async function pinnedFetch(
   const transport = url.protocol === 'https:' ? https : http;
   const headers = new Headers(init.headers);
   const lookup = createPinnedLookup(resolved.addresses);
+  // Socket-idle ceiling: a peer that accepts the connection and then goes
+  // silent must not hold a sync worker or a restore forever. Streaming
+  // transfers keep the socket busy, so legitimate large uploads still work.
+  const timeoutMs = options.timeoutMs ?? 60_000;
 
   return new Promise<Response>((resolve, reject) => {
     const request = transport.request(
@@ -136,6 +140,11 @@ export async function pinnedFetch(
       }
     );
     request.once('error', reject);
+    request.setTimeout(timeoutMs, () => {
+      request.destroy(
+        new Error(`Outbound request to ${url.host} timed out after ${timeoutMs}ms`)
+      );
+    });
     void sendBody(request, init.body).catch((error) => {
       request.destroy(error instanceof Error ? error : new Error(String(error)));
     });

@@ -1,5 +1,10 @@
 import { isSessionAuthorized } from '@/lib/auth';
 import {
+  CappedJsonError,
+  PEER_PAIR_JSON_LIMIT,
+  readCappedRequestJson,
+} from '@/lib/net/capped-json';
+import {
   consumeRecallArtifact,
   ensureRecall,
   waitForRecall,
@@ -32,7 +37,9 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const body = bodySchema.parse(await request.json());
+    const body = bodySchema.parse(
+      await readCappedRequestJson(request, PEER_PAIR_JSON_LIMIT)
+    );
     const peer = await db.query.peers.findFirst({ where: eq(peers.id, body.peerId) });
     if (!peer || peer.status !== 'active') {
       return NextResponse.json({ error: 'Peer not found' }, { status: 404 });
@@ -94,6 +101,9 @@ export async function POST(request: NextRequest) {
       { status: 202 }
     );
   } catch (error) {
+    if (error instanceof CappedJsonError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     if (error instanceof z.ZodError) {
       return NextResponse.json(
         { error: 'Validation error', details: error.issues },

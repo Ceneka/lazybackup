@@ -2,6 +2,10 @@ import { and, eq } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { db } from '@/lib/db';
 import { peerInvites, peers, settings } from '@/lib/db/schema';
+import {
+  PEER_PAIR_RESPONSE_JSON_LIMIT,
+  readCappedResponseJson,
+} from '@/lib/net/capped-json';
 import { peerUrlPolicy, validatePeerUrl } from '@/lib/net/url-guard';
 import { validatePeerUrlResolved } from '@/lib/net/url-guard-resolve';
 import { pinnedFetch } from '@/lib/net/pinned-fetch';
@@ -189,13 +193,18 @@ export async function acceptInvite(options: {
   });
 
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
+    const err = await readCappedResponseJson(res, PEER_PAIR_RESPONSE_JSON_LIMIT).catch(
+      () => ({})
+    );
     throw new Error(
       (err as { error?: string }).error || `Pairing failed (${res.status})`
     );
   }
 
-  const remote = (await res.json()) as {
+  const remote = (await readCappedResponseJson(
+    res,
+    PEER_PAIR_RESPONSE_JSON_LIMIT
+  )) as {
     peerId: string;
     label: string;
     baseUrl: string;
@@ -273,15 +282,17 @@ export async function completePairFromAcceptor(body: {
   if (!invite) {
     throw new Error(PAIRING_FAILED_MESSAGE);
   }
+  // Verify the secret before revealing anything about the invite state
+  // (expired vs missing) so this endpoint is not an invite oracle.
+  if (hashInviteSecret(body.secret) !== invite.secretHash) {
+    throw new Error(PAIRING_FAILED_MESSAGE);
+  }
   if (invite.expiresAt.getTime() < Date.now()) {
     await db
       .update(peerInvites)
       .set({ status: 'expired' })
       .where(eq(peerInvites.id, invite.id));
     throw new Error('Invite has expired. Ask your bro for a new one.');
-  }
-  if (hashInviteSecret(body.secret) !== invite.secretHash) {
-    throw new Error(PAIRING_FAILED_MESSAGE);
   }
   if (body.acceptor.quotaBytes !== invite.quotaBytes) {
     throw new Error(PAIRING_FAILED_MESSAGE);
