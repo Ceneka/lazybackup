@@ -1,5 +1,8 @@
 import * as age from 'age-encryption';
+import { createReadStream, createWriteStream } from 'fs';
 import fs from 'fs/promises';
+import { Readable } from 'stream';
+import { pipeline } from 'stream/promises';
 
 export type AgeKeyPair = {
   identity: string;
@@ -94,19 +97,29 @@ export async function encryptFileToPath(
 
 /**
  * Decrypt a local `.age` file to `outPath` using one or more identities.
+ * Streams both ways: restore artifacts can be much larger than memory.
+ * Plaintext is written owner-only (0600) — it is often a full database dump.
  */
 export async function decryptFileToPath(
   inputPath: string,
   outPath: string,
   identities: string | string[]
 ): Promise<{ bytesOut: number }> {
-  const ciphertext = await fs.readFile(inputPath);
   const decrypter = makeDecrypter(normalizeIdentities(identities));
-  const plain = await decrypter.decrypt(ciphertext);
-  const bytes =
-    typeof plain === 'string' ? Buffer.from(plain, 'utf8') : Buffer.from(plain as Uint8Array);
-  await fs.writeFile(outPath, bytes);
-  return { bytesOut: bytes.byteLength };
+  const inputWeb = Readable.toWeb(createReadStream(inputPath)) as ReadableStream<Uint8Array>;
+  const plainWeb = await decrypter.decrypt(inputWeb);
+  try {
+    await pipeline(
+      Readable.fromWeb(plainWeb as never),
+      createWriteStream(outPath, { mode: 0o600 })
+    );
+    await fs.chmod(outPath, 0o600);
+  } catch (error) {
+    await fs.unlink(outPath).catch(() => {});
+    throw error;
+  }
+  const stat = await fs.stat(outPath);
+  return { bytesOut: stat.size };
 }
 
 /** Encrypt UTF-8 text with an age passphrase; returns armored ciphertext. */

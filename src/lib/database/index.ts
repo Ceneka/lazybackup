@@ -349,7 +349,10 @@ export function buildRestoreDatabaseCommand(
     restorePart = clientArgs;
   }
 
-  return `${REMOTE_STANDARD_PATH} gzip -dc ${quotedIn} | ${restorePart}`;
+  // Verify the whole archive before the client sees a byte: `gzip -dc | client`
+  // reports only the client's exit status, so a truncated/corrupt dump would
+  // otherwise be restored partially and reported as success.
+  return `${REMOTE_STANDARD_PATH} gzip -t ${quotedIn} && gzip -dc ${quotedIn} | ${restorePart}`;
 }
 
 export function buildDatabaseTestCommand(
@@ -422,7 +425,16 @@ export function buildRestoreSqliteCommand(dbPath: string, archiveFilePath: strin
   assertValidSqlitePath(dbPath);
   const quotedDb = shellSingleQuote(dbPath.trim());
   const quotedIn = shellSingleQuote(archiveFilePath);
-  return `${REMOTE_STANDARD_PATH} mkdir -p "$(dirname -- ${quotedDb})" && gzip -dc ${quotedIn} > ${quotedDb}`;
+  const tempTemplate = shellSingleQuote(`${dbPath.trim()}.restore-XXXXXX`);
+  // Decompress next to the target and rename only on success. Writing the
+  // archive straight over the live file truncates it even when gzip fails
+  // halfway, destroying the database the restore was supposed to fix.
+  return [
+    `${REMOTE_STANDARD_PATH} mkdir -p "$(dirname -- ${quotedDb})"`,
+    `&& tmp=$(mktemp ${tempTemplate})`,
+    `&& { gzip -dc ${quotedIn} > "$tmp" && mv -f "$tmp" ${quotedDb}; ec=$?`,
+    `; [ "$ec" -eq 0 ] || rm -f "$tmp"; exit "$ec"; }`,
+  ].join(' ');
 }
 
 export function buildSqliteTestCommand(dbPath: string): string {
@@ -479,7 +491,15 @@ export function connectionFromConfig(config: {
   };
 }
 
-function isFailedExit(code: number | null | undefined): boolean {
+function isFailedExit(result: {
+  code?: number | null;
+  signal?: string | null;
+}): boolean {
+  // node-ssh reports code=null when the remote command is killed; a signal
+  // means the command did not finish, so the operation must not be called a
+  // success (a SIGKILLed psql leaves a partially restored database).
+  if (result.signal) return true;
+  const code = result.code;
   return code !== 0 && code !== null && code !== undefined;
 }
 
@@ -708,7 +728,7 @@ export async function packDatabaseDumpRemote(
   const mktemp = await ssh.execCommand(
     `${REMOTE_STANDARD_PATH} mktemp -d /tmp/lazybackup-db-XXXXXX`
   );
-  if (isFailedExit(mktemp.code) || !mktemp.stdout.trim()) {
+  if (isFailedExit(mktemp) || !mktemp.stdout.trim()) {
     throw new Error(`Failed to create remote temp directory: ${mktemp.stderr || mktemp.stdout}`);
   }
   const tmpDir = mktemp.stdout.trim();
@@ -722,7 +742,7 @@ export async function packDatabaseDumpRemote(
             const cmd = buildPackDatabaseCommand(conn, archivePath, { passwordFile });
             return ssh.execCommand(cmd);
           });
-    if (isFailedExit(packResult.code)) {
+    if (isFailedExit(packResult)) {
       throw new Error((packResult.stderr || packResult.stdout).trim() || 'dump failed');
     }
     return {
@@ -797,7 +817,7 @@ export async function restoreDatabaseRemote(
           const cmd = buildRestoreDatabaseCommand(conn, remoteArchivePath, { passwordFile });
           return ssh.execCommand(cmd);
         });
-  if (isFailedExit(result.code)) {
+  if (isFailedExit(result)) {
     throw new Error(
       `Failed to restore database ${conn.database}: ${(result.stderr || result.stdout).trim()}`
     );
@@ -837,7 +857,7 @@ export async function testDatabaseConnectionRemote(
           const cmd = buildDatabaseTestCommand(conn, { passwordFile });
           return ssh.execCommand(cmd);
         });
-  if (isFailedExit(result.code)) {
+  if (isFailedExit(result)) {
     throw new Error(`Database connection failed: ${(result.stderr || result.stdout).trim()}`);
   }
   return { ok: true, stdout: (result.stdout || '').trim() };

@@ -20,6 +20,15 @@ export function isValidDockerVolumeName(name: string): boolean {
   return DOCKER_VOLUME_NAME_RE.test(name);
 }
 
+/** A command is failed on non-zero exit **or** when it was killed by a signal. */
+function commandFailed(result: {
+  code?: number | null;
+  signal?: string | null;
+}): boolean {
+  if (result.signal) return true;
+  return result.code !== 0 && result.code !== null && result.code !== undefined;
+}
+
 export function assertValidDockerVolumeName(name: string): void {
   if (!isValidDockerVolumeName(name)) {
     throw new Error(
@@ -114,7 +123,7 @@ export function buildRestoreDockerVolumeCommand(
 
 export async function assertDockerAvailable(ssh: NodeSSH): Promise<void> {
   const result = await ssh.execCommand(`${REMOTE_STANDARD_PATH} docker info`);
-  if (result.code !== 0 && result.code !== null && result.code !== undefined) {
+  if (commandFailed(result)) {
     const detail = (result.stderr || result.stdout || 'docker info failed').trim();
     throw new Error(
       `Docker is not available on the remote host (is the daemon running and is this user in the docker group?). ${detail}`
@@ -127,7 +136,7 @@ export async function listDockerVolumes(ssh: NodeSSH): Promise<string[]> {
   const result = await ssh.execCommand(
     `${REMOTE_STANDARD_PATH} docker volume ls --format '{{.Name}}'`
   );
-  if (result.code !== 0 && result.code !== null && result.code !== undefined) {
+  if (commandFailed(result)) {
     const detail = (result.stderr || result.stdout || 'docker volume ls failed').trim();
     throw new Error(`Failed to list Docker volumes: ${detail}`);
   }
@@ -174,7 +183,7 @@ export async function packDockerVolume(
     excludePatterns
   );
   const packResult = await ssh.execCommand(packCmd);
-  if (packResult.code !== 0 && packResult.code !== null && packResult.code !== undefined) {
+  if (commandFailed(packResult)) {
     await ssh.execCommand(`rm -rf ${shellSingleQuote(remoteTmpDir)}`).catch(() => {});
     throw new Error(
       `Failed to pack Docker volume ${volumeName}: ${(packResult.stderr || packResult.stdout).trim()}`
@@ -210,7 +219,7 @@ export async function restoreDockerVolume(
 
   const restoreCmd = buildRestoreDockerVolumeCommand(volumeName, remoteTarPath, remoteTmpDir);
   const result = await ssh.execCommand(restoreCmd);
-  if (result.code !== 0 && result.code !== null && result.code !== undefined) {
+  if (commandFailed(result)) {
     throw new Error(
       `Failed to restore Docker volume ${volumeName}: ${(result.stderr || result.stdout).trim()}`
     );
