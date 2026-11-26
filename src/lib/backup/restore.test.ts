@@ -153,7 +153,7 @@ describe('resolveLocalRestoreArtifact', () => {
       await resolveLocalRestoreArtifact({
         artifactPath: 'peer://peer1/objects/foo.tar.gz',
         destinationKind: 'peer',
-        destinationPeer: { id: 'peer1', transport: 'mailbox' } as never,
+        destinationPeer: { id: 'peer1', name: 'bro', status: 'active', transport: 'mailbox' } as never,
         decrypt: false,
       });
       throw new Error('expected PeerRecallPendingError');
@@ -163,6 +163,22 @@ describe('resolveLocalRestoreArtifact', () => {
       expect((error as Error).message).toBe(PEER_RECALL_WAITING_MESSAGE);
       expect(waited).toBe(false);
     }
+  });
+
+  test('rejects a revoked peer when neither staging nor a ready recall has the bytes', async () => {
+    await expect(
+      resolveLocalRestoreArtifact({
+        artifactPath: 'peer://peer1/foo.tar.gz',
+        destinationKind: 'peer',
+        destinationPeer: {
+          id: 'peer1',
+          name: 'bro',
+          status: 'revoked',
+          transport: 'mailbox',
+        } as never,
+        decrypt: false,
+      })
+    ).rejects.toThrow(/revoked; re-pair/i);
   });
 
   test('mailbox peer restore fails clearly when retention already removed the blob', async () => {
@@ -178,7 +194,7 @@ describe('resolveLocalRestoreArtifact', () => {
       resolveLocalRestoreArtifact({
         artifactPath: 'peer://peer1/foo.tar.gz.age',
         destinationKind: 'peer',
-        destinationPeer: { id: 'peer1', transport: 'mailbox' } as never,
+        destinationPeer: { id: 'peer1', name: 'bro', status: 'active', transport: 'mailbox' } as never,
         historyId: 'h-removed',
         decrypt: false,
       })

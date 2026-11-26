@@ -660,6 +660,13 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
     if (destinationKind === 'peer' && !config.destinationPeer) {
       throw new Error('Destination bro peer is missing from backup configuration');
     }
+    if (destinationKind === 'peer' && config.destinationPeer) {
+      if (config.destinationPeer.status !== 'active') {
+        throw new Error(
+          `Destination bro peer "${config.destinationPeer.name}" is ${config.destinationPeer.status}; re-pair before backing up to it`
+        );
+      }
+    }
     if (sourceType === 'docker_volume' && sourceKind !== 'server' && sourceKind !== 'local') {
       throw new Error('Docker volume backups require this host or a source server');
     }
@@ -1936,6 +1943,8 @@ export async function resolveLocalRestoreArtifact(options: {
     const { assertPeerArtifactRestorable } = await import('@/lib/peer/retention');
     await assertPeerArtifactRestorable(options.artifactPath, options.historyId ?? null);
     const peer = options.destinationPeer;
+    const revokedError = () =>
+      new Error(`Peer "${peer.name}" is ${peer.status}; re-pair before restoring from it`);
     const transport = peer.transport === 'direct' ? 'direct' : 'mailbox';
     const openPeerTemp = async () => {
       tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'lazybackup-restore-'));
@@ -1947,6 +1956,8 @@ export async function resolveLocalRestoreArtifact(options: {
         '@/lib/peer/staging'
       );
       if (await stagedObjectExists(peerId, objectKey)) {
+        // Staged ciphertext is still on this host — restore works even if the peer
+        // was revoked after the backup ran.
         localPath = await openPeerTemp();
         await fs.copyFile(peerStagingObjectPath(peerId, objectKey), localPath);
       } else {
@@ -1964,11 +1975,16 @@ export async function resolveLocalRestoreArtifact(options: {
         if (recall.status === 'ready') {
           localPath = await openPeerTemp();
           await consumeRecallArtifact(recall.id, peerId, localPath);
+        } else if (peer.status !== 'active') {
+          throw revokedError();
         } else {
           throw new PeerRecallPendingError(recall.id);
         }
       }
     } else {
+      if (peer.status !== 'active') {
+        throw revokedError();
+      }
       localPath = await openPeerTemp();
       await downloadPeerObject(peer, objectKey, localPath);
     }

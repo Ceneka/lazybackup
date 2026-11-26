@@ -152,6 +152,8 @@ export async function POST(
       message.includes('Only successful') ||
       message.includes('only supported') ||
       message.includes('only for path') ||
+      message.includes('Refusing to restore') ||
+      message.includes('re-pair before restoring') ||
       message.includes('artifact removed by retention')
         ? 400
         : 500;

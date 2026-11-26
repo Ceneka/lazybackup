@@ -152,6 +152,29 @@ describe('executeBackup', () => {
     expect(updateFailure).toHaveBeenCalled();
   });
 
+  test('peer destination fails fast when the peer is revoked', async () => {
+    const config = baseLocalConfig({
+      sourcePath: path.join(tmpRoot, 'src'),
+      destinationPath: 'prefix',
+      destinationKind: 'peer',
+      destinationPeer: {
+        id: 'peer-1',
+        name: 'bro',
+        status: 'revoked',
+        transport: 'mailbox',
+        remoteBaseUrl: '',
+        quotaBytes: 1024,
+        usedBytes: 0,
+      } as never,
+    });
+
+    await expect(executeBackup(config, 'hist-revoked')).rejects.toThrow(
+      /revoked; re-pair/i
+    );
+    expect(updateFailure).toHaveBeenCalled();
+    expect(updateSuccess).not.toHaveBeenCalled();
+  });
+
   test('instance meta-backup to S3 without passphrase fails closed', async () => {
     const config = baseLocalConfig({
       sourcePath: 'instance',
