@@ -22,6 +22,12 @@ describe('sshUserHost', () => {
     expect(() => sshUserHost('u\n', 'host')).toThrow();
     expect(() => sshUserHost('u', 'host\n')).toThrow();
   });
+
+  test('rejects option-like usernames', () => {
+    expect(() => sshUserHost('-oProxyCommand=x', 'host')).toThrow(
+      /must not start with "-"/
+    );
+  });
 });
 
 describe('buildRsyncArgv', () => {
@@ -62,6 +68,21 @@ describe('buildRsyncArgv', () => {
     expect(() =>
       buildRsyncArgv({ sourcePath: '/src\n/evil', destinationPath: '/dest' })
     ).toThrow(/invalid characters/i);
+  });
+
+  test('rejects option-like positional paths', () => {
+    expect(() =>
+      buildRsyncArgv({
+        sourcePath: '--rsync-path=touch /tmp/pwned',
+        destinationPath: '/dest',
+      })
+    ).toThrow(/must not start with "-"/);
+    expect(() =>
+      buildRsyncArgv({
+        sourcePath: '/src',
+        destinationPath: '-e/tmp/pwned',
+      })
+    ).toThrow(/must not start with "-"/);
   });
 });
 
