@@ -4,6 +4,23 @@ const buckets = new Map<string, Bucket>();
 
 const DEFAULT_WINDOW_MS = 10 * 60 * 1000;
 const DEFAULT_MAX = 10;
+/** Keep the in-memory map from growing without bound under spoofed keys. */
+const PRUNE_THRESHOLD = 5_000;
+const MAX_BUCKETS = 10_000;
+
+function pruneExpired(now: number): void {
+  if (buckets.size < PRUNE_THRESHOLD) return;
+  for (const [key, bucket] of buckets) {
+    if (now >= bucket.resetAt) buckets.delete(key);
+  }
+  // Spoofed keys can all be live inside one window; evict the oldest so
+  // memory stays bounded. Rate limiting is best-effort, not an auth boundary.
+  while (buckets.size >= MAX_BUCKETS) {
+    const oldest = buckets.keys().next().value as string | undefined;
+    if (oldest === undefined) break;
+    buckets.delete(oldest);
+  }
+}
 
 /**
  * In-memory per-key throttle. Returns true if the attempt is allowed.
@@ -16,6 +33,7 @@ export function consumeIpRateLimit(
   const now = options?.now ?? Date.now();
   const windowMs = options?.windowMs ?? DEFAULT_WINDOW_MS;
   const max = options?.max ?? DEFAULT_MAX;
+  pruneExpired(now);
   const bucket = buckets.get(key);
 
   if (!bucket || now >= bucket.resetAt) {
@@ -30,4 +48,9 @@ export function consumeIpRateLimit(
 
 export function resetIpRateLimitForTests(): void {
   buckets.clear();
+}
+
+/** Test-only visibility into map size (unbounded-map regression). */
+export function ipRateLimitBucketCountForTests(): number {
+  return buckets.size;
 }

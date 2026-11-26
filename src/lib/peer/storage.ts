@@ -29,24 +29,35 @@ export function peerObjectPath(peerId: string, objectKey: string): string {
   return path.join(peerDataDir(peerId), safe);
 }
 
-async function dirSize(dir: string): Promise<number> {
-  let total = 0;
+/** Upper bound on files/inodes a single peer may create in its namespace. */
+export const MAX_PEER_OBJECTS = 20_000;
+
+async function dirStats(dir: string): Promise<{ bytes: number; files: number }> {
+  let bytes = 0;
+  let files = 0;
   let entries: Awaited<ReturnType<typeof fs.readdir>>;
   try {
     entries = await fs.readdir(dir, { withFileTypes: true });
   } catch {
-    return 0;
+    return { bytes: 0, files: 0 };
   }
   for (const entry of entries) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      total += await dirSize(full);
+      const nested = await dirStats(full);
+      bytes += nested.bytes;
+      files += nested.files;
     } else if (entry.isFile()) {
       const st = await fs.stat(full);
-      total += st.size;
+      bytes += st.size;
+      files += 1;
     }
   }
-  return total;
+  return { bytes, files };
+}
+
+async function dirSize(dir: string): Promise<number> {
+  return (await dirStats(dir)).bytes;
 }
 
 export async function recalculatePeerUsedBytes(peerId: string): Promise<number> {
@@ -76,7 +87,13 @@ export async function assertPeerQuota(
   additionalBytes: number,
   replacingObjectKey?: string
 ): Promise<void> {
-  let used = await dirSize(peerDataDir(peerId));
+  const usage = await dirStats(peerDataDir(peerId));
+  if (usage.files >= MAX_PEER_OBJECTS) {
+    throw new Error(
+      `Peer object limit reached (${MAX_PEER_OBJECTS} files); delete old objects first`
+    );
+  }
+  let used = usage.bytes;
   if (replacingObjectKey) {
     used = Math.max(0, used - (await existingObjectSize(peerId, replacingObjectKey)));
   }

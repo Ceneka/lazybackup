@@ -106,6 +106,17 @@ export async function moveCappedTempToDest(
   destPath: string
 ): Promise<void> {
   await fs.mkdir(path.dirname(destPath), { recursive: true });
+  // Same-filesystem moves are atomic and avoid holding two copies of a large
+  // peer upload (temp + destination) at once. Fall back for /tmp on another FS.
+  try {
+    await fs.rename(tempPath, destPath);
+    return;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code !== 'EXDEV' && code !== 'EEXIST' && code !== 'EPERM' && code !== 'ENOTEMPTY') {
+      throw error;
+    }
+  }
   await fs.copyFile(tempPath, destPath);
 }
 

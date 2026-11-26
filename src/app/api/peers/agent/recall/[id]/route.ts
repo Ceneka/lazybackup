@@ -1,8 +1,8 @@
 import { touchPeerSeen, verifyPeerBearer } from '@/lib/peer/pairing';
 import { getRecall, ingestRecallUpload, markRecallUploading } from '@/lib/peer/recall';
+import { publicUploadErrorMessage } from '@/lib/peer/upload-errors';
 import {
   assertDeclaredUploadSize,
-  PeerUploadLimitError,
 } from '@/lib/peer/upload-limit';
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -40,10 +40,7 @@ export async function PUT(request: NextRequest, context: Ctx) {
     return NextResponse.json({ ok: true, recallId: id, size: result.size, sha256: result.sha256 });
   } catch (error) {
     console.error('Recall upload failed:', error);
-    const status = error instanceof PeerUploadLimitError ? error.status : 400;
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Recall upload failed' },
-      { status }
-    );
+    const { status, message } = publicUploadErrorMessage(error);
+    return NextResponse.json({ error: message }, { status });
   }
 }
