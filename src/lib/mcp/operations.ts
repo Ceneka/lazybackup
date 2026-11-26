@@ -12,6 +12,8 @@ import { writeAuditLog, type AuditActor } from '@/lib/auth/audit'
 import { attachLastValidation, validateBackupConfig } from '@/lib/backup/validate'
 import { loadOperatorStatus } from '@/lib/status/load-status'
 import { PeerRecallPendingError, peerRecallWaitingResponse } from '@/lib/peer/recall'
+import { deliveryStateForHistoryRow } from '@/lib/peer/delivery-state'
+import { publicPeerColumns } from '@/lib/api/history-query'
 import { redactBackup, redactS3, redactServer } from '@/lib/api/redact'
 import { db } from '@/lib/db'
 import {
@@ -372,7 +374,16 @@ export async function listHistoryOp(
     where: conditions.length ? and(...conditions) : undefined,
     with: {
       backupConfig: {
-        columns: { id: true, name: true, sourceType: true },
+        columns: {
+          id: true,
+          name: true,
+          sourceType: true,
+          destinationKind: true,
+          destinationPeerId: true,
+        },
+        with: {
+          destinationPeer: { columns: publicPeerColumns },
+        },
       },
     },
     orderBy: [desc(backupHistory.startTime)],
@@ -382,6 +393,7 @@ export async function listHistoryOp(
   return jsonResult(
     rows.map((row) => ({
       ...row,
+      deliveryState: deliveryStateForHistoryRow(row),
       logOutput: truncateLog(row.logOutput),
     }))
   )
@@ -397,6 +409,7 @@ export async function getHistoryOp(_ctx: McpOpsContext, id: string) {
   if (!row) return errorResult(`History entry not found: ${id}`)
   return jsonResult({
     ...row,
+    deliveryState: deliveryStateForHistoryRow(row),
     logOutput: truncateLog(row.logOutput),
     backupConfig: row.backupConfig
       ? redactBackupForMcp(row.backupConfig as unknown as Record<string, unknown>)

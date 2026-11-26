@@ -3,13 +3,14 @@ import fs from 'fs/promises';
 import { createReadStream } from 'fs';
 import { db } from '@/lib/db';
 import { peers } from '@/lib/db/schema';
+import { APP_VERSION } from '@/lib/app-version';
 import {
   PEER_CONTROL_JSON_LIMIT,
   readCappedResponseJson,
 } from '@/lib/net/capped-json';
 import { pinnedFetch, type PinnedRequestInit } from '@/lib/net/pinned-fetch';
 import { peerUrlPolicy } from '@/lib/net/url-guard';
-import { ingestPeerObjectUpload } from './storage';
+import { ingestPeerObjectUpload, peerStorageBytes } from './storage';
 import {
   assertDeclaredUploadSize,
   PEER_UPLOAD_HARD_CAP_BYTES,
@@ -47,6 +48,42 @@ async function peerFetch(
   });
 }
 
+/** C3 status report: what this instance stores for the peer + last sync error. */
+async function sendPeerStatusReport(
+  peer: PeerRow,
+  report: {
+    pendingPulls?: number;
+    pendingRecalls?: number;
+    lastSyncAt?: string | null;
+    lastError?: string | null;
+  }
+): Promise<void> {
+  try {
+    const res = await peerFetch(peer, '/api/peers/agent/ping', {
+      method: 'POST',
+      signal: AbortSignal.timeout(CONTROL_TIMEOUT_MS),
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        usedBytes: await peerStorageBytes(peer.id),
+        quotaBytes: peer.quotaBytes,
+        pendingPulls: report.pendingPulls ?? 0,
+        pendingRecalls: report.pendingRecalls ?? 0,
+        lastSyncAt: report.lastSyncAt ?? null,
+        lastError: report.lastError ?? null,
+        appVersion: APP_VERSION,
+      }),
+    });
+    if (!res.ok && res.status !== 404 && res.status !== 405) {
+      console.warn(`[peer-sync] status report failed for ${peer.name}: ${res.status}`);
+    }
+  } catch (err) {
+    console.warn(
+      `[peer-sync] status report for ${peer.name}:`,
+      err instanceof Error ? err.message : err
+    );
+  }
+}
+
 /**
  * Pull mailbox work from a remote LB peer (LB↔LB).
  * Skips LazyBro clients (empty remoteBaseUrl).
@@ -66,6 +103,7 @@ export async function syncPeerOnce(peer: PeerRow): Promise<void> {
   });
   if (!workRes.ok) {
     console.warn(`[peer-sync] work failed for ${peer.name}: ${workRes.status}`);
+    await sendPeerStatusReport(peer, { lastError: `Work failed (${workRes.status})` });
     return;
   }
 
@@ -78,6 +116,8 @@ export async function syncPeerOnce(peer: PeerRow): Promise<void> {
     deletes?: Array<{ key: string }>;
   };
 
+  let lastError: string | null = null;
+
   for (const pull of work.pulls || []) {
     // A single bad/oversized staged object must not abort recalls (restores)
     // or retention deletes for the rest of this peer's mailbox.
@@ -88,6 +128,7 @@ export async function syncPeerOnce(peer: PeerRow): Promise<void> {
       );
       if (!getRes.ok) {
         console.warn(`[peer-sync] pending get failed ${pull.key}: ${getRes.status}`);
+        lastError = `Pull ${pull.key}: HTTP ${getRes.status}`;
         continue;
       }
       const declaredBytes = assertDeclaredUploadSize({
@@ -118,12 +159,14 @@ export async function syncPeerOnce(peer: PeerRow): Promise<void> {
       });
       if (!ackRes.ok) {
         console.warn(`[peer-sync] ack failed ${pull.key}: ${ackRes.status}`);
+        lastError = `ACK ${pull.key}: HTTP ${ackRes.status}`;
       }
     } catch (err) {
       console.warn(
         `[peer-sync] pull ${pull.key} failed:`,
         err instanceof Error ? err.message : err
       );
+      lastError = `Pull ${pull.key}: ${err instanceof Error ? err.message : String(err)}`;
     }
   }
 
@@ -180,6 +223,13 @@ export async function syncPeerOnce(peer: PeerRow): Promise<void> {
       );
     }
   }
+
+  await sendPeerStatusReport(peer, {
+    pendingPulls: 0,
+    pendingRecalls: 0,
+    lastSyncAt: new Date().toISOString(),
+    lastError,
+  });
 }
 
 export async function runPeerSyncPass(): Promise<void> {

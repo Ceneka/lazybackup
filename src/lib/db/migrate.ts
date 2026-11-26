@@ -495,6 +495,23 @@ export async function runMigration() {
       );
     `);
 
+    // Bro Space peer status report (C3): peer-reported usage + last delivery error.
+    const peerReportInfo = await db.run(sql`PRAGMA table_info(peers)`);
+    const peerReportCols = peerReportInfo.rows.map((row: any) => row.name as string);
+    const peerReportColumns: Array<[string, string]> = [
+      ['remote_used_bytes', 'INTEGER'],
+      ['remote_quota_bytes', 'INTEGER'],
+      ['remote_last_error', 'TEXT'],
+      ['remote_last_sync_at', 'INTEGER'],
+      ['remote_app_version', 'TEXT'],
+      ['remote_reported_at', 'INTEGER'],
+    ];
+    for (const [name, type] of peerReportColumns) {
+      if (!peerReportCols.includes(name)) {
+        await db.run(sql.raw(`ALTER TABLE peers ADD COLUMN ${name} ${type}`));
+      }
+    }
+
     // Migrate legacy settings ageIdentity/ageRecipient → age_keys vault
     const legacyIdentity = await db.run(
       sql`SELECT id, value FROM settings WHERE key = 'ageIdentity' LIMIT 1`

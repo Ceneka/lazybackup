@@ -60,6 +60,11 @@ async function dirSize(dir: string): Promise<number> {
   return (await dirStats(dir)).bytes;
 }
 
+/** Bytes this instance currently stores on behalf of a peer (read-only). */
+export async function peerStorageBytes(peerId: string): Promise<number> {
+  return dirSize(peerDataDir(peerId));
+}
+
 export async function recalculatePeerUsedBytes(peerId: string): Promise<number> {
   const used = await dirSize(peerDataDir(peerId));
   await db

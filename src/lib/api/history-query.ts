@@ -28,6 +28,21 @@ const publicGitRepoColumns = {
   url: true,
 } as const;
 
+/** Bro destination info for delivery state; never tokens or hashes. */
+export const publicPeerColumns = {
+  id: true,
+  name: true,
+  remoteBaseUrl: true,
+  status: true,
+  lastSeenAt: true,
+  remoteUsedBytes: true,
+  remoteQuotaBytes: true,
+  remoteLastError: true,
+  remoteLastSyncAt: true,
+  remoteAppVersion: true,
+  remoteReportedAt: true,
+} as const;
+
 export const historyBackupConfigWith = {
   columns: {
     dbPassword: false,
@@ -39,5 +54,6 @@ export const historyBackupConfigWith = {
     sourceS3Profile: { columns: publicS3Columns },
     destinationS3Profile: { columns: publicS3Columns },
     sourceGitRepo: { columns: publicGitRepoColumns },
+    destinationPeer: { columns: publicPeerColumns },
   },
 } as const;

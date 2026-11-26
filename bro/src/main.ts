@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import pkg from '../package.json';
 import {
   disableAutostart,
   enableAutostart,
@@ -71,6 +72,7 @@ const server = (() => {
 
         if (req.method === 'GET' && url.pathname === '/api/status') {
           return json({
+            version: pkg.version,
             config: publicConfig(cfg),
             sync: getSyncStatus(cfg),
             objects: listObjects(cfg),

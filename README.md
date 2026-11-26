@@ -110,7 +110,7 @@ Set `DATABASE_URL` if you want a custom SQLite path (default: `file:./data.db`).
 - **Path restore** — One-click restore of path trees from History (local / S3 / Bro artifacts) back to the source path, SSH host, or S3 prefix
 - **Validate before run** — Probe SSH/S3/paths/DB without transferring (backup detail → Validate); last result is stored with a timestamp so you can see status without re-running
 - **Failure webhooks** — Customizable HTTPS webhook on backup failure (method, headers, `{{tag}}` body/URL templates; Discord / Telegram / Kuma / ntfy / Slack presets)
-- **Success pings** — Optional Healthchecks.io / Uptime Kuma-style GET (or POST) when a backup succeeds
+- **Success pings** — Optional Healthchecks.io / Uptime Kuma-style GET (or POST) when a backup is actually delivered (Bro Space: after your friend confirms it stored it)
 - **Optional app password** — Single-operator lock (set on first run or later in Settings); session cookie lasts 30 days
 - **MCP / API tokens** — Let Cursor, Claude, or other agents manage backups via Streamable HTTP MCP at `/mcp` (Settings → API / MCP)
 - **Encryption** — Age vault (active / retired / compromised keys), recovery recipients, passphrase-wrapped export (Settings → Encryption); works with local, server, and S3 destinations
@@ -216,6 +216,7 @@ Also under **Settings → General**, optionally configure a **success ping** (He
 - Same URL rules and optional `{{tags}}` (`{{event}}`, `{{backupName}}`, `{{configId}}`, `{{historyId}}`, `{{endedAt}}`)
 - Presets — Healthchecks.io, Uptime Kuma (up), Default JSON (POST)
 - Empty URL disables pings; failures never fail the backup (fire-and-forget)
+- For **Bro Space** destinations, the ping is deferred until the friend's LazyBro confirms it stored the backup (verified ACK). A backup that is only staged is `waiting`, not delivered; an offline friend is soft status, never a failure webhook.
 - Use **Send test ping** to verify
 
 POST/PUT with an empty body sends `{"event":"backup.succeeded",…}`.
