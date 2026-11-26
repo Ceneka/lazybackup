@@ -33,4 +33,16 @@ describe('peer tokens', () => {
     expect(decoded.u).toBe('https://example.com');
     expect(hashInviteSecret('secret')).toHaveLength(64);
   });
+
+  test('malformed invite payloads never surface a raw JSON parse error', () => {
+    const broken = `lb1.${Buffer.from('{"v":1,"u":', 'utf8').toString('base64url')}`;
+    expect(() => decodeInvitePayload(broken)).toThrow(/incomplete or corrupted/i);
+    expect(() => decodeInvitePayload(broken)).not.toThrow(/JSON|Unexpected token/i);
+
+    const wrongTypes = `lb1.${Buffer.from(JSON.stringify({ v: 1, u: '', c: 'X', s: 'y', q: 1 }), 'utf8').toString('base64url')}`;
+    expect(() => decodeInvitePayload(wrongTypes)).toThrow(/incomplete or corrupted/i);
+
+    const notObject = `lb1.${Buffer.from('[]', 'utf8').toString('base64url')}`;
+    expect(() => decodeInvitePayload(notObject)).toThrow(/incomplete or corrupted/i);
+  });
 });
