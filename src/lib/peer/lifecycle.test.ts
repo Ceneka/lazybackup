@@ -4,6 +4,15 @@ import { drizzle } from 'drizzle-orm/libsql';
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
+import {
+  createPinnedLookup as realCreatePinnedLookup,
+  pinnedFetch as realPinnedFetch,
+} from '@/lib/net/pinned-fetch';
+import {
+  resolveHttpUrlAddresses as realResolveHttpUrlAddresses,
+  validateHttpUrlResolved as realValidateHttpUrlResolved,
+  validatePeerUrlResolved as realValidatePeerUrlResolved,
+} from '@/lib/net/url-guard-resolve';
 import { hashInviteSecret } from './tokens';
 
 // Bun module mocks are process-wide; clear any mock left by an earlier test file.
@@ -24,6 +33,8 @@ let pairError: Error | null = null;
 mock.module('@/lib/db', () => ({ db: testDb }));
 mock.module('@/lib/net/url-guard-resolve', () => ({
   validatePeerUrlResolved: async (url: string) => ({ ok: true, url }),
+  validateHttpUrlResolved: realValidateHttpUrlResolved,
+  resolveHttpUrlAddresses: realResolveHttpUrlAddresses,
 }));
 mock.module('@/lib/net/pinned-fetch', () => ({
   pinnedFetch: async (url: string, _policy: unknown, init?: { body?: string }) => {
@@ -32,6 +43,7 @@ mock.module('@/lib/net/pinned-fetch', () => ({
     if (!pairResponse) throw new Error('no pair response configured');
     return Response.json(pairResponse);
   },
+  createPinnedLookup: realCreatePinnedLookup,
 }));
 
 const { acceptInvite, completePairFromAcceptor, removePeer, renamePeer } = await import(
@@ -80,6 +92,15 @@ await client.execute(`
     destination_peer_id TEXT,
     enabled INTEGER NOT NULL DEFAULT 1,
     updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+  )
+`);
+await client.execute(`
+  CREATE TABLE backup_history (
+    id TEXT PRIMARY KEY NOT NULL,
+    artifact_path TEXT,
+    artifact_removed INTEGER NOT NULL DEFAULT 0,
+    artifact_removed_reason TEXT,
+    mailbox_pending INTEGER NOT NULL DEFAULT 0
   )
 `);
 
@@ -141,6 +162,7 @@ beforeEach(async () => {
     'peer_recalls',
     'peer_deletes',
     'backup_configs',
+    'backup_history',
   ]) {
     await client.execute(`DELETE FROM ${table}`);
   }
@@ -153,12 +175,17 @@ afterAll(async () => {
   client.close();
   await fs.rm(tmp, { recursive: true, force: true });
   // Bun module mocks are process-wide: put the real modules back for later files.
-  const freshDb = await import(`@/lib/db?real=${Date.now()}`);
+  const freshDb = await import(`../db/index.ts?real=${Date.now()}`);
   mock.module('@/lib/db', () => freshDb);
-  const freshPinned = await import(`@/lib/net/pinned-fetch?real=${Date.now()}`);
-  mock.module('@/lib/net/pinned-fetch', () => freshPinned);
-  const freshGuard = await import(`@/lib/net/url-guard-resolve?real=${Date.now()}`);
-  mock.module('@/lib/net/url-guard-resolve', () => freshGuard);
+  mock.module('@/lib/net/url-guard-resolve', () => ({
+    validateHttpUrlResolved: realValidateHttpUrlResolved,
+    resolveHttpUrlAddresses: realResolveHttpUrlAddresses,
+    validatePeerUrlResolved: realValidatePeerUrlResolved,
+  }));
+  mock.module('@/lib/net/pinned-fetch', () => ({
+    pinnedFetch: realPinnedFetch,
+    createPinnedLookup: realCreatePinnedLookup,
+  }));
 });
 
 describe('acceptInvite', () => {
@@ -333,6 +360,9 @@ describe('removePeer', () => {
     );
     await client.execute(`INSERT INTO peer_recalls (peer_id) VALUES ('peer_old')`);
     await client.execute(`INSERT INTO peer_deletes (peer_id) VALUES ('peer_old')`);
+    await client.execute(
+      `INSERT INTO backup_history (id, artifact_path) VALUES ('h-old', 'peer://peer_old/old.age')`
+    );
 
     const stagedFile = path.join(tmp, 'peers-staging', 'peer_old', 'a.age');
     const inboundFile = path.join(tmp, 'peers', 'peer_old', 'b.age');
@@ -359,6 +389,13 @@ describe('removePeer', () => {
     expect(recalls.rows).toHaveLength(0);
     const deletes = await client.execute('SELECT * FROM peer_deletes');
     expect(deletes.rows).toHaveLength(0);
+    const history = await client.execute(
+      "SELECT artifact_removed, artifact_removed_reason FROM backup_history WHERE id = 'h-old'"
+    );
+    expect(history.rows[0]?.artifact_removed).toBe(1);
+    expect(String(history.rows[0]?.artifact_removed_reason)).toContain(
+      'removed from Bro Space'
+    );
     expect(await fs.stat(path.join(tmp, 'peers-staging', 'peer_old')).catch(() => null)).toBeNull();
     expect(await fs.stat(path.join(tmp, 'peers', 'peer_old')).catch(() => null)).toBeNull();
     expect(await fs.stat(path.join(tmp, 'peers-recall', 'peer_old')).catch(() => null)).toBeNull();

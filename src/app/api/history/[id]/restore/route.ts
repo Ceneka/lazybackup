@@ -176,7 +176,8 @@ export async function POST(
       message.includes('Refusing to restore') ||
       message.includes('re-pair before restoring') ||
       message.includes('artifact removed by retention') ||
-      message.includes('replaced by a newer run')
+      message.includes('replaced by a newer run') ||
+      message.includes('removed from Bro Space')
         ? 400
         : 500;
 

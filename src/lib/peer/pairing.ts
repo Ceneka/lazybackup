@@ -1,8 +1,9 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, like } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { db } from '@/lib/db';
 import {
   backupConfigs,
+  backupHistory,
   peerDeletes,
   peerInvites,
   peerRecalls,
@@ -225,6 +226,18 @@ export async function removePeer(peerId: string): Promise<RemovePeerResult | nul
     freedBytes += await dirBytes(dir);
     await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
   }
+
+  // Artifacts of a removed peer can never be recalled again: mark their history
+  // rows so restore fails with a clear reason instead of a missing-peer error.
+  await db
+    .update(backupHistory)
+    .set({
+      artifactRemoved: true,
+      artifactRemovedReason:
+        'This backup was stored on a bro that was removed from Bro Space',
+      mailboxPending: false,
+    })
+    .where(like(backupHistory.artifactPath, `peer://${peerId}/%`));
 
   await db.delete(peerRecalls).where(eq(peerRecalls.peerId, peerId));
   await db.delete(peerDeletes).where(eq(peerDeletes.peerId, peerId));
