@@ -199,6 +199,13 @@ export function buildAddressCandidates(
   push("saved", input.savedBaseUrl)
   push("tailscale", input.tailscaleBaseUrl, "tailnet")
 
+  // The origin the host is using right now is more trustworthy than a random
+  // container/bridge interface, so it goes first and wins duplicates.
+  if (input.requestOrigin) {
+    const reach = addressReachForUrl(input.requestOrigin)
+    if (reach) push(kindForReach(reach), input.requestOrigin)
+  }
+
   for (const ip of input.lanIpv4s ?? []) {
     const address = ip.trim()
     if (!address || address.includes(":")) continue
@@ -207,11 +214,6 @@ export function buildAddressCandidates(
     if (ipClass === "loopback" || ipClass === "linkLocal" || ipClass === "unspecified") continue
     if (ipClass === "multicast" || ipClass === "reserved" || ipClass === null) continue
     push("lan", buildUrl(protocol, address, port))
-  }
-
-  if (input.requestOrigin) {
-    const reach = addressReachForUrl(input.requestOrigin)
-    if (reach) push(kindForReach(reach), input.requestOrigin)
   }
 
   if (port) {
