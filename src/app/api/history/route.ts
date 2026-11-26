@@ -3,6 +3,7 @@ import { redactHistoryEntry } from '@/lib/api/redact';
 import { db } from '@/lib/db';
 import { backupConfigs, backupHistory, servers } from '@/lib/db/schema';
 import { localDayRange } from '@/lib/backup/local-date';
+import { deliveryStateForHistoryRow } from '@/lib/peer/delivery-state';
 import { and, desc, eq, gte, inArray, like, lt, or, sql } from 'drizzle-orm';
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -98,9 +99,10 @@ export async function GET(request: NextRequest) {
     }
 
     return NextResponse.json({
-      history: history.map((row) =>
-        redactHistoryEntry(row as unknown as Record<string, unknown>)
-      ),
+      history: history.map((row) => ({
+        ...redactHistoryEntry(row as unknown as Record<string, unknown>),
+        deliveryState: deliveryStateForHistoryRow(row),
+      })),
       pagination: {
         total,
         limit,

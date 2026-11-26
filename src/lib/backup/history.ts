@@ -1,7 +1,11 @@
 import { db } from '@/lib/db';
 import { backupConfigs, backupHistory } from '@/lib/db/schema';
 import { emitBackupEvent } from '@/lib/events/backup-events';
-import { and, eq } from 'drizzle-orm';
+import {
+  clearPendingForArtifact,
+  reconcileDeliveryAfterSuccess,
+} from '@/lib/backup/mailbox-reconcile';
+import { eq } from 'drizzle-orm';
 
 async function backupNameForConfig(configId: string): Promise<string> {
   const row = await db.query.backupConfigs.findFirst({
@@ -67,6 +71,19 @@ export async function createBackupHistoryEntry(
   return newEntry[0];
 }
 
+function fireSuccessPing(historyId: string, configId?: string | null) {
+  void import('@/lib/notify/success-ping')
+    .then(({ notifyBackupSuccess }) =>
+      notifyBackupSuccess({
+        historyId,
+        configId: configId ?? undefined,
+      })
+    )
+    .catch((notifyError) => {
+      console.error('Success ping notify error:', notifyError);
+    });
+}
+
 /**
  * Update a backup history entry with success status
  */
@@ -109,18 +126,15 @@ export async function updateBackupHistorySuccess(
     .returning();
 
   // Mailbox staging is not off-host yet — ping when the bro ACK verifies.
-  if (!mailboxPending) {
-    void import('@/lib/notify/success-ping')
-      .then(({ notifyBackupSuccess }) =>
-        notifyBackupSuccess({
-          historyId,
-          configId: updatedEntry[0]?.configId,
-        })
-      )
-      .catch((notifyError) => {
-        console.error('Success ping notify error:', notifyError);
-      });
-  }
+  // The helper also resolves the race where the ACK lands before this row.
+  const effectivePending = await reconcileDeliveryAfterSuccess({
+    executor: db,
+    historyId,
+    configId: updatedEntry[0]?.configId,
+    artifactPath: updatedEntry[0]?.artifactPath,
+    mailboxPending,
+    notifyDelivered: fireSuccessPing,
+  });
 
   const configId = updatedEntry[0]?.configId;
   if (configId) {
@@ -130,7 +144,7 @@ export async function updateBackupHistorySuccess(
       configId,
       backupName,
       status: 'success',
-      mailboxPending: Boolean(mailboxPending),
+      mailboxPending: effectivePending,
     });
   }
 
@@ -139,36 +153,13 @@ export async function updateBackupHistorySuccess(
 
 /** Bro verified it stored the staged object; clear pending flag and fire success ping. */
 export async function clearMailboxPendingForArtifact(artifactPath: string) {
-  const pending = await db.query.backupHistory.findMany({
-    where: and(
-      eq(backupHistory.artifactPath, artifactPath),
-      eq(backupHistory.mailboxPending, true)
-    ),
+  // Atomic conditional update: an ACK that races the success-write race check
+  // clears the row once and only the winner fires the ping.
+  await clearPendingForArtifact({
+    executor: db,
+    artifactPath,
+    notifyDelivered: fireSuccessPing,
   });
-  if (pending.length === 0) return;
-
-  await db
-    .update(backupHistory)
-    .set({ mailboxPending: false })
-    .where(
-      and(
-        eq(backupHistory.artifactPath, artifactPath),
-        eq(backupHistory.mailboxPending, true)
-      )
-    );
-
-  for (const row of pending) {
-    void import('@/lib/notify/success-ping')
-      .then(({ notifyBackupSuccess }) =>
-        notifyBackupSuccess({
-          historyId: row.id,
-          configId: row.configId,
-        })
-      )
-      .catch((notifyError) => {
-        console.error('Success ping notify error:', notifyError);
-      });
-  }
 }
 
 /**

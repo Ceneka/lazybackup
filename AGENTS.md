@@ -75,7 +75,7 @@ Restore (path/volume/database/git; local, S3, or bro dest): history artifact →
 | `age_recovery_recipients` | Extra public `age1…` included on every encrypt |
 | `webauthn_credentials` | Passkey login credentials |
 | `api_tokens` | Named Bearer tokens (SHA-256 hash + prefix); optional JSON `permissions` (e.g. `["remote_exec"]`, `["read_only"]`, or `["read_only","authorize_keys"]`); used by MCP / machine clients |
-| `peers` / `peer_invites` / `peer_recalls` | Bro Space pairing + mailbox recalls; peers have `transport` mailbox\|direct, `lastSeenAt`; LazyBro has empty `remoteBaseUrl` |
+| `peers` / `peer_invites` / `peer_recalls` | Bro Space pairing + mailbox recalls; peers have `transport` mailbox\|direct, `lastSeenAt`, and `remote_*` status-report columns (`remoteUsedBytes` = our data on THEIR disk, `remoteQuotaBytes`, `remoteLastError`, `remoteLastSyncAt`, `remoteAppVersion`, `remoteReportedAt`); LazyBro has empty `remoteBaseUrl`; `GET /api/peers` adds `kind`/`online`/pending staging totals (C1) |
 | `audit_log` | Token/MCP action audit (no secrets) |
 
 Cascade: server/S3 profile/Git repo → configs → history. Never return `appPasswordHash` / `sessionSecret` from `GET /api/settings`.
@@ -123,7 +123,7 @@ Pattern: Zod → Drizzle → `NextResponse.json`; errors `{ error, details? }`.
 - UI: `QueryState`, `DataState`, `LoadingButton`, `DeleteConfirmationDialog`, sonner toasts, `cn()`.
 - Mobile `Sheet` uses `modal={false}` (avoids stuck body `pointer-events`).
 - Failure webhooks: Settings KV `failureWebhookUrl` / `Method` / `Headers` / `Body` with `{{tag}}` templates (`lib/notify/failure-webhook.ts`).
-- Success pings: Settings KV `successPingUrl` / `Method` / `Headers` / `Body` (default GET; Healthchecks-style); fire-and-forget from success history (`lib/notify/success-ping.ts`).
+- Success pings: Settings KV `successPingUrl` / `Method` / `Headers` / `Body` (default GET; Healthchecks-style); fire-and-forget once a run is actually delivered (`lib/notify/success-ping.ts`). Bro Space mailbox runs are staged first: no ping while `mailboxPending`, the verified ACK (or the success-write race reconciliation) fires it exactly once. Soft "friend offline / waiting" is not a failure and must not fire failure webhooks.
 
 ## Env & commands
 
@@ -161,7 +161,7 @@ CI publishes GHCR on `v*` tags only (`:latest` + `:vX.Y.Z`; amd64 and arm64 nati
 12. S3 sources only support `sourceType=path` (object prefix). Use `@aws-sdk/client-s3` with custom endpoint + path-style for MinIO/R2/B2.
 13. Bearer tokens without `remote_exec` cannot set/change `preBackupCommands` or call `exec_command` / `POST …/servers/:id/exec`. Browser sessions always can. Existing tokens default to no `remote_exec` after migration — recreate with the checkbox if needed. Bearer `read_only` tokens cannot mutate via MCP or REST (GET + `validate_backup` / `test_*` still allowed; write tools omitted from MCP `tools/list`); empty `[]` permissions still write except `remote_exec`.
 14. Encrypted backups need an age key in the vault (Settings → Encryption). Peer destinations always encrypt. Losing all private identities (instance + offline exports + recovery keys) means you cannot restore ciphertext. Creating a new key retires the old one; decrypt still tries all vault identities.
-15. Bro Space mailbox: LazyBro only needs the host LB reachable (outbound phone-home). Two full LBs each need a URL and both run the sync worker. `/api/peers/pair`, `/api/peers/store`, and `/api/peers/agent/*` are middleware-public (auth inside route). Bro offline / sync pending is soft status — do not treat as a critical backup failure or fire failure webhooks.
+15. Bro Space mailbox: LazyBro only needs the host LB reachable (outbound phone-home). Two full LBs each need a URL and both run the sync worker. `/api/peers/pair`, `/api/peers/store`, and `/api/peers/agent/*` are middleware-public (auth inside route). Bro offline / sync pending is soft status — do not treat as a critical backup failure or fire failure webhooks or success pings while only staged (`deliveryState: waiting`). Success pings fire on the verified ACK (or the success-write race reconciliation).
 16. Tailscale is **not** bundled in the Docker image. Detect via LocalAPI socket or host CLI; optional `docker-compose.tailscale.yml` sidecar. Settings → Bro Space can fill `http://100.x:PORT`.
 17. Auth locks when an app password **or** ≥1 passkey is configured. Passkey login is public at `/api/auth/webauthn/login`; registration requires a session (or unlocked instance).
 18. Instance meta-backups (`lazybackup_instance`) include secrets; restore manually. Prefer passphrase wrap or a trusted destination — never Bro.
