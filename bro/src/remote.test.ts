@@ -5,10 +5,11 @@ import { assertPeerHostUrl, resolveSafeRemoteUrl, safeRemoteFetch } from './remo
 
 describe('LazyBro peer URL scheme policy', () => {
   test('requires https for public addresses', async () => {
-    expect(() => assertPeerHostUrl('http://backup.example.com:3000')).toThrow(
+    expect(() => assertPeerHostUrl('http://8.8.8.8:3000')).toThrow(
       /https:\/\/.*LAN\/Tailscale/i
     );
-    expect(() => assertPeerHostUrl('http://8.8.8.8:3000')).toThrow(/https:/i);
+    // DNS names are decided after resolution (MagicDNS *.ts.net, nas.lan, …).
+    expect(() => assertPeerHostUrl('http://nas.tail1234.ts.net:3000')).not.toThrow();
     await expect(resolveSafeRemoteUrl('http://8.8.8.8:3000')).rejects.toThrow(/https:/i);
   });
 

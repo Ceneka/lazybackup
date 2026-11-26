@@ -28,7 +28,7 @@ describe('parsePairingResponse', () => {
 
   test('requires https for a public pairing URL', () => {
     expect(() =>
-      parsePairingResponse({ ...valid, baseUrl: 'http://backup.example.com' }, valid.baseUrl)
+      parsePairingResponse({ ...valid, baseUrl: 'http://8.8.8.8' }, valid.baseUrl)
     ).toThrow(/https:\/\/.*LAN\/Tailscale/i);
     expect(
       parsePairingResponse({ ...valid, baseUrl: 'http://192.168.1.20:3000' }, valid.baseUrl)

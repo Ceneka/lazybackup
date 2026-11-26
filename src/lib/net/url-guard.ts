@@ -11,6 +11,12 @@ export type UrlGuardPolicy = {
   label: string;
   /** Optional message when `allowHttp: 'private-only'` rejects a public http:// URL. */
   httpError?: string;
+  /**
+   * With `allowHttp: 'private-only'`, accept http:// for DNS names here and let
+   * the resolved-address check decide (Tailscale MagicDNS `*.ts.net`, `nas.lan`,
+   * split-DNS names all resolve to private/CGNAT addresses).
+   */
+  deferHttpNameCheckToResolve?: boolean;
 };
 
 const LOOPBACK_V4: Cidr4 = ['127.0.0.0', 8];
@@ -204,6 +210,7 @@ export function peerUrlPolicy(): UrlGuardPolicy {
     // over the public internet is never acceptable.
     httpError:
       'Peer URL: Use https:// for a public address, or a LAN/Tailscale address',
+    deferHttpNameCheckToResolve: true,
   };
 }
 
@@ -348,6 +355,24 @@ function hostAllowed(hostname: string, policy: UrlGuardPolicy): boolean {
   }
 }
 
+/** Resolved-address half of `allowHttp: 'private-only'`: http never goes to a public IP. */
+export function httpAllowedToAddresses(
+  protocol: string,
+  addresses: string[],
+  policy: UrlGuardPolicy
+): { ok: false; error: string } | null {
+  if (protocol !== 'http:' || policy.allowHttp !== 'private-only') return null;
+  if (addresses.some((address) => classifyIp(address) === 'public')) {
+    return {
+      ok: false,
+      error:
+        policy.httpError ??
+        `${policy.label} must use HTTPS (http is only allowed for localhost/LAN)`,
+    };
+  }
+  return null;
+}
+
 function hostIsPrivateish(hostname: string): boolean {
   const kind = hostKind(hostname);
   if (kind.kind === 'ip') {
@@ -388,7 +413,13 @@ export function validateHttpUrl(
     if (policy.allowHttp === false) {
       return { ok: false, error: `${policy.label} must use HTTPS` };
     }
-    if (policy.allowHttp === 'private-only' && !hostIsPrivateish(parsed.hostname)) {
+    const deferName =
+      policy.deferHttpNameCheckToResolve && hostKind(parsed.hostname).kind === 'name';
+    if (
+      policy.allowHttp === 'private-only' &&
+      !deferName &&
+      !hostIsPrivateish(parsed.hostname)
+    ) {
       return {
         ok: false,
         error:

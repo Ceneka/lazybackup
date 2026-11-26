@@ -42,7 +42,9 @@ function addressClass(address: string): AddressClass {
 function hostnameAllowsHttp(hostname: string): boolean {
   const host = hostname.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '');
   if (net.isIP(host)) return addressClass(host) !== 'public';
-  return host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local');
+  // DNS names (Tailscale MagicDNS *.ts.net, nas.lan, split DNS) are checked
+  // after resolution in resolveSafeRemoteUrl, which refuses http to any public IP.
+  return true;
 }
 
 /**

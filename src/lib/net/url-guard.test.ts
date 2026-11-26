@@ -58,14 +58,37 @@ describe('validatePeerUrl', () => {
     expect(validatePeerUrl('http://[fd7a:115c:a1e0::1]:3000').ok).toBe(true);
   });
 
-  test('requires https for public addresses', () => {
-    const result = validatePeerUrl('http://backup.example.com:3000');
+  test('requires https for public addresses', async () => {
+    const result = validatePeerUrl('http://8.8.8.8:3000');
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error).toContain('https://');
       expect(result.error).toContain('LAN/Tailscale');
     }
     expect(validatePeerUrl('https://backup.example.com:3000').ok).toBe(true);
+    // Names are decided after DNS: a public answer means no http.
+    const publicName = await validateHttpUrlResolved(
+      'http://backup.example.com:3000',
+      peerUrlPolicy(),
+      async () => ['93.184.216.34']
+    );
+    expect(publicName.ok).toBe(false);
+    if (!publicName.ok) expect(publicName.error).toContain('https://');
+  });
+
+  test('allows http to names that resolve to Tailscale / LAN (MagicDNS, nas.lan)', async () => {
+    const magic = await validateHttpUrlResolved(
+      'http://nas.tail1234.ts.net:3000',
+      peerUrlPolicy(),
+      async () => ['100.101.102.103']
+    );
+    expect(magic.ok).toBe(true);
+    const lan = await validateHttpUrlResolved(
+      'http://nas.lan:3000',
+      { ...peerUrlPolicy(), allowPrivate: true },
+      async () => ['192.168.1.20']
+    );
+    expect(lan.ok).toBe(true);
   });
 
   test('still allows http to LAN and Tailscale addresses', () => {
