@@ -35,6 +35,10 @@ export async function assertPeerArtifactRestorable(
     if (row?.artifactRemoved) {
       throw new Error(ARTIFACT_REMOVED_BY_RETENTION);
     }
+    // The per-run flag is authoritative: markPeerArtifactRemoved() sets it on
+    // every row that existed at ACK time. A row that still says false was
+    // landed afterwards, reusing the same object key, and is restorable.
+    if (row) return;
   }
 
   const parsed = parsePeerArtifactPath(artifactPath);
