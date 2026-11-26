@@ -22,10 +22,15 @@ import {
   useServerDockerVolumes,
 } from "@/lib/hooks/useServers"
 import { useS3Profiles, type S3Profile } from "@/lib/hooks/useS3Profiles"
+import { useEncryption } from "@/lib/hooks/useEncryption"
+import { PeerPresence } from "@/components/peer/peer-presence"
+import { friendPossessive } from "@/lib/peer/friend-copy"
 import {
   AlertTriangleIcon,
   ArrowLeftRightIcon,
   ArrowRightIcon,
+  ChevronDownIcon,
+  ChevronRightIcon,
   CloudIcon,
   GitBranchIcon,
   HardDriveIcon,
@@ -117,9 +122,11 @@ export function backupToFormData(backup: Backup): BackupFormData {
     enabled: backup.enabled,
     enableEncryption: Boolean(backup.enableEncryption) || backup.destinationKind === "peer",
     deleteExtraneous: Boolean(backup.deleteExtraneous),
-    enableVersioning: Boolean(backup.enableVersioning),
+    // Peer destinations must keep old runs restorable: versioning is forced on.
+    enableVersioning: Boolean(backup.enableVersioning) || backup.destinationKind === "peer",
     versionsToKeep: backup.versionsToKeep ?? 5,
-    enableFileRetention: Boolean(backup.enableFileRetention),
+    enableFileRetention:
+      backup.destinationKind === "peer" ? false : Boolean(backup.enableFileRetention),
     retentionMaxAge: backup.retentionMaxAge ?? 30,
     retentionMaxAgeUnit: backup.retentionMaxAgeUnit || "days",
     retentionMinKeep: backup.retentionMinKeep ?? 5,
@@ -215,6 +222,16 @@ export function BackupConfigForm({
   const gitRepos = gitReposQuery.data || []
   const peersQuery = usePeers()
   const activePeers = (peersQuery.data?.peers || []).filter((p) => p.status === "active")
+  const selectedPeer = activePeers.find((p) => p.id === formData.destinationPeerId) || null
+  const encryptionQuery = useEncryption()
+  const [showPeerAdvanced, setShowPeerAdvanced] = useState(false)
+  const peerNeedsEncryptionKey =
+    formData.destinationKind === "peer" &&
+    !encryptionQuery.isLoading &&
+    encryptionQuery.status != null &&
+    !encryptionQuery.status.configured
+  const friendLabel = selectedPeer?.name?.trim() || "your friend"
+  const peerFolderName = formData.destinationPath || slugifyName(formData.name || "backup")
   const settingsQuery = useSettings()
   const scheduleTimeZone = useMemo(() => {
     const raw = settingsQuery.settings.timezone?.trim() || DEFAULT_TIMEZONE
@@ -257,6 +274,15 @@ export function BackupConfigForm({
 
   useEffect(() => {
     if (!autoSuggestDestination || destinationTouched) {
+      return
+    }
+    if (formData.destinationKind === "peer") {
+      // Folder name on the friend's disk defaults to the config slug.
+      if (!formData.name.trim()) return
+      const suggested = slugifyName(formData.name)
+      setFormData((prev) =>
+        prev.destinationPath === suggested ? prev : { ...prev, destinationPath: suggested }
+      )
       return
     }
     if (formData.destinationKind !== "local") {
@@ -440,11 +466,21 @@ export function BackupConfigForm({
           next.destinationS3ProfileId = ""
           next.enableEncryption = true
           next.deleteExtraneous = false
-          if (!next.destinationPath) next.destinationPath = "backups"
+          // Friend backups must not overwrite the only off-site copy.
+          next.enableVersioning = true
+          next.enableFileRetention = false
+          if (!destinationTouched || !next.destinationPath) {
+            // Folder name on the friend's disk defaults to the config slug.
+            next.destinationPath = slugifyName(next.name || "backup")
+          }
           if (next.sourceType === "lazybackup_instance") {
             next.sourceType = "path"
             next.sourcePath = ""
           }
+        } else if (!destinationTouched) {
+          // Leaving a peer destination: drop its folder slug so the normal
+          // auto-suggestion can fill in a valid path for the new endpoint.
+          next.destinationPath = ""
         }
       }
       if (key === "sourceKind" && value === "s3") {
@@ -488,6 +524,14 @@ export function BackupConfigForm({
         if (key === "serverId") {
           next.sourcePath = ""
         }
+      }
+      if (
+        key === "name" &&
+        next.destinationKind === "peer" &&
+        !destinationTouched &&
+        typeof value === "string"
+      ) {
+        next.destinationPath = slugifyName(value)
       }
       return next
     })
@@ -544,7 +588,11 @@ export function BackupConfigForm({
       return
     }
     if (formData.destinationKind === "peer" && !formData.destinationPeerId) {
-      toast.error("Select a bro peer (Settings → Bro Space)")
+      toast.error("Select a friend (Settings → Bro Space)")
+      return
+    }
+    if (formData.destinationKind === "peer" && peerNeedsEncryptionKey) {
+      toast.error("Encryption is required for friend backups. Set up a key first.")
       return
     }
     await onSubmit(formData)
@@ -572,7 +620,7 @@ export function BackupConfigForm({
       options.push({ kind: "git", label: "Git", icon: GitBranchIcon })
     }
     if (allowPeer) {
-      options.push({ kind: "peer", label: "Bro", icon: UsersIcon })
+      options.push({ kind: "peer", label: "Friend", icon: UsersIcon })
     }
     return (
       <div className="flex gap-2">
@@ -669,6 +717,15 @@ export function BackupConfigForm({
                 </option>
               ))}
             </select>
+            {servers.length === 0 ? (
+              <p className="text-xs text-muted-foreground">
+                No servers yet.{" "}
+                <Link href="/servers/new" className="underline">
+                  Add a server
+                </Link>{" "}
+                for remote transfers.
+              </p>
+            ) : null}
           </div>
         )}
 
@@ -737,34 +794,89 @@ export function BackupConfigForm({
         )}
 
         {kind === "peer" && (
-          <div className="space-y-1">
-            <label className="text-xs text-muted-foreground" htmlFor={`${idPrefix}-peer-select`}>
-              Bro peer
-            </label>
-            <select
-              id={`${idPrefix}-peer-select`}
-              className={inputClass}
-              value={peerId || ""}
-              onChange={(e) => onPeerChange?.(e.target.value)}
-              required
-            >
-              <option value="">
-                {peersQuery.isLoading ? "Loading…" : "Select a bro"}
-              </option>
-              {activePeers.map((peer) => (
-                <option key={peer.id} value={peer.id}>
-                  {peer.name} ({peer.quotaGb} GB)
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground" htmlFor={`${idPrefix}-peer-select`}>
+                Friend
+              </label>
+              <select
+                id={`${idPrefix}-peer-select`}
+                className={inputClass}
+                value={peerId || ""}
+                onChange={(e) => onPeerChange?.(e.target.value)}
+                required
+              >
+                <option value="">
+                  {peersQuery.isLoading ? "Loading…" : "Select a friend"}
                 </option>
-              ))}
-            </select>
-            {activePeers.length === 0 && !peersQuery.isLoading && (
-              <p className="text-xs text-muted-foreground">
-                <Link href="/settings?tab=bro" className="underline">
-                  Pair a bro in Settings → Bro Space
-                </Link>{" "}
-                first. Encryption is always on for bro destinations.
-              </p>
-            )}
+                {activePeers.map((peer) => (
+                  <option key={peer.id} value={peer.id}>
+                    {peer.name}
+                    {peer.quotaGb ? ` (${peer.quotaGb} GB)` : ""}
+                  </option>
+                ))}
+              </select>
+              {selectedPeer ? (
+                <PeerPresence peer={selectedPeer} className="pt-0.5" />
+              ) : null}
+              {activePeers.length === 0 && !peersQuery.isLoading && (
+                <p className="text-xs text-muted-foreground">
+                  <Link href="/settings?tab=bro" className="underline">
+                    Pair a friend in Settings → Bro Space
+                  </Link>{" "}
+                  first. Files are always encrypted for friend destinations.
+                </p>
+              )}
+            </div>
+
+            {selectedPeer ? (
+              <div className="space-y-2 rounded-md border border-dashed p-2.5">
+                <p className="text-xs text-muted-foreground">
+                  Saved in the folder{" "}
+                  <span className="font-medium text-foreground">{peerFolderName}</span> on{" "}
+                  {friendPossessive(friendLabel)} computer once their app checks in.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setShowPeerAdvanced((open) => !open)}
+                  className="inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+                  aria-expanded={showPeerAdvanced}
+                >
+                  {showPeerAdvanced ? (
+                    <ChevronDownIcon className="h-3.5 w-3.5" />
+                  ) : (
+                    <ChevronRightIcon className="h-3.5 w-3.5" />
+                  )}
+                  Advanced
+                </button>
+                {showPeerAdvanced ? (
+                  <div className="space-y-1">
+                    <label
+                      className="text-xs text-muted-foreground"
+                      htmlFor={`${idPrefix}-peer-folder`}
+                    >
+                      Folder name on {friendPossessive(friendLabel)} disk
+                    </label>
+                    <input
+                      id={`${idPrefix}-peer-folder`}
+                      type="text"
+                      className={inputClass}
+                      value={path}
+                      onChange={(e) => {
+                        setDestinationTouched(true)
+                        onPathChange(e.target.value)
+                      }}
+                      placeholder={slugifyName(formData.name || "backup")}
+                      required
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      A folder inside the space {friendLabel} lent you. Keep the default
+                      unless you need separate folders.
+                    </p>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
           </div>
         )}
 
@@ -876,16 +988,14 @@ export function BackupConfigForm({
             Clones a bare mirror on this host, then stores <code>.tar.gz</code> at the
             destination (optional age encryption).
           </p>
-        ) : !(isSource && formData.sourceType === "database") ? (
+        ) : !(isSource && formData.sourceType === "database") && kind !== "peer" ? (
           <div className="space-y-1">
             <label className="text-xs text-muted-foreground" htmlFor={`${idPrefix}-path`}>
               {kind === "local"
                 ? "Path on this host"
                 : kind === "s3"
                   ? "Object key prefix"
-                  : kind === "peer"
-                    ? "Object prefix on bro"
-                    : "Path on server"}
+                  : "Path on server"}
             </label>
             <input
               id={`${idPrefix}-path`}
@@ -901,7 +1011,7 @@ export function BackupConfigForm({
               placeholder={
                 kind === "local"
                   ? "/backups/my-backup"
-                  : kind === "s3" || kind === "peer"
+                  : kind === "s3"
                     ? "backups/my-app"
                     : "/var/www"
               }
@@ -1353,6 +1463,41 @@ export function BackupConfigForm({
           </p>
         )}
 
+        {formData.destinationKind === "peer" && peerNeedsEncryptionKey && (
+          <Alert>
+            <AlertTriangleIcon className="h-4 w-4" />
+            <AlertTitle>Encryption key required</AlertTitle>
+            <AlertDescription>
+              Encryption is required for friend backups. Set up a key first.{" "}
+              <Link
+                href="/settings?tab=encryption"
+                className="underline underline-offset-2"
+              >
+                Settings → Encryption
+              </Link>
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {formData.destinationKind === "peer" &&
+          !peerNeedsEncryptionKey &&
+          encryptionQuery.status?.needsExportAck && (
+            <Alert className="border-amber-500/40 bg-amber-500/10">
+              <AlertTriangleIcon className="h-4 w-4" />
+              <AlertTitle>Back up your encryption key</AlertTitle>
+              <AlertDescription>
+                Without an offline copy of the key, you can&apos;t restore these
+                backups.{" "}
+                <Link
+                  href="/settings?tab=encryption"
+                  className="underline underline-offset-2"
+                >
+                  Export it in Settings → Encryption
+                </Link>
+              </AlertDescription>
+            </Alert>
+          )}
+
         {destinationConflict && (
           <Alert variant="destructive">
             <AlertTriangleIcon className="h-4 w-4" />
@@ -1533,26 +1678,40 @@ export function BackupConfigForm({
           </label>
         </div>
 
-        {formData.sourceType !== "lazybackup_instance" && (
-        <div className="flex items-start">
-          <input
-            id="enableEncryption"
-            type="checkbox"
-            className="mt-1 h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
-            checked={formData.enableEncryption || formData.destinationKind === "peer"}
-            disabled={formData.destinationKind === "peer"}
-            onChange={(e) => updateField("enableEncryption", e.target.checked)}
-          />
-          <label htmlFor="enableEncryption" className="ml-2 block text-sm">
-            Encrypt before storing (age)
-            <span className="block text-xs text-muted-foreground">
-              Destination only sees ciphertext. Requires a key in Settings → Encryption.
-              Always on for Bro destinations. Path backups become a single{" "}
-              <code>.tar.gz.age</code> archive.
-            </span>
-          </label>
-        </div>
-        )}
+        {formData.sourceType !== "lazybackup_instance" &&
+          (formData.destinationKind === "peer" ? (
+            <div className="rounded-md border bg-muted/30 p-3">
+              <p className="text-sm font-medium">Encryption: On (required)</p>
+              <p className="text-xs text-muted-foreground">
+                Your friend only sees encrypted files. Backups become a single{" "}
+                <code>.tar.gz.age</code> archive.{" "}
+                <Link
+                  href="/settings?tab=encryption"
+                  className="underline underline-offset-2"
+                >
+                  Manage keys
+                </Link>
+              </p>
+            </div>
+          ) : (
+            <div className="flex items-start">
+              <input
+                id="enableEncryption"
+                type="checkbox"
+                className="mt-1 h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                checked={formData.enableEncryption}
+                onChange={(e) => updateField("enableEncryption", e.target.checked)}
+              />
+              <label htmlFor="enableEncryption" className="ml-2 block text-sm">
+                Encrypt before storing (age)
+                <span className="block text-xs text-muted-foreground">
+                  Destination only sees ciphertext. Requires a key in Settings →
+                  Encryption. Path backups become a single <code>.tar.gz.age</code>{" "}
+                  archive.
+                </span>
+              </label>
+            </div>
+          ))}
 
         {formData.sourceType === "path" &&
           formData.sourceKind !== "s3" &&
@@ -1578,12 +1737,13 @@ export function BackupConfigForm({
         </div>
         )}
 
-        <div className="flex items-center">
+        <div className="flex items-start">
           <input
             id="enableVersioning"
             type="checkbox"
-            className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
-            checked={formData.enableVersioning}
+            className="mt-1 h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+            checked={formData.enableVersioning || formData.destinationKind === "peer"}
+            disabled={formData.destinationKind === "peer"}
             onChange={(e) => {
               const checked = e.target.checked
               setFormData((prev) => ({
@@ -1595,6 +1755,12 @@ export function BackupConfigForm({
           />
           <label htmlFor="enableVersioning" className="ml-2 block text-sm">
             Enable versioning (timestamped subfolders)
+            {formData.destinationKind === "peer" ? (
+              <span className="block text-xs text-muted-foreground">
+                On for friend backups — each run gets its own folder, so older
+                history stays restorable.
+              </span>
+            ) : null}
           </label>
         </div>
 
@@ -1692,7 +1858,11 @@ export function BackupConfigForm({
             Cancel
           </Link>
         </Button>
-        <LoadingButton type="submit" isLoading={submitting} disabled={Boolean(destinationConflict)}>
+        <LoadingButton
+          type="submit"
+          isLoading={submitting}
+          disabled={Boolean(destinationConflict) || peerNeedsEncryptionKey}
+        >
           {mode === "create" ? "Create backup" : "Save changes"}
         </LoadingButton>
       </div>
@@ -1761,12 +1931,39 @@ export function defaultGitBackupFormData(gitRepoId: string): BackupFormData {
   }
 }
 
+/**
+ * One-click "Back up to my friend": local source → paired Bro Space friend.
+ * Encryption and versioning are forced on (age is required; versioning keeps
+ * older peer runs restorable instead of overwriting the only copy).
+ */
+export function defaultPeerBackupFormData(
+  peerId = "",
+  friendName?: string
+): BackupFormData {
+  const name = friendName?.trim() ? `Backup to ${friendName.trim()}` : "Backup to a friend"
+  return {
+    ...defaultCreateFormData(),
+    name,
+    sourceKind: "local",
+    serverId: "",
+    sourceType: "path",
+    sourcePath: "",
+    destinationKind: "peer",
+    destinationPeerId: peerId,
+    destinationPath: slugifyName(name),
+    enableEncryption: true,
+    enableVersioning: true,
+    enableFileRetention: false,
+  }
+}
+
 /** Starter recipes for empty-state deep links (`?recipe=`). */
 export const BACKUP_RECIPE_IDS = [
   "server-path-local",
   "volume-local",
   "database-local",
   "path-s3",
+  "bro-peer",
   "instance",
 ] as const
 
@@ -1827,6 +2024,8 @@ export function recipeFormData(recipe: BackupRecipeId): BackupFormData {
         destinationPath: "backups/",
         schedule: "0 3 * * *",
       }
+    case "bro-peer":
+      return defaultPeerBackupFormData()
     case "instance":
       return defaultInstanceBackupFormData()
   }
@@ -1897,9 +2096,9 @@ export function formDataToPayload(data: BackupFormData) {
       data.destinationKind !== "peer" &&
       !data.enableEncryption &&
       data.deleteExtraneous,
-    enableVersioning: data.enableVersioning,
+    enableVersioning: data.destinationKind === "peer" ? true : data.enableVersioning,
     versionsToKeep: data.versionsToKeep,
-    enableFileRetention: data.enableFileRetention,
+    enableFileRetention: data.destinationKind === "peer" ? false : data.enableFileRetention,
     retentionMaxAge: data.retentionMaxAge,
     retentionMaxAgeUnit: data.retentionMaxAgeUnit,
     retentionMinKeep: data.retentionMinKeep,
