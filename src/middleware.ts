@@ -2,42 +2,8 @@ import {
   getAuthStatus,
   maybeRefreshSessionCookie,
 } from '@/lib/auth'
-import { MIDDLEWARE_MATCHER } from '@/lib/peer/body-routes'
+import { isPublicPath } from '@/lib/auth/public-paths'
 import { NextRequest, NextResponse } from 'next/server'
-
-const PUBLIC_EXACT = new Set([
-  '/login',
-  '/api/health',
-  '/api/auth/status',
-  '/api/auth/login',
-  '/api/auth/setup',
-  '/api/auth/webauthn/login',
-  '/api/peers/pair',
-  '/manifest.webmanifest',
-])
-
-function isPublicPath(pathname: string): boolean {
-  if (PUBLIC_EXACT.has(pathname)) return true
-  // Peer opaque store + mailbox agent API authenticate with lbpeer_ Bearer inside the route
-  if (pathname === '/api/peers/store' || pathname.startsWith('/api/peers/store/')) {
-    return true
-  }
-  if (pathname.startsWith('/api/peers/agent/')) {
-    return true
-  }
-  if (
-    pathname.startsWith('/_next/') ||
-    pathname.startsWith('/favicon') ||
-    pathname.endsWith('.ico') ||
-    pathname.endsWith('.png') ||
-    pathname.endsWith('.svg') ||
-    pathname.endsWith('.jpg') ||
-    pathname.endsWith('.webp')
-  ) {
-    return true
-  }
-  return false
-}
 
 /**
  * Auth gate on the Node.js runtime so we can read SQLite / verify the session
@@ -109,5 +75,9 @@ export const config = {
   runtime: 'nodejs',
   // Peer store/agent routes stream large request bodies and must not be
   // body-cloned by Node middleware (10 MiB default limit + async finalize).
-  matcher: [MIDDLEWARE_MATCHER],
+  // Next reads this statically at build time: keep it a string literal and in
+  // sync with MIDDLEWARE_MATCHER in src/lib/peer/body-routes.ts (tested).
+  matcher: [
+    '/((?!_next/static|_next/image|favicon.ico|api/peers/store$|api/peers/store/|api/peers/agent/).*)',
+  ],
 }

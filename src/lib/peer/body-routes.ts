@@ -11,5 +11,10 @@
  */
 export const PEER_BODY_ROUTE_PREFIXES = ['api/peers/store', 'api/peers/agent'] as const;
 
-/** Middleware matcher shared by `src/middleware.ts` and its regression test. */
-export const MIDDLEWARE_MATCHER = `/((?!_next/static|_next/image|favicon.ico|${PEER_BODY_ROUTE_PREFIXES.join('|')}).*)`;
+/**
+ * Must equal the string literal in `src/middleware.ts` `config.matcher`
+ * (Next only accepts a statically analyzable literal there). Segment-bounded so
+ * a future `/api/peers/storage-*` route is not silently taken out of the gate.
+ */
+export const MIDDLEWARE_MATCHER =
+  '/((?!_next/static|_next/image|favicon.ico|api/peers/store$|api/peers/store/|api/peers/agent/).*)';
