@@ -15,17 +15,6 @@ export type PeerSummary = {
   lastSeenAt: string | null
   lastActivityAt: string | null
   pendingSyncCount?: number
-  /** Contract C1 — optional until the delivery/reporting task lands. */
-  kind?: "lazybro" | "lazybackup"
-  online?: boolean
-  pendingBytes?: number
-  oldestPendingAt?: string | null
-  remoteUsedBytes?: number | null
-  remoteQuotaBytes?: number | null
-  remoteLastError?: string | null
-  remoteLastSyncAt?: string | null
-  remoteAppVersion?: string | null
-  remoteReportedAt?: string | null
   createdAt: string
   updatedAt: string
   // Contract C1 (owner: delivery/reporting task) — all optional so this UI
