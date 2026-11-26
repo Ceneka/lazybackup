@@ -98,6 +98,27 @@ describe('validateTarMembers', () => {
   });
 });
 
+describe('validateTarMembers symlink parents', () => {
+  test('rejects members written through a symlink member', () => {
+    expect(() =>
+      validateTarMembers(
+        [
+          { type: 'l', name: 'd', linkTarget: '/etc' },
+          { type: '-', name: 'd/passwd' },
+        ],
+        { allowExternalSymlinks: true }
+      )
+    ).toThrow('path goes through a symlink');
+    expect(() =>
+      validateTarMembers([
+        { type: 'd', name: 'sub/' },
+        { type: 'l', name: 'a', linkTarget: 'sub' },
+        { type: '-', name: 'a/x' },
+      ])
+    ).toThrow('path goes through a symlink');
+  });
+});
+
 describe('assertSafeTarGzArchive', () => {
   test('inspects archives without relying on GNU tar options', async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'lazybackup-tar-inspect-'));

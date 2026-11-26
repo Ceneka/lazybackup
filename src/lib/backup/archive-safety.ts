@@ -82,6 +82,26 @@ export function validateTarMembers(
     }
   }
 
+  // A member nested under a symlink member (e.g. `d -> /etc` then `d/passwd`)
+  // would be written through the link by a tar that follows symlinks (BusyBox).
+  // Real archives never contain this: tar does not descend into symlinks.
+  const symlinkNames = new Set(
+    members
+      .filter((member) => member.type === 'l')
+      .map((member) => safeArchivePath(member.name, 'member').replace(/\/+$/, ''))
+  );
+  if (symlinkNames.size > 0) {
+    for (const member of members) {
+      const name = safeArchivePath(member.name, 'member').replace(/\/+$/, '');
+      const parts = name.split('/');
+      for (let i = 1; i < parts.length; i++) {
+        if (symlinkNames.has(parts.slice(0, i).join('/'))) {
+          throw new Error(`Unsafe tar member "${member.name}": path goes through a symlink`);
+        }
+      }
+    }
+  }
+
   for (const member of members) {
     if (member.type !== 'h' || member.linkTarget == null) continue;
     const target = safeArchivePath(member.linkTarget, 'hardlink target').replace(/\/+$/, '');
