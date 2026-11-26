@@ -50,7 +50,10 @@ export function UnprotectedBanner() {
         <span className="font-medium">This LazyBackup is unprotected.</span>{" "}
         Anyone who can reach this address can see your servers and keys. Set a
         password or passkey in{" "}
-        <Link href="/settings?tab=general" className="underline hover:no-underline">
+        <Link
+          href="/settings?tab=general#app-password"
+          className="underline hover:no-underline"
+        >
           Settings → General → App password
         </Link>
         .
