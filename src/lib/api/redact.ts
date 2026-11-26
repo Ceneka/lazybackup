@@ -41,6 +41,16 @@ export function redactS3<T extends Record<string, unknown>>(
   };
 }
 
+/** Peer rows carry the bearer we present to the remote; never serialize it. */
+export function redactPeerRow<T extends Record<string, unknown>>(peer: T) {
+  const { outboundToken: _token, inboundTokenHash: _hash, ...rest } =
+    peer as T & { outboundToken?: string | null; inboundTokenHash?: string | null };
+  return {
+    ...rest,
+    hasOutboundToken: Boolean(_token),
+  };
+}
+
 /** Redact nested endpoint secrets and database password on a backup config row. */
 export function redactBackup<T extends Record<string, unknown>>(config: T) {
   const copy = { ...config } as Record<string, unknown>;
@@ -70,6 +80,11 @@ export function redactBackup<T extends Record<string, unknown>>(config: T) {
   if (copy.destinationS3Profile && typeof copy.destinationS3Profile === 'object') {
     copy.destinationS3Profile = redactS3(
       copy.destinationS3Profile as Record<string, unknown>
+    );
+  }
+  if (copy.destinationPeer && typeof copy.destinationPeer === 'object') {
+    copy.destinationPeer = redactPeerRow(
+      copy.destinationPeer as Record<string, unknown>
     );
   }
   if (copy.sourceGitRepo && typeof copy.sourceGitRepo === 'object') {

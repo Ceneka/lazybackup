@@ -7,7 +7,6 @@ import { backupHistory, peerRecalls } from '@/lib/db/schema';
 import { writeCappedBodyToTempFile } from './capped-body';
 import { assertFileSha256, sha256File } from './digest';
 import { withPeerLock } from './peer-lock';
-import { assertPeerQuota } from './storage';
 
 export {
   PeerRecallPendingError,
@@ -184,7 +183,12 @@ async function expectedRecallDigest(
 }
 
 /**
- * Stream a recall PUT under the per-peer lock with quota + size ceiling.
+ * Stream a recall PUT under the per-peer lock with size ceiling.
+ *
+ * Deliberately not quota-checked against `peers/{peerId}`: a recall is the
+ * peer handing back bytes this instance already owns (transient spool under
+ * peers-recall/), so counting it against the storage quota would block
+ * restores whenever the peer is near its quota.
  */
 export async function ingestRecallUpload(options: {
   recallId: string;
@@ -195,7 +199,12 @@ export async function ingestRecallUpload(options: {
 }): Promise<{ size: number; sha256: string }> {
   const { recallId, peerId, quotaBytes, declaredBytes, body } = options;
   return withPeerLock(peerId, async () => {
-    await assertPeerQuota(peerId, quotaBytes, declaredBytes);
+    if (declaredBytes > quotaBytes) {
+      // The artifact cannot be larger than what the peer was allowed to store.
+      throw new Error(
+        `Recall artifact (${declaredBytes} bytes) exceeds the peer quota (${quotaBytes} bytes)`
+      );
+    }
     const ingested = await writeCappedBodyToTempFile(body, declaredBytes);
     try {
       if (ingested.size !== declaredBytes) {

@@ -65,41 +65,50 @@ export async function syncPeerOnce(peer: PeerRow): Promise<void> {
   };
 
   for (const pull of work.pulls || []) {
-    const getRes = await peerFetch(
-      peer,
-      `/api/peers/agent/pending?key=${encodeURIComponent(pull.key)}`
-    );
-    if (!getRes.ok) {
-      console.warn(`[peer-sync] pending get failed ${pull.key}: ${getRes.status}`);
-      continue;
-    }
-    const declaredBytes = assertDeclaredUploadSize({
-      contentLengthHeader: getRes.headers.get('content-length'),
-      quotaBytes: peer.quotaBytes,
-    });
-    if (declaredBytes !== pull.size) {
-      throw new Error(
-        `Pending object size mismatch for ${pull.key}: expected ${pull.size}, got ${declaredBytes}`
+    // A single bad/oversized staged object must not abort recalls (restores)
+    // or retention deletes for the rest of this peer's mailbox.
+    try {
+      const getRes = await peerFetch(
+        peer,
+        `/api/peers/agent/pending?key=${encodeURIComponent(pull.key)}`
       );
-    }
-    const stored = await ingestPeerObjectUpload({
-      peerId: peer.id,
-      objectKey: pull.key,
-      quotaBytes: peer.quotaBytes,
-      declaredBytes,
-      body: getRes.body,
-    });
-    const ackRes = await peerFetch(peer, '/api/peers/agent/ack', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        key: pull.key,
-        size: stored.size,
-        sha256: stored.sha256,
-      }),
-    });
-    if (!ackRes.ok) {
-      console.warn(`[peer-sync] ack failed ${pull.key}: ${ackRes.status}`);
+      if (!getRes.ok) {
+        console.warn(`[peer-sync] pending get failed ${pull.key}: ${getRes.status}`);
+        continue;
+      }
+      const declaredBytes = assertDeclaredUploadSize({
+        contentLengthHeader: getRes.headers.get('content-length'),
+        quotaBytes: peer.quotaBytes,
+      });
+      if (declaredBytes !== pull.size) {
+        throw new Error(
+          `Pending object size mismatch for ${pull.key}: expected ${pull.size}, got ${declaredBytes}`
+        );
+      }
+      const stored = await ingestPeerObjectUpload({
+        peerId: peer.id,
+        objectKey: pull.key,
+        quotaBytes: peer.quotaBytes,
+        declaredBytes,
+        body: getRes.body,
+      });
+      const ackRes = await peerFetch(peer, '/api/peers/agent/ack', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          key: pull.key,
+          size: stored.size,
+          sha256: stored.sha256,
+        }),
+      });
+      if (!ackRes.ok) {
+        console.warn(`[peer-sync] ack failed ${pull.key}: ${ackRes.status}`);
+      }
+    } catch (err) {
+      console.warn(
+        `[peer-sync] pull ${pull.key} failed:`,
+        err instanceof Error ? err.message : err
+      );
     }
   }
 

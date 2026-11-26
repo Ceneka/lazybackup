@@ -138,6 +138,11 @@ export async function landLocalFileArtifact(options: {
     const prefix = (options.peerPrefix || '').replace(/^\/+|\/+$/g, '');
     const objectKey = prefix ? `${prefix}/${archiveName}` : archiveName;
     const peer = options.destinationPeer;
+    if (peer.status !== 'active') {
+      throw new Error(
+        `Peer "${peer.name}" is ${peer.status}; re-pair before backing up to it`
+      );
+    }
     const transport = peer.transport === 'direct' ? 'direct' : 'mailbox';
 
     if (transport === 'direct') {

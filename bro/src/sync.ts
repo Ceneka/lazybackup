@@ -1,6 +1,6 @@
 import fs from 'fs/promises';
 import type { BroConfig } from './config';
-import { objectFilePath, unlinkObject, upsertObject, usedBytes } from './db';
+import { getObject, objectFilePath, unlinkObject, upsertObject, usedBytes } from './db';
 import { BRO_OBJECT_HARD_CAP_BYTES, streamResponseToFile } from './stream';
 import { safeRemoteFetch, type RemoteRequestInit } from './remote';
 
@@ -64,8 +64,15 @@ async function hostFetch(
   });
 }
 
-async function assertQuota(cfg: BroConfig, additional: number): Promise<void> {
-  const used = usedBytes(cfg);
+async function assertQuota(
+  cfg: BroConfig,
+  additional: number,
+  replacingKey?: string
+): Promise<void> {
+  // A re-pull (lost ACK, restart) replaces the existing object of the same key,
+  // so only the net growth counts against the quota.
+  const replaced = replacingKey ? (getObject(cfg, replacingKey)?.size ?? 0) : 0;
+  const used = Math.max(0, usedBytes(cfg) - replaced);
   if (cfg.quotaBytes > 0 && used + additional > cfg.quotaBytes) {
     throw new Error(
       `Quota exceeded: need ${additional} bytes, used ${used} of ${cfg.quotaBytes}`
@@ -109,30 +116,46 @@ export async function syncOnce(cfg: BroConfig): Promise<SyncStatus> {
     status.pendingPulls = work.pulls?.length || 0;
     status.pendingRecalls = work.recalls?.length || 0;
 
+    // Failures are per item: one oversized/corrupt object must not block
+    // recalls (restores) or retention deletes for the rest of the pass.
+    const errors: string[] = [];
+
     for (const pull of work.pulls || []) {
-      const getRes = await hostFetch(
-        cfg,
-        `/api/peers/agent/pending?key=${encodeURIComponent(pull.key)}`
-      );
-      if (!getRes.ok) continue;
-      await assertQuota(cfg, pull.size);
-      const dest = objectFilePath(cfg, pull.key);
-      const downloaded = await streamResponseToFile({
-        response: getRes,
-        destPath: dest,
-        maxBytes: Math.min(BRO_OBJECT_HARD_CAP_BYTES, cfg.quotaBytes),
-        expectedBytes: pull.size,
-      });
-      upsertObject(cfg, pull.key, downloaded.size, new Date().toISOString());
-      await hostFetch(cfg, '/api/peers/agent/ack', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          key: pull.key,
-          size: downloaded.size,
-          sha256: downloaded.sha256,
-        }),
-      });
+      try {
+        const getRes = await hostFetch(
+          cfg,
+          `/api/peers/agent/pending?key=${encodeURIComponent(pull.key)}`
+        );
+        if (!getRes.ok) {
+          errors.push(`Pull ${pull.key}: HTTP ${getRes.status}`);
+          continue;
+        }
+        await assertQuota(cfg, pull.size, pull.key);
+        const dest = objectFilePath(cfg, pull.key);
+        const downloaded = await streamResponseToFile({
+          response: getRes,
+          destPath: dest,
+          maxBytes: Math.min(BRO_OBJECT_HARD_CAP_BYTES, cfg.quotaBytes),
+          expectedBytes: pull.size,
+        });
+        upsertObject(cfg, pull.key, downloaded.size, new Date().toISOString());
+        const ackRes = await hostFetch(cfg, '/api/peers/agent/ack', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            key: pull.key,
+            size: downloaded.size,
+            sha256: downloaded.sha256,
+          }),
+        });
+        if (!ackRes.ok) {
+          errors.push(`ACK ${pull.key}: HTTP ${ackRes.status}`);
+        }
+      } catch (err) {
+        errors.push(
+          `Pull ${pull.key}: ${err instanceof Error ? err.message : String(err)}`
+        );
+      }
     }
 
     let remainingRecalls = work.recalls?.length || 0;
@@ -143,7 +166,7 @@ export async function syncOnce(cfg: BroConfig): Promise<SyncStatus> {
         if (stat.size > BRO_OBJECT_HARD_CAP_BYTES) {
           throw new Error(`Recall exceeds maximum of ${BRO_OBJECT_HARD_CAP_BYTES} bytes`);
         }
-        await hostFetch(cfg, `/api/peers/agent/recall/${recall.id}`, {
+        const putRes = await hostFetch(cfg, `/api/peers/agent/recall/${recall.id}`, {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/octet-stream',
@@ -151,6 +174,10 @@ export async function syncOnce(cfg: BroConfig): Promise<SyncStatus> {
           },
           body: Bun.file(src),
         });
+        if (!putRes.ok) {
+          errors.push(`Recall ${recall.id}: HTTP ${putRes.status}`);
+          continue;
+        }
         remainingRecalls -= 1;
       } catch (err) {
         console.warn(
@@ -164,7 +191,7 @@ export async function syncOnce(cfg: BroConfig): Promise<SyncStatus> {
     for (const del of mailboxDeletesToApply(work.deletes, recallKeys)) {
       try {
         await unlinkObject(cfg, del.key);
-        await hostFetch(cfg, '/api/peers/agent/ack', {
+        const delRes = await hostFetch(cfg, '/api/peers/agent/ack', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -173,6 +200,9 @@ export async function syncOnce(cfg: BroConfig): Promise<SyncStatus> {
             size: 0,
           }),
         });
+        if (!delRes.ok) {
+          errors.push(`Delete ACK ${del.key}: HTTP ${delRes.status}`);
+        }
       } catch (err) {
         console.warn(
           `[lazybro] delete ${del.key}:`,
@@ -184,6 +214,8 @@ export async function syncOnce(cfg: BroConfig): Promise<SyncStatus> {
     status.lastSyncAt = new Date().toISOString();
     status.pendingPulls = 0;
     status.pendingRecalls = remainingRecalls;
+    // Keep hostReachable true: the host answered, individual items failed.
+    status.lastError = errors.length ? errors.join('; ') : null;
   } catch (err) {
     status.hostReachable = false;
     status.lastError = err instanceof Error ? err.message : String(err);
