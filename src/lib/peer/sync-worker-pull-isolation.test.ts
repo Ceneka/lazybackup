@@ -59,7 +59,7 @@ afterAll(() => {
   mock.module('@/lib/net/url-guard', () => realGuard);
 });
 
-function peer(): PeerRow {
+function peer(overrides: Partial<PeerRow> = {}): PeerRow {
   return {
     id: 'peer_a',
     name: 'Bro',
@@ -76,6 +76,7 @@ function peer(): PeerRow {
     lastActivityAt: null,
     createdAt: new Date(),
     updatedAt: new Date(),
+    ...overrides,
   };
 }
 
@@ -111,5 +112,12 @@ describe('syncPeerOnce pull isolation', () => {
     expect(
       calls.some((c) => c.method === 'POST' && c.url.includes('/api/peers/agent/ack'))
     ).toBe(true);
+  });
+
+  test('revoked peers are no longer dialed', async () => {
+    await expect(
+      syncPeerOnce(peer({ status: 'revoked' }))
+    ).resolves.toBeUndefined();
+    expect(calls).toHaveLength(0);
   });
 });

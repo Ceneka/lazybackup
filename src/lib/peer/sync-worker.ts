@@ -10,6 +10,7 @@ import {
 import { pinnedFetch, type PinnedRequestInit } from '@/lib/net/pinned-fetch';
 import { peerUrlPolicy } from '@/lib/net/url-guard';
 import { ingestPeerObjectUpload } from './storage';
+import { planRecallChunks } from './recall-chunk';
 import {
   assertDeclaredUploadSize,
   PEER_UPLOAD_HARD_CAP_BYTES,
@@ -76,7 +77,13 @@ export async function syncPeerOnce(peer: PeerRow): Promise<void> {
     pulls: Array<{ key: string; size: number }>;
     recalls: Array<{ id: string; objectKey: string }>;
     deletes?: Array<{ key: string }>;
+    recallChunkMaxBytes?: number;
   };
+
+  const recallChunkMax =
+    Number.isSafeInteger(work.recallChunkMaxBytes) && (work.recallChunkMaxBytes ?? 0) > 0
+      ? Number(work.recallChunkMaxBytes)
+      : 0;
 
   for (const pull of work.pulls || []) {
     // A single bad/oversized staged object must not abort recalls (restores)
@@ -135,20 +142,48 @@ export async function syncPeerOnce(peer: PeerRow): Promise<void> {
       if (stat.size > PEER_UPLOAD_HARD_CAP_BYTES) {
         throw new Error(`Recall exceeds maximum of ${PEER_UPLOAD_HARD_CAP_BYTES} bytes`);
       }
-      const putRes = await peerFetch(peer, `/api/peers/agent/recall/${recall.id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/octet-stream',
-          'Content-Length': String(stat.size),
-        },
-        body: createReadStream(localPath),
-      });
-      if (!putRes.ok) {
-        console.warn(`[peer-sync] recall upload failed ${recall.id}: ${putRes.status}`);
+
+      if (recallChunkMax > 0 && stat.size > recallChunkMax) {
+        const chunks = planRecallChunks(stat.size, recallChunkMax);
+        if (chunks.length === 0) throw new Error('Recall artifact is empty');
+        for (const chunk of chunks) {
+          const putRes = await peerFetch(
+            peer,
+            `/api/peers/agent/recall/${recall.id}?chunk=${chunk.index}&chunks=${chunks.length}&total=${stat.size}`,
+            {
+              method: 'PUT',
+              headers: {
+                'Content-Type': 'application/octet-stream',
+                'Content-Length': String(chunk.length),
+              },
+              body: createReadStream(localPath, {
+                start: chunk.start,
+                end: chunk.end - 1,
+              }),
+            }
+          );
+          if (!putRes.ok) {
+            throw new Error(
+              `chunk ${chunk.index + 1}/${chunks.length} failed (${putRes.status})`
+            );
+          }
+        }
+      } else {
+        const putRes = await peerFetch(peer, `/api/peers/agent/recall/${recall.id}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/octet-stream',
+            'Content-Length': String(stat.size),
+          },
+          body: createReadStream(localPath),
+        });
+        if (!putRes.ok) {
+          throw new Error(`upload failed (${putRes.status})`);
+        }
       }
     } catch (err) {
       console.warn(
-        `[peer-sync] recall ${recall.id} missing locally:`,
+        `[peer-sync] recall ${recall.id} failed:`,
         err instanceof Error ? err.message : err
       );
     }

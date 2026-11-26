@@ -1,5 +1,6 @@
 import { touchPeerSeen, verifyPeerBearer } from '@/lib/peer/pairing';
 import { listOpenRecallsForPeer } from '@/lib/peer/recall';
+import { PEER_RECALL_CHUNK_MAX_BYTES } from '@/lib/peer/recall-chunk';
 import { listPendingDeletesForWork } from '@/lib/peer/retention';
 import { listStagedObjects, stagingUsedBytes } from '@/lib/peer/staging';
 import { NextRequest, NextResponse } from 'next/server';
@@ -33,6 +34,8 @@ export async function GET(request: NextRequest) {
     pulls: advertisedPulls.map((p) => ({ key: p.key, size: p.size, mtime: p.mtime })),
     recalls,
     deletes,
+    /** Clients should upload recalls in chunks no larger than this. */
+    recallChunkMaxBytes: PEER_RECALL_CHUNK_MAX_BYTES,
     serverTime: new Date().toISOString(),
   });
 }

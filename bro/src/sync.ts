@@ -55,6 +55,88 @@ export function mailboxDeletesToApply(
   return (deletes || []).filter((del) => !blocked.has(del.key));
 }
 
+/**
+ * A recall upload is only done when the host accepted it. Returns an error message
+ * for a failed response (parseable so the caller can surface it) or null on success.
+ */
+export function recallUploadFailure(
+  response: { ok: boolean; status: number },
+  bodyText: string
+): string | null {
+  if (response.ok) return null;
+  let detail = bodyText.trim();
+  if (detail) {
+    try {
+      const parsed = JSON.parse(detail) as { error?: unknown };
+      if (typeof parsed.error === 'string' && parsed.error.trim()) {
+        detail = parsed.error.trim();
+      }
+    } catch {
+      /* keep raw text */
+    }
+  }
+  const trimmed = detail.length > 200 ? `${detail.slice(0, 200)}…` : detail;
+  return `Recall upload failed (${response.status})${trimmed ? `: ${trimmed}` : ''}`;
+}
+
+export type RecallChunk = {
+  index: number;
+  start: number;
+  end: number;
+  length: number;
+};
+
+/** Keep the layout in sync with src/lib/peer/recall-chunk.ts on the host. */
+export function planRecallChunks(totalBytes: number, chunkMax: number): RecallChunk[] {
+  if (!Number.isSafeInteger(totalBytes) || totalBytes < 0) {
+    throw new Error('Invalid recall size');
+  }
+  if (!Number.isSafeInteger(chunkMax) || chunkMax <= 0) {
+    throw new Error('Invalid recall chunk size');
+  }
+  const chunks: RecallChunk[] = [];
+  let index = 0;
+  for (let start = 0; start < totalBytes; start += chunkMax) {
+    const end = Math.min(totalBytes, start + chunkMax);
+    chunks.push({ index, start, end, length: end - start });
+    index += 1;
+  }
+  return chunks;
+}
+
+/** Upload a recall in fixed-size chunks so reverse proxies never see one huge body. */
+export async function uploadRecallChunks(
+  cfg: BroConfig,
+  recallId: string,
+  srcPath: string,
+  totalBytes: number,
+  chunkMax: number
+): Promise<void> {
+  const chunks = planRecallChunks(totalBytes, chunkMax);
+  if (chunks.length === 0) throw new Error('Recall artifact is empty');
+  for (const chunk of chunks) {
+    const res = await hostFetch(
+      cfg,
+      `/api/peers/agent/recall/${recallId}?chunk=${chunk.index}&chunks=${chunks.length}&total=${totalBytes}`,
+      {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/octet-stream',
+          'Content-Length': String(chunk.length),
+        },
+        body: Bun.file(srcPath).slice(chunk.start, chunk.end),
+      }
+    );
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '');
+      throw new Error(
+        recallUploadFailure(res, detail) ??
+          `Recall chunk ${chunk.index + 1}/${chunks.length} failed (${res.status})`
+      );
+    }
+  }
+}
+
 function hostApi(cfg: BroConfig, apiPath: string): string {
   if (!cfg.hostBaseUrl) throw new Error('Not paired');
   const base = cfg.hostBaseUrl.replace(/\/+$/, '');
@@ -136,7 +218,15 @@ async function runSyncOnce(cfg: BroConfig): Promise<SyncStatus> {
       pulls: Array<{ key: string; size: number }>;
       recalls: Array<{ id: string; objectKey: string }>;
       deletes?: Array<{ key: string }>;
+      recallChunkMaxBytes?: number;
     };
+
+    // Hosts that advertise a chunk size accept large recalls in pieces; older
+    // hosts only take a single body (capped by their own proxy/middleware).
+    const recallChunkMax =
+      Number.isSafeInteger(work.recallChunkMaxBytes) && (work.recallChunkMaxBytes ?? 0) > 0
+        ? Number(work.recallChunkMaxBytes)
+        : 0;
 
     status.pendingPulls = work.pulls?.length || 0;
     status.pendingRecalls = work.recalls?.length || 0;
@@ -192,24 +282,30 @@ async function runSyncOnce(cfg: BroConfig): Promise<SyncStatus> {
         if (stat.size > BRO_OBJECT_HARD_CAP_BYTES) {
           throw new Error(`Recall exceeds maximum of ${BRO_OBJECT_HARD_CAP_BYTES} bytes`);
         }
-        const putRes = await hostFetch(cfg, `/api/peers/agent/recall/${recall.id}`, {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/octet-stream',
-            'Content-Length': String(stat.size),
-          },
-          body: Bun.file(src),
-        });
-        if (!putRes.ok) {
-          errors.push(`Recall ${recall.id}: HTTP ${putRes.status}`);
-          continue;
+        if (recallChunkMax > 0 && stat.size > recallChunkMax) {
+          await uploadRecallChunks(cfg, recall.id, src, stat.size, recallChunkMax);
+        } else {
+          const putRes = await hostFetch(cfg, `/api/peers/agent/recall/${recall.id}`, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/octet-stream',
+              'Content-Length': String(stat.size),
+            },
+            body: Bun.file(src),
+          });
+          if (!putRes.ok) {
+            const detail = await putRes.text().catch(() => '');
+            throw new Error(
+              recallUploadFailure(putRes, detail) ??
+                `Recall upload failed (${putRes.status})`
+            );
+          }
         }
         remainingRecalls -= 1;
       } catch (err) {
-        console.warn(
-          `[lazybro] recall ${recall.id}:`,
-          err instanceof Error ? err.message : err
-        );
+        const message = err instanceof Error ? err.message : String(err);
+        errors.push(`Recall ${recall.id}: ${message}`);
+        console.warn(`[lazybro] recall ${recall.id}:`, message);
       }
     }
 
