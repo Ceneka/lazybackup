@@ -1,5 +1,9 @@
 import { historyBackupConfigWith } from '@/lib/api/history-query';
 import { redactHistoryEntry } from '@/lib/api/redact';
+import {
+  parseRestoreSnapshot,
+  restoreDefaultsFromSnapshot,
+} from '@/lib/backup/restore-snapshot';
 import { db } from '@/lib/db';
 import { backupHistory } from '@/lib/db/schema';
 import { deliveryStateForHistoryRow } from '@/lib/peer/delivery-state';
@@ -29,9 +33,15 @@ export async function GET(
       );
     }
     
+    const snapshot = parseRestoreSnapshot(historyEntry.configSnapshot);
+    const restoreDefaults = historyEntry.backupConfig
+      ? restoreDefaultsFromSnapshot(snapshot, historyEntry.backupConfig)
+      : null;
+
     return NextResponse.json({
       ...redactHistoryEntry(historyEntry as unknown as Record<string, unknown>),
       deliveryState: deliveryStateForHistoryRow(historyEntry),
+      restoreDefaults,
     });
   } catch (error) {
     console.error('Error fetching backup history entry:', error);

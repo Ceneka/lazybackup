@@ -13,9 +13,12 @@ mock.module('@/lib/db', () => ({
     query: {
       backupHistory: {
         findFirst: async () => historyFixture,
+        findMany: async () => [],
       },
       peerDeletes: { findFirst: async () => null },
       servers: { findFirst: async () => null },
+      s3Profiles: { findFirst: async () => null },
+      peers: { findFirst: async () => null },
     },
   },
 }));

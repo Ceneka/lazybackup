@@ -14,6 +14,7 @@ type HistoryRow = {
   status: string;
   artifactPath: string | null;
   artifactRemoved?: boolean;
+  configSnapshot?: string | null;
   backupConfig: Record<string, unknown> | null;
 };
 
@@ -24,6 +25,7 @@ mock.module('@/lib/db', () => ({
     query: {
       backupHistory: {
         findFirst: async () => historyFixture,
+        findMany: async () => [],
       },
       peerDeletes: {
         findFirst: async () => null,
@@ -31,11 +33,18 @@ mock.module('@/lib/db', () => ({
       servers: {
         findFirst: async () => null,
       },
+      s3Profiles: {
+        findFirst: async () => null,
+      },
+      peers: {
+        findFirst: async () => null,
+      },
     },
   },
 }));
 
 const recall = await import('@/lib/peer/recall');
+const { buildRestoreSnapshot } = await import('./restore-snapshot');
 const {
   resolveLocalRestoreArtifact,
   resolveLocalPathRestoreTree,
@@ -530,6 +539,25 @@ describe('restorePathBackup guards and local restore', () => {
     );
   });
 
+  test('reports retention instead of a missing artifact', async () => {
+    historyFixture = {
+      id: 'h-removed',
+      status: 'success',
+      artifactPath: '/tmp/removed-by-retention',
+      artifactRemoved: true,
+      backupConfig: {
+        sourceType: 'path',
+        sourceKind: 'local',
+        sourcePath: '/tmp/dest',
+        destinationKind: 'local',
+      },
+    };
+
+    await expect(restorePathBackup('h-removed', { confirm: true })).rejects.toThrow(
+      /artifact removed by retention/i
+    );
+  });
+
   test('restores local directory tree onto another local path', async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'lazybackup-path-restore-'));
     const artifact = path.join(root, 'artifact');
@@ -553,6 +581,139 @@ describe('restorePathBackup guards and local restore', () => {
       const body = await fs.readFile(path.join(target, 'file.txt'), 'utf8');
       expect(body).toBe('payload');
       expect(result.log).toMatch(/Restore completed successfully/i);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('uses the run snapshot, not a later-edited source path', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'lazybackup-snapshot-'));
+    const artifact = path.join(root, 'artifact');
+    const originalTarget = path.join(root, 'srv-app');
+    const editedTarget = path.join(root, 'srv-app-v2');
+    await fs.mkdir(artifact);
+    await fs.writeFile(path.join(artifact, 'file.txt'), 'snapshot payload');
+
+    const snapshot = buildRestoreSnapshot({
+      sourceKind: 'local',
+      sourceType: 'path',
+      sourcePath: originalTarget,
+      destinationKind: 'local',
+      destinationPath: path.join(root, 'backups'),
+    });
+
+    historyFixture = {
+      id: 'h-snapshot',
+      status: 'success',
+      artifactPath: artifact,
+      configSnapshot: JSON.stringify(snapshot),
+      backupConfig: {
+        sourceType: 'path',
+        sourceKind: 'local',
+        // Edited after the run: the live source now points somewhere else.
+        sourcePath: editedTarget,
+        destinationKind: 'local',
+        destinationPath: path.join(root, 'backups'),
+      },
+    };
+
+    try {
+      const result = await restorePathBackup('h-snapshot', { confirm: true });
+      expect(result.targetPath).toBe(originalTarget);
+      expect(
+        await fs.readFile(path.join(originalTarget, 'file.txt'), 'utf8')
+      ).toBe('snapshot payload');
+      await expect(fs.stat(editedTarget)).rejects.toThrow();
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('uses the snapshotted destination when the live destination changed', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'lazybackup-snapshot-dest-'));
+    const artifact = path.join(root, 'artifact');
+    const target = path.join(root, 'target');
+    await fs.mkdir(artifact);
+    await fs.writeFile(path.join(artifact, 'file.txt'), 'payload');
+
+    const snapshot = buildRestoreSnapshot({
+      sourceKind: 'local',
+      sourceType: 'path',
+      sourcePath: target,
+      destinationKind: 'local',
+      destinationPath: path.join(root, 'backups'),
+    });
+    historyFixture = {
+      id: 'h-snapshot-dest',
+      status: 'success',
+      artifactPath: artifact,
+      configSnapshot: JSON.stringify(snapshot),
+      backupConfig: {
+        sourceType: 'path',
+        sourceKind: 'local',
+        sourcePath: target,
+        // Edited after the run to point at S3; the artifact is still local.
+        destinationKind: 's3',
+        destinationS3ProfileId: 'missing-profile',
+        destinationPath: 'backups/app',
+      },
+    };
+
+    try {
+      const result = await restorePathBackup('h-snapshot-dest', { confirm: true });
+      expect(result.targetPath).toBe(target);
+      expect(await fs.readFile(path.join(target, 'file.txt'), 'utf8')).toBe('payload');
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('explicit target + allowRetarget still overrides the snapshot', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'lazybackup-snapshot-retarget-'));
+    const artifact = path.join(root, 'artifact');
+    const originalTarget = path.join(root, 'original');
+    const retarget = path.join(root, 'elsewhere');
+    await fs.mkdir(artifact);
+    await fs.writeFile(path.join(artifact, 'file.txt'), 'payload');
+
+    const snapshot = buildRestoreSnapshot({
+      sourceKind: 'local',
+      sourceType: 'path',
+      sourcePath: originalTarget,
+      destinationKind: 'local',
+      destinationPath: path.join(root, 'backups'),
+    });
+    historyFixture = {
+      id: 'h-snapshot-retarget',
+      status: 'success',
+      artifactPath: artifact,
+      configSnapshot: JSON.stringify(snapshot),
+      backupConfig: {
+        sourceType: 'path',
+        sourceKind: 'local',
+        sourcePath: originalTarget,
+        destinationKind: 'local',
+        destinationPath: path.join(root, 'backups'),
+      },
+    };
+
+    try {
+      await expect(
+        restorePathBackup('h-snapshot-retarget', {
+          confirm: true,
+          targetPath: retarget,
+        })
+      ).rejects.toThrow(/allowRetarget/i);
+
+      const result = await restorePathBackup('h-snapshot-retarget', {
+        confirm: true,
+        targetPath: retarget,
+        allowRetarget: true,
+      });
+      expect(result.targetPath).toBe(retarget);
+      expect(await fs.readFile(path.join(retarget, 'file.txt'), 'utf8')).toBe(
+        'payload'
+      );
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }

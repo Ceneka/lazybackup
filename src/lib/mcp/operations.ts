@@ -306,12 +306,15 @@ export async function runBackupOp(ctx: McpOpsContext, id: string) {
     })
     if (!config) throw new Error(`Backup not found: ${id}`)
 
-    const { assertCanStartBackup } = await import('@/lib/backup/concurrent-run')
-    await assertCanStartBackup(config.id)
-
+    const { assertCanStartBackup, withBackupStartLock } = await import(
+      '@/lib/backup/concurrent-run'
+    )
     const { createBackupHistoryEntry } = await import('@/lib/backup/history')
-    const historyEntry = await createBackupHistoryEntry(config.id, {
-      backupName: config.name,
+    const historyEntry = await withBackupStartLock(config.id, async () => {
+      await assertCanStartBackup(config.id)
+      return createBackupHistoryEntry(config.id, {
+        backupName: config.name,
+      })
     })
     executeBackup(config, historyEntry.id).catch((error) => {
       console.error(`Backup execution failed for ${config.name}:`, error)

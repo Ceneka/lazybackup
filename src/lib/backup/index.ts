@@ -29,11 +29,13 @@ import { downloadPeerObject } from '@/lib/peer/client';
 import { assertFileSha256 } from '@/lib/peer/digest';
 import {
   cleanupS3FileRetention,
-  cleanupS3OldVersions,
+  deletePrefix,
   downloadFile,
   downloadPrefix,
   formatS3ArtifactPath,
   joinS3Key,
+  listObjectsUnderPrefix,
+  listVersionPrefixes,
   parseS3ArtifactPath,
   uploadDirectory,
   uploadFile,
@@ -50,7 +52,6 @@ import {
 } from '@/lib/ssh';
 import {
   cleanupRemoteOldFiles,
-  cleanupRemoteOldVersions,
   ensureRemoteDirectory,
   generateEphemeralEd25519KeyPair,
   installEphemeralAuthorizedKey,
@@ -65,11 +66,18 @@ import {
   formatRshArgument,
   runRsync,
   runScp,
+  shellSingleQuote,
   sshCliArgv,
   sshUserHost,
 } from '@/lib/ssh/rsync';
 import { ensureKnownHostsFile } from '@/lib/ssh/known-hosts';
-import { VERSION_DIR_PATTERN } from '@/lib/backup/storage-stats';
+import {
+  createUniqueLocalVersionDir,
+  cleanupLocalVersionDirs,
+  formatVersionDirName,
+  parseVersionDirName,
+  selectVersionDirNamesToDelete,
+} from '@/lib/backup/version-dirs';
 import {
   assertLocalDestinationPath,
   assertLocalSourcePath,
@@ -78,9 +86,26 @@ import {
   isUnderBackupStoragePath,
 } from '@/lib/backup/local-paths';
 import { isBackupArtifactFileName, selectFilesToDelete, type RetentionAgeUnit } from './file-retention';
-import { assertCanStartBackup } from './concurrent-run';
+import { assertCanStartBackup, beginRestore, withBackupStartLock } from './concurrent-run';
 import { assertTransferServersHaveKeys } from './assert-transfer-keys';
 import { resolveRestoreHost, type ResolvedRestoreHost } from './restore-target';
+import {
+  effectiveRestoreConfig,
+  parseRestoreSnapshot,
+  type EffectiveRestoreConfig,
+  type RestoreConfigSnapshot,
+} from './restore-snapshot';
+import {
+  mapAgeDecryptError,
+  mapS3DownloadError,
+  restoreRequestError,
+  translateRestoreWriteError,
+} from './restore-errors';
+import {
+  ARTIFACT_REMOVED_BY_FILE_RETENTION,
+  ARTIFACT_REMOVED_BY_VERSION_RETENTION,
+  markArtifactsRemoved,
+} from './artifact-retention';
 import { assertSafeTarGzArchive } from './archive-safety';
 import {
   buildRemotePathKindCommand,
@@ -188,6 +213,224 @@ function normalizeServer(server: ServerRow) {
     sshKeyId: server.sshKeyId || null,
     systemKeyPath: server.systemKeyPath || null,
   };
+}
+
+type SshConnection = Awaited<ReturnType<typeof connectToServer>>;
+
+/** Pick a free remote version directory (rare same-second collision). */
+async function createUniqueRemoteVersionDir(
+  ssh: SshConnection,
+  baseDir: string,
+  timestamp: string
+): Promise<string> {
+  const base = baseDir.replace(/\/+$/, '') || '/';
+  await ensureRemoteDirectory(ssh, base);
+
+  for (let ordinal = 1; ordinal <= 10_000; ordinal += 1) {
+    const candidate = `${base}/${formatVersionDirName(timestamp, ordinal)}`;
+    const result = await ssh.execCommand(
+      `PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" mkdir ${shellSingleQuote(candidate)}`
+    );
+    if (result.code === 0) return candidate;
+    const output = `${result.stderr || ''}\n${result.stdout || ''}`.toLowerCase();
+    if (output.includes('file exists')) continue;
+    throw new Error(
+      `Failed to create remote version directory ${candidate}: ${result.stderr || result.stdout}`
+    );
+  }
+
+  throw new Error(`Could not allocate a unique remote version directory for ${timestamp}`);
+}
+
+async function createUniqueS3VersionPrefix(
+  profile: S3ProfileConfig,
+  basePrefix: string,
+  timestamp: string
+): Promise<string> {
+  for (let ordinal = 1; ordinal <= 10_000; ordinal += 1) {
+    const candidate = joinS3Key(basePrefix, formatVersionDirName(timestamp, ordinal));
+    const objects = await listObjectsUnderPrefix(profile, candidate);
+    if (objects.length === 0) return candidate;
+  }
+  throw new Error(`Could not allocate a unique S3 version prefix for ${timestamp}`);
+}
+
+async function createUniquePeerVersionPrefix(
+  configId: string,
+  basePrefix: string,
+  timestamp: string
+): Promise<string> {
+  const rows = await db.query.backupHistory.findMany({
+    where: eq(backupHistory.configId, configId),
+    columns: { artifactPath: true },
+  });
+  const existing = rows
+    .map((row) => row.artifactPath)
+    .filter((value): value is string => Boolean(value));
+
+  for (let ordinal = 1; ordinal <= 10_000; ordinal += 1) {
+    const name = formatVersionDirName(timestamp, ordinal);
+    const candidate = basePrefix ? `${basePrefix}/${name}` : name;
+    if (!existing.some((path) => path.includes(`/${candidate}/`) || path.endsWith(`/${candidate}`))) {
+      return candidate;
+    }
+  }
+  throw new Error(`Could not allocate a unique peer version prefix for ${timestamp}`);
+}
+
+/** Delete remote version dirs beyond `keep`; returns deleted absolute paths. */
+async function cleanupRemoteVersionDirs(
+  ssh: SshConnection,
+  baseDir: string,
+  versionsToKeep: number
+): Promise<string[]> {
+  const list = await ssh.execCommand(
+    `PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" ls -1 ${shellSingleQuote(baseDir)} 2>/dev/null || true`
+  );
+  const names = (list.stdout || '')
+    .split('\n')
+    .map((name) => name.trim())
+    .filter((name) => parseVersionDirName(name) !== null);
+  const toDelete = selectVersionDirNamesToDelete(names, versionsToKeep);
+
+  const deleted: string[] = [];
+  for (const name of toDelete) {
+    const full = `${baseDir.replace(/\/+$/, '')}/${name}`;
+    console.log(`Deleting old remote backup version: ${full}`);
+    await ssh.execCommand(`rm -rf ${shellSingleQuote(full)}`);
+    deleted.push(full);
+  }
+  return deleted;
+}
+
+/** Delete S3 version prefixes beyond `keep`; returns deleted s3:// artifact paths. */
+async function cleanupS3VersionPrefixes(
+  profile: S3ProfileConfig,
+  basePrefix: string,
+  versionsToKeep: number
+): Promise<string[]> {
+  const versions = await listVersionPrefixes(profile, basePrefix);
+  const byName = new Map(versions.map((version) => [version.name, version]));
+  const toDelete = selectVersionDirNamesToDelete(
+    versions.map((version) => version.name),
+    versionsToKeep
+  ).map((name) => byName.get(name)).filter((version): version is NonNullable<typeof version> => Boolean(version));
+
+  const deleted: string[] = [];
+  for (const version of toDelete) {
+    await deletePrefix(profile, version.prefix);
+    deleted.push(formatS3ArtifactPath(profile.bucket, version.prefix));
+  }
+  return deleted;
+}
+
+type RestoreEndpointRows = {
+  destinationServer: ServerRow | null;
+  destinationS3Profile: S3ProfileRow | null;
+  destinationPeer: PeerRow | null;
+  sourceServer: ServerRow | null;
+  sourceS3Profile: S3ProfileRow | null;
+};
+
+/**
+ * Resolve endpoint rows using the run snapshot ids. Falls back to the nested
+ * live-config relations when the id is unchanged (or the row is legacy).
+ */
+async function loadRestoreEndpointRows(
+  config: BackupConfigWithEndpoints,
+  effective: EffectiveRestoreConfig
+): Promise<RestoreEndpointRows> {
+  const sameId = (a: string | null | undefined, b: string | null | undefined) =>
+    (a ?? null) === (b ?? null);
+
+  const destinationServer =
+    effective.destinationKind !== 'server' || !effective.destinationServerId
+      ? null
+      : sameId(effective.destinationServerId, config.destinationServerId)
+        ? config.destinationServer ?? null
+        : await db.query.servers.findFirst({
+            where: eq(servers.id, effective.destinationServerId),
+          }) ?? null;
+
+  const destinationS3Profile =
+    effective.destinationKind !== 's3' || !effective.destinationS3ProfileId
+      ? null
+      : sameId(effective.destinationS3ProfileId, config.destinationS3ProfileId)
+        ? config.destinationS3Profile ?? null
+        : await db.query.s3Profiles.findFirst({
+            where: eq(s3Profiles.id, effective.destinationS3ProfileId),
+          }) ?? null;
+
+  const destinationPeer =
+    effective.destinationKind !== 'peer' || !effective.destinationPeerId
+      ? null
+      : sameId(effective.destinationPeerId, config.destinationPeerId)
+        ? config.destinationPeer ?? null
+        : await db.query.peers.findFirst({
+            where: eq(peers.id, effective.destinationPeerId),
+          }) ?? null;
+
+  const sourceServer =
+    effective.sourceKind !== 'server' || !effective.serverId
+      ? null
+      : sameId(effective.serverId, config.serverId)
+        ? config.server ?? null
+        : await db.query.servers.findFirst({
+            where: eq(servers.id, effective.serverId),
+          }) ?? null;
+
+  const sourceS3Profile =
+    effective.sourceKind !== 's3' || !effective.sourceS3ProfileId
+      ? null
+      : sameId(effective.sourceS3ProfileId, config.sourceS3ProfileId)
+        ? config.sourceS3Profile ?? null
+        : await db.query.s3Profiles.findFirst({
+            where: eq(s3Profiles.id, effective.sourceS3ProfileId),
+          }) ?? null;
+
+  return {
+    destinationServer,
+    destinationS3Profile,
+    destinationPeer,
+    sourceServer,
+    sourceS3Profile,
+  };
+}
+
+/** Lock a restore of one history row; 409 while it/its config is busy. */
+async function withHistoryRestoreLock<T>(
+  historyId: string,
+  fn: () => Promise<T>
+): Promise<T> {
+  const entry = await db.query.backupHistory.findFirst({
+    where: eq(backupHistory.id, historyId),
+    columns: { id: true, status: true, configId: true },
+  });
+  if (!entry) {
+    throw restoreRequestError('Backup history entry not found', 'not-found', 404);
+  }
+  const release = await beginRestore({ historyId: entry.id, configId: entry.configId });
+  try {
+    return await fn();
+  } finally {
+    release();
+  }
+}
+
+function parseHistoryRestoreSnapshot(value: string | null | undefined): RestoreConfigSnapshot | null {
+  return parseRestoreSnapshot(value);
+}
+
+function assertHistoryArtifactRestorable(entry: {
+  artifactRemoved?: boolean | null;
+  artifactRemovedReason?: string | null;
+}): void {
+  if (!entry.artifactRemoved) return;
+  const reason = entry.artifactRemovedReason?.trim();
+  throw restoreRequestError(
+    reason ? `artifact removed by retention (${reason})` : 'artifact removed by retention',
+    'artifact-removed'
+  );
 }
 
 async function sshRshForIdentity(port: number, keyPath: string): Promise<string> {
@@ -757,25 +1000,32 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
     if (destinationKind === 'local') {
       localDestination = assertLocalDestinationPath(config.destinationPath);
       if (config.enableVersioning) {
-        localDestination = path.join(localDestination, timestamp);
+        localDestination = await createUniqueLocalVersionDir(localDestination, timestamp);
+      } else {
+        await fs.mkdir(localDestination, { recursive: true });
       }
-      await fs.mkdir(localDestination, { recursive: true });
     } else if (destinationKind === 'server' && config.destinationServer) {
-      remoteDestination = config.destinationPath.replace(/\/+$/, '') || '/';
-      if (config.enableVersioning) {
-        remoteDestination = `${remoteDestination}/${timestamp}`;
-      }
+      const baseDestination = config.destinationPath.replace(/\/+$/, '') || '/';
       destSsh = await connectToServer(normalizeServer(config.destinationServer));
-      await ensureRemoteDirectory(destSsh, remoteDestination);
+      if (config.enableVersioning) {
+        remoteDestination = await createUniqueRemoteVersionDir(destSsh, baseDestination, timestamp);
+      } else {
+        remoteDestination = baseDestination;
+        await ensureRemoteDirectory(destSsh, remoteDestination);
+      }
     } else if (destinationKind === 's3' && s3DestProfile) {
       s3DestinationPrefix = normalizeS3Prefix(config.destinationPath);
       if (config.enableVersioning) {
-        s3DestinationPrefix = joinS3Key(s3DestinationPrefix, timestamp);
+        s3DestinationPrefix = await createUniqueS3VersionPrefix(
+          s3DestProfile,
+          s3DestinationPrefix,
+          timestamp
+        );
       }
     } else if (destinationKind === 'peer') {
       peerPrefix = normalizeS3Prefix(config.destinationPath);
       if (config.enableVersioning) {
-        peerPrefix = peerPrefix ? `${peerPrefix}/${timestamp}` : timestamp;
+        peerPrefix = await createUniquePeerVersionPrefix(config.id, peerPrefix, timestamp);
       }
     }
 
@@ -1758,7 +2008,14 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
     if (destinationKind === 'local' && localDestination) {
       if (config.enableVersioning && config.versionsToKeep) {
         const baseDir = path.dirname(localDestination);
-        await cleanupOldVersions(baseDir, config.versionsToKeep);
+        const deleted = await cleanupLocalVersionDirs(baseDir, config.versionsToKeep);
+        if (deleted.length > 0) {
+          await markArtifactsRemoved(
+            config.id,
+            deleted,
+            ARTIFACT_REMOVED_BY_VERSION_RETENTION
+          );
+        }
       }
       if (
         !config.enableVersioning &&
@@ -1772,6 +2029,14 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
           config.retentionMaxAgeUnit || 'days',
           config.retentionMinKeep
         );
+        if (deletedFiles.length > 0) {
+          const destinationDir = path.resolve(expandLocalPath(config.destinationPath));
+          await markArtifactsRemoved(
+            config.id,
+            deletedFiles.map((name) => path.join(destinationDir, name)),
+            ARTIFACT_REMOVED_BY_FILE_RETENTION
+          );
+        }
         fileRetentionLog = buildFileRetentionLog(deletedFiles);
       }
     } else if (destinationKind === 'server' && config.destinationServer && remoteDestination) {
@@ -1780,7 +2045,14 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
       }
       if (config.enableVersioning && config.versionsToKeep) {
         const baseDir = path.posix.dirname(remoteDestination);
-        await cleanupRemoteOldVersions(destSsh, baseDir, config.versionsToKeep);
+        const deleted = await cleanupRemoteVersionDirs(destSsh, baseDir, config.versionsToKeep);
+        if (deleted.length > 0) {
+          await markArtifactsRemoved(
+            config.id,
+            deleted,
+            ARTIFACT_REMOVED_BY_VERSION_RETENTION
+          );
+        }
       }
       if (
         !config.enableVersioning &&
@@ -1795,18 +2067,33 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
           config.retentionMaxAgeUnit || 'days',
           config.retentionMinKeep
         );
+        if (deleted.length > 0) {
+          const destinationDir = config.destinationPath.replace(/\/+$/, '');
+          await markArtifactsRemoved(
+            config.id,
+            deleted.map((name) => `${destinationDir}/${name}`),
+            ARTIFACT_REMOVED_BY_FILE_RETENTION
+          );
+        }
         fileRetentionLog = buildFileRetentionLog(deleted);
       }
     } else if (destinationKind === 's3' && s3DestProfile) {
       const basePrefix = normalizeS3Prefix(config.destinationPath);
       if (config.enableVersioning && config.versionsToKeep) {
-        const cleaned = await cleanupS3OldVersions(
+        const deleted = await cleanupS3VersionPrefixes(
           s3DestProfile,
           basePrefix,
           config.versionsToKeep
         );
-        if (cleaned.names.length > 0) {
-          fileRetentionLog = buildFileRetentionLog(cleaned.names);
+        if (deleted.length > 0) {
+          await markArtifactsRemoved(
+            config.id,
+            deleted,
+            ARTIFACT_REMOVED_BY_VERSION_RETENTION
+          );
+          fileRetentionLog = buildFileRetentionLog(
+            deleted.map((artifact) => path.posix.basename(artifact))
+          );
         }
       }
       if (
@@ -1820,6 +2107,15 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
           unit: config.retentionMaxAgeUnit || 'days',
           minKeep: config.retentionMinKeep,
         });
+        if (cleaned.names.length > 0) {
+          await markArtifactsRemoved(
+            config.id,
+            cleaned.names.map((name) =>
+              formatS3ArtifactPath(s3DestProfile!.bucket, joinS3Key(basePrefix, name))
+            ),
+            ARTIFACT_REMOVED_BY_FILE_RETENTION
+          );
+        }
         fileRetentionLog = buildFileRetentionLog(cleaned.names);
       }
     } else if (destinationKind === 'peer' && config.destinationPeer) {
@@ -1934,119 +2230,154 @@ export async function resolveLocalRestoreArtifact(options: {
   let localPath: string;
   let tempDir: string | null = null;
 
-  if (kind === 'local') {
-    await fs.access(options.artifactPath).catch(() => {
-      throw new Error(`Backup artifact not found on disk: ${options.artifactPath}`);
-    });
-    localPath = options.artifactPath;
-  } else if (kind === 's3') {
-    if (!options.destinationS3Profile) {
-      throw new Error('Destination S3 profile is missing; cannot download artifact');
-    }
-    const parsed = parseS3ArtifactPath(options.artifactPath);
-    if (!parsed) {
-      throw new Error(`Invalid S3 artifact path: ${options.artifactPath}`);
-    }
-    const profile = toS3ProfileConfig(options.destinationS3Profile);
-    if (parsed.bucket !== profile.bucket) {
-      throw new Error(
-        `Artifact bucket ${parsed.bucket} does not match profile bucket ${profile.bucket}`
-      );
-    }
-    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'lazybackup-restore-'));
-    localPath = path.join(tempDir, path.posix.basename(parsed.key));
-    await downloadFile(profile, parsed.key, localPath);
-  } else if (kind === 'peer') {
-    if (!options.destinationPeer) {
-      throw new Error('Destination peer is missing; cannot download artifact');
-    }
-    const m = options.artifactPath.match(/^peer:\/\/([^/]+)\/(.+)$/);
-    if (!m?.[1] || !m[2]) {
-      throw new Error(`Invalid peer artifact path: ${options.artifactPath}`);
-    }
-    const peerId = m[1];
-    const objectKey = m[2];
-    const { assertPeerArtifactRestorable } = await import('@/lib/peer/retention');
-    await assertPeerArtifactRestorable(options.artifactPath, options.historyId ?? null);
-    const peer = options.destinationPeer;
-    const revokedError = () =>
-      new Error(`Peer "${peer.name}" is ${peer.status}; re-pair before restoring from it`);
-    const transport = peer.transport === 'direct' ? 'direct' : 'mailbox';
-    const openPeerTemp = async () => {
+  try {
+    if (kind === 'local') {
+      await fs.access(options.artifactPath).catch(() => {
+        throw restoreRequestError(
+          `Backup artifact not found on disk: ${options.artifactPath}`,
+          'artifact-missing'
+        );
+      });
+      localPath = options.artifactPath;
+    } else if (kind === 's3') {
+      if (!options.destinationS3Profile) {
+        throw restoreRequestError(
+          'Destination S3 profile is missing; cannot download artifact',
+          'destination-missing'
+        );
+      }
+      const parsed = parseS3ArtifactPath(options.artifactPath);
+      if (!parsed) {
+        throw restoreRequestError(
+          `Invalid S3 artifact path: ${options.artifactPath}`,
+          'artifact-missing'
+        );
+      }
+      const profile = toS3ProfileConfig(options.destinationS3Profile);
+      if (parsed.bucket !== profile.bucket) {
+        throw restoreRequestError(
+          `Artifact bucket ${parsed.bucket} does not match profile bucket ${profile.bucket}`,
+          'artifact-missing'
+        );
+      }
       tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'lazybackup-restore-'));
-      return path.join(tempDir, path.posix.basename(objectKey) || 'artifact');
-    };
+      localPath = path.join(tempDir, path.posix.basename(parsed.key));
+      try {
+        await downloadFile(profile, parsed.key, localPath);
+      } catch (error) {
+        throw mapS3DownloadError(error, options.artifactPath);
+      }
+    } else if (kind === 'peer') {
+      if (!options.destinationPeer) {
+        throw restoreRequestError(
+          'Destination peer is missing; cannot download artifact',
+          'destination-missing'
+        );
+      }
+      const m = options.artifactPath.match(/^peer:\/\/([^/]+)\/(.+)$/);
+      if (!m?.[1] || !m[2]) {
+        throw restoreRequestError(
+          `Invalid peer artifact path: ${options.artifactPath}`,
+          'artifact-missing'
+        );
+      }
+      const peerId = m[1];
+      const objectKey = m[2];
+      const { assertPeerArtifactRestorable } = await import('@/lib/peer/retention');
+      await assertPeerArtifactRestorable(options.artifactPath, options.historyId ?? null);
+      const peer = options.destinationPeer;
+      const revokedError = () =>
+        restoreRequestError(
+          `Peer "${peer.name}" is ${peer.status}; re-pair before restoring from it`,
+          'not-restorable'
+        );
+      const transport = peer.transport === 'direct' ? 'direct' : 'mailbox';
+      const openPeerTemp = async () => {
+        tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'lazybackup-restore-'));
+        return path.join(tempDir, path.posix.basename(objectKey) || 'artifact');
+      };
 
-    if (transport === 'mailbox') {
-      const { stagedObjectExists, peerStagingObjectPath } = await import(
-        '@/lib/peer/staging'
-      );
-      if (await stagedObjectExists(peerId, objectKey)) {
-        // Staged ciphertext is still on this host — restore works even if the peer
-        // was revoked after the backup ran.
-        localPath = await openPeerTemp();
-        await fs.copyFile(peerStagingObjectPath(peerId, objectKey), localPath);
-      } else {
-        // Ask bro to upload back; wait softly (not a critical failure / no webhook)
-        const {
-          ensureRecall,
-          consumeRecallArtifact,
-          PeerRecallPendingError,
-        } = await import('@/lib/peer/recall');
-        const recall = await ensureRecall({
-          peerId,
-          objectKey,
-          historyId: options.historyId ?? null,
-        });
-        if (recall.status === 'ready') {
+      if (transport === 'mailbox') {
+        const { stagedObjectExists, peerStagingObjectPath } = await import(
+          '@/lib/peer/staging'
+        );
+        if (await stagedObjectExists(peerId, objectKey)) {
+          // Staged ciphertext is still on this host — restore works even if the peer
+          // was revoked after the backup ran.
           localPath = await openPeerTemp();
-          await consumeRecallArtifact(recall.id, peerId, localPath);
-        } else if (peer.status !== 'active') {
-          throw revokedError();
+          await fs.copyFile(peerStagingObjectPath(peerId, objectKey), localPath);
         } else {
-          throw new PeerRecallPendingError(recall.id);
+          // Ask bro to upload back; wait softly (not a critical failure / no webhook)
+          const {
+            ensureRecall,
+            consumeRecallArtifact,
+            PeerRecallPendingError,
+          } = await import('@/lib/peer/recall');
+          const recall = await ensureRecall({
+            peerId,
+            objectKey,
+            historyId: options.historyId ?? null,
+          });
+          if (recall.status === 'ready') {
+            localPath = await openPeerTemp();
+            await consumeRecallArtifact(recall.id, peerId, localPath);
+          } else if (peer.status !== 'active') {
+            throw revokedError();
+          } else {
+            throw new PeerRecallPendingError(recall.id);
+          }
         }
+      } else {
+        if (peer.status !== 'active') {
+          throw revokedError();
+        }
+        localPath = await openPeerTemp();
+        await downloadPeerObject(peer, objectKey, localPath);
       }
+    } else if (kind === 'server') {
+      const pulled = await pullServerDestinationArtifact({
+        artifactPath: options.artifactPath,
+        destinationServer: options.destinationServer,
+      });
+      localPath = pulled.localPath;
+      tempDir = pulled.tempDir;
     } else {
-      if (peer.status !== 'active') {
-        throw revokedError();
-      }
-      localPath = await openPeerTemp();
-      await downloadPeerObject(peer, objectKey, localPath);
+      throw restoreRequestError(
+        'Restore is only supported when the backup destination is on the LazyBackup host, S3, a bro peer, or an SSH server with key auth',
+        'not-restorable'
+      );
     }
-  } else if (kind === 'server') {
-    const pulled = await pullServerDestinationArtifact({
-      artifactPath: options.artifactPath,
-      destinationServer: options.destinationServer,
-    });
-    localPath = pulled.localPath;
-    tempDir = pulled.tempDir;
-  } else {
-    throw new Error(
-      'Restore is only supported when the backup destination is on the LazyBackup host, S3, a bro peer, or an SSH server with key auth'
-    );
-  }
 
-  const localStat = await fs.stat(localPath).catch(() => null);
-  if (localStat?.isFile()) {
-    await assertFileSha256(localPath, options.expectedSha256, 'restore artifact');
-  }
+    const localStat = await fs.stat(localPath).catch(() => null);
+    if (localStat?.isFile()) {
+      await assertFileSha256(localPath, options.expectedSha256, 'restore artifact');
+    }
 
-  if (
-    options.decrypt !== false &&
-    localStat?.isFile() &&
-    isAgeEncryptedPath(localPath)
-  ) {
-    const identities = await requireDecryptIdentities();
-    const decryptDir =
-      tempDir || (await fs.mkdtemp(path.join(os.tmpdir(), 'lazybackup-decrypt-')));
-    if (!tempDir) tempDir = decryptDir;
-    const outPath = path.join(decryptDir, stripAgeExtension(path.basename(localPath)));
-    await decryptLocalFile(localPath, identities, outPath);
-    localPath = outPath;
-  }
+    if (
+      options.decrypt !== false &&
+      localStat?.isFile() &&
+      isAgeEncryptedPath(localPath)
+    ) {
+      const identities = await requireDecryptIdentities();
+      const decryptDir =
+        tempDir || (await fs.mkdtemp(path.join(os.tmpdir(), 'lazybackup-decrypt-')));
+      if (!tempDir) tempDir = decryptDir;
+      const outPath = path.join(decryptDir, stripAgeExtension(path.basename(localPath)));
+      try {
+        await decryptLocalFile(localPath, identities, outPath);
+      } catch (error) {
+        throw mapAgeDecryptError(error, path.basename(options.artifactPath));
+      }
+      localPath = outPath;
+    }
 
-  return { localPath, tempDir };
+    return { localPath, tempDir };
+  } catch (error) {
+    if (tempDir) {
+      await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    }
+    throw error;
+  }
 }
 
 /** True when an S3 object key (or local basename) looks like a packed path archive. */
@@ -2114,87 +2445,117 @@ export async function resolveLocalPathRestoreTree(options: {
   let tempDir: string | null = null;
   let localPath: string;
 
-  if (kind === 'local') {
-    await fs.access(options.artifactPath).catch(() => {
-      throw new Error(`Backup artifact not found on disk: ${options.artifactPath}`);
-    });
-    const st = await fs.stat(options.artifactPath);
-    if (st.isDirectory()) {
-      return { treePath: options.artifactPath, tempDir: null };
-    }
-    localPath = options.artifactPath;
-  } else if (kind === 's3') {
-    if (!options.destinationS3Profile) {
-      throw new Error('Destination S3 profile is missing; cannot download path artifact');
-    }
-    const parsed = parseS3ArtifactPath(options.artifactPath);
-    if (!parsed) {
-      throw new Error(`Invalid S3 artifact path: ${options.artifactPath}`);
-    }
-    const profile = toS3ProfileConfig(options.destinationS3Profile);
-    if (parsed.bucket !== profile.bucket) {
-      throw new Error(
-        `Artifact bucket ${parsed.bucket} does not match profile bucket ${profile.bucket}`
+  try {
+    if (kind === 'local') {
+      await fs.access(options.artifactPath).catch(() => {
+        throw restoreRequestError(
+          `Backup artifact not found on disk: ${options.artifactPath}`,
+          'artifact-missing'
+        );
+      });
+      const st = await fs.stat(options.artifactPath);
+      if (st.isDirectory()) {
+        return { treePath: options.artifactPath, tempDir: null };
+      }
+      localPath = options.artifactPath;
+    } else if (kind === 's3') {
+      if (!options.destinationS3Profile) {
+        throw restoreRequestError(
+          'Destination S3 profile is missing; cannot download path artifact',
+          'destination-missing'
+        );
+      }
+      const parsed = parseS3ArtifactPath(options.artifactPath);
+      if (!parsed) {
+        throw restoreRequestError(
+          `Invalid S3 artifact path: ${options.artifactPath}`,
+          'artifact-missing'
+        );
+      }
+      const profile = toS3ProfileConfig(options.destinationS3Profile);
+      if (parsed.bucket !== profile.bucket) {
+        throw restoreRequestError(
+          `Artifact bucket ${parsed.bucket} does not match profile bucket ${profile.bucket}`,
+          'artifact-missing'
+        );
+      }
+      tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'lazybackup-path-restore-'));
+      if (looksLikePathArchiveName(parsed.key)) {
+        localPath = path.join(tempDir, path.posix.basename(parsed.key));
+        try {
+          await downloadFile(profile, parsed.key, localPath);
+        } catch (error) {
+          throw mapS3DownloadError(error, options.artifactPath);
+        }
+      } else {
+        const downloaded = await downloadPrefix(profile, parsed.key, tempDir);
+        if (downloaded.fileCount === 0) {
+          throw restoreRequestError(
+            `No objects found under S3 prefix ${options.artifactPath}`,
+            'artifact-missing'
+          );
+        }
+        return { treePath: tempDir, tempDir };
+      }
+    } else if (kind === 'peer' || kind === 'server') {
+      const resolved = await resolveLocalRestoreArtifact({
+        ...options,
+        decrypt: false,
+      });
+      localPath = resolved.localPath;
+      tempDir = resolved.tempDir;
+    } else {
+      throw restoreRequestError(
+        'Path restore is only supported when the backup destination is on the LazyBackup host, S3, a bro peer, or an SSH server with key auth',
+        'not-restorable'
       );
     }
-    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'lazybackup-path-restore-'));
-    if (looksLikePathArchiveName(parsed.key)) {
-      localPath = path.join(tempDir, path.posix.basename(parsed.key));
-      await downloadFile(profile, parsed.key, localPath);
-    } else {
-      const downloaded = await downloadPrefix(profile, parsed.key, tempDir);
-      if (downloaded.fileCount === 0) {
-        throw new Error(`No objects found under S3 prefix ${options.artifactPath}`);
+
+    if (options.expectedSha256) {
+      const st = await fs.stat(localPath);
+      if (st.isFile()) {
+        await assertFileSha256(localPath, options.expectedSha256, 'restore artifact');
       }
-      return { treePath: tempDir, tempDir };
     }
-  } else if (kind === 'peer' || kind === 'server') {
-    const resolved = await resolveLocalRestoreArtifact({
-      ...options,
-      decrypt: false,
-    });
-    localPath = resolved.localPath;
-    tempDir = resolved.tempDir;
-  } else {
-    throw new Error(
-      'Path restore is only supported when the backup destination is on the LazyBackup host, S3, a bro peer, or an SSH server with key auth'
-    );
-  }
 
-  if (options.expectedSha256) {
+    if (isAgeEncryptedPath(localPath)) {
+      const identities = await requireDecryptIdentities();
+      const decryptDir =
+        tempDir || (await fs.mkdtemp(path.join(os.tmpdir(), 'lazybackup-path-decrypt-')));
+      if (!tempDir) tempDir = decryptDir;
+      const outPath = path.join(decryptDir, stripAgeExtension(path.basename(localPath)));
+      try {
+        await decryptLocalFile(localPath, identities, outPath);
+      } catch (error) {
+        throw mapAgeDecryptError(error, path.basename(options.artifactPath));
+      }
+      localPath = outPath;
+    }
+
+    const lower = localPath.toLowerCase();
+    if (lower.endsWith('.tar.gz') || lower.endsWith('.tgz')) {
+      const extracted = await extractTarGzArchive(localPath);
+      if (tempDir && tempDir !== extracted.tempDir) {
+        await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+      }
+      return { treePath: extracted.treePath, tempDir: extracted.tempDir };
+    }
+
     const st = await fs.stat(localPath);
-    if (st.isFile()) {
-      await assertFileSha256(localPath, options.expectedSha256, 'restore artifact');
+    if (st.isDirectory()) {
+      return { treePath: localPath, tempDir };
     }
-  }
 
-  if (isAgeEncryptedPath(localPath)) {
-    const identities = await requireDecryptIdentities();
-    const decryptDir =
-      tempDir || (await fs.mkdtemp(path.join(os.tmpdir(), 'lazybackup-path-decrypt-')));
-    if (!tempDir) tempDir = decryptDir;
-    const outPath = path.join(decryptDir, stripAgeExtension(path.basename(localPath)));
-    await decryptLocalFile(localPath, identities, outPath);
-    localPath = outPath;
-  }
-
-  const lower = localPath.toLowerCase();
-  if (lower.endsWith('.tar.gz') || lower.endsWith('.tgz')) {
-    const extracted = await extractTarGzArchive(localPath);
-    if (tempDir && tempDir !== extracted.tempDir) {
+    throw restoreRequestError(
+      `Path restore expects a directory tree or .tar.gz archive, got: ${localPath}`,
+      'artifact-missing'
+    );
+  } catch (error) {
+    if (tempDir) {
       await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
     }
-    return { treePath: extracted.treePath, tempDir: extracted.tempDir };
+    throw error;
   }
-
-  const st = await fs.stat(localPath);
-  if (st.isDirectory()) {
-    return { treePath: localPath, tempDir };
-  }
-
-  throw new Error(
-    `Path restore expects a directory tree or .tar.gz archive, got: ${localPath}`
-  );
 }
 
 export type RestoreTargetOptions = {
@@ -2215,12 +2576,16 @@ function resolveRestoreTarget(
   kind: 'volume' | 'database' | 'path'
 ): string {
   if (!options?.confirm) {
-    throw new Error('Refusing to restore: pass confirm=true to proceed');
+    throw restoreRequestError(
+      'Refusing to restore: pass confirm=true to proceed',
+      'target-refused'
+    );
   }
   const target = requested?.trim() || configured;
   if (requested?.trim() && requested.trim() !== configured && !options.allowRetarget) {
-    throw new Error(
-      `Refusing to restore to a different ${kind}: pass allowRetarget=true (and confirm=true)`
+    throw restoreRequestError(
+      `Refusing to restore to a different ${kind}: pass allowRetarget=true (and confirm=true)`,
+      'target-refused'
     );
   }
   return target;
@@ -2231,6 +2596,15 @@ function resolveRestoreTarget(
  * Artifact must be local or downloadable from S3, Bro, or an SSH dest with key auth.
  */
 export async function restoreDockerVolumeBackup(
+  historyId: string,
+  volumeNameOrOptions?: string | RestoreTargetOptions
+): Promise<{ log: string; volumeName: string }> {
+  return withHistoryRestoreLock(historyId, () =>
+    restoreDockerVolumeBackupUnlocked(historyId, volumeNameOrOptions)
+  );
+}
+
+async function restoreDockerVolumeBackupUnlocked(
   historyId: string,
   volumeNameOrOptions?: string | RestoreTargetOptions
 ): Promise<{ log: string; volumeName: string }> {
@@ -2253,157 +2627,176 @@ export async function restoreDockerVolumeBackup(
   });
 
   if (!historyEntry) {
-    throw new Error('Backup history entry not found');
+    throw restoreRequestError('Backup history entry not found', 'not-found', 404);
   }
 
   if (historyEntry.status !== 'success') {
-    throw new Error('Only successful backups can be restored');
+    throw restoreRequestError('Only successful backups can be restored', 'not-restorable');
   }
 
   const config = historyEntry.backupConfig;
   if (!config) {
-    throw new Error('Backup configuration not found for this history entry');
+    throw restoreRequestError(
+      'Backup configuration not found for this history entry',
+      'not-found',
+      404
+    );
   }
 
-  if ((config.sourceType || 'path') !== 'docker_volume') {
-    throw new Error('Restore is only supported for Docker volume backups');
+  const snapshot = parseHistoryRestoreSnapshot(historyEntry.configSnapshot);
+  const effective = effectiveRestoreConfig(snapshot, config);
+
+  if (effective.sourceType !== 'docker_volume') {
+    throw restoreRequestError(
+      'Restore is only supported for Docker volume backups',
+      'not-restorable'
+    );
   }
 
   if (!historyEntry.artifactPath) {
-    throw new Error('This backup has no stored artifact path and cannot be restored');
+    throw restoreRequestError(
+      'This backup has no stored artifact path and cannot be restored',
+      'artifact-missing'
+    );
   }
+  assertHistoryArtifactRestorable(historyEntry);
+
+  const endpoints = await loadRestoreEndpointRows(config, effective);
 
   const restoreOpts: RestoreTargetOptions =
     typeof volumeNameOrOptions === 'string'
       ? { volumeName: volumeNameOrOptions }
       : volumeNameOrOptions || {};
   const targetVolume = resolveRestoreTarget(
-    config.sourcePath,
+    effective.volumeName ?? effective.sourcePath,
     restoreOpts.volumeName,
     restoreOpts,
     'volume'
   );
   const host = resolveRestoreHost({
-    sourceKind: config.sourceKind,
-    originalServerId: config.serverId || config.server?.id,
+    sourceKind: effective.sourceKind,
+    originalServerId: effective.serverId,
     targetServerId: restoreOpts.targetServerId,
     allowRetarget: restoreOpts.allowRetarget,
     confirm: restoreOpts.confirm,
   });
-  const { localPath: artifactPath, tempDir: downloadTempDir } =
-    await resolveLocalRestoreArtifact({
-      artifactPath: historyEntry.artifactPath,
-      destinationKind: config.destinationKind,
-      destinationS3Profile: config.destinationS3Profile,
-      destinationPeer: config.destinationPeer,
-      destinationServer: config.destinationServer,
-      expectedSha256: historyEntry.artifactSha256,
-      historyId: historyEntry.id,
-    });
+  const resolvedArtifact = await resolveLocalRestoreArtifact({
+    artifactPath: historyEntry.artifactPath,
+    destinationKind: effective.destinationKind,
+    destinationS3Profile: endpoints.destinationS3Profile,
+    destinationPeer: endpoints.destinationPeer,
+    destinationServer: endpoints.destinationServer,
+    expectedSha256: historyEntry.artifactSha256,
+    historyId: historyEntry.id,
+  });
+  const artifactPath = resolvedArtifact.localPath;
+  const downloadTempDir = resolvedArtifact.tempDir;
 
-  if (host.kind === 'local') {
-    let localTmpDir: string | null = null;
+  try {
+    if (host.kind === 'local') {
+      let localTmpDir: string | null = null;
+      try {
+        const restored = await restoreDockerVolumeLocal(targetVolume, artifactPath);
+        localTmpDir = restored.localTmpDir;
+        const log = [
+          LOG_SECTION.restore,
+          '',
+          `Volume: ${targetVolume}`,
+          `Artifact: ${historyEntry.artifactPath}`,
+          downloadTempDir ? 'Materialized artifact on this host for restore' : '',
+          restored.stdout?.trim() ? `--- extract stdout ---\n${restored.stdout.trim()}` : '',
+          restored.stderr?.trim() ? `--- extract stderr ---\n${restored.stderr.trim()}` : '',
+          'Restore completed successfully.',
+        ]
+          .filter(Boolean)
+          .join('\n');
+        return { log, volumeName: targetVolume };
+      } finally {
+        if (localTmpDir) {
+          await cleanupLocalDockerTmpDir(localTmpDir).catch(() => {});
+        }
+      }
+    }
+
+    const targetServer = await resolveRestoreTargetServerRow(host, endpoints.sourceServer);
+    const serverConfig = normalizeServer(targetServer);
+
+    let ssh: Awaited<ReturnType<typeof connectToServer>> | null = null;
+    let cleanupIdentity: (() => Promise<void>) | undefined;
+    let remoteTmpDir: string | null = null;
+
     try {
-      const restored = await restoreDockerVolumeLocal(targetVolume, artifactPath);
-      localTmpDir = restored.localTmpDir;
+      ssh = await connectToServer(serverConfig);
+
+      const privateKey = await resolvePrivateKeyForServer(serverConfig);
+      const { path: keyPath, cleanup: cleanupKeyFile } = await writeTemporarySshIdentityFile(privateKey);
+      cleanupIdentity = cleanupKeyFile;
+
+      const { rsyncAvailable, scpAvailable } = await getBackupTransportCapabilities(ssh);
+
+      const mktemp = await ssh.execCommand(
+        'PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" mktemp -d /tmp/lazybackup-docker-XXXXXX'
+      );
+      if ((mktemp.code !== 0 && mktemp.code !== null && mktemp.code !== undefined) || !mktemp.stdout.trim()) {
+        throw new Error(`Failed to create remote temp directory: ${mktemp.stderr || mktemp.stdout}`);
+      }
+      remoteTmpDir = mktemp.stdout.trim();
+
+      const archiveName = path.basename(artifactPath);
+      const remoteTarPath = `${remoteTmpDir}/${archiveName}`;
+
+      const push = await pushFileToRemote({
+        localPath: artifactPath,
+        remotePath: remoteTarPath,
+        username: targetServer.username,
+        host: targetServer.host,
+        port: targetServer.port,
+        identityKeyPath: keyPath,
+        rsyncAvailable,
+        scpAvailable,
+      });
+
+      let restored: Awaited<ReturnType<typeof restoreDockerVolume>>;
+      try {
+        restored = await restoreDockerVolume(ssh, targetVolume, remoteTarPath, remoteTmpDir);
+      } catch (error) {
+        if (host.retargeted) {
+          throw restoreRetargetHostError(targetServer.name, error);
+        }
+        throw error;
+      }
+
       const log = [
         LOG_SECTION.restore,
         '',
         `Volume: ${targetVolume}`,
+        `Host: ${targetServer.name} (${targetServer.host})`,
         `Artifact: ${historyEntry.artifactPath}`,
         downloadTempDir ? 'Materialized artifact on this host for restore' : '',
+        `Transfer: ${push.method}`,
+        push.stdout?.trim() ? `--- push stdout ---\n${push.stdout.trim()}` : '',
+        push.stderr?.trim() ? `--- push stderr ---\n${push.stderr.trim()}` : '',
         restored.stdout?.trim() ? `--- extract stdout ---\n${restored.stdout.trim()}` : '',
         restored.stderr?.trim() ? `--- extract stderr ---\n${restored.stderr.trim()}` : '',
         'Restore completed successfully.',
       ]
         .filter(Boolean)
         .join('\n');
+
       return { log, volumeName: targetVolume };
     } finally {
-      if (localTmpDir) {
-        await cleanupLocalDockerTmpDir(localTmpDir).catch(() => {});
+      if (remoteTmpDir && ssh) {
+        await cleanupRemoteDir(ssh, remoteTmpDir).catch(() => {});
       }
-      if (downloadTempDir) {
-        await fs.rm(downloadTempDir, { recursive: true, force: true }).catch(() => {});
-      }
+      await cleanupIdentity?.();
+      ssh?.dispose();
     }
-  }
-
-  const targetServer = await resolveRestoreTargetServerRow(host, config.server);
-  const serverConfig = normalizeServer(targetServer);
-
-  let ssh: Awaited<ReturnType<typeof connectToServer>> | null = null;
-  let cleanupIdentity: (() => Promise<void>) | undefined;
-  let remoteTmpDir: string | null = null;
-
-  try {
-    ssh = await connectToServer(serverConfig);
-
-    const privateKey = await resolvePrivateKeyForServer(serverConfig);
-    const { path: keyPath, cleanup: cleanupKeyFile } = await writeTemporarySshIdentityFile(privateKey);
-    cleanupIdentity = cleanupKeyFile;
-
-    const { rsyncAvailable, scpAvailable } = await getBackupTransportCapabilities(ssh);
-
-    const mktemp = await ssh.execCommand(
-      'PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" mktemp -d /tmp/lazybackup-docker-XXXXXX'
-    );
-    if ((mktemp.code !== 0 && mktemp.code !== null && mktemp.code !== undefined) || !mktemp.stdout.trim()) {
-      throw new Error(`Failed to create remote temp directory: ${mktemp.stderr || mktemp.stdout}`);
-    }
-    remoteTmpDir = mktemp.stdout.trim();
-
-    const archiveName = path.basename(artifactPath);
-    const remoteTarPath = `${remoteTmpDir}/${archiveName}`;
-
-    const push = await pushFileToRemote({
-      localPath: artifactPath,
-      remotePath: remoteTarPath,
-      username: targetServer.username,
-      host: targetServer.host,
-      port: targetServer.port,
-      identityKeyPath: keyPath,
-      rsyncAvailable,
-      scpAvailable,
-    });
-
-    let restored: Awaited<ReturnType<typeof restoreDockerVolume>>;
-    try {
-      restored = await restoreDockerVolume(ssh, targetVolume, remoteTarPath, remoteTmpDir);
-    } catch (error) {
-      if (host.retargeted) {
-        throw restoreRetargetHostError(targetServer.name, error);
-      }
-      throw error;
-    }
-
-    const log = [
-      LOG_SECTION.restore,
-      '',
-      `Volume: ${targetVolume}`,
-      `Host: ${targetServer.name} (${targetServer.host})`,
-      `Artifact: ${historyEntry.artifactPath}`,
-      downloadTempDir ? 'Materialized artifact on this host for restore' : '',
-      `Transfer: ${push.method}`,
-      push.stdout?.trim() ? `--- push stdout ---\n${push.stdout.trim()}` : '',
-      push.stderr?.trim() ? `--- push stderr ---\n${push.stderr.trim()}` : '',
-      restored.stdout?.trim() ? `--- extract stdout ---\n${restored.stdout.trim()}` : '',
-      restored.stderr?.trim() ? `--- extract stderr ---\n${restored.stderr.trim()}` : '',
-      'Restore completed successfully.',
-    ]
-      .filter(Boolean)
-      .join('\n');
-
-    return { log, volumeName: targetVolume };
+  } catch (error) {
+    throw translateRestoreWriteError(error, targetVolume);
   } finally {
-    if (remoteTmpDir && ssh) {
-      await cleanupRemoteDir(ssh, remoteTmpDir).catch(() => {});
-    }
     if (downloadTempDir) {
       await fs.rm(downloadTempDir, { recursive: true, force: true }).catch(() => {});
     }
-    await cleanupIdentity?.();
-    ssh?.dispose();
   }
 }
 
@@ -2413,6 +2806,15 @@ export async function restoreDockerVolumeBackup(
  * S3, Bro, or an SSH dest with key auth.
  */
 export async function restoreDatabaseBackup(
+  historyId: string,
+  databaseNameOrOptions?: string | RestoreTargetOptions
+): Promise<{ log: string; database: string }> {
+  return withHistoryRestoreLock(historyId, () =>
+    restoreDatabaseBackupUnlocked(historyId, databaseNameOrOptions)
+  );
+}
+
+async function restoreDatabaseBackupUnlocked(
   historyId: string,
   databaseNameOrOptions?: string | RestoreTargetOptions
 ): Promise<{ log: string; database: string }> {
@@ -2435,66 +2837,85 @@ export async function restoreDatabaseBackup(
   });
 
   if (!historyEntry) {
-    throw new Error('Backup history entry not found');
+    throw restoreRequestError('Backup history entry not found', 'not-found', 404);
   }
 
   if (historyEntry.status !== 'success') {
-    throw new Error('Only successful backups can be restored');
+    throw restoreRequestError('Only successful backups can be restored', 'not-restorable');
   }
 
   const config = historyEntry.backupConfig;
   if (!config) {
-    throw new Error('Backup configuration not found for this history entry');
+    throw restoreRequestError(
+      'Backup configuration not found for this history entry',
+      'not-found',
+      404
+    );
   }
 
-  if ((config.sourceType || 'path') !== 'database') {
-    throw new Error('Restore is only supported for database backups');
+  const snapshot = parseHistoryRestoreSnapshot(historyEntry.configSnapshot);
+  const effective = effectiveRestoreConfig(snapshot, config);
+
+  if (effective.sourceType !== 'database') {
+    throw restoreRequestError(
+      'Restore is only supported for database backups',
+      'not-restorable'
+    );
   }
 
   if (!historyEntry.artifactPath) {
-    throw new Error('This backup has no stored artifact path and cannot be restored');
+    throw restoreRequestError(
+      'This backup has no stored artifact path and cannot be restored',
+      'artifact-missing'
+    );
   }
+  assertHistoryArtifactRestorable(historyEntry);
 
   const restoreOpts: RestoreTargetOptions =
     typeof databaseNameOrOptions === 'string'
       ? { databaseName: databaseNameOrOptions }
       : databaseNameOrOptions || {};
   const targetDatabase = resolveRestoreTarget(
-    config.sourcePath,
+    effective.dbName ?? effective.sourcePath,
     restoreOpts.databaseName,
     restoreOpts,
     'database'
   );
   const host = resolveRestoreHost({
-    sourceKind: config.sourceKind,
-    originalServerId: config.serverId || config.server?.id,
+    sourceKind: effective.sourceKind,
+    originalServerId: effective.serverId,
     targetServerId: restoreOpts.targetServerId,
     allowRetarget: restoreOpts.allowRetarget,
     confirm: restoreOpts.confirm,
   });
 
-  const { localPath: artifactPath, tempDir: downloadTempDir } =
-    await resolveLocalRestoreArtifact({
+  const endpoints = await loadRestoreEndpointRows(config, effective);
+  let downloadTempDir: string | null = null;
+
+  try {
+    const resolvedArtifact = await resolveLocalRestoreArtifact({
       artifactPath: historyEntry.artifactPath,
-      destinationKind: config.destinationKind,
-      destinationS3Profile: config.destinationS3Profile,
-      destinationPeer: config.destinationPeer,
-      destinationServer: config.destinationServer,
+      destinationKind: effective.destinationKind,
+      destinationS3Profile: endpoints.destinationS3Profile,
+      destinationPeer: endpoints.destinationPeer,
+      destinationServer: endpoints.destinationServer,
       expectedSha256: historyEntry.artifactSha256,
       historyId: historyEntry.id,
     });
+    const artifactPath = resolvedArtifact.localPath;
+    downloadTempDir = resolvedArtifact.tempDir;
 
-  const dbConn = connectionFromConfig({
-    ...config,
-    // SQLite "databases" are filesystem paths: a restore writes over a file.
-    // Apply the same target guard as path restores on this host.
-    sourcePath:
-      (config.dbEngine || '') === 'sqlite' && host.kind === 'local'
-        ? assertRestorableLocalTarget(targetDatabase)
-        : targetDatabase,
-  });
+    const dbConn = connectionFromConfig({
+      ...config,
+      dbEngine: (effective.dbEngine ?? config.dbEngine) as typeof config.dbEngine,
+      // SQLite "databases" are filesystem paths: a restore writes over a file.
+      // Apply the same target guard as path restores on this host.
+      sourcePath:
+        (effective.dbEngine || '') === 'sqlite' && host.kind === 'local'
+          ? assertRestorableLocalTarget(targetDatabase)
+          : targetDatabase,
+    });
 
-  try {
     if (host.kind === 'local') {
       const restored = await restoreDatabaseLocal(dbConn, artifactPath);
       const log = [
@@ -2514,7 +2935,7 @@ export async function restoreDatabaseBackup(
       return { log, database: dbConn.database };
     }
 
-    const targetServer = await resolveRestoreTargetServerRow(host, config.server);
+    const targetServer = await resolveRestoreTargetServerRow(host, endpoints.sourceServer);
     const serverConfig = normalizeServer(targetServer);
     let ssh: Awaited<ReturnType<typeof connectToServer>> | null = null;
     let cleanupIdentity: (() => Promise<void>) | undefined;
@@ -2589,6 +3010,8 @@ export async function restoreDatabaseBackup(
       await cleanupIdentity?.();
       ssh?.dispose();
     }
+  } catch (error) {
+    throw translateRestoreWriteError(error, targetDatabase);
   } finally {
     if (downloadTempDir) {
       await fs.rm(downloadTempDir, { recursive: true, force: true }).catch(() => {});
@@ -2602,6 +3025,15 @@ export async function restoreDatabaseBackup(
  * bro peer, or on an SSH destination with key auth.
  */
 export async function restorePathBackup(
+  historyId: string,
+  options?: RestoreTargetOptions
+): Promise<{ log: string; targetPath: string }> {
+  return withHistoryRestoreLock(historyId, () =>
+    restorePathBackupUnlocked(historyId, options)
+  );
+}
+
+async function restorePathBackupUnlocked(
   historyId: string,
   options?: RestoreTargetOptions
 ): Promise<{ log: string; targetPath: string }> {
@@ -2625,56 +3057,74 @@ export async function restorePathBackup(
   });
 
   if (!historyEntry) {
-    throw new Error('Backup history entry not found');
+    throw restoreRequestError('Backup history entry not found', 'not-found', 404);
   }
 
   if (historyEntry.status !== 'success') {
-    throw new Error('Only successful backups can be restored');
+    throw restoreRequestError('Only successful backups can be restored', 'not-restorable');
   }
 
   const config = historyEntry.backupConfig;
   if (!config) {
-    throw new Error('Backup configuration not found for this history entry');
+    throw restoreRequestError(
+      'Backup configuration not found for this history entry',
+      'not-found',
+      404
+    );
   }
 
-  if ((config.sourceType || 'path') !== 'path') {
-    throw new Error('This restore path is only for path backups');
+  const snapshot = parseHistoryRestoreSnapshot(historyEntry.configSnapshot);
+  const effective = effectiveRestoreConfig(snapshot, config);
+
+  if (effective.sourceType !== 'path') {
+    throw restoreRequestError(
+      'This restore path is only for path backups',
+      'not-restorable'
+    );
   }
 
   if (!historyEntry.artifactPath) {
-    throw new Error('This backup has no stored artifact path and cannot be restored');
+    throw restoreRequestError(
+      'This backup has no stored artifact path and cannot be restored',
+      'artifact-missing'
+    );
   }
+  assertHistoryArtifactRestorable(historyEntry);
 
   const targetPath = resolveRestoreTarget(
-    config.sourcePath,
+    effective.sourcePath,
     options?.targetPath,
     options,
     'path'
   );
   const host = resolveRestoreHost({
-    sourceKind: config.sourceKind,
-    originalServerId: config.serverId || config.server?.id,
+    sourceKind: effective.sourceKind,
+    originalServerId: effective.serverId,
     targetServerId: options?.targetServerId,
     allowRetarget: options?.allowRetarget,
     confirm: options?.confirm,
   });
+  const endpoints = await loadRestoreEndpointRows(config, effective);
 
-  const { treePath, tempDir } = await resolveLocalPathRestoreTree({
-    artifactPath: historyEntry.artifactPath,
-    destinationKind: config.destinationKind,
-    destinationS3Profile: config.destinationS3Profile,
-    destinationPeer: config.destinationPeer,
-    destinationServer: config.destinationServer,
-    expectedSha256: historyEntry.artifactSha256,
-    historyId: historyEntry.id,
-  });
-
+  let tempDir: string | null = null;
   const transferLines: string[] = [];
 
   try {
+    const resolvedTree = await resolveLocalPathRestoreTree({
+      artifactPath: historyEntry.artifactPath,
+      destinationKind: effective.destinationKind,
+      destinationS3Profile: endpoints.destinationS3Profile,
+      destinationPeer: endpoints.destinationPeer,
+      destinationServer: endpoints.destinationServer,
+      expectedSha256: historyEntry.artifactSha256,
+      historyId: historyEntry.id,
+    });
+    const treePath = resolvedTree.treePath;
+    tempDir = resolvedTree.tempDir;
+
     if (host.kind === 'local') {
       const dest = assertRestorableLocalTarget(targetPath, {
-        protectedPaths: [config.destinationKind === 'local' ? config.destinationPath : null],
+        protectedPaths: [effective.destinationKind === 'local' ? effective.destinationPath : null],
       });
       const copied = await localPathCopy(treePath, dest, []);
       transferLines.push(
@@ -2683,7 +3133,7 @@ export async function restorePathBackup(
         copied.stderr?.trim() ? `--- rsync stderr ---\n${copied.stderr.trim()}` : ''
       );
     } else if (host.kind === 'server') {
-      const targetServer = await resolveRestoreTargetServerRow(host, config.server);
+      const targetServer = await resolveRestoreTargetServerRow(host, endpoints.sourceServer);
       const serverConfig = normalizeServer(targetServer);
       let ssh: Awaited<ReturnType<typeof connectToServer>> | null = null;
       let cleanupIdentity: (() => Promise<void>) | undefined;
@@ -2713,10 +3163,13 @@ export async function restorePathBackup(
         ssh?.dispose();
       }
     } else if (host.kind === 's3') {
-      if (!config.sourceS3Profile) {
-        throw new Error('Source S3 profile is missing; cannot restore path backup');
+      if (!endpoints.sourceS3Profile) {
+        throw restoreRequestError(
+          'Source S3 profile is missing; cannot restore path backup',
+          'destination-missing'
+        );
       }
-      const profile = toS3ProfileConfig(config.sourceS3Profile);
+      const profile = toS3ProfileConfig(endpoints.sourceS3Profile);
       const prefix = normalizeS3Prefix(targetPath);
       const uploaded = await uploadDirectory(profile, treePath, prefix);
       transferLines.push(
@@ -2725,7 +3178,10 @@ export async function restorePathBackup(
         `Total size: ${uploaded.totalSize} bytes`
       );
     } else {
-      throw new Error(`Unsupported restore host kind: ${host.kind}`);
+      throw restoreRequestError(
+        `Unsupported restore host kind: ${host.kind}`,
+        'not-restorable'
+      );
     }
 
     const log = [
@@ -2742,6 +3198,8 @@ export async function restorePathBackup(
       .join('\n');
 
     return { log, targetPath };
+  } catch (error) {
+    throw translateRestoreWriteError(error, targetPath);
   } finally {
     if (tempDir) {
       await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
@@ -2753,6 +3211,15 @@ export async function restorePathBackup(
  * Restore a Git bare-mirror archive into a directory (this host or an SSH dest).
  */
 export async function restoreGitRepoBackup(
+  historyId: string,
+  options?: RestoreTargetOptions
+): Promise<{ log: string; targetPath: string }> {
+  return withHistoryRestoreLock(historyId, () =>
+    restoreGitRepoBackupUnlocked(historyId, options)
+  );
+}
+
+async function restoreGitRepoBackupUnlocked(
   historyId: string,
   options?: RestoreTargetOptions
 ): Promise<{ log: string; targetPath: string }> {
@@ -2776,67 +3243,92 @@ export async function restoreGitRepoBackup(
   });
 
   if (!historyEntry) {
-    throw new Error('Backup history entry not found');
+    throw restoreRequestError('Backup history entry not found', 'not-found', 404);
   }
   if (historyEntry.status !== 'success') {
-    throw new Error('Only successful backups can be restored');
+    throw restoreRequestError('Only successful backups can be restored', 'not-restorable');
   }
   const config = historyEntry.backupConfig;
   if (!config) {
-    throw new Error('Backup configuration not found for this history entry');
+    throw restoreRequestError(
+      'Backup configuration not found for this history entry',
+      'not-found',
+      404
+    );
   }
-  if (config.sourceType !== 'git_repo') {
-    throw new Error('This restore path is only for Git repository backups');
+
+  const snapshot = parseHistoryRestoreSnapshot(historyEntry.configSnapshot);
+  const effective = effectiveRestoreConfig(snapshot, config);
+
+  if (effective.sourceType !== 'git_repo') {
+    throw restoreRequestError(
+      'This restore path is only for Git repository backups',
+      'not-restorable'
+    );
   }
   if (!historyEntry.artifactPath) {
-    throw new Error('This backup has no stored artifact path and cannot be restored');
+    throw restoreRequestError(
+      'This backup has no stored artifact path and cannot be restored',
+      'artifact-missing'
+    );
   }
+  assertHistoryArtifactRestorable(historyEntry);
 
   const requested = options?.targetPath?.trim();
   if (!requested) {
-    throw new Error('Git restore requires targetPath (directory to unpack the bare mirror into)');
+    throw restoreRequestError(
+      'Git restore requires targetPath (directory to unpack the bare mirror into)'
+    );
   }
   if (requested.replace(/\/+$/, '') === '') {
-    throw new Error('Refusing to restore into the filesystem root');
+    throw restoreRequestError(
+      'Refusing to restore into the filesystem root',
+      'target-refused'
+    );
   }
   const targetPath = resolveRestoreTarget(requested, requested, options, 'path');
   const host = resolveRestoreHost({
-    sourceKind: config.sourceKind || 'git',
+    sourceKind: effective.sourceKind || 'git',
     originalServerId: null,
     targetServerId: options?.targetServerId,
     allowRetarget: options?.allowRetarget,
     confirm: options?.confirm,
   });
+  const endpoints = await loadRestoreEndpointRows(config, effective);
 
-  const { localPath, tempDir } = await resolveLocalRestoreArtifact({
-    artifactPath: historyEntry.artifactPath,
-    destinationKind: config.destinationKind,
-    destinationS3Profile: config.destinationS3Profile,
-    destinationPeer: config.destinationPeer,
-    destinationServer: config.destinationServer,
-    expectedSha256: historyEntry.artifactSha256,
-    historyId: historyEntry.id,
-  });
-
+  let tempDir: string | null = null;
   const transferLines: string[] = [];
 
   try {
+    const resolvedArtifact = await resolveLocalRestoreArtifact({
+      artifactPath: historyEntry.artifactPath,
+      destinationKind: effective.destinationKind,
+      destinationS3Profile: endpoints.destinationS3Profile,
+      destinationPeer: endpoints.destinationPeer,
+      destinationServer: endpoints.destinationServer,
+      expectedSha256: historyEntry.artifactSha256,
+      historyId: historyEntry.id,
+    });
+    const localPath = resolvedArtifact.localPath;
+    tempDir = resolvedArtifact.tempDir;
+
     // The mirror archive is extracted as root on this host or an SSH target.
     // Apply the same member checks as path restores before any extraction.
     await assertSafeTarGzArchive(localPath);
 
     if (host.kind === 'local') {
       const dest = assertRestorableLocalTarget(targetPath, {
-        protectedPaths: [config.destinationKind === 'local' ? config.destinationPath : null],
+        protectedPaths: [effective.destinationKind === 'local' ? effective.destinationPath : null],
       });
       await fs.mkdir(dest, { recursive: true });
       await execFileAsync('tar', ['-xzf', localPath, '-C', dest]);
       transferLines.push(`Local Git restore: ${localPath} → ${dest}`);
     } else if (host.kind === 'server') {
-      const targetServer = await resolveRestoreTargetServerRow(host, config.server);
+      const targetServer = await resolveRestoreTargetServerRow(host, endpoints.sourceServer);
       const serverConfig = normalizeServer(targetServer);
       let ssh: Awaited<ReturnType<typeof connectToServer>> | null = null;
       let cleanupIdentity: (() => Promise<void>) | undefined;
+      let remoteTmpDir: string | null = null;
       try {
         ssh = await connectToServer(serverConfig);
         const privateKey = await resolvePrivateKeyForServer(serverConfig);
@@ -2844,7 +3336,20 @@ export async function restoreGitRepoBackup(
           await writeTemporarySshIdentityFile(privateKey);
         cleanupIdentity = cleanupKeyFile;
         await ensureRemoteDirectory(ssh, targetPath);
-        const remoteTar = `${targetPath.replace(/\/+$/, '')}/git-mirror.tar.gz`;
+
+        const mktemp = await ssh.execCommand(
+          'PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" mktemp -d /tmp/lazybackup-git-XXXXXX'
+        );
+        if (
+          (mktemp.code !== 0 && mktemp.code !== null && mktemp.code !== undefined) ||
+          !mktemp.stdout.trim()
+        ) {
+          throw new Error(
+            `Failed to create remote temp directory: ${mktemp.stderr || mktemp.stdout}`
+          );
+        }
+        remoteTmpDir = mktemp.stdout.trim();
+        const remoteTar = `${remoteTmpDir}/git-mirror.tar.gz`;
         const { rsyncAvailable, scpAvailable } = await getBackupTransportCapabilities(ssh);
         const pushed = await pushFileToRemote({
           localPath,
@@ -2856,9 +3361,8 @@ export async function restoreGitRepoBackup(
           rsyncAvailable,
           scpAvailable,
         });
-        const posixQuote = (value: string) => `'${value.replace(/'/g, `'\\''`)}'`;
         const extract = await ssh.execCommand(
-          `tar -xzf ${posixQuote(remoteTar)} -C ${posixQuote(targetPath)} && rm -f ${posixQuote(remoteTar)}`
+          `tar -xzf ${shellSingleQuote(remoteTar)} -C ${shellSingleQuote(targetPath)}`
         );
         if (
           extract.signal ||
@@ -2876,11 +3380,14 @@ export async function restoreGitRepoBackup(
           extract.stdout?.trim() ? `--- tar stdout ---\n${extract.stdout.trim()}` : ''
         );
       } finally {
+        if (remoteTmpDir && ssh) {
+          await cleanupRemoteDir(ssh, remoteTmpDir).catch(() => {});
+        }
         await cleanupIdentity?.();
         ssh?.dispose();
       }
     } else {
-      throw new Error('Git restore onto S3 is not supported');
+      throw restoreRequestError('Git restore onto S3 is not supported', 'not-restorable');
     }
 
     const log = [
@@ -2890,43 +3397,12 @@ export async function restoreGitRepoBackup(
       .filter(Boolean)
       .join('\n');
     return { log, targetPath };
+  } catch (error) {
+    throw translateRestoreWriteError(error, targetPath);
   } finally {
     if (tempDir) {
       await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
     }
-  }
-}
-
-async function cleanupOldVersions(baseDir: string, versionsToKeep: number): Promise<void> {
-  try {
-    let expandedBaseDir = baseDir;
-    if (expandedBaseDir.startsWith('~')) {
-      expandedBaseDir = expandedBaseDir.replace('~', process.env.HOME || os.homedir());
-    }
-
-    if (!(await fs.access(expandedBaseDir).then(() => true).catch(() => false))) {
-      console.log(`Directory does not exist, skipping cleanup: ${expandedBaseDir}`);
-      return;
-    }
-
-    const entries = await fs.readdir(expandedBaseDir, { withFileTypes: true });
-
-    const versionDirs = entries
-      .filter((entry) => entry.isDirectory() && VERSION_DIR_PATTERN.test(entry.name))
-      .map((dir) => dir.name)
-      .sort()
-      .reverse();
-
-    if (versionDirs.length > versionsToKeep) {
-      const dirsToDelete = versionDirs.slice(versionsToKeep);
-
-      for (const dir of dirsToDelete) {
-        console.log(`Deleting old backup version: ${dir}`);
-        await fs.rm(`${expandedBaseDir}/${dir}`, { recursive: true, force: true });
-      }
-    }
-  } catch (error) {
-    console.error(`Error cleaning up old backup versions: ${error}`);
   }
 }
 
@@ -2998,9 +3474,12 @@ export async function startBackup(configId: string): Promise<string> {
       throw new Error(`Backup configuration with ID ${configId} not found`);
     }
 
-    await assertCanStartBackup(configId);
-
-    const historyEntry = await createBackupHistoryEntry(configId);
+    // Check + insert under a per-config in-process lock. Without it, two
+    // simultaneous requests both pass assertCanStartBackup and both insert.
+    const historyEntry = await withBackupStartLock(configId, async () => {
+      await assertCanStartBackup(configId);
+      return createBackupHistoryEntry(configId);
+    });
 
     executeBackup(config, historyEntry.id).catch((error) => {
       console.error(`Error executing backup: ${error}`);

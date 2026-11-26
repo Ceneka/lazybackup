@@ -2,7 +2,8 @@ import { executeBackup } from '@/lib/backup';
 import { createBackupHistoryEntry } from '@/lib/backup/history';
 import {
   assertCanStartBackup,
-  isBackupAlreadyRunningError,
+  isBackupStartConflictError,
+  withBackupStartLock,
 } from '@/lib/backup/concurrent-run';
 import { db } from '@/lib/db';
 import { backupConfigs } from '@/lib/db/schema';
@@ -37,10 +38,14 @@ export async function POST(
       );
     }
 
+    let historyEntry: Awaited<ReturnType<typeof createBackupHistoryEntry>>;
     try {
-      await assertCanStartBackup(config.id);
+      historyEntry = await withBackupStartLock(config.id, async () => {
+        await assertCanStartBackup(config.id);
+        return createBackupHistoryEntry(config.id, { backupName: config.name });
+      });
     } catch (error) {
-      if (isBackupAlreadyRunningError(error)) {
+      if (isBackupStartConflictError(error)) {
         return NextResponse.json(
           {
             error: error.message,
@@ -51,10 +56,6 @@ export async function POST(
       }
       throw error;
     }
-
-    const historyEntry = await createBackupHistoryEntry(config.id, {
-      backupName: config.name,
-    });
 
     // Execute the backup asynchronously
     executeBackup(config, historyEntry.id).catch(error => {

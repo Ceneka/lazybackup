@@ -108,14 +108,20 @@ export async function scheduleBackup(config: any, timeZone?: string) {
 export async function runBackup(config: any) {
   console.log(`Running backup for ${config.name}...`);
 
-  const { assertCanStartBackup, isBackupAlreadyRunningError } = await import(
-    '../backup/concurrent-run'
-  );
+  const { assertCanStartBackup, isBackupStartConflictError, withBackupStartLock } =
+    await import('../backup/concurrent-run');
 
+  let historyEntry;
   try {
-    await assertCanStartBackup(config.id);
+    // Create a backup history record under the same lock as manual runs so two
+    // starts cannot both pass the running check.
+    const { createBackupHistoryEntry } = await import('../backup/history');
+    historyEntry = await withBackupStartLock(config.id, async () => {
+      await assertCanStartBackup(config.id);
+      return createBackupHistoryEntry(config.id, { backupName: config.name });
+    });
   } catch (error) {
-    if (isBackupAlreadyRunningError(error)) {
+    if (isBackupStartConflictError(error)) {
       console.log(
         `Skipping scheduled run for ${config.name}: already running (${error.historyId})`
       );
@@ -124,11 +130,6 @@ export async function runBackup(config: any) {
     throw error;
   }
 
-  // Create a backup history record
-  const { createBackupHistoryEntry } = await import('../backup/history');
-  const historyEntry = await createBackupHistoryEntry(config.id, {
-    backupName: config.name,
-  });
   const historyId = historyEntry.id;
   
   try {

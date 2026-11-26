@@ -4,6 +4,8 @@ import { VERSION_DIR_PATTERN, resolveLocalBackupPath } from "./storage-stats"
 describe("VERSION_DIR_PATTERN", () => {
   test("matches version folder names", () => {
     expect(VERSION_DIR_PATTERN.test("2026-08-07_23-15-01")).toBe(true)
+    expect(VERSION_DIR_PATTERN.test("2026-08-07_23-15-01-2")).toBe(true)
+    expect(VERSION_DIR_PATTERN.test("2026-08-07_23-15-01-10")).toBe(true)
     expect(VERSION_DIR_PATTERN.test("backup")).toBe(false)
     expect(VERSION_DIR_PATTERN.test("2026-08-07")).toBe(false)
   })

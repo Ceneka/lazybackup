@@ -270,6 +270,44 @@ describe('restoreEligibilityFromHistory', () => {
       destinationAuthType: 'key',
     });
   });
+
+  test('prefers the run snapshot over a since-edited live config', () => {
+    const snapshot = JSON.stringify({
+      version: 1,
+      capturedAt: new Date(0).toISOString(),
+      sourceKind: 'local',
+      sourceType: 'path',
+      serverId: null,
+      sourceS3ProfileId: null,
+      sourceGitRepoId: null,
+      sourcePath: '/srv/app',
+      dbEngine: null,
+      dbName: null,
+      volumeName: null,
+      destinationKind: 'local',
+      destinationServerId: null,
+      destinationS3ProfileId: null,
+      destinationPeerId: null,
+      destinationPath: '/backups/app',
+      enableEncryption: false,
+      enableVersioning: false,
+    });
+
+    const eligibility = restoreEligibilityFromHistory({
+      status: 'success',
+      artifactPath: '/backups/app',
+      configSnapshot: snapshot,
+      backupConfig: {
+        sourceType: 'database',
+        destinationKind: 'server',
+        destinationServer: { authType: 'password' },
+      },
+    });
+
+    expect(eligibility.sourceType).toBe('path');
+    expect(eligibility.destinationKind).toBe('local');
+    expect(canRestoreBackup(eligibility)).toBe(true);
+  });
 });
 
 describe('download filename helpers', () => {
