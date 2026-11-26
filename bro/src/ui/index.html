@@ -3,187 +3,704 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="LazyBro — lend a folder to a friend's LazyBackup." />
     <title>LazyBro</title>
     <style>
       :root {
-        --bg0: #1a2332;
-        --bg1: #243044;
-        --ink: #f2f0ea;
-        --muted: #a8b0bd;
-        --accent: #3d9b8f;
-        --accent2: #e8a87c;
-        --line: rgba(242, 240, 234, 0.12);
-        --danger: #d97676;
+        color-scheme: light dark;
+        --bg: #f4f1ea;
+        --bg-soft: #e9e3d7;
+        --panel: #ffffff;
+        --panel-soft: #f8f6f1;
+        --ink: #16202a;
+        --muted: #5b6672;
+        --line: #e0dace;
+        --line-strong: #cec7b8;
+        --accent: #0f766e;
+        --accent-ink: #ffffff;
+        --accent-soft: #d7ede9;
+        --ok: #0a7b4f;
+        --ok-soft: #d9f2e6;
+        --warn: #9a5b0b;
+        --warn-soft: #fbeed8;
+        --danger: #b3261e;
+        --danger-soft: #fbe3e1;
+        --shadow: 0 1px 2px rgba(22, 32, 42, 0.05), 0 12px 32px rgba(22, 32, 42, 0.07);
+        --radius: 16px;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #111820;
+          --bg-soft: #17212b;
+          --panel: #1a242f;
+          --panel-soft: #202b37;
+          --ink: #f0eee8;
+          --muted: #a3aebb;
+          --line: #2b3846;
+          --line-strong: #3a4a5a;
+          --accent: #4fd1c5;
+          --accent-ink: #06201d;
+          --accent-soft: #163b39;
+          --ok: #62d9a3;
+          --ok-soft: #17362a;
+          --warn: #f0bd72;
+          --warn-soft: #3a2e1c;
+          --danger: #f08c84;
+          --danger-soft: #3b2120;
+          --shadow: 0 1px 2px rgba(0, 0, 0, 0.25), 0 18px 40px rgba(0, 0, 0, 0.28);
+        }
       }
       * {
         box-sizing: border-box;
       }
+      [hidden] {
+        display: none !important;
+      }
+      html {
+        -webkit-text-size-adjust: 100%;
+      }
       body {
         margin: 0;
         min-height: 100vh;
-        font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+        font-family: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
         color: var(--ink);
         background:
-          radial-gradient(1200px 600px at 10% -10%, #2f4a5e 0%, transparent 55%),
-          radial-gradient(900px 500px at 100% 0%, #3a2f28 0%, transparent 50%),
-          linear-gradient(160deg, var(--bg0), var(--bg1));
+          radial-gradient(900px 480px at 8% -10%, var(--bg-soft) 0%, transparent 60%),
+          radial-gradient(700px 420px at 100% 0%, var(--accent-soft) 0%, transparent 55%),
+          var(--bg);
+        line-height: 1.5;
       }
       main {
-        max-width: 42rem;
+        max-width: 44rem;
         margin: 0 auto;
-        padding: 2.5rem 1.25rem 4rem;
+        padding: clamp(1.25rem, 4vw, 2.75rem) clamp(0.9rem, 4vw, 1.5rem) 3.5rem;
+      }
+      header.top {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 1rem;
+        margin-bottom: 1.35rem;
       }
       h1 {
-        font-family: "Fraunces", Georgia, serif;
+        font-family: "Fraunces", Georgia, "Times New Roman", serif;
         font-weight: 600;
-        font-size: clamp(2.4rem, 6vw, 3.4rem);
+        font-size: clamp(2rem, 6vw, 2.7rem);
         letter-spacing: -0.03em;
-        margin: 0 0 0.35rem;
+        margin: 0;
+        line-height: 1.1;
       }
       .lead {
         color: var(--muted);
-        margin: 0 0 2rem;
-        line-height: 1.45;
+        margin: 0.35rem 0 0;
+        font-size: 1rem;
+        max-width: 34rem;
       }
-      section {
-        margin-bottom: 1.75rem;
-        padding-bottom: 1.75rem;
-        border-bottom: 1px solid var(--line);
+      .badge {
+        flex: none;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        border: 1px solid var(--line);
+        background: var(--panel);
+        color: var(--muted);
+        border-radius: 999px;
+        padding: 0.35rem 0.7rem;
+        font-size: 0.82rem;
+        white-space: nowrap;
       }
-      section:last-child {
-        border-bottom: 0;
+      .badge .dot {
+        width: 0.55rem;
+        height: 0.55rem;
+        border-radius: 50%;
+        background: var(--muted);
+      }
+      .badge.ok .dot {
+        background: var(--ok);
+      }
+      .badge.warn .dot {
+        background: var(--warn);
+      }
+      .badge.error .dot {
+        background: var(--danger);
+      }
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow);
+        padding: clamp(1rem, 3.5vw, 1.5rem);
+        margin-bottom: 1rem;
       }
       h2 {
-        font-size: 0.85rem;
+        font-size: 0.82rem;
         text-transform: uppercase;
-        letter-spacing: 0.08em;
+        letter-spacing: 0.09em;
         color: var(--muted);
-        margin: 0 0 0.75rem;
+        margin: 0 0 0.85rem;
+        font-weight: 600;
+      }
+      .cardHead {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 0.75rem;
+        margin-bottom: 0.4rem;
+      }
+      .cardHead h2 {
+        margin: 0;
+      }
+      p {
+        margin: 0 0 0.65rem;
+      }
+      p:last-child {
+        margin-bottom: 0;
+      }
+      .hint {
+        color: var(--muted);
+        font-size: 0.88rem;
+        line-height: 1.45;
+      }
+      .fine {
+        color: var(--muted);
+        font-size: 0.82rem;
+        line-height: 1.5;
+        border-top: 1px solid var(--line);
+        margin-top: 1.25rem;
+        padding-top: 1rem;
+      }
+      .steps {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: grid;
+        gap: 1.15rem;
+      }
+      .step {
+        display: grid;
+        gap: 0.4rem;
+      }
+      .stepHead {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        font-weight: 600;
+        font-size: 0.98rem;
+      }
+      .stepNum {
+        flex: none;
+        width: 1.65rem;
+        height: 1.65rem;
+        display: grid;
+        place-items: center;
+        border-radius: 50%;
+        background: var(--accent-soft);
+        color: var(--accent);
+        font-size: 0.82rem;
+        font-weight: 700;
+      }
+      .step.mutedStep {
+        opacity: 0.62;
       }
       label {
-        display: block;
-        font-size: 0.9rem;
-        margin-bottom: 0.35rem;
+        font-weight: 600;
+        font-size: 0.98rem;
       }
       input,
       textarea {
         width: 100%;
-        border: 1px solid var(--line);
-        background: rgba(0, 0, 0, 0.25);
+        border: 1px solid var(--line-strong);
+        background: var(--panel-soft);
         color: var(--ink);
-        border-radius: 8px;
-        padding: 0.65rem 0.75rem;
+        border-radius: 10px;
+        padding: 0.7rem 0.8rem;
         font: inherit;
+        font-size: 1rem;
       }
       textarea {
-        min-height: 5.5rem;
-        font-family: ui-monospace, monospace;
-        font-size: 0.8rem;
+        min-height: 6.5rem;
+        resize: vertical;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 0.86rem;
+        line-height: 1.4;
+      }
+      input::placeholder,
+      textarea::placeholder {
+        color: var(--muted);
+        opacity: 0.75;
+      }
+      input:focus-visible,
+      textarea:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 1px;
       }
       .row {
         display: flex;
         flex-wrap: wrap;
         gap: 0.6rem;
-        margin-top: 0.75rem;
+        align-items: center;
+        margin-top: 0.8rem;
       }
       button {
         border: 0;
-        border-radius: 8px;
-        padding: 0.65rem 1rem;
+        border-radius: 10px;
+        padding: 0.7rem 1.05rem;
         font: inherit;
+        font-weight: 600;
+        font-size: 0.95rem;
         cursor: pointer;
         background: var(--accent);
-        color: #0b1614;
-        font-weight: 600;
+        color: var(--accent-ink);
+        min-height: 44px;
+      }
+      button:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
+      button:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
       }
       button.secondary {
         background: transparent;
         color: var(--ink);
-        border: 1px solid var(--line);
+        border: 1px solid var(--line-strong);
         font-weight: 500;
       }
-      button:disabled {
-        opacity: 0.5;
-        cursor: not-allowed;
-      }
-      .status {
-        display: grid;
-        gap: 0.4rem;
-        font-size: 0.95rem;
-      }
-      .status span {
-        color: var(--muted);
-      }
-      .ok {
+      button.link {
+        background: transparent;
         color: var(--accent);
+        padding: 0.2rem 0.15rem;
+        min-height: 0;
+        font-weight: 600;
+        text-decoration: underline;
+        text-underline-offset: 2px;
       }
-      .warn {
-        color: var(--accent2);
+      button.dangerBtn {
+        background: var(--danger);
+        color: #fff;
       }
-      .err {
+      @media (prefers-color-scheme: dark) {
+        button.dangerBtn {
+          color: #2a0c0a;
+        }
+      }
+      .alert {
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 0.7rem 0.85rem;
+        font-size: 0.9rem;
+        margin: 0.85rem 0 0;
+      }
+      .alert.warn {
+        background: var(--warn-soft);
+        border-color: var(--warn);
+        color: var(--warn);
+      }
+      .alert.error {
+        background: var(--danger-soft);
+        border-color: var(--danger);
         color: var(--danger);
       }
-      .banner {
-        background: rgba(232, 168, 124, 0.12);
-        border: 1px solid rgba(232, 168, 124, 0.35);
-        border-radius: 10px;
-        padding: 0.9rem 1rem;
-        margin-bottom: 1.5rem;
+      .alert.ok {
+        background: var(--ok-soft);
+        border-color: var(--ok);
+        color: var(--ok);
       }
-      .msg {
-        margin-top: 0.75rem;
-        font-size: 0.9rem;
+      .alert button {
+        margin-top: 0.55rem;
+        background: transparent;
+        border: 1px solid currentColor;
+        color: inherit;
+        min-height: 36px;
+        padding: 0.4rem 0.75rem;
+      }
+      .hero {
+        border-color: var(--line);
+      }
+      .heroTop {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        margin-bottom: 0.35rem;
+      }
+      .statusDot {
+        width: 0.7rem;
+        height: 0.7rem;
+        border-radius: 50%;
+        background: var(--muted);
+        flex: none;
+      }
+      .statusDot.ok {
+        background: var(--ok);
+        box-shadow: 0 0 0 4px var(--ok-soft);
+      }
+      .statusDot.warn {
+        background: var(--warn);
+        box-shadow: 0 0 0 4px var(--warn-soft);
+      }
+      .statusDot.error {
+        background: var(--danger);
+        box-shadow: 0 0 0 4px var(--danger-soft);
+      }
+      .kicker {
+        font-size: 0.82rem;
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
         color: var(--muted);
+        margin: 0;
+      }
+      .hero h2 {
+        font-family: "Fraunces", Georgia, serif;
+        text-transform: none;
+        letter-spacing: -0.02em;
+        font-size: clamp(1.4rem, 4.5vw, 1.85rem);
+        color: var(--ink);
+        margin: 0 0 0.55rem;
+        font-weight: 600;
+      }
+      .usage {
+        font-size: 1rem;
+        margin: 0 0 0.6rem;
+      }
+      .bar {
+        height: 0.55rem;
+        border-radius: 999px;
+        background: var(--bg-soft);
+        border: 1px solid var(--line);
+        overflow: hidden;
+        margin: 0.2rem 0 0.75rem;
+      }
+      .bar span {
+        display: block;
+        height: 100%;
+        width: 0;
+        background: var(--accent);
+        border-radius: 999px;
+        transition: width 0.35s ease;
+      }
+      .bar.over span {
+        background: var(--danger);
+      }
+      .path {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 0.86rem;
+        background: var(--panel-soft);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 0.55rem 0.65rem;
+        overflow-wrap: anywhere;
+        margin: 0.25rem 0 0.5rem;
+      }
+      .folderList {
+        list-style: none;
+        margin: 0.6rem 0 0.85rem;
+        padding: 0;
+        display: grid;
+        gap: 0.5rem;
+      }
+      .folderRow {
+        width: 100%;
+        min-height: 0;
+        text-align: left;
+        background: var(--panel-soft);
+        color: var(--ink);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 0.65rem 0.8rem;
+        display: grid;
+        gap: 0.15rem;
+        font-weight: 400;
+      }
+      .folderRow.selected {
+        border-color: var(--accent);
+        background: var(--accent-soft);
+      }
+      .folderLabel {
+        font-weight: 600;
+        font-size: 0.93rem;
+      }
+      .folderPath {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 0.78rem;
+        color: var(--muted);
+        overflow-wrap: anywhere;
+      }
+      .folderMeta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.45rem;
+        align-items: center;
+        font-size: 0.8rem;
+        color: var(--muted);
+      }
+      .tag {
+        border: 1px solid var(--line-strong);
+        border-radius: 999px;
+        padding: 0.05rem 0.45rem;
+        font-size: 0.72rem;
+      }
+      .switchRow {
+        display: flex;
+        gap: 0.75rem;
+        align-items: flex-start;
+        border-top: 1px solid var(--line);
+        padding-top: 1rem;
+        margin-top: 1rem;
+      }
+      .switch {
+        flex: none;
+        width: 3.2rem;
+        min-height: 1.75rem;
+        height: 1.75rem;
+        padding: 0.15rem;
+        border-radius: 999px;
+        background: var(--line-strong);
+        position: relative;
+        margin-top: 0.15rem;
+      }
+      .switch::after {
+        content: "";
+        display: block;
+        width: 1.35rem;
+        height: 1.35rem;
+        border-radius: 50%;
+        background: var(--panel);
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+        transition: transform 0.2s ease;
+      }
+      .switch[aria-checked="true"] {
+        background: var(--accent);
+      }
+      .switch[aria-checked="true"]::after {
+        transform: translateX(1.4rem);
+      }
+      .switchLabel {
+        font-weight: 600;
+        font-size: 0.93rem;
+        margin: 0 0 0.15rem;
+      }
+      .identity {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.6rem;
+      }
+      .identity p {
+        margin: 0;
+      }
+      .danger {
+        background: var(--panel);
+      }
+      details.danger summary {
+        cursor: pointer;
+        font-weight: 600;
+        font-size: 0.92rem;
+        color: var(--muted);
+        list-style: none;
+      }
+      details.danger summary::-webkit-details-marker {
+        display: none;
+      }
+      details.danger summary::before {
+        content: "+";
+        display: inline-block;
+        width: 1.1rem;
+        font-weight: 700;
+      }
+      details.danger[open] summary::before {
+        content: "–";
+      }
+      details.danger summary:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+        border-radius: 4px;
+      }
+      .dangerBody {
+        margin-top: 0.85rem;
+        border-top: 1px solid var(--line);
+        padding-top: 0.85rem;
+      }
+      .dangerBody p {
+        color: var(--muted);
+        font-size: 0.88rem;
+      }
+      .hidden {
+        display: none;
+      }
+      .notice {
+        margin: 0 0 1rem;
+      }
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+      }
+      @media (max-width: 460px) {
+        .row button {
+          flex: 1 1 auto;
+        }
+        .hero h2 {
+          margin-bottom: 0.45rem;
+        }
+        .identity {
+          align-items: flex-start;
+          flex-direction: column;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          transition: none !important;
+        }
       }
     </style>
   </head>
   <body>
     <main>
-      <h1>LazyBro</h1>
-      <p class="lead">
-        Share some disk space with a friend. Paste their invite, pick a folder,
-        and leave LazyBro running.
-      </p>
-
-      <div id="autostartBanner" class="banner" hidden>
-        Keep LazyBro running so your friend can use the space you shared.
-        <div class="row">
-          <button type="button" id="enableAutostart">Start when I log in</button>
-          <button type="button" class="secondary" id="dismissAutostart">Not now</button>
+      <header class="top">
+        <div>
+          <h1>LazyBro</h1>
+          <p class="lead" id="lead">Set up in 3 steps.</p>
         </div>
-      </div>
+        <span class="badge" id="modeBadge" hidden><span class="dot"></span><span id="modeBadgeText">Connected</span></span>
+      </header>
 
-      <div id="recallBanner" class="banner" hidden>
-        Your friend is restoring a backup — stay online.
-      </div>
+      <p class="alert ok notice" id="setupNotice" role="status" hidden></p>
+      <p class="hint" id="loading" role="status">Loading…</p>
 
-      <section>
-        <h2>Status</h2>
-        <div class="status" id="status">
-          <div>Loading…</div>
+      <section id="setup" hidden aria-labelledby="setupTitle">
+        <div class="card">
+          <h2 id="setupTitle">Set up in 3 steps</h2>
+          <ol class="steps">
+            <li class="step">
+              <div class="stepHead"><span class="stepNum" aria-hidden="true">1</span><label for="label">Your name</label></div>
+              <input id="label" type="text" placeholder="e.g. Alex" maxlength="80" autocomplete="given-name" aria-describedby="labelHint" />
+              <p class="hint" id="labelHint">So your friend knows it’s you.</p>
+            </li>
+            <li class="step">
+              <div class="stepHead"><span class="stepNum" aria-hidden="true">2</span><label for="invite">Paste the invite your friend sent you</label></div>
+              <textarea id="invite" placeholder="lb1.…" rows="4" spellcheck="false" autocapitalize="off" autocomplete="off" aria-describedby="inviteHint pairMsg"></textarea>
+              <p class="hint" id="inviteHint">It starts with lb1. Pasting the whole message is fine.</p>
+              <div class="row">
+                <button type="button" id="pair">Connect</button>
+              </div>
+              <p class="alert error" id="pairMsg" role="alert" hidden></p>
+            </li>
+            <li class="step mutedStep" id="folderStep">
+              <div class="stepHead"><span class="stepNum" aria-hidden="true">3</span><span>Choose a folder</span></div>
+              <p class="hint">You’ll pick the folder to share right after you connect.</p>
+            </li>
+          </ol>
+          <p class="fine">
+            Your friend uses LazyBackup. You’re lending them a folder on this computer;
+            their files stay encrypted and you can’t open them.
+          </p>
         </div>
       </section>
 
-      <section>
-        <h2>Share folder</h2>
-        <label for="shareDir">Folder for your friend’s backups</label>
-        <input id="shareDir" type="text" placeholder="/path/to/share" />
-        <div class="row">
-          <button type="button" id="saveShare">Save share folder</button>
+      <section id="paired" hidden>
+        <div class="card hero">
+          <div class="heroTop">
+            <span class="statusDot" id="statusDot" aria-hidden="true"></span>
+            <p class="kicker" id="connState" role="status">Connected</p>
+          </div>
+          <h2 id="heroTitle">Connected to your friend</h2>
+          <p class="usage" id="heroUsage">You’re lending this folder.</p>
+          <div class="bar" id="usageBar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Shared space used">
+            <span id="usageFill"></span>
+          </div>
+          <p class="hint" id="lastCheckin">Last check-in: not yet</p>
+          <p class="hint" id="privacy">Everything your friend stores here is encrypted. You can’t open it.</p>
+          <p class="alert" id="syncAlert" role="status" hidden></p>
+          <button type="button" class="secondary" id="revokedDisconnect" hidden>Disconnect</button>
+          <div class="switchRow" id="autostartRow">
+            <button type="button" class="switch" id="autostartToggle" role="switch" aria-checked="false" aria-labelledby="autostartLabel">
+              <span class="sr-only">Start LazyBro when I log in</span>
+            </button>
+            <div>
+              <p class="switchLabel" id="autostartLabel">Start LazyBro when I log in</p>
+              <p class="hint" id="autostartHint">Turn this on so your friend’s backups keep working after a restart.</p>
+            </div>
+          </div>
         </div>
-      </section>
 
-      <section>
-        <h2>Pair</h2>
-        <label for="label">Your name</label>
-        <input id="label" type="text" value="LazyBro" />
-        <label for="invite" style="margin-top: 0.75rem">Invite from your friend</label>
-        <textarea id="invite" placeholder="lb1.…"></textarea>
-        <div class="row">
-          <button type="button" id="pair">Paste invite &amp; pair</button>
-          <button type="button" class="secondary" id="syncNow">Sync now</button>
+        <div class="card">
+          <div class="cardHead">
+            <h2>Your folder</h2>
+            <button type="button" class="link" id="changeFolder">Change</button>
+          </div>
+          <p class="path" id="shareDir">…</p>
+          <p class="hint" id="folderHint">Your friend’s backups are stored here.</p>
+          <p class="hint" id="folderLocked" hidden></p>
+          <div class="row">
+            <button type="button" class="secondary" id="copyPath">Copy folder path</button>
+          </div>
+          <p class="hint" id="copyMsg" role="status" aria-live="polite"></p>
+          <div id="folderPicker" hidden>
+            <p class="hint" id="folderPickerHint">Pick a folder with enough free space. Backups already stored here can’t be moved automatically.</p>
+            <ul class="folderList" id="folderList" aria-label="Suggested folders"></ul>
+            <label for="folderManual" class="hint">Or type the full path</label>
+            <input id="folderManual" type="text" spellcheck="false" autocomplete="off" placeholder="/home/you/LazyBro Share" aria-describedby="folderMsg" />
+            <div class="row">
+              <button type="button" id="saveShare">Use this folder</button>
+              <button type="button" class="secondary" id="cancelFolder">Cancel</button>
+            </div>
+            <p class="alert error" id="folderMsg" role="alert" hidden></p>
+          </div>
         </div>
-        <p class="msg" id="pairMsg"></p>
+
+        <div class="card">
+          <h2>Activity</h2>
+          <p id="activity">All caught up.</p>
+          <p class="hint" id="activityHint">LazyBro checks in with your friend regularly.</p>
+        </div>
+
+        <div class="card identity">
+          <p>Connected as <strong id="localName">your friend</strong></p>
+          <button type="button" class="link" id="changeName">Change name</button>
+          <div id="nameForm" hidden style="width: 100%">
+            <label for="nameInput" class="hint">Your name</label>
+            <input id="nameInput" type="text" maxlength="80" autocomplete="given-name" aria-describedby="nameMsg" />
+            <div class="row">
+              <button type="button" id="saveName">Save name</button>
+              <button type="button" class="secondary" id="cancelName">Cancel</button>
+            </div>
+            <p class="hint">Your friend may still see your old name until you connect again.</p>
+            <p class="alert error" id="nameMsg" role="alert" hidden></p>
+          </div>
+        </div>
+
+        <details class="card danger" id="disconnectBox">
+          <summary>Disconnect from <span id="dangerName">your friend</span></summary>
+          <div class="dangerBody">
+            <p>
+              This deletes the encrypted copies of your friend’s backups stored on this
+              computer and stops sharing your folder. The folder itself stays where it is.
+              Ask your friend first — they may still need those copies.
+            </p>
+            <div class="row">
+              <button type="button" class="dangerBtn" id="unpair">Disconnect</button>
+            </div>
+            <div id="disconnectConfirm" hidden>
+              <p>Are you sure? This can’t be undone without a new invite.</p>
+              <div class="row">
+                <button type="button" class="dangerBtn" id="unpairConfirm">Yes, disconnect</button>
+                <button type="button" class="secondary" id="unpairCancel">Cancel</button>
+              </div>
+            </div>
+            <p class="alert error" id="unpairMsg" role="alert" hidden></p>
+          </div>
+        </details>
       </section>
 
       <section hidden>
@@ -196,138 +713,590 @@
         </div>
         <p class="msg" id="backupMsg"></p>
       </section>
-
-      <section>
-        <h2>Autostart</h2>
-        <div id="autostartStatus" class="status"></div>
-        <div class="row">
-          <button type="button" id="toggleAutostart">Enable autostart</button>
-        </div>
-      </section>
     </main>
+
     <script>
       const localApiToken = "__LAZYBRO_API_TOKEN__";
 
-      async function api(path, opts) {
-        const res = await fetch(path, {
-          ...opts,
-          headers: {
-            "Content-Type": "application/json",
-            "X-LazyBro-Token": localApiToken,
-            ...(opts?.method && opts.method !== "GET" ? { "X-LazyBro-CSRF": "1" } : {}),
-            ...(opts?.headers || {}),
-          },
-        });
+      const $ = (id) => document.getElementById(id);
+
+      let view = null;
+      let nameInitialized = false;
+      let chooserAfterPair = false;
+      let selectedFolderPath = "";
+      let refreshTimer = null;
+
+      async function api(path, opts = {}) {
+        let res;
+        try {
+          res = await fetch(path, {
+            ...opts,
+            headers: {
+              "Content-Type": "application/json",
+              "X-LazyBro-Token": localApiToken,
+              ...(opts.method && opts.method !== "GET" ? { "X-LazyBro-CSRF": "1" } : {}),
+              ...(opts.headers || {}),
+            },
+          });
+        } catch {
+          throw new Error("LazyBro couldn’t reach its own local service. Try again in a moment.");
+        }
         const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || res.statusText);
+        if (!res.ok) throw new Error(data.error || "Something went wrong. Try again.");
         return data;
       }
 
-      function renderStatus(s) {
-        const el = document.getElementById("status");
-        el.replaceChildren();
-        const line = (...parts) => {
-          const div = document.createElement("div");
-          for (const part of parts) {
-            if (part instanceof Node) div.append(part);
-            else div.append(document.createTextNode(String(part)));
+      function el(tag, className, text) {
+        const node = document.createElement(tag);
+        if (className) node.className = className;
+        if (text !== undefined) node.textContent = text;
+        return node;
+      }
+
+      function setText(id, text) {
+        const node = $(id);
+        if (node && node.textContent !== text) node.textContent = text;
+      }
+
+      function show(node, visible) {
+        if (node) node.hidden = !visible;
+      }
+
+      function showAlert(node, kind, text) {
+        if (!node) return;
+        if (!text) {
+          node.hidden = true;
+          node.textContent = "";
+          return;
+        }
+        node.className = "alert " + kind;
+        node.textContent = text;
+        node.hidden = false;
+      }
+
+      function formatBytes(value) {
+        const n = Number(value);
+        if (!Number.isFinite(n) || n <= 0) return "0 B";
+        const units = ["B", "KB", "MB", "GB", "TB"];
+        let i = 0;
+        let size = n;
+        while (size >= 1024 && i < units.length - 1) {
+          size /= 1024;
+          i += 1;
+        }
+        const digits = i === 0 ? 0 : size < 10 ? 1 : 0;
+        return trimZero(size.toFixed(digits)) + " " + units[i];
+      }
+
+      function trimZero(value) {
+        return value.replace(/\.0$/, "");
+      }
+
+      function timeAgo(iso) {
+        if (!iso) return "not yet";
+        const stamp = Date.parse(iso);
+        if (!Number.isFinite(stamp)) return "not yet";
+        const seconds = Math.max(0, Math.round((Date.now() - stamp) / 1000));
+        if (seconds < 45) return "just now";
+        const minutes = Math.round(seconds / 60);
+        if (minutes < 60) return minutes === 1 ? "1 minute ago" : minutes + " minutes ago";
+        const hours = Math.round(minutes / 60);
+        if (hours < 24) return hours === 1 ? "1 hour ago" : hours + " hours ago";
+        const days = Math.round(hours / 24);
+        return days === 1 ? "yesterday" : days + " days ago";
+      }
+
+      function displayName(config) {
+        const label = (config.remoteLabel || "").trim();
+        if (label && label !== "LazyBro") return label;
+        return "your friend";
+      }
+
+      function localName(config) {
+        const label = (config.label || "").trim();
+        if (label && label !== "LazyBro") return label;
+        return "you";
+      }
+
+      function isQuotaError(raw) {
+        return /quota/i.test(raw);
+      }
+
+      function humanizeSyncError(raw, name) {
+        if (isQuotaError(raw)) {
+          return "Needs attention: Your folder is full. Free up space, or ask " + name + " to lower the limit.";
+        }
+        if (/object limit/i.test(raw)) {
+          return "Needs attention: This folder has too many files. Ask " + name + " to remove some old backups.";
+        }
+        if (/exceeds maximum|too large|content-length|size mismatch|hard cap/i.test(raw)) {
+          return "Needs attention: One backup is too big for this folder. Ask " + name + " to split it into smaller backups.";
+        }
+        if (/fetch failed|timed out|timeout|econn|enotfound|eai_again|network|socket|unreachable|offline/i.test(raw)) {
+          return "Can't reach " + name + "'s LazyBackup — we'll keep trying.";
+        }
+        return "Needs attention: LazyBro couldn't finish the last check-in. It will try again.";
+      }
+
+      function classifySync(sync, name) {
+        const raw = (sync.lastError || "").trim();
+        const revoked =
+          sync.authRevoked === true || /\((?:401|403)\)/.test(raw) || /HTTP (?:401|403)/.test(raw);
+        const offline = !revoked && sync.hostReachable === false;
+        let attention = "";
+        if (!revoked && !offline) {
+          if (sync.needsAttention === true || raw) attention = humanizeSyncError(raw, name);
+        }
+        return { revoked: revoked, offline: offline, attention: attention, raw: raw };
+      }
+
+      function render(s) {
+        view = s;
+        show($("loading"), false);
+        const paired = Boolean(s.config.hostBaseUrl);
+        show($("setup"), !paired);
+        show($("paired"), paired);
+        if (!paired) {
+          renderSetup(s);
+          return;
+        }
+        renderPaired(s);
+      }
+
+      function renderSetup(s) {
+        setText("lead", "Set up in 3 steps.");
+        show($("modeBadge"), false);
+        if (!nameInitialized) {
+          const saved = (s.config.label || "").trim();
+          if (saved && saved !== "LazyBro" && !$("label").value) $("label").value = saved;
+          nameInitialized = true;
+        }
+      }
+
+      function renderPaired(s) {
+        const sync = s.sync || {};
+        const config = s.config || {};
+        const name = displayName(config);
+        const used = Number(sync.usedBytes) || 0;
+        const quota = Number(sync.quotaBytes) || 0;
+        const over = quota > 0 && used > quota;
+        const issue = classifySync(sync, name);
+        const revoked = issue.revoked;
+        const offline = issue.offline;
+        const attention = issue.attention || (over
+          ? "Needs attention: Your folder is full. Free up space, or ask " + name + " to lower the limit."
+          : "");
+
+        setText("lead", revoked ? "Sharing stopped." : "Lending a folder to " + name + ".");
+        setText("dangerName", name);
+        setText("localName", localName(config));
+        setText("heroTitle", revoked ? "Connection removed" : "Connected to " + name);
+        setText("privacy", "Everything " + name + " stores here is encrypted. You can't open it.");
+
+        const kicker = revoked
+          ? "Disconnected"
+          : offline
+            ? "Waiting to reconnect"
+            : attention
+              ? "Needs attention"
+              : "Connected";
+        setText("connState", kicker);
+        const dot = $("statusDot");
+        dot.className =
+          "statusDot " + (revoked ? "error" : offline || attention ? "warn" : "ok");
+
+        show($("modeBadge"), true);
+        $("modeBadge").className =
+          "badge " + (revoked ? "error" : offline ? "warn" : attention ? "warn" : "ok");
+        setText("modeBadgeText", kicker);
+
+        let usage;
+        let percent = 0;
+        if (revoked) {
+          usage = "This connection is closed. Ask " + name + " for a new invite to share again.";
+        } else if (quota > 0) {
+          const free = Math.max(0, quota - used);
+          if (over) {
+            usage = "You're lending " + formatBytes(quota) + ". " + formatBytes(used) + " used — over the limit.";
+          } else {
+            usage = "You're lending " + formatBytes(quota) + ". " + formatBytes(used) + " used — " + formatBytes(free) + " free.";
           }
-          el.append(div);
-        };
-        const muted = (value, className) => {
-          const span = document.createElement("span");
-          if (className) span.className = className;
-          span.textContent = String(value);
-          return span;
-        };
-        const reach = s.sync.hostReachable
-          ? muted("connected", "ok")
-          : s.config.hostBaseUrl
-            ? muted("waiting to reconnect…", "warn")
-            : muted("not paired yet", "warn");
-        line("Friend: ", muted(s.config.remoteLabel || "—"), " · ", reach);
-        line(
-          "Space used: ",
-          muted(formatBytes(s.sync.usedBytes)),
-          " / ",
-          formatBytes(s.sync.quotaBytes),
-        );
-        line("Last check-in: ", muted(s.sync.lastPingAt || "—"));
-        if (s.sync.lastError) line(muted(s.sync.lastError, "err"));
-        line("Share folder: ", muted(s.config.shareDir));
-        document.getElementById("shareDir").value = s.config.shareDir || "";
-        document.getElementById("label").value = s.config.label || "LazyBro";
-        document.getElementById("folderPath").value = s.config.folderBackupPath || "";
-        renderAutostart(s.autostart);
-        document.getElementById("recallBanner").hidden = !(s.sync && s.sync.pendingRecalls > 0);
-        if (!s.config.autostartPrompted && !s.autostart.enabled && s.autostart.supported) {
-          document.getElementById("autostartBanner").hidden = false;
-        }
-      }
-
-      function renderAutostart(a) {
-        const el = document.getElementById("autostartStatus");
-        const div = document.createElement("div");
-        if (a.supported) {
-          const state = document.createElement("span");
-          state.className = a.enabled ? "ok" : "warn";
-          state.textContent = a.enabled ? "Enabled" : "Not enabled";
-          div.append(state, document.createTextNode(` — ${a.hint}`));
+          percent = Math.min(100, Math.round((used / quota) * 100));
         } else {
-          div.className = "warn";
-          div.textContent = a.hint;
+          usage = "You're lending this folder. " + formatBytes(used) + " used.";
+          percent = used > 0 ? 100 : 0;
         }
-        el.replaceChildren(div);
-        document.getElementById("toggleAutostart").textContent = a.enabled
-          ? "Disable autostart"
-          : "Enable autostart";
+        setText("heroUsage", usage);
+        const bar = $("usageBar");
+        bar.classList.toggle("over", over && !revoked);
+        bar.setAttribute("aria-valuenow", String(percent));
+        bar.setAttribute("aria-valuetext", usage);
+        $("usageFill").style.width = percent + "%";
+        show(bar, !revoked);
+
+        const last = sync.lastPingAt || sync.lastSyncAt;
+        setText("lastCheckin", "Last check-in: " + timeAgo(last));
+
+        const alert = $("syncAlert");
+        if (revoked) {
+          showAlert(alert, "error", name + " removed this connection. Ask them for a new invite.");
+        } else if (offline) {
+          showAlert(alert, "warn", "Can't reach " + name + "'s LazyBackup — we'll keep trying.");
+        } else if (attention) {
+          showAlert(alert, "warn", attention);
+        } else {
+          showAlert(alert, "", "");
+        }
+        show($("revokedDisconnect"), revoked);
+
+        renderAutostart(s);
+        renderActivity(s, name, issue, over);
+        renderFolder(s);
       }
 
-      function formatBytes(n) {
-        if (!n) return "0 B";
-        if (n < 1024) return n + " B";
-        if (n < 1024 * 1024) return (n / 1024).toFixed(1) + " KB";
-        if (n < 1024 * 1024 * 1024) return (n / (1024 * 1024)).toFixed(1) + " MB";
-        return (n / (1024 * 1024 * 1024)).toFixed(2) + " GB";
+      function renderAutostart(s) {
+        const autostart = s.autostart || {};
+        const toggle = $("autostartToggle");
+        const supported = Boolean(autostart.supported);
+        show(toggle, supported);
+        toggle.setAttribute("aria-checked", autostart.enabled ? "true" : "false");
+        toggle.setAttribute(
+          "aria-label",
+          autostart.enabled ? "Turn off start when I log in" : "Start LazyBro when I log in"
+        );
+        if (!supported) {
+          setText("autostartHint", "Autostart isn't available here. Keep LazyBro open while your friend needs it.");
+        } else if (autostart.enabled) {
+          setText("autostartHint", "LazyBro starts on its own when you log in.");
+        } else {
+          setText("autostartHint", "Turn this on so your friend's backups keep working after a restart.");
+        }
+      }
+
+      function renderActivity(s, name, issue, over) {
+        const sync = s.sync || {};
+        const polls = Number(sync.pendingPulls) || 0;
+        const recalls = Number(sync.pendingRecalls) || 0;
+        const interval = Math.max(5, Math.round((Number(s.config.pollIntervalMs) || 45000) / 1000));
+        let activity = "All caught up.";
+        let hint = "Last checked " + timeAgo(sync.lastSyncAt) + ". LazyBro checks every " + interval + " seconds.";
+        if (issue.revoked) {
+          activity = "Disconnected.";
+          hint = "Ask " + name + " for a new invite when you want to share again.";
+        } else if (issue.offline) {
+          activity = "Waiting to reconnect.";
+          hint = "Backups already here are safe. Last check-in: " + timeAgo(sync.lastPingAt) + ".";
+        } else if (recalls > 0) {
+          activity = name + " is restoring a backup — keep LazyBro open.";
+          hint = "This can take a minute.";
+        } else if (polls > 0) {
+          activity = "Receiving " + polls + (polls === 1 ? " backup…" : " backups…");
+          hint = "Keep LazyBro open until it finishes.";
+        } else if (over || (issue.attention && isQuotaError(issue.raw))) {
+          activity = "You're not receiving new backups until there's space.";
+          hint = "Free up space, or ask " + name + " to lower the limit.";
+        } else if (issue.attention) {
+          activity = issue.attention;
+          hint = "LazyBro will try again automatically.";
+        }
+        setText("activity", activity);
+        setText("activityHint", hint);
+      }
+
+      function renderFolder(s) {
+        setText("shareDir", s.config.shareDir || "…");
+        const stored = Array.isArray(s.objects) ? s.objects.length : 0;
+        const locked = stored > 0;
+        setText(
+          "folderLocked",
+          locked
+            ? "Changing folders is locked while backups are stored here. Disconnect first if you need to change it."
+            : ""
+        );
+        show($("folderLocked"), locked);
+      }
+
+      function folderPickerOpen() {
+        return !$("folderPicker").hidden;
+      }
+
+      function openFolderPicker(auto) {
+        show($("folderPicker"), true);
+        show($("folderMsg"), false);
+        $("folderManual").value = (view && view.config.shareDir) || "";
+        selectedFolderPath = $("folderManual").value;
+        void loadFolders();
+        if (auto) {
+          const card = $("shareDir").closest(".card");
+          if (card && card.scrollIntoView) card.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+      }
+
+      function closeFolderPicker() {
+        show($("folderPicker"), false);
+        $("folderList").replaceChildren();
+        selectedFolderPath = "";
+        show($("folderMsg"), false);
+      }
+
+      async function loadFolders() {
+        const list = $("folderList");
+        list.replaceChildren(el("li", "hint", "Looking for folders…"));
+        let data;
+        try {
+          data = await api("/api/folders");
+        } catch (error) {
+          list.replaceChildren(el("li", "hint", error.message));
+          return;
+        }
+        list.replaceChildren();
+        const folders = Array.isArray(data.folders) ? data.folders : [];
+        if (!folders.length) {
+          list.append(el("li", "hint", "We couldn't find any folders. Type a full path below."));
+          return;
+        }
+        for (const folder of folders) {
+          const item = el("li");
+          const button = el("button", "folderRow");
+          button.type = "button";
+          button.append(el("span", "folderLabel", folder.label || folder.path));
+          const pathLine = el("span", "folderPath", folder.path);
+          button.append(pathLine);
+          const meta = el("span", "folderMeta");
+          meta.append(el("span", "", folder.freeBytes != null ? formatBytes(folder.freeBytes) + " free" : "Free space unknown"));
+          if (folder.writable === false) meta.append(el("span", "tag", "Not writable"));
+          if (folder.exists === false) meta.append(el("span", "tag", "Will be created"));
+          if (folder.current) meta.append(el("span", "tag", "Current"));
+          button.append(meta);
+          button.addEventListener("click", () => {
+            selectedFolderPath = folder.path;
+            $("folderManual").value = folder.path;
+            for (const row of list.querySelectorAll(".folderRow")) row.classList.remove("selected");
+            button.classList.add("selected");
+          });
+          if (folder.current) button.classList.add("selected");
+          item.append(button);
+          list.append(item);
+        }
+      }
+
+      async function copyText(text) {
+        try {
+          if (navigator.clipboard && window.isSecureContext) {
+            await navigator.clipboard.writeText(text);
+            return true;
+          }
+        } catch {
+          /* fall through */
+        }
+        try {
+          const area = document.createElement("textarea");
+          area.value = text;
+          area.setAttribute("readonly", "");
+          area.style.position = "fixed";
+          area.style.opacity = "0";
+          document.body.append(area);
+          area.select();
+          const ok = document.execCommand("copy");
+          area.remove();
+          return ok;
+        } catch {
+          return false;
+        }
       }
 
       async function refresh() {
-        const s = await api("/api/status");
-        renderStatus(s);
+        let s;
+        try {
+          s = await api("/api/status");
+        } catch {
+          return;
+        }
+        render(s);
+        if (chooserAfterPair && s.config.hostBaseUrl) {
+          chooserAfterPair = false;
+          openFolderPicker(true);
+        }
       }
 
-      document.getElementById("saveShare").onclick = async () => {
-        await api("/api/config", {
-          method: "POST",
-          body: JSON.stringify({ shareDir: document.getElementById("shareDir").value }),
-        });
-        await refresh();
-      };
-
-      document.getElementById("pair").onclick = async () => {
-        const msg = document.getElementById("pairMsg");
-        msg.textContent = "Pairing…";
+      $("pair").addEventListener("click", async () => {
+        const message = $("pairMsg");
+        const name = $("label").value.trim();
+        const code = $("invite").value.trim();
+        show(message, false);
+        if (!name) {
+          showAlert(message, "error", "Add your name first, so your friend knows it's you.");
+          $("label").focus();
+          return;
+        }
+        if (!code) {
+          showAlert(message, "error", "Paste the invite your friend sent you — it starts with lb1.");
+          $("invite").focus();
+          return;
+        }
+        const button = $("pair");
+        button.disabled = true;
+        button.textContent = "Connecting…";
         try {
           await api("/api/pair", {
             method: "POST",
-            body: JSON.stringify({
-              inviteCode: document.getElementById("invite").value,
-              label: document.getElementById("label").value,
-            }),
+            body: JSON.stringify({ inviteCode: code, label: name }),
           });
-          msg.textContent = "Paired.";
+          $("invite").value = "";
+          chooserAfterPair = true;
+          show($("setupNotice"), false);
           await refresh();
-        } catch (e) {
-          msg.textContent = e.message;
+        } catch (error) {
+          showAlert(message, "error", error.message);
+        } finally {
+          button.disabled = false;
+          button.textContent = "Connect";
         }
-      };
+      });
 
-      document.getElementById("syncNow").onclick = async () => {
-        await api("/api/sync", { method: "POST" });
-        await refresh();
-      };
+      $("changeFolder").addEventListener("click", () => {
+        if (folderPickerOpen()) {
+          closeFolderPicker();
+        } else {
+          openFolderPicker(false);
+        }
+      });
 
-      document.getElementById("saveFolder").onclick = async () => {
+      $("cancelFolder").addEventListener("click", () => closeFolderPicker());
+
+      $("saveShare").addEventListener("click", async () => {
+        const value = $("folderManual").value.trim();
+        const message = $("folderMsg");
+        show(message, false);
+        if (!value) {
+          showAlert(message, "error", "Choose a folder first.");
+          return;
+        }
+        const button = $("saveShare");
+        button.disabled = true;
+        button.textContent = "Saving…";
+        try {
+          await api("/api/config", {
+            method: "POST",
+            body: JSON.stringify({ shareDir: value }),
+          });
+          closeFolderPicker();
+          setText("copyMsg", "Folder saved.");
+          window.setTimeout(() => {
+            if ($("copyMsg").textContent === "Folder saved.") setText("copyMsg", "");
+          }, 6000);
+          await refresh();
+        } catch (error) {
+          showAlert(message, "error", error.message);
+        } finally {
+          button.disabled = false;
+          button.textContent = "Use this folder";
+        }
+      });
+
+      $("copyPath").addEventListener("click", async () => {
+        const ok = await copyText($("shareDir").textContent || "");
+        setText("copyMsg", ok ? "Copied." : "Press Ctrl/Cmd+C to copy the path above.");
+      });
+
+      $("autostartToggle").addEventListener("click", async () => {
+        if (!view) return;
+        const next = !(view.autostart && view.autostart.enabled);
+        const button = $("autostartToggle");
+        button.disabled = true;
+        try {
+          await api("/api/autostart", {
+            method: "POST",
+            body: JSON.stringify({ enabled: next }),
+          });
+          await refresh();
+        } finally {
+          button.disabled = false;
+        }
+      });
+
+      $("changeName").addEventListener("click", () => {
+        const saved = view ? (view.config.label || "").trim() : "";
+        $("nameInput").value = saved === "LazyBro" ? "" : saved;
+        show($("nameForm"), true);
+        show($("nameMsg"), false);
+        $("nameInput").focus();
+      });
+
+      $("cancelName").addEventListener("click", () => show($("nameForm"), false));
+
+      $("saveName").addEventListener("click", async () => {
+        const name = $("nameInput").value.trim();
+        const message = $("nameMsg");
+        show(message, false);
+        if (!name) {
+          showAlert(message, "error", "Add your name first.");
+          return;
+        }
+        const button = $("saveName");
+        button.disabled = true;
+        try {
+          await api("/api/config", {
+            method: "POST",
+            body: JSON.stringify({ label: name }),
+          });
+          show($("nameForm"), false);
+          await refresh();
+        } catch (error) {
+          showAlert(message, "error", error.message);
+        } finally {
+          button.disabled = false;
+        }
+      });
+
+      function armDisconnect() {
+        const box = $("disconnectBox");
+        box.open = true;
+        show($("unpair"), false);
+        show($("disconnectConfirm"), true);
+        show($("unpairMsg"), false);
+        $("unpairConfirm").focus();
+        if (box.scrollIntoView) box.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+
+      $("unpair").addEventListener("click", armDisconnect);
+      $("revokedDisconnect").addEventListener("click", armDisconnect);
+
+      $("unpairCancel").addEventListener("click", () => {
+        show($("disconnectConfirm"), false);
+        show($("unpair"), true);
+      });
+
+      $("unpairConfirm").addEventListener("click", async () => {
+        const message = $("unpairMsg");
+        const button = $("unpairConfirm");
+        button.disabled = true;
+        button.textContent = "Disconnecting…";
+        show(message, false);
+        try {
+          await api("/api/unpair", {
+            method: "POST",
+            body: JSON.stringify({ confirm: true }),
+          });
+          $("disconnectBox").open = false;
+          show($("disconnectConfirm"), false);
+          show($("unpair"), true);
+          $("invite").value = "";
+          const notice = $("setupNotice");
+          notice.textContent = "Disconnected. You can connect again with a new invite.";
+          notice.hidden = false;
+          setText("copyMsg", "");
+          nameInitialized = false;
+          await refresh();
+        } catch (error) {
+          showAlert(message, "error", error.message);
+        } finally {
+          button.disabled = false;
+          button.textContent = "Yes, disconnect";
+        }
+      });
+
+      document.getElementById("saveFolder").addEventListener("click", async () => {
         await api("/api/config", {
           method: "POST",
           body: JSON.stringify({
@@ -336,44 +1305,26 @@
         });
         document.getElementById("backupMsg").textContent = "Saved.";
         await refresh();
-      };
+      });
 
-      document.getElementById("runBackup").onclick = async () => {
-        const msg = document.getElementById("backupMsg");
-        msg.textContent = "Backing up…";
+      document.getElementById("runBackup").addEventListener("click", async () => {
+        const message = document.getElementById("backupMsg");
+        message.textContent = "Backing up…";
         try {
-          const r = await api("/api/backup", { method: "POST" });
-          msg.textContent = `Uploaded ${r.key} (${formatBytes(r.size)})`;
+          const result = await api("/api/backup", { method: "POST" });
+          message.textContent = "Uploaded " + result.key + " (" + formatBytes(result.size) + ")";
           await refresh();
-        } catch (e) {
-          msg.textContent = e.message;
+        } catch (error) {
+          message.textContent = error.message;
         }
-      };
-
-      document.getElementById("enableAutostart").onclick = async () => {
-        await api("/api/autostart", { method: "POST", body: JSON.stringify({ enabled: true }) });
-        document.getElementById("autostartBanner").hidden = true;
-        await refresh();
-      };
-      document.getElementById("dismissAutostart").onclick = async () => {
-        await api("/api/autostart", {
-          method: "POST",
-          body: JSON.stringify({ enabled: false, prompted: true }),
-        });
-        document.getElementById("autostartBanner").hidden = true;
-        await refresh();
-      };
-      document.getElementById("toggleAutostart").onclick = async () => {
-        const s = await api("/api/status");
-        await api("/api/autostart", {
-          method: "POST",
-          body: JSON.stringify({ enabled: !s.autostart.enabled }),
-        });
-        await refresh();
-      };
+      });
 
       refresh();
-      setInterval(refresh, 15000);
+      refreshTimer = setInterval(refresh, 5000);
+      window.addEventListener("focus", refresh);
+      document.addEventListener("visibilitychange", () => {
+        if (!document.hidden) refresh();
+      });
     </script>
   </body>
 </html>
