@@ -88,7 +88,7 @@ beforeEach(async () => {
 afterAll(async () => {
   client.close();
   await fs.rm(tmp, { recursive: true, force: true });
-  const freshDb = await import(`@/lib/db?real=${Date.now()}`);
+  const freshDb = await import(`../db/index.ts?real=${Date.now()}`);
   mock.module('@/lib/db', () => freshDb);
 });
 
