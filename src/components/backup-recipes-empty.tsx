@@ -13,6 +13,8 @@ import {
 import { Button } from "@/components/ui/button"
 import { LoadingButton } from "@/components/ui/loading-button"
 import { useSeedDemo } from "@/lib/hooks/useDashboard"
+import { usePeers } from "@/lib/hooks/usePeers"
+import { friendPossessive } from "@/lib/peer/friend-copy"
 import {
   DatabaseIcon,
   HardDriveIcon,
@@ -21,6 +23,7 @@ import {
   PlusIcon,
   ServerIcon,
   FolderIcon,
+  UsersIcon,
 } from "lucide-react"
 import Link from "next/link"
 import { useState, type ReactNode } from "react"
@@ -89,6 +92,24 @@ const RECIPES: Recipe[] = [
 ]
 
 export function BackupRecipesEmpty() {
+  const peersQuery = usePeers()
+  const friend = (peersQuery.data?.peers || []).find((peer) => peer.status === "active")
+  const recipes: Recipe[] = friend
+    ? [
+        {
+          id: "bro-peer",
+          title: `Back up to ${friend.name}`,
+          description:
+            "Encrypt files here and store them on your friend's computer when their app checks in.",
+          href: `/backups/new?recipe=bro-peer&peerId=${encodeURIComponent(friend.id)}`,
+          icon: <UsersIcon className="h-5 w-5 text-muted-foreground" />,
+          from: "this host",
+          to: `${friendPossessive(friend.name)} disk`,
+        },
+        ...RECIPES,
+      ]
+    : RECIPES
+
   return (
     <div className="space-y-8 py-4">
       <div className="text-center space-y-2">
@@ -100,7 +121,7 @@ export function BackupRecipesEmpty() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {RECIPES.map((recipe) => (
+        {recipes.map((recipe) => (
           <Link
             key={recipe.id}
             href={recipe.href}

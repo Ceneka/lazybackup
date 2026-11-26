@@ -42,7 +42,11 @@ export type DashboardRecentHistory = {
   status: "running" | "success" | "failed" | string
   startTime: string
   errorSnippet: string | null
-  backupConfig: { name: string } | null
+  /** Bro Space truth for the recent-activity list (contract C4 fallback). */
+  mailboxPending?: boolean
+  deliveryState?: "stored" | "waiting" | "failed" | null
+  artifactPath?: string | null
+  backupConfig: { name: string; destinationKind?: string | null } | null
 }
 
 export type DashboardData = {

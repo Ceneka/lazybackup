@@ -6,16 +6,19 @@ import {
   defaultCreateFormData,
   defaultGitBackupFormData,
   defaultInstanceBackupFormData,
+  defaultPeerBackupFormData,
   formDataToPayload,
   isBackupRecipeId,
   recipeFormData,
   type BackupFormData,
 } from "@/components/backup-config-form"
 import { QueryState } from "@/components/ui/query-state"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { useBackup } from "@/lib/hooks/useBackups"
+import { usePeers } from "@/lib/hooks/usePeers"
 import { Server } from "@/lib/hooks/useServers"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { ArrowLeftIcon, ServerIcon } from "lucide-react"
+import { AlertTriangleIcon, ArrowLeftIcon } from "lucide-react"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Suspense, useState } from "react"
@@ -31,10 +34,25 @@ function NewBackupForm() {
   const cloneFromId = searchParams.get("cloneFrom") || ""
   const recipeParam = searchParams.get("recipe")
   const recipe = isBackupRecipeId(recipeParam) ? recipeParam : null
+  const peerIdParam = searchParams.get("peerId") || undefined
+  const peerFlow = Boolean(peerIdParam) || recipe === "bro-peer"
   const prefillInstance =
     searchParams.get("source") === "lazybackup_instance" || recipe === "instance"
 
   const cloneQuery = useBackup(cloneFromId)
+  const peersQuery = usePeers()
+  const peerTarget = peerIdParam
+    ? peersQuery.data?.peers.find(
+        (peer) => peer.id === peerIdParam && peer.status === "active"
+      )
+    : undefined
+  const peerMissing =
+    Boolean(peerIdParam) &&
+    !peersQuery.isLoading &&
+    Boolean(peersQuery.data) &&
+    !peersQuery.data?.peers.some(
+      (peer) => peer.id === peerIdParam && peer.status === "active"
+    )
   const serversQuery = useQuery<Server[]>({
     queryKey: ["servers"],
     queryFn: async () => {
@@ -74,18 +92,21 @@ function NewBackupForm() {
   const initialData =
     cloning && cloneQuery.data
       ? cloneToFormData(cloneQuery.data)
-      : recipe
-        ? recipeFormData(recipe)
-        : prefillInstance
-          ? defaultInstanceBackupFormData()
-          : prefillGitRepoId
-            ? defaultGitBackupFormData(prefillGitRepoId)
-            : defaultCreateFormData(prefillServerId)
+      : peerFlow
+        ? defaultPeerBackupFormData(peerTarget?.id || "", peerTarget?.name)
+        : recipe
+          ? recipeFormData(recipe)
+          : prefillInstance
+            ? defaultInstanceBackupFormData()
+            : prefillGitRepoId
+              ? defaultGitBackupFormData(prefillGitRepoId)
+              : defaultCreateFormData(prefillServerId)
 
   const formReady =
     !serversQuery.isLoading &&
     cloneReady &&
-    !(cloning && cloneQuery.isError)
+    !(cloning && cloneQuery.isError) &&
+    (!peerFlow || !peersQuery.isLoading)
 
   return (
     <div className="space-y-6">
@@ -101,14 +122,16 @@ function NewBackupForm() {
 
       <div>
         <h1 className="text-2xl font-bold tracking-tight">
-          {cloning ? "Clone backup" : "New backup"}
+          {cloning ? "Clone backup" : peerFlow ? "Back up to a friend" : "New backup"}
         </h1>
         <p className="text-muted-foreground">
           {cloning
             ? "Review the copy, adjust the destination if needed, then save."
-            : recipe
-              ? "Starter recipe applied — adjust paths, credentials, and schedule, then save."
-              : "Choose where files come from and where they go — this host or any server."}
+            : peerFlow
+              ? "Schedule what to back up; files are encrypted here and stored on your friend's computer when their app checks in."
+              : recipe
+                ? "Starter recipe applied — adjust paths, credentials, and schedule, then save."
+                : "Choose where files come from and where they go — this host or any server."}
         </p>
       </div>
 
@@ -127,20 +150,18 @@ function NewBackupForm() {
             isDataEmpty={() => false}
           >
             <div className="space-y-4">
-              {servers.length === 0 && !serversQuery.isLoading && (
-                <div className="flex items-start gap-3 rounded-md border border-dashed p-4 text-sm">
-                  <ServerIcon className="h-5 w-5 text-muted-foreground shrink-0 mt-0.5" />
-                  <div>
-                    <p className="font-medium">No servers yet</p>
-                    <p className="text-muted-foreground">
-                      You can still copy local → local.{" "}
-                      <Link href="/servers/new" className="underline underline-offset-2">
-                        Add a server
-                      </Link>{" "}
-                      for remote transfers.
-                    </p>
-                  </div>
-                </div>
+              {peerMissing && (
+                <Alert>
+                  <AlertTriangleIcon className="h-4 w-4" />
+                  <AlertTitle>That friend is no longer paired</AlertTitle>
+                  <AlertDescription>
+                    Pick another friend below, or{" "}
+                    <Link href="/settings?tab=bro" className="underline underline-offset-2">
+                      manage Bro Space
+                    </Link>
+                    .
+                  </AlertDescription>
+                </Alert>
               )}
               {formReady ? (
                 <BackupConfigForm

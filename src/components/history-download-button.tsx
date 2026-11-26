@@ -3,6 +3,18 @@
 import { detailActionGhostClassName } from "@/components/ui/detail-actions"
 import { Button } from "@/components/ui/button"
 import { canDownloadBackup, restoreEligibilityFromHistory } from "@/lib/backup/restore-eligibility"
+import { deriveDeliveryState, peerIdForHistoryRow } from "@/lib/backup/delivery-state"
+import { usePeers } from "@/lib/hooks/usePeers"
+import {
+  friendAppKind,
+  friendAppLabel,
+  friendIsOnline,
+  resolveFriendName,
+  resolvePeer,
+  RECALL_CLOSE_HINT_AFTER_MS,
+  restoreWaitingCopy,
+  shouldStopRecallPolling,
+} from "@/lib/peer/friend-copy"
 import { PEER_RECALL_WAITING_MESSAGE } from "@/lib/peer/recall-pending"
 import { cn } from "@/lib/utils"
 import { DownloadIcon } from "lucide-react"
@@ -50,9 +62,30 @@ export function HistoryDownloadButton({
   className,
 }: HistoryDownloadButtonProps) {
   const eligible = canDownloadBackup(restoreEligibilityFromHistory(entry))
+  const peersQuery = usePeers()
+  const peers = peersQuery.data?.peers || []
   const [waiting, setWaiting] = useState(false)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const inFlightRef = useRef(false)
+  const startedAtRef = useRef<number | null>(null)
+  const closeHintShownRef = useRef(false)
+
+  const peerId = peerIdForHistoryRow({
+    artifactPath: entry.artifactPath,
+    destinationPeerId: entry.backupConfig?.destinationPeerId,
+    destinationPeer: entry.backupConfig?.destinationPeer,
+  })
+  const peer = resolvePeer(peers, peerId)
+  const friendName = resolveFriendName(peers, peerId)
+  const friendKind = peer ? friendAppKind(peer) : null
+  const friendOnline = friendIsOnline(peer)
+  const deliveryState = deriveDeliveryState({
+    status: entry.status,
+    deliveryState: entry.deliveryState,
+    mailboxPending: entry.mailboxPending,
+    artifactPath: entry.artifactPath,
+    destinationKind: entry.backupConfig?.destinationKind,
+  })
 
   if (!eligible) {
     return null
@@ -67,13 +100,19 @@ export function HistoryDownloadButton({
     }
   }
 
+  const waitingCopy = restoreWaitingCopy({
+    friendName,
+    kind: friendKind,
+    online: friendOnline,
+    elapsedMs: 0,
+  })
+
   const handleClick = async (e: MouseEvent) => {
     e.preventDefault()
     const tryOnce = async (): Promise<"ok" | "waiting" | "error"> => {
       const res = await fetch(href)
       if (res.status === 202) {
-        const data = (await res.json().catch(() => ({}))) as { message?: string }
-        toast.message(data.message || PEER_RECALL_WAITING_MESSAGE)
+        await res.json().catch(() => ({}))
         return "waiting"
       }
       if (!res.ok) {
@@ -86,31 +125,92 @@ export function HistoryDownloadButton({
     }
 
     try {
+      if (peerId && friendOnline === false) {
+        toast.message(
+          `${friendName}'s ${friendAppLabel(friendKind)} is offline.`,
+          {
+            description:
+              "The download will start when their app checks in. The request stays queued if you close this.",
+          }
+        )
+      }
+      if (deliveryState === "waiting") {
+        toast.message(`This backup hasn't reached ${friendName}'s disk yet.`, {
+          description: "The download will wait for it to sync first.",
+        })
+      }
+
       const first = await tryOnce()
-      if (first !== "waiting") return
-      setWaiting(true)
-      if (pollRef.current) return
-      pollRef.current = setInterval(() => {
-        if (inFlightRef.current) return
-        inFlightRef.current = true
-        void tryOnce()
-          .then((result) => {
-            if (result === "waiting") return
+      if (first === "ok") return
+      if (first === "error") return
+      if (first === "waiting") {
+        toast.info(waitingCopy.headline, {
+          description: waitingCopy.detail,
+        })
+        setWaiting(true)
+        startedAtRef.current = Date.now()
+        closeHintShownRef.current = false
+        if (pollRef.current) return
+        pollRef.current = setInterval(() => {
+          if (inFlightRef.current) return
+          const startedAt = startedAtRef.current ?? Date.now()
+          const elapsed = Date.now() - startedAt
+          if (
+            elapsed >= RECALL_CLOSE_HINT_AFTER_MS &&
+            !closeHintShownRef.current
+          ) {
+            closeHintShownRef.current = true
+            toast.message(
+              "You can close this — the request stays queued; check History later."
+            )
+          }
+          if (shouldStopRecallPolling(elapsed)) {
             stopPolling()
             setWaiting(false)
-          })
-          .finally(() => {
-            inFlightRef.current = false
-          })
-      }, 3000)
+            toast.message(
+              `Still waiting for ${friendName}'s ${friendKind === "lazybackup" ? "LazyBackup" : "LazyBro"}.`,
+              {
+                description:
+                  "The request stays queued — try Download again later, or check History.",
+              }
+            )
+            return
+          }
+          inFlightRef.current = true
+          void tryOnce()
+            .then((result) => {
+              if (result === "waiting") return
+              stopPolling()
+              setWaiting(false)
+              if (result === "ok") {
+                toast.success("Download ready")
+              }
+            })
+            .catch((error) => {
+              stopPolling()
+              setWaiting(false)
+              toast.error(
+                error instanceof Error ? error.message : "Failed to download artifact"
+              )
+            })
+            .finally(() => {
+              inFlightRef.current = false
+            })
+        }, 3000)
+      }
     } catch (error) {
       stopPolling()
       setWaiting(false)
-      toast.error(error instanceof Error ? error.message : "Failed to download artifact")
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : PEER_RECALL_WAITING_MESSAGE
+      )
     }
   }
 
-  const label = waiting ? PEER_RECALL_WAITING_MESSAGE : "Download"
+  const label = waiting ? `Waiting for ${friendName}` : "Download"
+  const title = waiting ? waitingCopy.detail : undefined
 
   if (variant === "inline") {
     return (
@@ -121,9 +221,10 @@ export function HistoryDownloadButton({
         className={className}
         onClick={handleClick}
         disabled={waiting}
+        title={title}
       >
         <DownloadIcon className="h-3.5 w-3.5" />
-        {waiting ? "Waiting for Bro" : "Download"}
+        {label}
       </Button>
     )
   }
@@ -133,10 +234,10 @@ export function HistoryDownloadButton({
       href={href}
       className={cn(detailActionGhostClassName, className, waiting && "pointer-events-none opacity-70")}
       onClick={handleClick}
-      title={waiting ? label : undefined}
+      title={title}
     >
       <DownloadIcon />
-      {waiting ? "Waiting for Bro" : "Download"}
+      {label}
     </a>
   )
 }

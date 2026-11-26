@@ -23,6 +23,7 @@ import {
   DetailActionsDivider,
   detailActionDestructiveClassName,
 } from "@/components/ui/detail-actions"
+import { DeliveryBadge } from "@/components/peer/delivery-badge"
 import { HistoryDownloadButton } from "@/components/history-download-button"
 import { HistoryRestoreButton } from "@/components/history-restore-button"
 import { QueryState } from "@/components/ui/query-state"
@@ -32,7 +33,21 @@ import {
   restoreBlockedReason,
   restoreEligibilityFromHistory,
 } from "@/lib/backup/restore-eligibility"
+import {
+  deliveryErrorFor,
+  deriveDeliveryState,
+  historyDisplayStats,
+  peerIdForHistoryRow,
+} from "@/lib/backup/delivery-state"
 import { useDeleteHistory, useHistoryDetail } from "@/lib/hooks/useHistory"
+import { usePeers } from "@/lib/hooks/usePeers"
+import {
+  friendAppKind,
+  friendAppLabel,
+  peerObjectKeyFromArtifactPath,
+  resolveFriendName,
+  resolvePeer,
+} from "@/lib/peer/friend-copy"
 import { formatBytes } from "@/lib/utils"
 import { format, formatDistance } from "date-fns"
 import {
@@ -44,6 +59,7 @@ import {
   HistoryIcon,
   RotateCcwIcon,
   ServerIcon,
+  UsersIcon,
 } from "lucide-react"
 import { useParams, useRouter } from "next/navigation"
 import { useState } from "react"
@@ -83,6 +99,56 @@ export default function HistoryDetailPage() {
       : restoreSourceType === "path"
         ? "Restore path"
         : "Restore volume"
+
+  const peersQuery = usePeers()
+  const peers = peersQuery.data?.peers || []
+  const entry = query.data
+  const peerId = entry
+    ? peerIdForHistoryRow({
+        artifactPath: entry.artifactPath,
+        destinationPeerId: entry.backupConfig?.destinationPeerId,
+        destinationPeer: entry.backupConfig?.destinationPeer,
+      })
+    : null
+  const friendName = resolveFriendName(peers, peerId)
+  const friendPeer = resolvePeer(peers, peerId)
+  const friendApp = friendAppLabel(friendPeer ? friendAppKind(friendPeer) : null)
+  const deliveryState = entry
+    ? deriveDeliveryState({
+        status: entry.status,
+        deliveryState: entry.deliveryState,
+        mailboxPending: entry.mailboxPending,
+        deliveryError: entry.deliveryError,
+        artifactPath: entry.artifactPath,
+        destinationKind: entry.backupConfig?.destinationKind,
+      })
+    : null
+  const deliveryError = entry
+    ? deliveryErrorFor({
+        deliveryError: entry.deliveryError,
+        mailboxError: (entry as { mailboxError?: string | null }).mailboxError,
+      })
+    : null
+  const stats = entry
+    ? historyDisplayStats({
+        fileCount: entry.fileCount,
+        totalSize: entry.totalSize,
+        artifactPath: entry.artifactPath,
+        logOutput: entry.logOutput,
+      })
+    : null
+  const sourceKind = entry?.backupConfig?.sourceKind || "server"
+  const sourceHost =
+    sourceKind === "local" || sourceKind === "git"
+      ? "This host"
+      : sourceKind === "s3"
+        ? entry?.backupConfig?.sourceS3Profile?.name || "S3"
+        : entry?.backupConfig?.server?.name || "Unknown server"
+  const peerObjectKey = peerObjectKeyFromArtifactPath(entry?.artifactPath)
+  const peerFolder = peerObjectKey?.includes("/")
+    ? peerObjectKey.slice(0, peerObjectKey.lastIndexOf("/"))
+    : null
+  const isPeerRun = Boolean(peerId)
   
   return (
     <div className="space-y-6">
@@ -111,15 +177,23 @@ export default function HistoryDetailPage() {
                 <CardHeader>
                   <CardTitle className="flex items-center justify-between">
                     <span>{query.data?.backupConfig?.name || "Unknown Backup"}</span>
-                    <Badge 
-                      className={
-                        query.data?.mailboxPending
-                          ? "bg-amber-500 hover:bg-amber-500"
-                          : statusColors[query.data?.status as keyof typeof statusColors] || ""
-                      }
-                    >
-                      {query.data?.mailboxPending ? "waiting for bro" : query.data?.status}
-                    </Badge>
+                    {deliveryState ? (
+                      <DeliveryBadge
+                        state={deliveryState}
+                        friendName={friendName}
+                        error={deliveryError}
+                      />
+                    ) : (
+                      <Badge
+                        className={
+                          statusColors[
+                            query.data?.status as keyof typeof statusColors
+                          ] || ""
+                        }
+                      >
+                        {query.data?.status}
+                      </Badge>
+                    )}
                   </CardTitle>
                   <CardDescription>
                     {query.data?.startTime && (
@@ -176,7 +250,7 @@ export default function HistoryDetailPage() {
                         <ServerIcon className="w-4 h-4 mr-2" />
                         Server
                       </div>
-                      <div>{query.data?.backupConfig?.server?.name || "Unknown"}</div>
+                      <div>{sourceHost}</div>
                     </div>
                     
                     <div className="space-y-1">
@@ -184,7 +258,7 @@ export default function HistoryDetailPage() {
                         <FileIcon className="w-4 h-4 mr-2" />
                         Files
                       </div>
-                      <div>{query.data?.fileCount || "N/A"}</div>
+                      <div>{stats?.filesLabel || "N/A"}</div>
                     </div>
                     
                     <div className="space-y-1">
@@ -192,10 +266,64 @@ export default function HistoryDetailPage() {
                         <HardDriveIcon className="w-4 h-4 mr-2" />
                         Total Size
                       </div>
-                      <div>{query.data?.totalSize ? formatBytes(query.data.totalSize) : "N/A"}</div>
+                      <div>
+                        {stats?.sizeBytes != null
+                          ? formatBytes(stats.sizeBytes)
+                          : "N/A"}
+                      </div>
                     </div>
 
-                    {query.data?.artifactPath && (
+                    {isPeerRun ? (
+                      <div className="space-y-2 col-span-2">
+                        <div className="flex items-center text-sm text-muted-foreground">
+                          <UsersIcon className="w-4 h-4 mr-2" />
+                          Destination
+                        </div>
+                        <DeliveryBadge
+                          state={deliveryState}
+                          friendName={friendName}
+                          error={deliveryError}
+                        />
+                        {!deliveryState ? (
+                          <Badge
+                            className={
+                              statusColors[
+                                query.data?.status as keyof typeof statusColors
+                              ] || ""
+                            }
+                          >
+                            {query.data?.status}
+                          </Badge>
+                        ) : null}
+                        <p className="text-sm text-muted-foreground">
+                          {deliveryState === "waiting"
+                            ? `Waiting for ${friendName}'s ${friendApp} — saved on this server, not yet on their disk.`
+                            : deliveryState === "failed"
+                              ? deliveryError ||
+                                `This run could not be delivered to ${friendName}'s ${friendApp}.`
+                              : deliveryState === "stored"
+                                ? `Stored on ${friendName}'s ${friendApp}.`
+                                : "This run did not finish — no off-site copy was recorded."}
+                        </p>
+                        <details className="text-xs text-muted-foreground">
+                          <summary className="cursor-pointer select-none">
+                            Technical details
+                          </summary>
+                          <div className="mt-1 space-y-1">
+                            {peerFolder ? (
+                              <p>
+                                Folder: <span className="font-mono">{peerFolder}</span>
+                              </p>
+                            ) : null}
+                            {query.data?.artifactPath ? (
+                              <p className="break-all font-mono">
+                                {query.data.artifactPath}
+                              </p>
+                            ) : null}
+                          </div>
+                        </details>
+                      </div>
+                    ) : query.data?.artifactPath ? (
                       <div className="space-y-1 col-span-2">
                         <div className="flex items-center text-sm text-muted-foreground">
                           <HardDriveIcon className="w-4 h-4 mr-2" />
@@ -203,7 +331,7 @@ export default function HistoryDetailPage() {
                         </div>
                         <div className="font-mono text-sm break-all">{query.data.artifactPath}</div>
                       </div>
-                    )}
+                    ) : null}
                   </div>
                 </CardContent>
               </Card>

@@ -30,17 +30,41 @@ export type BackupHistory = {
   artifactSha256?: string | null
   mailboxPending?: boolean
   artifactRemoved?: boolean
+  /** Contract C4 — composite delivery state for Bro Space destinations. */
+  deliveryState?: "stored" | "waiting" | "failed" | null
+  deliveryError?: string | null
+  /** Contract C5 — restore defaults captured from the run itself. */
+  restoreDefaults?: {
+    targetPath: string | null
+    targetServerId: string | null
+    databaseName: string | null
+    volumeName: string | null
+    configChangedSinceRun: boolean
+  } | null
   backupConfig: {
     id: string
     name: string
-    sourceType?: 'path' | 'docker_volume' | 'database'
+    sourceKind?: 'local' | 'server' | 's3' | 'git' | null
+    sourceType?: 'path' | 'docker_volume' | 'database' | 'lazybackup_instance' | 'git_repo'
     sourcePath?: string
-    destinationKind?: 'local' | 'server'
+    destinationKind?: 'local' | 'server' | 's3' | 'peer' | null
+    destinationPath?: string | null
+    destinationPeerId?: string | null
     dbEngine?: string | null
     server: {
       id: string
       name: string
-    }
+    } | null
+    sourceS3Profile?: { name?: string | null } | null
+    sourceGitRepo?: { name?: string | null } | null
+    destinationPeer?: {
+      id?: string | null
+      name?: string | null
+      kind?: 'lazybro' | 'lazybackup' | null
+      remoteBaseUrl?: string | null
+      online?: boolean | null
+      lastSeenAt?: string | null
+    } | null
   }
 }
 
@@ -65,8 +89,18 @@ export function useHistoryList(
       return res.json()
     },
     refetchInterval: (query) => {
-      const rows = query.state.data?.history as { status?: string }[] | undefined
-      return rows?.some((h) => h.status === "running") ? 15_000 : false
+      const rows = query.state.data?.history as
+        | { status?: string; mailboxPending?: boolean; deliveryState?: string | null }[]
+        | undefined
+      // Keep waiting Bro Space rows fresh so they flip to "stored" after the
+      // friend's app pulls the artifact (no SSE event for delivery acks).
+      const active = rows?.some(
+        (h) =>
+          h.status === "running" ||
+          h.mailboxPending === true ||
+          h.deliveryState === "waiting"
+      )
+      return active ? 15_000 : false
     },
   })
 }
@@ -81,6 +115,21 @@ export function useHistoryDetail(id: string) {
       return res.json()
     },
     enabled: !!id,
+    refetchInterval: (query) => {
+      const row = query.state.data as
+        | {
+            status?: string
+            mailboxPending?: boolean
+            deliveryState?: string | null
+          }
+        | undefined
+      if (!row) return false
+      return row.status === "running" ||
+        row.mailboxPending === true ||
+        row.deliveryState === "waiting"
+        ? 15_000
+        : false
+    },
   })
 }
 
@@ -170,7 +219,7 @@ export function useRestoreBackupHistory() {
           message:
             typeof data.message === "string"
               ? data.message
-              : "Waiting for Bro — keep LazyBro running.",
+              : "Waiting for your friend’s app — keep it running.",
         }
       }
       if (!res.ok) {

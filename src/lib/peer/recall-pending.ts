@@ -1,6 +1,6 @@
 /** User-facing copy when a mailbox recall is not staged yet (HTTP 202). */
 export const PEER_RECALL_WAITING_MESSAGE =
-  'Waiting for Bro — keep LazyBro running.'
+  'Waiting for your friend’s app — keep it running.'
 
 export const PEER_RECALL_STAY_ONLINE =
   'Your friend is restoring a backup — stay online.'
