@@ -91,6 +91,7 @@ import {
   buildFileRetentionLog,
   buildPeerRetentionLog,
   buildPreBackupLog,
+  buildSkippedSymlinkWarning,
   combineBackupLog,
   formatPreBackupCommandLog,
   isArchiveTransferMethod,
@@ -910,12 +911,14 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
 
       let packedArchivePath: string;
       let packStdout = '';
+      let packStderr = '';
 
       if (sourceKind === 'local') {
         const packed = await packDatabaseDumpLocal(dbConn);
         localDbTmpDir = packed.tmpDir;
         packedArchivePath = packed.archivePath;
         packStdout = packed.stdout;
+        packStderr = packed.stderr;
       } else {
         if (!config.server) {
           throw new Error('Source server required for remote database backup');
@@ -928,7 +931,13 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
         remoteTmpKind = 'database';
         packedArchivePath = packed.archivePath;
         packStdout = packed.stdout;
+        packStderr = packed.stderr;
       }
+      // sqlite3-less remote hosts fall back to cp and print a warning on
+      // stderr; keep it in the backup log instead of discarding it.
+      const dumpStderrLog = packStderr?.trim()
+        ? `--- dump stderr ---\n${packStderr.trim()}`
+        : '';
 
       if (useEncryptedLand) {
         const materialized = await materializeLocalArtifact({
@@ -972,6 +981,7 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
             materialized.encrypted ? 'Encryption: age' : '',
             landed.stdout,
             packStdout?.trim() ? `--- dump stdout ---\n${packStdout.trim()}` : '',
+            dumpStderrLog,
           ]
             .filter(Boolean)
             .join('\n'),
@@ -992,6 +1002,7 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
             `Local path: ${localArchivePath}`,
             `Size: ${stats.size} bytes`,
             packStdout?.trim() ? `--- dump stdout ---\n${packStdout.trim()}` : '',
+            dumpStderrLog,
           ]
             .filter(Boolean)
             .join('\n'),
@@ -1060,6 +1071,7 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
             `Size: ${stats.size} bytes`,
             `Transfer: ${pull.method}`,
             packStdout?.trim() ? `--- dump stdout ---\n${packStdout.trim()}` : '',
+            dumpStderrLog,
             pull.stdout?.trim() ? `--- transfer stdout ---\n${pull.stdout.trim()}` : '',
           ]
             .filter(Boolean)
@@ -1163,6 +1175,7 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
               `S3: ${artifactPath}`,
               `Size: ${uploaded.size} bytes`,
               packStdout?.trim() ? `--- dump stdout ---\n${packStdout.trim()}` : '',
+              dumpStderrLog,
             ]
               .filter(Boolean)
               .join('\n'),
@@ -1573,7 +1586,10 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
           `S3: ${artifactPath}`,
           `Files: ${uploaded.fileCount}`,
           `Total size: ${uploaded.totalSize} bytes`,
-        ].join('\n'),
+          buildSkippedSymlinkWarning(uploaded.skippedSymlinks),
+        ]
+          .filter(Boolean)
+          .join('\n'),
         stderr: '',
       };
     } else if (
@@ -1608,6 +1624,7 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
             `S3: ${artifactPath}`,
             `Files: ${uploaded.fileCount}`,
             `Total size: ${uploaded.totalSize} bytes`,
+            buildSkippedSymlinkWarning(uploaded.skippedSymlinks),
             pull.stdout?.trim() ? `--- pull stdout ---\n${pull.stdout.trim()}` : '',
           ]
             .filter(Boolean)
@@ -1693,7 +1710,10 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
             `S3 dest: ${artifactPath}`,
             `Downloaded: ${downloaded.fileCount} files`,
             `Uploaded: ${uploaded.fileCount} files (${uploaded.totalSize} bytes)`,
-          ].join('\n'),
+            buildSkippedSymlinkWarning(uploaded.skippedSymlinks),
+          ]
+            .filter(Boolean)
+            .join('\n'),
           stderr: '',
         };
       } finally {
@@ -1843,7 +1863,13 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
 
     await updateBackupHistorySuccess(historyId, {
       ...parsedOutput,
-      logOutput: combineBackupLog(preBackupLog, backupResult.stdout, usedMethod, fileRetentionLog),
+      logOutput: combineBackupLog(
+        preBackupLog,
+        backupResult.stdout,
+        usedMethod,
+        fileRetentionLog,
+        backupResult.stderr
+      ),
       artifactPath,
       artifactSha256,
       mailboxPending,

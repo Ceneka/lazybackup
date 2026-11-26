@@ -5,6 +5,7 @@ export const LOG_SECTION = {
   transferDocker: '========== Docker Volume Backup ==========',
   transferDatabase: '========== Database Dump Backup ==========',
   fileRetention: '========== File Retention ==========',
+  warnings: '========== Transfer Warnings ==========',
   restore: '========== Restore ==========',
 } as const;
 
@@ -47,7 +48,8 @@ export function combineBackupLog(
   preBackupLog: string,
   transferLog: string,
   method: string,
-  fileRetentionLog = ''
+  fileRetentionLog = '',
+  transferStderr = ''
 ): string {
   const transferHeader =
     method === 'rsync' || method.includes('rsync') || method.includes('local')
@@ -68,6 +70,17 @@ export function combineBackupLog(
 
   sections.push([transferHeader, '', transferLog].join('\n'));
 
+  const unsafeSymlinks = parseRsyncUnsafeSymlinkWarnings(
+    `${transferLog}\n${transferStderr}`
+  );
+  const warningsLog = buildSymlinkWarningLog(
+    unsafeSymlinks,
+    `rsync skipped ${unsafeSymlinks.length} symlink(s) that point outside the backed-up tree (--safe-links):`
+  );
+  if (warningsLog) {
+    sections.push(warningsLog);
+  }
+
   if (fileRetentionLog) {
     sections.push(fileRetentionLog);
   }
@@ -85,6 +98,50 @@ export function buildFileRetentionLog(deletedFiles: string[]): string {
     '',
     `Deleted ${deletedFiles.length} file(s):`,
     ...deletedFiles.map((file) => `- ${file}`),
+  ].join('\n');
+}
+
+export type UnsafeSymlinkWarning = { name: string; target: string };
+
+/**
+ * rsync --safe-links skips symlinks that point outside the transferred tree and
+ * prints a line like:
+ *   ignoring unsafe symlink "leak" -> "/etc/passwd"
+ * It still exits 0, so without parsing these the backup reports a clean
+ * success while silently dropping links.
+ */
+export function parseRsyncUnsafeSymlinkWarnings(text: string): UnsafeSymlinkWarning[] {
+  const warnings: UnsafeSymlinkWarning[] = [];
+  for (const line of text.split(/\r?\n/)) {
+    const match = /^\s*ignoring unsafe symlink "(.*)"\s*(?:->|=>)\s*"(.*)"\s*$/.exec(line);
+    if (match && match[1]) {
+      warnings.push({ name: match[1], target: match[2] });
+    }
+  }
+  return warnings;
+}
+
+/** Warning block for symlinks rsync refused / S3 could not store. Empty when none. */
+export function buildSymlinkWarningLog(skipped: UnsafeSymlinkWarning[], reason: string): string {
+  if (skipped.length === 0) {
+    return '';
+  }
+  return [
+    LOG_SECTION.warnings,
+    '',
+    `WARNING: ${reason}`,
+    ...skipped.map((link) => `- ${link.name} -> ${link.target}`),
+  ].join('\n');
+}
+
+/** Warning lines to append to a transfer log for symlinks skipped by an S3 upload. */
+export function buildSkippedSymlinkWarning(paths: string[]): string {
+  if (paths.length === 0) {
+    return '';
+  }
+  return [
+    `WARNING: ${paths.length} symlink(s) were not uploaded because S3 cannot store symlinks:`,
+    ...paths.map((p) => `- ${p}`),
   ].join('\n');
 }
 
