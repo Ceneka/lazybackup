@@ -74,7 +74,19 @@ export async function POST(request: NextRequest) {
       }
 
       if (row.status !== 'acked') {
-        await completePeerDeleteAck(peer.id, key);
+        const acked = await completePeerDeleteAck(peer.id, key);
+        if (!acked) {
+          // A newer run reclaimed this object key between our read and the
+          // transition. The friend deleted the old copy (fine), but the host
+          // must keep the freshly staged generation and every history row.
+          return NextResponse.json({
+            ok: true,
+            verified: false,
+            superseded: true,
+            deleted: true,
+            key,
+          });
+        }
       }
       return NextResponse.json({ ok: true, verified: true, deleted: true, key });
     }
