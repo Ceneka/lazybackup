@@ -188,6 +188,28 @@ export async function updateBackupHistorySuccess(
   return updatedEntry[0];
 }
 
+/**
+ * Persist (or clear) the Bro delivery failure reason for a mailbox artifact.
+ *
+ * Every failure/success site writes through here so the history APIs can trust
+ * the column and only fall back to the peer report for legacy rows. A non-peer
+ * path cannot be delivered off-host, so it is a no-op.
+ */
+export async function setDeliveryErrorForArtifact(
+  artifactPath: string,
+  message: string | null,
+  executor: Pick<typeof db, 'update'> = db
+): Promise<number> {
+  const ref = parsePeerArtifactPath(artifactPath);
+  if (!ref) return 0;
+  const updated = await executor
+    .update(backupHistory)
+    .set({ deliveryError: message })
+    .where(eq(backupHistory.artifactPath, artifactPath))
+    .returning({ id: backupHistory.id });
+  return updated.length;
+}
+
 /** Bro verified it stored the staged object; clear pending flag and fire success ping. */
 export async function clearMailboxPendingForArtifact(artifactPath: string) {
   // Atomic conditional update: an ACK that races the success-write race check
@@ -198,10 +220,7 @@ export async function clearMailboxPendingForArtifact(artifactPath: string) {
     notifyDelivered: fireSuccessPing,
   });
   // Verified delivery wins: a previous failure reason is stale now.
-  await db
-    .update(backupHistory)
-    .set({ deliveryError: null })
-    .where(eq(backupHistory.artifactPath, artifactPath));
+  await setDeliveryErrorForArtifact(artifactPath, null);
 }
 
 /**

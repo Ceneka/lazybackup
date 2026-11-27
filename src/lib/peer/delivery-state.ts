@@ -28,6 +28,8 @@ export function deriveDeliveryState(input: {
   artifactPath?: string | null;
   /** Retention / peer removal took the artifact away: no delivery claim. */
   artifactRemoved?: boolean | null;
+  /** Persisted failure reason for THIS artifact (outranks the peer's last error). */
+  deliveryError?: string | null;
   /** Peer row for the destination; only the reported error is used. */
   peer?: { remoteLastError?: string | null } | null;
 }): DeliveryState {
@@ -41,6 +43,10 @@ export function deriveDeliveryState(input: {
   if (!ref) return null;
   if (input.status && input.status !== 'success') return null;
   if (!input.mailboxPending) return 'stored';
+
+  // A persisted reason is authoritative: a later, unrelated peer error (or a
+  // peer that goes quiet) must not hide the failure behind `waiting`.
+  if (input.deliveryError?.trim()) return 'failed';
 
   // The peer's last report names the object it failed on (quota exceeded,
   // corrupt/mismatched pull, rejected ACK). Transport errors and "friend is
@@ -56,6 +62,7 @@ export function deliveryStateForHistoryRow(row: {
   mailboxPending?: boolean | null;
   artifactPath?: string | null;
   artifactRemoved?: boolean | null;
+  deliveryError?: string | null;
   backupConfig?: {
     destinationKind?: string | null;
     destinationPeer?: { remoteLastError?: string | null } | null;
@@ -72,6 +79,7 @@ export function deliveryStateForHistoryRow(row: {
     mailboxPending: row.mailboxPending,
     artifactPath: row.artifactPath,
     artifactRemoved: row.artifactRemoved,
+    deliveryError: row.deliveryError,
     peer: row.backupConfig?.destinationPeer,
   });
 }
