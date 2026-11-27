@@ -190,6 +190,7 @@ export function useRestoreBackupHistory() {
       targetPath,
       allowRetarget,
       targetServerId,
+      retry,
     }: {
       id: string
       volumeName?: string
@@ -197,6 +198,8 @@ export function useRestoreBackupHistory() {
       targetPath?: string
       allowRetarget?: boolean
       targetServerId?: string | null
+      /** Forget a failed friend recall and ask again (server: `retry: true`). */
+      retry?: boolean
     }) => {
       const res = await fetch(`/api/history/${id}/restore`, {
         method: "POST",
@@ -208,6 +211,7 @@ export function useRestoreBackupHistory() {
           targetPath,
           allowRetarget,
           targetServerId,
+          ...(retry ? { retry: true } : {}),
         }),
       })
 

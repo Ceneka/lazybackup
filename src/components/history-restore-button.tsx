@@ -274,11 +274,15 @@ export function HistoryRestoreButton({
           : { volumeName: requested || undefined }),
     }
 
+    // After a failed attempt (e.g. the friend sent back a corrupt copy), the
+    // server refuses until the client explicitly asks again.
+    const retryFailedRecall = Boolean(recallError)
+
     setRecallError(null)
     setRestoredTarget(null)
     setTimedOut(false)
 
-    restoreMutation.mutate(payload, {
+    restoreMutation.mutate({ ...payload, retry: retryFailedRecall }, {
       onSuccess: (data) => {
         if (data.status === "waiting") {
           setRecallStartedAt(Date.now())

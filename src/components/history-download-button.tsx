@@ -69,6 +69,7 @@ export function HistoryDownloadButton({
   const inFlightRef = useRef(false)
   const startedAtRef = useRef<number | null>(null)
   const closeHintShownRef = useRef(false)
+  const lastFailedRef = useRef(false)
 
   const peerId = peerIdForHistoryRow({
     artifactPath: entry.artifactPath,
@@ -109,8 +110,12 @@ export function HistoryDownloadButton({
 
   const handleClick = async (e: MouseEvent) => {
     e.preventDefault()
+    // After a failed attempt the server refuses until the client asks again.
+    let retryFailedRecall = lastFailedRef.current
+    lastFailedRef.current = false
     const tryOnce = async (): Promise<"ok" | "waiting" | "error"> => {
-      const res = await fetch(href)
+      const res = await fetch(retryFailedRecall ? `${href}?retry=1` : href)
+      retryFailedRecall = false
       if (res.status === 202) {
         await res.json().catch(() => ({}))
         return "waiting"
@@ -118,6 +123,7 @@ export function HistoryDownloadButton({
       if (!res.ok) {
         const data = (await res.json().catch(() => ({}))) as { error?: string }
         toast.error(data.error || "Failed to download artifact")
+        lastFailedRef.current = true
         return "error"
       }
       await saveBlob(res)
