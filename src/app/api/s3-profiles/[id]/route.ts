@@ -2,10 +2,22 @@ import { redactS3ForAudience } from '@/lib/api/redact';
 import { resolveAuth } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { backupConfigs, s3Profiles } from '@/lib/db/schema';
+import {
+  validateS3ProfileForWrite,
+  type S3ProfileWriteIssue,
+} from '@/lib/s3/bucket';
 import { s3ProfileUpdateSchema } from '@/lib/s3/schema';
 import { eq, or } from 'drizzle-orm';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+
+/** 400 with a field path the form can highlight (same shape as Zod issues). */
+function fieldError(issues: S3ProfileWriteIssue[]) {
+  return NextResponse.json(
+    { error: issues[0]!.message, details: issues },
+    { status: 400 }
+  );
+}
 
 async function audience(request: NextRequest) {
   const auth = await resolveAuth(
@@ -81,6 +93,11 @@ export async function PUT(
     const via = await audience(request);
     const body = await request.json();
     const validatedData = s3ProfileUpdateSchema.parse(body);
+
+    // Validate the incoming values only: an old invalid bucket/endpoint must
+    // not block unrelated edits (or fixing it one field at a time).
+    const writeIssues = validateS3ProfileForWrite(validatedData);
+    if (writeIssues.length > 0) return fieldError(writeIssues);
 
     const existing = await db.query.s3Profiles.findFirst({
       where: eq(s3Profiles.id, id),
