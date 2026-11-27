@@ -102,8 +102,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    await deleteStagedObject(peer.id, key);
+    // Clear first: if the DB write fails the staged file must survive so the
+    // peer can retry the ACK. The reverse order loses the only retry path
+    // (staging gone, pending still true) and the success ping is never sent.
     await clearMailboxPendingForArtifact(`peer://${peer.id}/${key}`);
+    await deleteStagedObject(peer.id, key);
     return NextResponse.json({
       ok: true,
       verified: true,
