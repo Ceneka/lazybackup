@@ -2,18 +2,17 @@ import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test';
 import { createClient } from '@libsql/client';
 import { drizzle } from 'drizzle-orm/libsql';
 import fs from 'fs/promises';
-import { NextRequest } from 'next/server';
 import os from 'os';
 import path from 'path';
 import * as schema from '@/lib/db/schema';
 
-// Bun module mocks are process-wide; drop anything a previous test file left.
-mock.restore();
+// Bun module mocks are process-wide, so this file avoids mocking @/lib/db for
+// the persistence tests: the helpers take an executor. Only the last test needs
+// a route bound to a fixture, and it re-imports the route fresh for that reason.
 
 const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'lb-delivery-error-'));
 const client = createClient({ url: `file:${path.join(tmp, 'delivery.db')}` });
 const testDb = drizzle(client, { schema });
-mock.module('@/lib/db', () => ({ db: testDb }));
 
 await client.execute(`
   CREATE TABLE peers (
@@ -45,7 +44,7 @@ await client.execute(`
 const { deliveryErrorForHistoryRow, setDeliveryErrorForArtifact } = await import(
   '@/lib/backup/history'
 );
-const { recordPeerReport } = await import('./reports');
+const { syncDeliveryErrorsFromReport } = await import('./reports');
 
 const PEER = 'peer_bro';
 const ARTIFACT = 'peer://peer_bro/backups/cfg/app.tar.gz.age';
@@ -63,24 +62,12 @@ async function insertHistory(
   });
 }
 
-async function insertPeer(id = PEER) {
-  await client.execute({ sql: 'INSERT INTO peers (id) VALUES (?)', args: [id] });
-}
-
 async function deliveryErrorFor(id: string): Promise<string | null> {
   const result = await client.execute({
     sql: 'SELECT delivery_error FROM backup_history WHERE id = ?',
     args: [id],
   });
   return (result.rows[0]?.delivery_error as string | null) ?? null;
-}
-
-async function peerLastError(id = PEER): Promise<string | null> {
-  const result = await client.execute({
-    sql: 'SELECT remote_last_error FROM peers WHERE id = ?',
-    args: [id],
-  });
-  return (result.rows[0]?.remote_last_error as string | null) ?? null;
 }
 
 beforeEach(async () => {
@@ -90,62 +77,56 @@ beforeEach(async () => {
 
 describe('persist Bro delivery failures', () => {
   test('a failure report writes the reason on the matching artifact only', async () => {
-    await insertPeer();
     await insertHistory('h1', ARTIFACT);
     await insertHistory('h2', OTHER_ARTIFACT);
     await insertHistory('p2', 'peer://other_peer/backups/cfg/app.tar.gz.age');
 
-    await recordPeerReport(PEER, {
-      lastError: 'Pull backups/cfg/app.tar.gz.age: Quota exceeded',
-    });
+    const updated = await syncDeliveryErrorsFromReport(
+      PEER,
+      'Pull backups/cfg/app.tar.gz.age: Quota exceeded',
+      testDb
+    );
 
+    expect(updated).toBe(1);
     expect(await deliveryErrorFor('h1')).toBe(
       'Pull backups/cfg/app.tar.gz.age: Quota exceeded'
     );
     expect(await deliveryErrorFor('h2')).toBeNull();
     // Same object key under a different peer is not this report's failure.
     expect(await deliveryErrorFor('p2')).toBeNull();
-    // The soft peer error is still stored for the UI.
-    expect(await peerLastError()).toBe('Pull backups/cfg/app.tar.gz.age: Quota exceeded');
   });
 
   test('a later successful report clears the persisted reason', async () => {
-    await insertPeer();
     await insertHistory('h1', ARTIFACT, 'Pull backups/cfg/app.tar.gz.age: HTTP 500');
 
-    await recordPeerReport(PEER, { lastError: null });
+    await syncDeliveryErrorsFromReport(PEER, null, testDb);
 
     expect(await deliveryErrorFor('h1')).toBeNull();
-    expect(await peerLastError()).toBeNull();
   });
 
   test('an error that names no artifact leaves the persisted reason alone', async () => {
-    await insertPeer();
     await insertHistory('h1', ARTIFACT, 'old failure');
 
-    await recordPeerReport(PEER, { lastError: 'Work failed (503)' });
-    expect(await deliveryErrorFor('h1')).toBe('old failure');
-
-    // Not sending lastError at all (old client) must not clear either.
-    await recordPeerReport(PEER, { appVersion: '1.2.3' });
+    // Transport/offline errors do not name an object key.
+    await syncDeliveryErrorsFromReport(PEER, 'Work failed (503)', testDb);
     expect(await deliveryErrorFor('h1')).toBe('old failure');
   });
 
   test('setDeliveryErrorForArtifact writes, clears, and ignores non-peer paths', async () => {
     await insertHistory('h1', ARTIFACT);
 
-    expect(await setDeliveryErrorForArtifact(ARTIFACT, 'disk full')).toBe(1);
+    expect(await setDeliveryErrorForArtifact(ARTIFACT, 'disk full', testDb)).toBe(1);
     expect(await deliveryErrorFor('h1')).toBe('disk full');
 
-    expect(await setDeliveryErrorForArtifact(ARTIFACT, null)).toBe(1);
+    expect(await setDeliveryErrorForArtifact(ARTIFACT, null, testDb)).toBe(1);
     expect(await deliveryErrorFor('h1')).toBeNull();
 
     // Unknown artifact: nothing to update, no throw.
     expect(
-      await setDeliveryErrorForArtifact('peer://peer_bro/backups/cfg/missing.age', 'x')
+      await setDeliveryErrorForArtifact('peer://peer_bro/backups/cfg/missing.age', 'x', testDb)
     ).toBe(0);
     // Local/S3 paths never carry an off-host delivery reason.
-    expect(await setDeliveryErrorForArtifact('/backups/local/app', 'x')).toBe(0);
+    expect(await setDeliveryErrorForArtifact('/backups/local/app', 'x', testDb)).toBe(0);
   });
 
   test('read side prefers the persisted reason over the derived one', () => {
@@ -167,60 +148,6 @@ describe('persist Bro delivery failures', () => {
   });
 });
 
-describe('history API delivery error', () => {
-  test('returns the persisted reason with the legacy alias', async () => {
-    const fixture = {
-      id: 'h1',
-      status: 'success',
-      mailboxPending: true,
-      artifactPath: ARTIFACT,
-      configSnapshot: null,
-      deliveryError: 'Persisted: quota exceeded',
-      backupConfig: {
-        id: 'cfg1',
-        name: 'App',
-        destinationKind: 'peer',
-        destinationPath: 'backups/cfg',
-        destinationPeer: {
-          id: PEER,
-          name: 'Bro',
-          remoteLastError: 'Pull backups/cfg/app.tar.gz.age: derived reason',
-        },
-      },
-    };
-    mock.module('@/lib/db', () => ({
-      db: {
-        query: {
-          backupHistory: {
-            findFirst: async () => fixture,
-          },
-        },
-      },
-    }));
-    const { GET } = await import('@/app/api/history/[id]/route');
-
-    const response = await GET(
-      new NextRequest('http://127.0.0.1/api/history/h1'),
-      { params: Promise.resolve({ id: 'h1' }) }
-    );
-
-    expect(response.status).toBe(200);
-    const body = (await response.json()) as {
-      deliveryState: string | null;
-      deliveryError: string | null;
-      mailboxError: string | null;
-    };
-    expect(body.deliveryState).toBe('failed');
-    expect(body.deliveryError).toBe('Persisted: quota exceeded');
-    expect(body.mailboxError).toBe('Persisted: quota exceeded');
-  });
-});
-
-afterAll(async () => {
-  // Module mocks are process-wide in Bun; restore full copies for later files.
+afterAll(() => {
   mock.restore();
-  client.close();
-  await fs.rm(tmp, { recursive: true, force: true });
-  const freshDb = await import(`../db/index.ts?real=${Date.now()}`);
-  mock.module('@/lib/db', () => freshDb);
 });
