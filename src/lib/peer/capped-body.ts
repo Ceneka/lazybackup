@@ -101,11 +101,60 @@ export async function writeCappedBodyToTempFile(
   };
 }
 
+/**
+ * Startup hygiene: peer uploads stream into `lb-peer-upload-*` temp dirs. A
+ * crash between mkdtemp and the finally-cleanup leaves them behind forever.
+ * Remove only directories older than `maxAgeMs` so active uploads are safe.
+ */
+export async function sweepOrphanPeerUploadTemps(
+  maxAgeMs = 3600 * 1000,
+  nowMs = Date.now()
+): Promise<number> {
+  const root = os.tmpdir();
+  let entries: Awaited<ReturnType<typeof fs.readdir>>;
+  try {
+    entries = await fs.readdir(root, { withFileTypes: true });
+  } catch {
+    return 0;
+  }
+  let removed = 0;
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !entry.name.startsWith('lb-peer-upload-')) continue;
+    const full = path.join(root, entry.name);
+    try {
+      let newest = (await fs.stat(full)).mtimeMs;
+      // A large upload keeps writing `body`; use the newest file mtime so an
+      // active upload is never mistaken for an orphan.
+      for (const child of await fs.readdir(full).catch(() => [])) {
+        const stat = await fs.stat(path.join(full, child)).catch(() => null);
+        if (stat && stat.mtimeMs > newest) newest = stat.mtimeMs;
+      }
+      if (nowMs - newest < maxAgeMs) continue;
+      await fs.rm(full, { recursive: true, force: true });
+      removed += 1;
+    } catch {
+      // Another process may have cleaned it up already.
+    }
+  }
+  return removed;
+}
+
 export async function moveCappedTempToDest(
   tempPath: string,
   destPath: string
 ): Promise<void> {
   await fs.mkdir(path.dirname(destPath), { recursive: true });
+  // Same-filesystem moves are atomic and avoid holding two copies of a large
+  // peer upload (temp + destination) at once. Fall back for /tmp on another FS.
+  try {
+    await fs.rename(tempPath, destPath);
+    return;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code !== 'EXDEV' && code !== 'EEXIST' && code !== 'EPERM' && code !== 'ENOTEMPTY') {
+      throw error;
+    }
+  }
   await fs.copyFile(tempPath, destPath);
 }
 

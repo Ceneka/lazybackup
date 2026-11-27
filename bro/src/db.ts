@@ -67,6 +67,14 @@ export function usedBytes(cfg: BroConfig): number {
   return Number(row.s || 0);
 }
 
+/** Hard cap on object rows/files in one LazyBro share (inode DoS guard). */
+export const MAX_BRO_OBJECTS = 100_000;
+
+export function objectCount(cfg: BroConfig): number {
+  const row = getDb(cfg).query(`SELECT COUNT(*) AS n FROM objects`).get() as { n: number };
+  return Number(row.n || 0);
+}
+
 export function objectFilePath(cfg: BroConfig, key: string): string {
   const safe = key.replace(/\\/g, '/').replace(/^\/+/, '');
   if (!safe || safe.includes('..')) throw new Error('Invalid object key');
@@ -82,4 +90,28 @@ export async function unlinkObject(cfg: BroConfig, key: string): Promise<void> {
   const dest = objectFilePath(cfg, key);
   await fs.unlink(dest).catch(() => {});
   removeObject(cfg, key);
+}
+
+/**
+ * Unpair: drop every tracked object file and its row. Only files recorded in
+ * the DB are removed, so an unrelated file that happened to live under
+ * `shareDir/objects` is never deleted. The friend's own files elsewhere are
+ * untouched.
+ */
+export async function deleteAllObjects(
+  cfg: BroConfig
+): Promise<{ count: number; bytes: number }> {
+  const rows = listObjects(cfg);
+  let bytes = 0;
+  for (const row of rows) {
+    bytes += row.size;
+    try {
+      await fs.unlink(objectFilePath(cfg, row.key));
+    } catch {
+      /* already gone or invalid key; drop the row anyway */
+    }
+  }
+  getDb(cfg).query(`DELETE FROM objects`).run();
+  await fs.mkdir(objectsDir(cfg), { recursive: true, mode: 0o700 }).catch(() => {});
+  return { count: rows.length, bytes };
 }

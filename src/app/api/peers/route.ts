@@ -6,6 +6,8 @@ import {
   getInstanceBaseUrl,
   listInvites,
   listPeers,
+  removePeer,
+  renamePeer,
   revokePeer,
   setInstanceBaseUrl,
 } from '@/lib/peer/pairing';
@@ -81,6 +83,15 @@ const postSchema = z.discriminatedUnion('action', [
     action: z.literal('revokePeer'),
     peerId: z.string().min(1),
   }),
+  z.object({
+    action: z.literal('renamePeer'),
+    peerId: z.string().min(1),
+    name: z.string().min(1).max(80),
+  }),
+  z.object({
+    action: z.literal('removePeer'),
+    peerId: z.string().min(1),
+  }),
 ]);
 
 export async function POST(request: NextRequest) {
@@ -121,6 +132,24 @@ export async function POST(request: NextRequest) {
     if (body.action === 'cancelInvite') {
       await cancelInvite(body.inviteId);
       return NextResponse.json({ success: true });
+    }
+
+    if (body.action === 'renamePeer') {
+      const peer = await renamePeer(body.peerId, body.name);
+      return NextResponse.json({
+        peer: {
+          ...peer,
+          quotaGb: Math.round(bytesToGb(peer.quotaBytes) * 100) / 100,
+        },
+      });
+    }
+
+    if (body.action === 'removePeer') {
+      const result = await removePeer(body.peerId);
+      if (!result) {
+        return NextResponse.json({ error: 'Peer not found' }, { status: 404 });
+      }
+      return NextResponse.json(result);
     }
 
     await revokePeer(body.peerId);

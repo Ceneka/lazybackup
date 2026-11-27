@@ -3,6 +3,7 @@ import {
   buildFindCommand,
   buildRsyncArgv,
   buildRsyncCommand,
+  remotePathShellWord,
   shellSingleQuote,
   sshUserHost,
 } from './rsync';
@@ -21,6 +22,12 @@ describe('sshUserHost', () => {
   test('rejects newlines', () => {
     expect(() => sshUserHost('u\n', 'host')).toThrow();
     expect(() => sshUserHost('u', 'host\n')).toThrow();
+  });
+
+  test('rejects option-like usernames', () => {
+    expect(() => sshUserHost('-oProxyCommand=x', 'host')).toThrow(
+      /must not start with "-"/
+    );
   });
 });
 
@@ -63,6 +70,21 @@ describe('buildRsyncArgv', () => {
       buildRsyncArgv({ sourcePath: '/src\n/evil', destinationPath: '/dest' })
     ).toThrow(/invalid characters/i);
   });
+
+  test('rejects option-like positional paths', () => {
+    expect(() =>
+      buildRsyncArgv({
+        sourcePath: '--rsync-path=touch /tmp/pwned',
+        destinationPath: '/dest',
+      })
+    ).toThrow(/must not start with "-"/);
+    expect(() =>
+      buildRsyncArgv({
+        sourcePath: '/src',
+        destinationPath: '-e/tmp/pwned',
+      })
+    ).toThrow(/must not start with "-"/);
+  });
 });
 
 describe('buildRsyncCommand', () => {
@@ -75,6 +97,15 @@ describe('buildRsyncCommand', () => {
   });
 });
 
+describe('remotePathShellWord', () => {
+  test('expands ~ consistently with rsync/scp and quotes the rest', () => {
+    expect(remotePathShellWord('~/rest dir')).toBe(`"$HOME"/'rest dir'`);
+    expect(remotePathShellWord('~')).toBe('"$HOME"');
+    expect(remotePathShellWord('/srv/backups')).toBe(`'/srv/backups'`);
+    expect(() => remotePathShellWord('')).toThrow();
+  });
+});
+
 describe('buildFindCommand', () => {
   test('quotes remote path and does not interpolate excludes into double quotes', () => {
     const cmd = buildFindCommand('/var/www', ['*.log', 'secret"file']);
@@ -83,6 +114,11 @@ describe('buildFindCommand', () => {
     expect(cmd).toContain(shellSingleQuote('./*.log'));
     expect(cmd).not.toContain('find "/var/www"');
     expect(cmd).not.toContain('| sed');
+  });
+
+  test('expands ~ server-side like rsync', () => {
+    const cmd = buildFindCommand('~/www');
+    expect(cmd).toContain(`cd "$HOME"/'www'`);
   });
 
   test('rejects newline in remote path', () => {

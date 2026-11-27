@@ -197,6 +197,9 @@ export type BackupRunOutcome = {
   historyId: string
   status: "success" | "failed"
   errorMessage?: string | null
+  /** Bro Space: the artifact is staged here and waiting for the friend's app. */
+  mailboxPending?: boolean
+  deliveryState?: string | null
 }
 
 function sleep(ms: number) {
@@ -243,12 +246,16 @@ export async function runBackupUntilDone(id: string): Promise<BackupRunOutcome> 
     const entry = (await histRes.json()) as {
       status?: string
       errorMessage?: string | null
+      mailboxPending?: boolean
+      deliveryState?: string | null
     }
     if (entry.status === "success" || entry.status === "failed") {
       return {
         historyId,
         status: entry.status,
         errorMessage: entry.errorMessage ?? null,
+        mailboxPending: Boolean(entry.mailboxPending),
+        deliveryState: entry.deliveryState ?? null,
       }
     }
     await sleep(delayMs)

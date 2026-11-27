@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import {
   REMOTE_EXEC_DENIED,
   RemoteExecPermissionError,
+  assertCanRetargetPreBackupCommands,
   assertCanSetPreBackupCommands,
   authAllowsAuthorizeKeys,
   authAllowsRemoteExec,
@@ -172,6 +173,51 @@ describe('assertCanSetPreBackupCommands', () => {
   })
 })
 
+describe('assertCanRetargetPreBackupCommands', () => {
+  const noExec = {
+    authorized: true,
+    via: 'bearer' as const,
+    apiToken: { permissions: [] },
+  }
+
+  test('blocks retargeting stored commands to another source host', () => {
+    expect(() =>
+      assertCanRetargetPreBackupCommands(noExec, undefined, 'systemctl stop app', true)
+    ).toThrow(RemoteExecPermissionError)
+    expect(() =>
+      assertCanRetargetPreBackupCommands(noExec, 'systemctl stop app', 'systemctl stop app', true)
+    ).toThrow(RemoteExecPermissionError)
+  })
+
+  test('does not block unchanged endpoints or cleared commands', () => {
+    expect(() =>
+      assertCanRetargetPreBackupCommands(noExec, undefined, 'systemctl stop app', false)
+    ).not.toThrow()
+    expect(() =>
+      assertCanRetargetPreBackupCommands(noExec, '', 'systemctl stop app', true)
+    ).not.toThrow()
+  })
+
+  test('allows sessions and remote_exec tokens', () => {
+    expect(() =>
+      assertCanRetargetPreBackupCommands(
+        { authorized: true, via: 'session' },
+        undefined,
+        'systemctl stop app',
+        true
+      )
+    ).not.toThrow()
+    expect(() =>
+      assertCanRetargetPreBackupCommands(
+        { authorized: true, via: 'bearer', apiToken: { permissions: ['remote_exec'] } },
+        undefined,
+        'systemctl stop app',
+        true
+      )
+    ).not.toThrow()
+  })
+})
+
 describe('authAllowsWrite', () => {
   test('session and unlocked always write', () => {
     expect(authAllowsWrite({ authorized: true, via: 'session' })).toBe(true)
@@ -237,13 +283,17 @@ describe('isReadOnlyApiException', () => {
     expect(isReadOnlyApiException('DELETE', '/mcp')).toBe(true)
   })
 
-  test('allows validate and test probes', () => {
+  test('allows validate and tests of stored endpoints by id', () => {
     expect(isReadOnlyApiException('POST', '/api/backups/abc/validate')).toBe(true)
-    expect(isReadOnlyApiException('POST', '/api/backups/database/test')).toBe(true)
-    expect(isReadOnlyApiException('POST', '/api/servers/test')).toBe(true)
     expect(isReadOnlyApiException('POST', '/api/servers/abc/test')).toBe(true)
-    expect(isReadOnlyApiException('POST', '/api/s3-profiles/test')).toBe(true)
     expect(isReadOnlyApiException('POST', '/api/s3-profiles/abc/test')).toBe(true)
+  })
+
+  test('blocks ad-hoc probes with caller-supplied targets (SSRF)', () => {
+    expect(isReadOnlyApiException('POST', '/api/backups/database/test')).toBe(false)
+    expect(isReadOnlyApiException('POST', '/api/servers/test')).toBe(false)
+    expect(isReadOnlyApiException('POST', '/api/s3-profiles/test')).toBe(false)
+    expect(isReadOnlyApiException('POST', '/api/git-repos/test')).toBe(false)
   })
 
   test('blocks mutating REST', () => {

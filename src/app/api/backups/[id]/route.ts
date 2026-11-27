@@ -1,6 +1,7 @@
 import { redactBackup } from '@/lib/api/redact';
 import {
   RemoteExecPermissionError,
+  assertCanRetargetPreBackupCommands,
   assertCanSetPreBackupCommands,
   resolveAuth,
 } from '@/lib/auth';
@@ -114,6 +115,15 @@ export async function PUT(
       validatedData.preBackupCommands,
       existing.preBackupCommands
     );
+    const sourceEndpointChanged =
+      (validatedData.sourceKind ?? 'server') !== (existing.sourceKind ?? 'server') ||
+      (validatedData.serverId ?? null) !== (existing.serverId ?? null);
+    assertCanRetargetPreBackupCommands(
+      auth,
+      validatedData.preBackupCommands,
+      existing.preBackupCommands,
+      sourceEndpointChanged
+    );
     await assertTransferServersHaveKeys(validatedData);
 
     const conflictingBackup = await findExactDestinationConflict(
@@ -224,6 +234,15 @@ export async function DELETE(
   try {
     // First stop any existing cron job
     stopBackup(id);
+
+    // Peer artifacts live on the friend's disk: queue deletes for every object
+    // this config left there before its history rows cascade away.
+    try {
+      const { enqueuePeerDeletesForConfig } = await import('@/lib/peer/retention');
+      await enqueuePeerDeletesForConfig(id);
+    } catch (peerError) {
+      console.warn('Failed to queue peer deletes for backup config:', peerError);
+    }
 
     // Delete the backup configuration
     await db.delete(backupConfigs).where(eq(backupConfigs.id, id));

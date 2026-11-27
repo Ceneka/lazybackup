@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/detail-actions"
 import { LoadingButton } from "@/components/ui/loading-button"
 import { QueryState } from "@/components/ui/query-state"
+import { DeliveryBadge } from "@/components/peer/delivery-badge"
 import {
   destinationEndpointName,
   destinationKindOf,
@@ -20,6 +21,11 @@ import {
   sourcePathLabel,
   sourceTypeLabel,
 } from "@/lib/backup/endpoint-display"
+import {
+  backupFinishedToast,
+  deliveryErrorFor,
+  deriveDeliveryState,
+} from "@/lib/backup/delivery-state"
 import { formatCronExpression } from "@/lib/cron/format"
 import {
   backupKeys,
@@ -31,6 +37,13 @@ import {
   type BackupDestinationEntry,
   type ValidateBackupResult,
 } from "@/lib/hooks/useBackups"
+import { useHistoryList } from "@/lib/hooks/useHistory"
+import { usePeers } from "@/lib/hooks/usePeers"
+import {
+  friendAppKind,
+  resolveFriendName,
+  resolvePeer,
+} from "@/lib/peer/friend-copy"
 import { flashClassName } from "@/lib/resource-actions"
 import { cn } from "@/lib/utils"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
@@ -145,6 +158,46 @@ export default function BackupDetailPage() {
 
   const query = useBackup(backupId)
   const storageQuery = useBackupStorage(backupId)
+  const peersQuery = usePeers()
+  const latestHistoryQuery = useHistoryList({ configId: backupId }, { limit: 1, offset: 0 })
+  const latestRun = latestHistoryQuery.data?.history?.[0] as
+    | {
+        startTime: string
+        status?: string | null
+        artifactPath?: string | null
+        mailboxPending?: boolean | null
+        deliveryState?: string | null
+        deliveryError?: string | null
+        mailboxError?: string | null
+        backupConfig?: {
+          destinationKind?: string | null
+          destinationPeerId?: string | null
+          destinationPeer?: { id?: string | null } | null
+        } | null
+      }
+    | undefined
+  const peers = peersQuery.data?.peers || []
+  const friendPeerId = query.data?.destinationPeerId || null
+  const friendName = resolveFriendName(peers, friendPeerId)
+  const friendPeer = resolvePeer(peers, friendPeerId)
+  const latestDeliveryState = latestRun
+    ? deriveDeliveryState({
+        status: latestRun.status,
+        deliveryState: latestRun.deliveryState,
+        mailboxPending: latestRun.mailboxPending,
+        deliveryError: latestRun.deliveryError,
+        mailboxError: latestRun.mailboxError,
+        artifactPath: latestRun.artifactPath,
+        artifactRemoved: (latestRun as { artifactRemoved?: boolean | null }).artifactRemoved,
+        destinationKind: latestRun.backupConfig?.destinationKind,
+      })
+    : null
+  const latestDeliveryError = latestRun
+    ? deliveryErrorFor({
+        deliveryError: latestRun.deliveryError,
+        mailboxError: latestRun.mailboxError,
+      })
+    : null
   const deleteBackup = useDeleteBackup()
   const [validateResult, setValidateResult] = useState<ValidateBackupResult | null>(null)
   const [checksExpanded, setChecksExpanded] = useState(false)
@@ -174,7 +227,18 @@ export default function BackupDetailPage() {
       queryClient.invalidateQueries({ queryKey: ["dashboard"] })
       setRunFlash(outcome.status === "success" ? "success" : "failed")
       if (outcome.status === "success") {
-        toast.success("Backup completed")
+        if (outcome.mailboxPending) {
+          const copy = backupFinishedToast({
+            state: "waiting",
+            friendName: resolveFriendName(peers, friendPeerId),
+            kind: friendPeer ? friendAppKind(friendPeer) : null,
+          })
+          toast.info(copy?.title || "Saved on this server — waiting for your friend", {
+            description: copy?.description,
+          })
+        } else {
+          toast.success("Backup completed")
+        }
       } else {
         toast.error(outcome.errorMessage || "Backup failed")
       }
@@ -326,6 +390,42 @@ export default function BackupDetailPage() {
                         : "Disabled"}
                     </dd>
                   </div>
+                  {destinationKindOf(query.data) === "peer" ? (
+                    <div>
+                      <dt className="text-sm font-medium text-muted-foreground">
+                        Last delivery
+                      </dt>
+                      <dd className="mt-1 space-y-1">
+                        {latestRun ? (
+                          latestDeliveryState ? (
+                            <>
+                              <DeliveryBadge
+                                state={latestDeliveryState}
+                                friendName={friendName}
+                                error={latestDeliveryError}
+                              />
+                              <p className="text-xs text-muted-foreground">
+                                {latestDeliveryState === "waiting"
+                                  ? `Saved here — waiting for ${friendName}'s app to store it.`
+                                  : latestDeliveryState === "failed"
+                                    ? latestDeliveryError ||
+                                      `The last run did not reach ${friendName}'s disk.`
+                                    : `Stored off-site on ${friendName}'s computer.`}
+                              </p>
+                            </>
+                          ) : (
+                            <span className="text-sm text-muted-foreground">
+                              Last run {latestRun.status} — no off-site copy recorded.
+                            </span>
+                          )
+                        ) : (
+                          <span className="text-sm text-muted-foreground">
+                            No runs yet
+                          </span>
+                        )}
+                      </dd>
+                    </div>
+                  ) : null}
                   {query.data.deleteExtraneous ? (
                     <div>
                       <dt className="text-sm font-medium text-muted-foreground">Mirror deletes</dt>
@@ -508,7 +608,7 @@ export default function BackupDetailPage() {
                       : destinationKindOf(query.data) === "s3"
                         ? "Destination is an S3 prefix — object listing is not shown here."
                         : destinationKindOf(query.data) === "peer"
-                          ? "Destination is a Bro peer — local disk listing is unavailable."
+                          ? `Destination is on ${friendName}'s computer — their app stores the files, so a local disk listing is unavailable.`
                           : "Resume of files stored at this destination on the LazyBackup host."}
                   </p>
                 </div>
@@ -536,8 +636,13 @@ export default function BackupDetailPage() {
                 {storage && storage.remote ? (
                   <div className="space-y-2 text-sm">
                     <p>
-                      Remote destination
-                      {storage.remoteServerName ? ` on ${storage.remoteServerName}` : ""}
+                      {destinationKindOf(query.data) === "peer"
+                        ? `Folder on ${friendName}'s computer — their app stores and lists these files.`
+                        : `Remote destination${
+                            storage.remoteServerName
+                              ? ` on ${storage.remoteServerName}`
+                              : ""
+                          }`}
                     </p>
                     <p className="font-mono text-xs text-muted-foreground" title={storage.path}>
                       {storage.path}

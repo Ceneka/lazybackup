@@ -1,7 +1,14 @@
 import { isSessionAuthorized } from '@/lib/auth';
 import {
+  CappedJsonError,
+  PEER_PAIR_JSON_LIMIT,
+  readCappedRequestJson,
+} from '@/lib/net/capped-json';
+import {
   consumeRecallArtifact,
   ensureRecall,
+  PeerRecallBlockedError,
+  PeerRecallFailedError,
   waitForRecall,
 } from '@/lib/peer/recall';
 import { stagedObjectExists } from '@/lib/peer/staging';
@@ -20,6 +27,8 @@ const bodySchema = z.object({
   historyId: z.string().optional(),
   /** Max ms to wait for Bro (default 15min). Soft 202 if still pending. */
   waitMs: z.number().int().positive().max(60 * 60 * 1000).optional(),
+  /** Forget a previously failed recall and ask the friend again. */
+  retry: z.boolean().optional(),
 });
 
 /**
@@ -32,7 +41,9 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const body = bodySchema.parse(await request.json());
+    const body = bodySchema.parse(
+      await readCappedRequestJson(request, PEER_PAIR_JSON_LIMIT)
+    );
     const peer = await db.query.peers.findFirst({ where: eq(peers.id, body.peerId) });
     if (!peer || peer.status !== 'active') {
       return NextResponse.json({ error: 'Peer not found' }, { status: 404 });
@@ -52,6 +63,7 @@ export async function POST(request: NextRequest) {
       peerId: peer.id,
       objectKey: body.objectKey,
       historyId: body.historyId,
+      retry: body.retry,
     });
 
     if (recall.status === 'ready') {
@@ -94,6 +106,12 @@ export async function POST(request: NextRequest) {
       { status: 202 }
     );
   } catch (error) {
+    if (error instanceof CappedJsonError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
+    if (error instanceof PeerRecallBlockedError || error instanceof PeerRecallFailedError) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
     if (error instanceof z.ZodError) {
       return NextResponse.json(
         { error: 'Validation error', details: error.issues },

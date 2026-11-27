@@ -1,14 +1,23 @@
-import { resolveLocalRestoreArtifact } from '@/lib/backup';
+import { loadRestoreEndpointRows, resolveLocalRestoreArtifact } from '@/lib/backup';
 import {
   canDownloadBackup,
   contentDispositionAttachment,
   downloadFilenameForLocalPath,
   restoreBlockedReason,
-  restoreEligibilityFromHistory,
 } from '@/lib/backup/restore-eligibility';
+import { httpStatusForRestoreError } from '@/lib/backup/restore-errors';
+import {
+  effectiveRestoreConfig,
+  parseRestoreSnapshot,
+} from '@/lib/backup/restore-snapshot';
 import { db } from '@/lib/db';
 import { backupHistory } from '@/lib/db/schema';
-import { PeerRecallPendingError, peerRecallWaitingResponse } from '@/lib/peer/recall';
+import {
+  PeerRecallBlockedError,
+  PeerRecallFailedError,
+  PeerRecallPendingError,
+  peerRecallWaitingResponse,
+} from '@/lib/peer/recall';
 import { execFile } from 'child_process';
 import { eq } from 'drizzle-orm';
 import { createReadStream } from 'fs';
@@ -48,7 +57,7 @@ function streamFile(
 
 // GET /api/history/[id]/download — stream the restore artifact (session)
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
@@ -72,6 +81,8 @@ export async function GET(
       with: {
         backupConfig: {
           with: {
+            server: true,
+            sourceS3Profile: true,
             destinationS3Profile: true,
             destinationPeer: true,
             destinationServer: true,
@@ -87,8 +98,54 @@ export async function GET(
       );
     }
 
+    if (request.nextUrl.searchParams.get('retry') === '1' && historyEntry.artifactPath) {
+      // Retrying forgets a failed recall (deletes rows + spool data). A GET is
+      // fine for a download, but read_only API tokens must not mutate state.
+      const { authAllowsWrite, resolveAuth } = await import('@/lib/auth');
+      const auth = await resolveAuth(
+        request.headers.get('cookie'),
+        request.headers.get('authorization')
+      );
+      if (!authAllowsWrite(auth)) {
+        return NextResponse.json(
+          { error: 'API token is read_only' },
+          { status: 403 }
+        );
+      }
+      const { parsePeerArtifactPath } = await import('@/lib/peer/retention');
+      const { resetFailedRecall } = await import('@/lib/peer/recall');
+      const parsed = parsePeerArtifactPath(historyEntry.artifactPath);
+      await resetFailedRecall({
+        historyId: historyEntry.id,
+        peerId: parsed?.peerId,
+        objectKey: parsed?.objectKey,
+      });
+    }
+
     const config = historyEntry.backupConfig;
-    const eligibility = restoreEligibilityFromHistory(historyEntry);
+    if (!config) {
+      return NextResponse.json(
+        { error: 'Backup configuration not found for this history entry' },
+        { status: 404 }
+      );
+    }
+
+    // Use the run snapshot, exactly like restore: the live config may point at
+    // a different destination now, which made downloads of old artifacts try
+    // the wrong backend (or refuse a perfectly good local file).
+    const effective = effectiveRestoreConfig(
+      parseRestoreSnapshot(historyEntry.configSnapshot),
+      config
+    );
+    const endpoints = await loadRestoreEndpointRows(config, effective);
+    const eligibility = {
+      status: historyEntry.status,
+      sourceType: effective.sourceType,
+      destinationKind: effective.destinationKind,
+      artifactPath: historyEntry.artifactPath,
+      artifactRemoved: historyEntry.artifactRemoved,
+      destinationAuthType: endpoints.destinationServer?.authType,
+    };
 
     if (!canDownloadBackup(eligibility)) {
       return NextResponse.json(
@@ -110,10 +167,10 @@ export async function GET(
 
     const resolved = await resolveLocalRestoreArtifact({
       artifactPath: historyEntry.artifactPath,
-      destinationKind: config?.destinationKind,
-      destinationS3Profile: config?.destinationS3Profile,
-      destinationPeer: config?.destinationPeer,
-      destinationServer: config?.destinationServer,
+      destinationKind: effective.destinationKind,
+      destinationS3Profile: endpoints.destinationS3Profile,
+      destinationPeer: endpoints.destinationPeer,
+      destinationServer: endpoints.destinationServer,
       expectedSha256: historyEntry.artifactSha256,
       historyId: historyEntry.id,
       decrypt: false,
@@ -146,15 +203,15 @@ export async function GET(
         status: 202,
       });
     }
+    if (error instanceof PeerRecallBlockedError || error instanceof PeerRecallFailedError) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
     console.error(`Failed to download backup ${id}:`, error);
     const message =
       error instanceof Error ? error.message : 'Failed to download artifact';
-    const status =
-      message.includes('not found') ||
-      message.includes('Only successful') ||
-      message.includes('only supported')
-        ? 400
-        : 500;
-    return NextResponse.json({ error: message }, { status });
+    return NextResponse.json(
+      { error: message },
+      { status: httpStatusForRestoreError(error) }
+    );
   }
 }

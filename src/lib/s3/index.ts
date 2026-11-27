@@ -262,13 +262,34 @@ export async function uploadFile(
   return { key, size: stat.size };
 }
 
-async function walkLocalFiles(rootDir: string): Promise<string[]> {
+export type S3UploadDirectoryResult = {
+  fileCount: number;
+  totalSize: number;
+  /**
+   * Symlinks (relative to the uploaded root) that were not uploaded because S3
+   * objects cannot represent them. Callers surface this in the backup log.
+   */
+  skippedSymlinks: string[];
+};
+
+/**
+ * Collect regular files under `rootDir` for an S3 upload. Symlinks are not
+ * followed: they are reported instead of silently disappearing from the
+ * backup (an S3 path backup cannot preserve them).
+ */
+export async function listLocalFilesForS3Upload(rootDir: string): Promise<{
+  files: string[];
+  skippedSymlinks: string[];
+}> {
   const results: string[] = [];
+  const skippedSymlinks: string[] = [];
   async function walk(current: string) {
     const entries = await fs.readdir(current, { withFileTypes: true });
     for (const entry of entries) {
       const full = path.join(current, entry.name);
-      if (entry.isDirectory()) {
+      if (entry.isSymbolicLink()) {
+        skippedSymlinks.push(path.relative(rootDir, full).split(path.sep).join('/'));
+      } else if (entry.isDirectory()) {
         await walk(full);
       } else if (entry.isFile()) {
         results.push(full);
@@ -276,15 +297,15 @@ async function walkLocalFiles(rootDir: string): Promise<string[]> {
     }
   }
   await walk(rootDir);
-  return results;
+  return { files: results, skippedSymlinks };
 }
 
 export async function uploadDirectory(
   profile: S3ProfileConfig,
   localDir: string,
   prefix: string
-): Promise<{ fileCount: number; totalSize: number }> {
-  const files = await walkLocalFiles(localDir);
+): Promise<S3UploadDirectoryResult> {
+  const { files, skippedSymlinks } = await listLocalFilesForS3Upload(localDir);
   const basePrefix = normalizeS3Prefix(prefix);
   let totalSize = 0;
   for (const file of files) {
@@ -293,7 +314,7 @@ export async function uploadDirectory(
     const result = await uploadFile(profile, file, key);
     totalSize += result.size;
   }
-  return { fileCount: files.length, totalSize };
+  return { fileCount: files.length, totalSize, skippedSymlinks };
 }
 
 export async function downloadFile(
@@ -314,9 +335,12 @@ export async function downloadFile(
     if (!result.Body) {
       throw new Error(`Empty body for s3://${profile.bucket}/${key}`);
     }
-    const writeStream = createWriteStream(localFilePath);
+    // Downloaded artifacts can contain database dumps or private files: never
+    // let the process umask decide their mode.
+    const writeStream = createWriteStream(localFilePath, { mode: 0o600 });
     // Body is a Readable in Node
     await pipeline(result.Body as NodeJS.ReadableStream, writeStream);
+    await fs.chmod(localFilePath, 0o600).catch(() => undefined);
     const stat = await fs.stat(localFilePath);
     return { size: stat.size };
   } finally {

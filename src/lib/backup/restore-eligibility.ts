@@ -1,3 +1,5 @@
+import { parseRestoreSnapshot } from './restore-snapshot';
+
 export type RestoreEligibilityInput = {
   status?: string | null;
   sourceType?: string | null;
@@ -25,16 +27,19 @@ export function restoreEligibilityFromHistory(entry: {
   status?: string | null;
   artifactPath?: string | null;
   artifactRemoved?: boolean | null;
+  /** JSON restore snapshot; prefer its endpoints over a since-edited live config. */
+  configSnapshot?: string | null;
   backupConfig?: {
     sourceType?: string | null;
     destinationKind?: string | null;
     destinationServer?: { authType?: string | null } | null;
   } | null;
 }): RestoreEligibilityInput {
+  const snapshot = parseRestoreSnapshot(entry.configSnapshot);
   return {
     status: entry.status,
-    sourceType: entry.backupConfig?.sourceType,
-    destinationKind: entry.backupConfig?.destinationKind,
+    sourceType: snapshot?.sourceType ?? entry.backupConfig?.sourceType,
+    destinationKind: snapshot?.destinationKind ?? entry.backupConfig?.destinationKind,
     artifactPath: entry.artifactPath,
     artifactRemoved: entry.artifactRemoved,
     destinationAuthType: entry.backupConfig?.destinationServer?.authType,

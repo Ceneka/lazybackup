@@ -7,6 +7,40 @@ import { pipeline } from 'stream/promises';
 
 export const BRO_OBJECT_HARD_CAP_BYTES = 32 * 1024 * 1024 * 1024;
 
+/**
+ * Remove `*.partial-*` temp files left by a crash mid-download. Walks the
+ * objects dir without following symlinks so a stray link can never delete
+ * files outside the share folder.
+ */
+export async function sweepPartialFiles(objectsDir: string): Promise<number> {
+  let removed = 0;
+  const walk = async (dir: string): Promise<void> => {
+    let entries;
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        await walk(full);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      if (!entry.name.includes('.partial-')) continue;
+      try {
+        await fs.unlink(full);
+        removed += 1;
+      } catch {
+        /* already gone */
+      }
+    }
+  };
+  await walk(objectsDir);
+  return removed;
+}
+
 export async function streamResponseToFile(options: {
   response: Response;
   destPath: string;

@@ -10,6 +10,10 @@ services:
     container_name: lazybackup
     restart: unless-stopped
     ports:
+      # Published on all interfaces by default. A fresh instance has no password
+      # until you set one (Settings -> General), so bind loopback only
+      # (`127.0.0.1:${PORT:-3000}:3000`) or firewall this port before first start.
+      # Anything beyond your LAN belongs behind a TLS reverse proxy.
       - "${PORT:-3000}:3000"
     environment:
       # SQLite must live on a volume or it is lost on every image rebuild/recreate.
@@ -25,11 +29,23 @@ services:
       # only for the bind mount below; inside the container backups always live at
       # /backups (and /app/backups).
       BACKUP_STORAGE_PATH: /backups
+      # HTTPS only (leave unset for plain HTTP/LAN):
+      # AUTH_COOKIE_SECURE: "true"
+      # ENABLE_HSTS: "true"   # prefer HSTS at the reverse proxy instead
+      # Only behind a reverse proxy that overwrites X-Forwarded-Host/Proto/For:
+      # AUTH_TRUST_PROXY: "true"
+      # Exact public origin required for passkeys behind a proxy:
+      # AUTH_PUBLIC_URL: "https://backup.example.com"
+      # Bro Space through a tunnel/reverse proxy: peer uploads stream up to
+      # 32 GiB, and proxies cap request bodies (Cloudflare Free/Pro/Business:
+      # 100 MB). Raise that limit or keep Bro Space on Tailscale/LAN.
     volumes:
       - lazybackup_data:/app/data
       # Same host dir at both paths: UI/examples use /backups/... but older docs used /app/backups/...
       - "${BACKUP_STORAGE_PATH:-./backups}:/backups"
       - "${BACKUP_STORAGE_PATH:-./backups}:/app/backups"
+      # Prefer a dedicated directory holding only the keys backups need
+      # (e.g. SSH_KEYS_PATH=./lazybackup-ssh) over the whole ~/.ssh.
       - "${SSH_KEYS_PATH:-~/.ssh}:/root/.ssh:ro"
       # Optional: pack Docker volumes / docker-exec DB dumps on this host.
       # Mounting the socket grants the container root-equivalent control of the

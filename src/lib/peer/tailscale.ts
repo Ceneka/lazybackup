@@ -28,19 +28,38 @@ export type TailscaleStatus = {
   hint: string | null;
 };
 
-function appPort(): number {
-  const n = Number(process.env.PORT || 3000);
-  return Number.isFinite(n) && n > 0 ? n : 3000;
+/**
+ * URL hint from the incoming request. `port` should be the real request port
+ * (Host header) — not a hard-coded `PORT || 3000`, which produced URLs like
+ * `http://100.x:3000` when the app ran on `next start -p 3141`.
+ */
+export type TailscaleUrlHint = {
+  protocol?: 'http' | 'https' | null;
+  port?: string | number | null;
+};
+
+function normalizePort(port: string | number | null | undefined): string | null {
+  if (port === null || port === undefined) return null;
+  const text = String(port).trim();
+  if (!/^\d{1,5}$/.test(text)) return null;
+  const value = Number(text);
+  if (!Number.isFinite(value) || value < 1 || value > 65535) return null;
+  return String(value);
 }
 
-function suggestedUrl(ipv4: string | null, dnsName: string | null): string | null {
-  const port = appPort();
-  if (ipv4) return `http://${ipv4}:${port}`;
-  if (dnsName) {
-    const host = dnsName.replace(/\.$/, '');
-    return `http://${host}:${port}`;
-  }
-  return null;
+/** Build the suggested URL from an IP/DNS name and the actual request port. */
+export function buildSuggestedBaseUrl(
+  ipv4: string | null,
+  dnsName: string | null,
+  hint?: TailscaleUrlHint
+): string | null {
+  const host = ipv4 || dnsName?.replace(/\.$/, '') || null;
+  if (!host) return null;
+  const protocol = hint?.protocol === 'https' ? 'https' : 'http';
+  const port = normalizePort(hint?.port);
+  const defaultPort = protocol === 'https' ? '443' : '80';
+  const suffix = port && port !== defaultPort ? `:${port}` : '';
+  return `${protocol}://${host}${suffix}`;
 }
 
 async function pathExists(p: string): Promise<boolean> {
@@ -77,10 +96,10 @@ type StatusJson = {
   };
 };
 
-function parseStatusJson(data: StatusJson): Omit<
-  TailscaleStatus,
-  'available' | 'via' | 'cliAvailable' | 'hint'
-> {
+function parseStatusJson(
+  data: StatusJson,
+  hint?: TailscaleUrlHint
+): Omit<TailscaleStatus, 'available' | 'via' | 'cliAvailable' | 'hint'> {
   const ips = data.Self?.TailscaleIPs || [];
   const ipv4 = ips.find((ip) => ip.includes('.')) || null;
   const ipv6 = ips.find((ip) => ip.includes(':')) || null;
@@ -90,7 +109,7 @@ function parseStatusJson(data: StatusJson): Omit<
     dnsName,
     ipv4,
     ipv6,
-    suggestedBaseUrl: suggestedUrl(ipv4, dnsName),
+    suggestedBaseUrl: buildSuggestedBaseUrl(ipv4, dnsName, hint),
   };
 }
 
@@ -115,13 +134,15 @@ async function statusViaCli(): Promise<StatusJson> {
   return JSON.parse(stdout) as StatusJson;
 }
 
-export async function getTailscaleStatus(): Promise<TailscaleStatus> {
+export async function getTailscaleStatus(
+  hint?: TailscaleUrlHint
+): Promise<TailscaleStatus> {
   const cliAvailable = await cliOnPath();
   const socket = await findSocket();
 
   try {
     if (socket) {
-      const parsed = parseStatusJson(await statusViaSocket(socket));
+      const parsed = parseStatusJson(await statusViaSocket(socket), hint);
       const running = (parsed.backendState || '').toLowerCase() === 'running';
       return {
         available: running || Boolean(parsed.ipv4 || parsed.dnsName),
@@ -135,7 +156,7 @@ export async function getTailscaleStatus(): Promise<TailscaleStatus> {
     }
 
     if (cliAvailable) {
-      const parsed = parseStatusJson(await statusViaCli());
+      const parsed = parseStatusJson(await statusViaCli(), hint);
       const running = (parsed.backendState || '').toLowerCase() === 'running';
       return {
         available: running || Boolean(parsed.ipv4 || parsed.dnsName),
@@ -182,7 +203,10 @@ export async function getTailscaleStatus(): Promise<TailscaleStatus> {
  * Join the tailnet with an auth key. Requires `tailscale` on PATH
  * (host install or sidecar that shares the network namespace — not bundled).
  */
-export async function joinTailscaleWithAuthKey(authKey: string): Promise<{
+export async function joinTailscaleWithAuthKey(
+  authKey: string,
+  hint?: TailscaleUrlHint
+): Promise<{
   ok: boolean;
   message: string;
   status: TailscaleStatus;
@@ -214,7 +238,7 @@ export async function joinTailscaleWithAuthKey(authKey: string): Promise<{
 
   // Brief wait for IPs to appear
   await new Promise((r) => setTimeout(r, 1500));
-  const status = await getTailscaleStatus();
+  const status = await getTailscaleStatus(hint);
   return {
     ok: status.available,
     message: status.suggestedBaseUrl

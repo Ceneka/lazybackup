@@ -32,7 +32,8 @@ const DEFAULTS: BroConfig = {
   dataDir: '',
   shareDir: '',
   port: 3789,
-  label: 'LazyBro',
+  // No product-name default: the friend must enter a person's name (B13).
+  label: '',
   pollIntervalMs: 45_000,
   hostBaseUrl: null,
   outboundToken: null,

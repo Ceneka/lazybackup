@@ -1,7 +1,12 @@
 import { historyBackupConfigWith } from '@/lib/api/history-query';
 import { redactHistoryEntry } from '@/lib/api/redact';
+import {
+  parseRestoreSnapshot,
+  restoreDefaultsFromSnapshot,
+} from '@/lib/backup/restore-snapshot';
 import { db } from '@/lib/db';
 import { backupHistory } from '@/lib/db/schema';
+import { deliveryStateForHistoryRow } from '@/lib/peer/delivery-state';
 import { eq } from 'drizzle-orm';
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -28,9 +33,16 @@ export async function GET(
       );
     }
     
-    return NextResponse.json(
-      redactHistoryEntry(historyEntry as unknown as Record<string, unknown>)
-    );
+    const snapshot = parseRestoreSnapshot(historyEntry.configSnapshot);
+    const restoreDefaults = historyEntry.backupConfig
+      ? restoreDefaultsFromSnapshot(snapshot, historyEntry.backupConfig)
+      : null;
+
+    return NextResponse.json({
+      ...redactHistoryEntry(historyEntry as unknown as Record<string, unknown>),
+      deliveryState: deliveryStateForHistoryRow(historyEntry),
+      restoreDefaults,
+    });
   } catch (error) {
     console.error('Error fetching backup history entry:', error);
     return NextResponse.json(
@@ -47,7 +59,22 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
-    
+
+    // Peer artifacts live on the friend's disk: queue a mailbox delete before
+    // dropping the row, so the friend's storage is freed on the next sync.
+    const existing = await db.query.backupHistory.findFirst({
+      where: eq(backupHistory.id, id),
+      columns: { id: true, artifactPath: true, artifactRemoved: true },
+    });
+    if (existing) {
+      try {
+        const { enqueuePeerDeleteForHistory } = await import('@/lib/peer/retention');
+        await enqueuePeerDeleteForHistory(existing);
+      } catch (peerError) {
+        console.warn('Failed to queue peer delete for history entry:', peerError);
+      }
+    }
+
     // Delete the history entry
     const deletedHistoryEntry = await db
       .delete(backupHistory)

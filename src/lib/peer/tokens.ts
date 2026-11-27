@@ -58,10 +58,32 @@ export function decodeInvitePayload(raw: string): InvitePayload {
   if (!trimmed.startsWith('lb1.')) {
     throw new Error('Invalid invite code. Paste the full code your bro shared.');
   }
-  const json = Buffer.from(trimmed.slice(4), 'base64url').toString('utf8');
-  const parsed = JSON.parse(json) as InvitePayload;
-  if (parsed.v !== 1 || !parsed.u || !parsed.c || !parsed.s || !parsed.q) {
+  let parsed: unknown;
+  try {
+    const json = Buffer.from(trimmed.slice(4), 'base64url').toString('utf8');
+    parsed = JSON.parse(json);
+  } catch {
+    // Never leak a raw JSON.parse / base64 error to the person pasting the code.
     throw new Error('Invite code is incomplete or corrupted.');
   }
-  return parsed;
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('Invite code is incomplete or corrupted.');
+  }
+  const payload = parsed as Partial<InvitePayload>;
+  if (
+    payload.v !== 1 ||
+    typeof payload.u !== 'string' ||
+    !payload.u.trim() ||
+    typeof payload.c !== 'string' ||
+    !payload.c.trim() ||
+    typeof payload.s !== 'string' ||
+    !payload.s.trim() ||
+    typeof payload.q !== 'number' ||
+    !Number.isSafeInteger(payload.q) ||
+    payload.q <= 0 ||
+    typeof payload.n !== 'string'
+  ) {
+    throw new Error('Invite code is incomplete or corrupted.');
+  }
+  return payload as InvitePayload;
 }

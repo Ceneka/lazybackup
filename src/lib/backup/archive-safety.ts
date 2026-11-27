@@ -30,8 +30,21 @@ function safeArchivePath(raw: string, label: string): string {
   return normalized;
 }
 
-export function validateTarMembers(members: TarMember[]): void {
+/**
+ * Validate archive members, returning symlinks whose target escapes the extracted tree.
+ *
+ * With `allowExternalSymlinks`, those symlinks are reported instead of throwing: extraction
+ * itself is safe (GNU tar refuses to write through a symlink it just created), and the
+ * caller removes them from the extracted tree. This keeps encrypted/archived path restores
+ * working for trees that legitimately contain absolute symlinks (the backup side packs
+ * them with plain `tar`; the plain-rsync backup path drops them with `--safe-links`).
+ */
+export function validateTarMembers(
+  members: TarMember[],
+  options?: { allowExternalSymlinks?: boolean }
+): TarMember[] {
   const names = new Set<string>();
+  const externalSymlinks: TarMember[] = [];
   for (const member of members) {
     if (!['-', 'd', 'l', 'h'].includes(member.type)) {
       throw new Error(`Unsafe tar member "${member.name}": unsupported type`);
@@ -46,14 +59,46 @@ export function validateTarMembers(members: TarMember[]): void {
       }
       const target = member.linkTarget;
       if (path.posix.isAbsolute(target)) {
+        if (options?.allowExternalSymlinks) {
+          externalSymlinks.push(member);
+          continue;
+        }
         throw new Error(`Unsafe tar symlink "${member.name}": absolute target`);
       }
-      safeArchivePath(path.posix.join(path.posix.dirname(name), target), 'symlink target');
+      try {
+        safeArchivePath(path.posix.join(path.posix.dirname(name), target), 'symlink target');
+      } catch (error) {
+        if (options?.allowExternalSymlinks) {
+          externalSymlinks.push(member);
+          continue;
+        }
+        throw error;
+      }
     } else if (member.type === 'h') {
       if (member.linkTarget == null) {
         throw new Error(`Unsafe tar hardlink "${member.name}": target is missing`);
       }
       safeArchivePath(member.linkTarget, 'hardlink target');
+    }
+  }
+
+  // A member nested under a symlink member (e.g. `d -> /etc` then `d/passwd`)
+  // would be written through the link by a tar that follows symlinks (BusyBox).
+  // Real archives never contain this: tar does not descend into symlinks.
+  const symlinkNames = new Set(
+    members
+      .filter((member) => member.type === 'l')
+      .map((member) => safeArchivePath(member.name, 'member').replace(/\/+$/, ''))
+  );
+  if (symlinkNames.size > 0) {
+    for (const member of members) {
+      const name = safeArchivePath(member.name, 'member').replace(/\/+$/, '');
+      const parts = name.split('/');
+      for (let i = 1; i < parts.length; i++) {
+        if (symlinkNames.has(parts.slice(0, i).join('/'))) {
+          throw new Error(`Unsafe tar member "${member.name}": path goes through a symlink`);
+        }
+      }
     }
   }
 
@@ -66,6 +111,8 @@ export function validateTarMembers(members: TarMember[]): void {
       );
     }
   }
+
+  return externalSymlinks;
 }
 
 function tarMemberType(type: Header['type']): string {
@@ -130,7 +177,10 @@ async function readTarGzMembers(archivePath: string): Promise<TarMember[]> {
   });
 }
 
-export async function assertSafeTarGzArchive(archivePath: string): Promise<void> {
+export async function assertSafeTarGzArchive(
+  archivePath: string,
+  options?: { allowExternalSymlinks?: boolean }
+): Promise<TarMember[]> {
   let members: TarMember[];
   try {
     members = await readTarGzMembers(archivePath);
@@ -138,5 +188,5 @@ export async function assertSafeTarGzArchive(archivePath: string): Promise<void>
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`Unable to safely inspect tar archive: ${message}`);
   }
-  validateTarMembers(members);
+  return validateTarMembers(members, options);
 }

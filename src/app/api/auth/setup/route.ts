@@ -16,6 +16,7 @@ import {
   recordAuthFailure,
   recordAuthSuccess,
 } from '@/lib/auth/rate-limit'
+import { hasJsonContentType } from '@/lib/auth/request-content'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 
@@ -46,6 +47,13 @@ export async function POST(request: NextRequest) {
   if (!limited.ok) return tooManyAttempts(limited.retryAfterSec)
 
   try {
+    if (!hasJsonContentType(request.headers)) {
+      return NextResponse.json(
+        { error: 'Content-Type must be application/json' },
+        { status: 415 }
+      )
+    }
+
     if (await isAuthEnabled()) {
       return NextResponse.json(
         { error: 'Password is already configured' },

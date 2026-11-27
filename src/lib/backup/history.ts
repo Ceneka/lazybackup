@@ -1,7 +1,12 @@
 import { db } from '@/lib/db';
 import { backupConfigs, backupHistory } from '@/lib/db/schema';
 import { emitBackupEvent } from '@/lib/events/backup-events';
-import { and, eq } from 'drizzle-orm';
+import {
+  clearPendingForArtifact,
+  reconcileDeliveryAfterSuccess,
+} from '@/lib/backup/mailbox-reconcile';
+import { eq } from 'drizzle-orm';
+import { buildRestoreSnapshot } from './restore-snapshot';
 
 async function backupNameForConfig(configId: string): Promise<string> {
   const row = await db.query.backupConfigs.findFirst({
@@ -50,7 +55,16 @@ export async function createBackupHistoryEntry(
   options?: { backupName?: string }
 ) {
   const id = crypto.randomUUID();
-  const backupName = options?.backupName ?? (await backupNameForConfig(configId));
+  const config = await db.query.backupConfigs.findFirst({
+    where: eq(backupConfigs.id, configId),
+  });
+  if (!config) {
+    throw new Error(`Backup configuration with ID ${configId} not found`);
+  }
+  const backupName = options?.backupName ?? config.name ?? 'Backup';
+  // Freeze the restore-relevant config now: later edits must not redirect
+  // restores of this run. Legacy rows keep configSnapshot null (live config).
+  const configSnapshot = JSON.stringify(buildRestoreSnapshot(config));
 
   const newEntry = await db
     .insert(backupHistory)
@@ -59,12 +73,26 @@ export async function createBackupHistoryEntry(
       configId,
       startTime: new Date(),
       status: 'running',
+      configSnapshot,
     })
     .returning();
 
   emitStarted({ historyId: id, configId, backupName });
 
   return newEntry[0];
+}
+
+function fireSuccessPing(historyId: string, configId?: string | null) {
+  void import('@/lib/notify/success-ping')
+    .then(({ notifyBackupSuccess }) =>
+      notifyBackupSuccess({
+        historyId,
+        configId: configId ?? undefined,
+      })
+    )
+    .catch((notifyError) => {
+      console.error('Success ping notify error:', notifyError);
+    });
 }
 
 /**
@@ -109,18 +137,15 @@ export async function updateBackupHistorySuccess(
     .returning();
 
   // Mailbox staging is not off-host yet — ping when the bro ACK verifies.
-  if (!mailboxPending) {
-    void import('@/lib/notify/success-ping')
-      .then(({ notifyBackupSuccess }) =>
-        notifyBackupSuccess({
-          historyId,
-          configId: updatedEntry[0]?.configId,
-        })
-      )
-      .catch((notifyError) => {
-        console.error('Success ping notify error:', notifyError);
-      });
-  }
+  // The helper also resolves the race where the ACK lands before this row.
+  const effectivePending = await reconcileDeliveryAfterSuccess({
+    executor: db,
+    historyId,
+    configId: updatedEntry[0]?.configId,
+    artifactPath: updatedEntry[0]?.artifactPath,
+    mailboxPending,
+    notifyDelivered: fireSuccessPing,
+  });
 
   const configId = updatedEntry[0]?.configId;
   if (configId) {
@@ -130,7 +155,7 @@ export async function updateBackupHistorySuccess(
       configId,
       backupName,
       status: 'success',
-      mailboxPending: Boolean(mailboxPending),
+      mailboxPending: effectivePending,
     });
   }
 
@@ -139,36 +164,13 @@ export async function updateBackupHistorySuccess(
 
 /** Bro verified it stored the staged object; clear pending flag and fire success ping. */
 export async function clearMailboxPendingForArtifact(artifactPath: string) {
-  const pending = await db.query.backupHistory.findMany({
-    where: and(
-      eq(backupHistory.artifactPath, artifactPath),
-      eq(backupHistory.mailboxPending, true)
-    ),
+  // Atomic conditional update: an ACK that races the success-write race check
+  // clears the row once and only the winner fires the ping.
+  await clearPendingForArtifact({
+    executor: db,
+    artifactPath,
+    notifyDelivered: fireSuccessPing,
   });
-  if (pending.length === 0) return;
-
-  await db
-    .update(backupHistory)
-    .set({ mailboxPending: false })
-    .where(
-      and(
-        eq(backupHistory.artifactPath, artifactPath),
-        eq(backupHistory.mailboxPending, true)
-      )
-    );
-
-  for (const row of pending) {
-    void import('@/lib/notify/success-ping')
-      .then(({ notifyBackupSuccess }) =>
-        notifyBackupSuccess({
-          historyId: row.id,
-          configId: row.configId,
-        })
-      )
-      .catch((notifyError) => {
-        console.error('Success ping notify error:', notifyError);
-      });
-  }
 }
 
 /**
@@ -187,6 +189,9 @@ export async function updateBackupHistoryFailure(
       endTime: new Date(),
       status: 'failed',
       errorMessage,
+      // A failed run is not waiting for an ACK anymore; a late ACK must not
+      // fire a success ping for it.
+      mailboxPending: false,
       ...(options?.logOutput ? { logOutput: options.logOutput } : {}),
     })
     .where(eq(backupHistory.id, historyId))

@@ -4,10 +4,21 @@ import path from 'path';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import type { NodeSSH } from 'node-ssh';
-import { isBackupArtifactFileName } from '@/lib/backup/file-retention';
+import {
+  isBackupArtifactFileName,
+  selectFilesToDelete,
+  type FileCandidate,
+} from '@/lib/backup/file-retention';
 import { assertSafePathString } from '@/lib/backup/local-paths';
-import { ensureKnownHostsFile, sshStrictHostKeyCliOptions } from './known-hosts';
-import { shellSingleQuote, sshUserHost, assertSshPort, assertSafeCliToken } from './rsync';
+import { ensureKnownHostsFile, sshStrictHostKeyPinnedCliOptions } from './known-hosts';
+import {
+  shellSingleQuote,
+  sshUserHost,
+  assertSshPort,
+  assertSafeCliToken,
+  assertSafePositionalPath,
+  remotePathShellWord,
+} from './rsync';
 import { ensureSshTempDir } from './temp-dir';
 
 const execFileAsync = promisify(execFile);
@@ -105,6 +116,28 @@ export async function removeEphemeralAuthorizedKey(destSsh: NodeSSH, marker: str
 }
 
 /**
+ * Remote shell snippet that probes a TCP connection to destHost:destPort.
+ * Exported for tests: `PATH=… ( … )` is invalid shell syntax, and the
+ * /dev/tcp fallback must pass the host as an argv value (never interpolated).
+ */
+export function buildReachabilityProbeCommand(
+  destHost: string,
+  destPort: number,
+  timeoutSeconds = 5
+): string {
+  const port = assertSshPort(destPort);
+  assertSafeCliToken(destHost, 'SSH host');
+  const hostQ = shellSingleQuote(destHost);
+  return [
+    `export ${REMOTE_STANDARD_PATH};`,
+    `(command -v nc >/dev/null 2>&1 && nc -z -w ${timeoutSeconds} ${hostQ} ${port})`,
+    '||',
+    `(command -v timeout >/dev/null 2>&1 && command -v bash >/dev/null 2>&1 && timeout ${timeoutSeconds} bash -c 'exec 3<>/dev/tcp/"$1"/"$2"' _ ${hostQ} ${port})`,
+    '|| false',
+  ].join(' ');
+}
+
+/**
  * Probe whether the source host can open a TCP connection to dest host:port.
  */
 export async function probeSourceCanReachDest(
@@ -113,8 +146,7 @@ export async function probeSourceCanReachDest(
   destPort: number,
   timeoutSeconds = 5
 ): Promise<boolean> {
-  const hostQ = shellSingleQuote(destHost);
-  const cmd = `${REMOTE_STANDARD_PATH} (command -v nc >/dev/null 2>&1 && nc -z -w ${timeoutSeconds} ${hostQ} ${destPort}) || (command -v timeout >/dev/null 2>&1 && timeout ${timeoutSeconds} bash -c 'echo >/dev/tcp/${destHost.replace(/'/g, '')}/${destPort}') || false`;
+  const cmd = buildReachabilityProbeCommand(destHost, destPort, timeoutSeconds);
   const result = await sourceSsh.execCommand(cmd);
   return result.code === 0 || result.code === null;
 }
@@ -134,8 +166,8 @@ export async function runEphemeralDirectRsync(options: {
   deleteExtraneous?: boolean;
 }): Promise<{ stdout: string; stderr: string }> {
   const destPort = assertSshPort(options.destPort);
-  assertSafeCliToken(options.sourcePath, 'Source path');
-  assertSafeCliToken(options.destPath, 'Destination path');
+  assertSafePositionalPath(options.sourcePath, 'Source path');
+  assertSafePositionalPath(options.destPath, 'Destination path');
   const destUserHost = sshUserHost(options.destUsername, options.destHost);
   const remoteKeyPath = `/tmp/lazybackup-eph-${randomBytes(8).toString('hex')}`;
   const knownHostsPath = await ensureKnownHostsFile();
@@ -166,7 +198,10 @@ export async function runEphemeralDirectRsync(options: {
       remoteKeyPath,
       '-F',
       '/dev/null',
-      ...sshStrictHostKeyCliOptions(remoteKnownHosts),
+      // The copied known_hosts holds the destination's pinned key (the app
+      // verified it when connecting). Unknown keys must fail here -> caller
+      // falls back to relay instead of trusting a key on first sight.
+      ...sshStrictHostKeyPinnedCliOptions(remoteKnownHosts),
     ];
     const sshOptsQuoted = sshOptParts
       .map((part) => (part.startsWith('-') && !part.includes('=') ? part : shellSingleQuote(part)))
@@ -196,7 +231,7 @@ export async function runEphemeralDirectRsync(options: {
  */
 export async function ensureRemoteDirectory(ssh: NodeSSH, remotePath: string): Promise<void> {
   const result = await ssh.execCommand(
-    `${REMOTE_STANDARD_PATH} mkdir -p ${shellSingleQuote(remotePath)}`
+    `${REMOTE_STANDARD_PATH} mkdir -p -- ${remotePathShellWord(remotePath)}`
   );
   if (result.code !== 0 && result.code !== null && result.code !== undefined) {
     throw new Error(`Failed to create remote directory ${remotePath}: ${result.stderr || result.stdout}`);
@@ -212,7 +247,7 @@ export async function cleanupRemoteOldVersions(
   versionsToKeep: number
 ): Promise<void> {
   const list = await ssh.execCommand(
-    `${REMOTE_STANDARD_PATH} ls -1 ${shellSingleQuote(baseDir)} 2>/dev/null || true`
+    `${REMOTE_STANDARD_PATH} ls -1 -- ${remotePathShellWord(baseDir)} 2>/dev/null || true`
   );
   const dirs = (list.stdout || '')
     .split('\n')
@@ -228,8 +263,57 @@ export async function cleanupRemoteOldVersions(
   for (const dir of dirs.slice(versionsToKeep)) {
     const full = `${baseDir.replace(/\/+$/, '')}/${dir}`;
     console.log(`Deleting old remote backup version: ${full}`);
-    await ssh.execCommand(`${REMOTE_STANDARD_PATH} rm -rf ${shellSingleQuote(full)}`);
+    await ssh.execCommand(`${REMOTE_STANDARD_PATH} rm -rf -- ${remotePathShellWord(full)}`);
   }
+}
+
+/**
+ * Portable command to list top-level files with mtime epoch seconds.
+ *
+ * `find -printf` is GNU-only; BusyBox find (Alpine, many NAS boxes, OpenWrt)
+ * rejects it. `stat -c` is supported by both GNU coreutils and BusyBox, and
+ * running `find .` after `cd` keeps the output as `./<name>` so names may
+ * contain spaces or quotes (line-based parsing cannot represent newlines).
+ */
+export function buildRemoteFileListCommand(destinationPath: string): string {
+  return `${REMOTE_STANDARD_PATH} cd ${remotePathShellWord(
+    destinationPath
+  )} && find . -maxdepth 1 -type f -exec stat -c '%Y %n' {} +`;
+}
+
+export type ParsedRemoteFileListing = {
+  files: FileCandidate[];
+  /** Non-empty lines that did not look like `<epoch> <path>`. */
+  invalidLines: number;
+};
+
+/** Parse `stat -c '%Y %n'` output produced by `buildRemoteFileListCommand`. */
+export function parseRemoteFileListing(stdout: string): ParsedRemoteFileListing {
+  const files: FileCandidate[] = [];
+  let invalidLines = 0;
+
+  for (const line of stdout.split('\n')) {
+    if (!line) continue;
+    const space = line.indexOf(' ');
+    if (space <= 0) {
+      invalidLines += 1;
+      continue;
+    }
+    const epoch = Number(line.slice(0, space));
+    if (!Number.isFinite(epoch) || epoch < 0) {
+      invalidLines += 1;
+      continue;
+    }
+    let name = line.slice(space + 1);
+    if (name.startsWith('./')) name = name.slice(2);
+    if (!name || name.endsWith('/')) {
+      invalidLines += 1;
+      continue;
+    }
+    files.push({ name, mtimeMs: epoch * 1000 });
+  }
+
+  return { files, invalidLines };
 }
 
 /**
@@ -242,23 +326,24 @@ export async function cleanupRemoteOldFiles(
   unit: 'days' | 'months',
   minKeep: number
 ): Promise<string[]> {
-  // List top-level files with mtime epoch seconds
-  const list = await ssh.execCommand(
-    `${REMOTE_STANDARD_PATH} find ${shellSingleQuote(destinationPath)} -maxdepth 1 -type f -printf '%T@ %f\\n' 2>/dev/null || true`
-  );
-  const files: { name: string; mtimeMs: number }[] = [];
-  for (const line of (list.stdout || '').split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    const space = trimmed.indexOf(' ');
-    if (space <= 0) continue;
-    const epoch = Number(trimmed.slice(0, space));
-    const name = trimmed.slice(space + 1);
-    if (!name || Number.isNaN(epoch)) continue;
-    files.push({ name, mtimeMs: epoch * 1000 });
+  const list = await ssh.execCommand(buildRemoteFileListCommand(destinationPath));
+  if (list.code !== 0) {
+    const detail = (list.stderr || list.stdout || '').trim();
+    console.warn(
+      `File retention: could not list remote files in ${destinationPath}` +
+        `${detail ? `: ${detail}` : ''}. Skipping age-based cleanup.`
+    );
+    return [];
   }
 
-  const { selectFilesToDelete } = await import('@/lib/backup/file-retention');
+  const { files, invalidLines } = parseRemoteFileListing(list.stdout || '');
+  if (invalidLines > 0) {
+    console.warn(
+      `File retention: ignored ${invalidLines} unparseable line(s) while listing ` +
+        `${destinationPath}. Remote find/stat output may be unsupported.`
+    );
+  }
+
   const artifacts = files.filter((file) => isBackupArtifactFileName(file.name));
   const toDelete = selectFilesToDelete(artifacts, {
     maxAge,
@@ -269,7 +354,7 @@ export async function cleanupRemoteOldFiles(
   for (const name of toDelete) {
     const full = `${destinationPath.replace(/\/+$/, '')}/${name}`;
     console.log(`Deleting old remote backup file (retention): ${name}`);
-    await ssh.execCommand(`${REMOTE_STANDARD_PATH} rm -f ${shellSingleQuote(full)}`);
+    await ssh.execCommand(`${REMOTE_STANDARD_PATH} rm -f -- ${remotePathShellWord(full)}`);
   }
 
   return toDelete;

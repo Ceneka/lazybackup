@@ -130,7 +130,12 @@ export function useAuth() {
     mutationFn: async (
       body:
         | { action: 'set'; password: string }
-        | { action: 'change'; currentPassword: string; password: string }
+        | {
+            action: 'change'
+            currentPassword: string
+            password: string
+            revokeApiTokens?: boolean
+          }
         | { action: 'remove'; currentPassword: string }
     ) => {
       const response = await fetch('/api/auth/password', {
@@ -142,7 +147,11 @@ export function useAuth() {
         const error = await response.json().catch(() => ({}))
         throw new Error(error.error || 'Failed to update password')
       }
-      return response.json() as Promise<{ ok: boolean; authEnabled: boolean }>
+      return response.json() as Promise<{
+        ok: boolean
+        authEnabled: boolean
+        revokedApiTokens?: number
+      }>
     },
     onSuccess: (data, variables) => {
       invalidate()
@@ -151,6 +160,15 @@ export function useAuth() {
           data.authEnabled
             ? 'Password removed — passkeys still protect this instance'
             : 'Password removed — dashboard is unlocked'
+        )
+      } else if (
+        variables.action === 'change' &&
+        (data.revokedApiTokens ?? 0) > 0
+      ) {
+        toast.success(
+          `Password updated — ${data.revokedApiTokens} API token${
+            data.revokedApiTokens === 1 ? '' : 's'
+          } revoked`
         )
       } else {
         toast.success('Password updated')

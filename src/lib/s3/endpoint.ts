@@ -49,6 +49,16 @@ function ipv4Octets(ip: string): number[] | null {
 
 export type AddressClass = 'loopback' | 'link-local' | 'private' | 'metadata' | 'public';
 
+/**
+ * IPv6 forms that are never a legitimate remote S3 endpoint. `::` (in any
+ * spelling) reaches loopback on Linux, and multicast can never host S3.
+ * BlockList canonicalizes expanded/compressed spellings.
+ */
+const UNSPECIFIED_V6 = new net.BlockList();
+UNSPECIFIED_V6.addSubnet('::', 128, 'ipv6');
+const MULTICAST_V6 = new net.BlockList();
+MULTICAST_V6.addSubnet('ff00::', 8, 'ipv6');
+
 export function classifyIpAddress(ip: string): AddressClass {
   let value = ip.trim().toLowerCase();
   if (value.startsWith('::ffff:')) {
@@ -64,6 +74,10 @@ export function classifyIpAddress(ip: string): AddressClass {
   }
 
   if (value === '::1') return 'loopback';
+  if (net.isIP(value) === 6) {
+    if (UNSPECIFIED_V6.check(value, 'ipv6')) return 'loopback';
+    if (MULTICAST_V6.check(value, 'ipv6')) return 'link-local';
+  }
   if (value === 'fd00:ec2::254') return 'metadata';
   if (value.startsWith('fe80:')) return 'link-local';
   if (value.startsWith('fc') || value.startsWith('fd')) return 'private';

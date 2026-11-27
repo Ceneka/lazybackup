@@ -1,4 +1,5 @@
 import { isSessionAuthorized } from '@/lib/auth';
+import { clientKeyFromRequest } from '@/lib/auth/rate-limit';
 import { MIN_WRAP_PASSPHRASE_LENGTH } from '@/lib/crypto/constants';
 import {
   acknowledgeAgeKeyExport,
@@ -142,10 +143,14 @@ export async function POST(request: NextRequest) {
     const body = postSchema.parse(await request.json());
 
     if (isSensitiveVaultBody(body)) {
-      await requireVaultStepUp({
-        currentPassword: body.currentPassword,
-        stepUpToken: body.stepUpToken,
-      }, request.headers.get('cookie'));
+      await requireVaultStepUp(
+        {
+          currentPassword: body.currentPassword,
+          stepUpToken: body.stepUpToken,
+        },
+        request.headers.get('cookie'),
+        { clientKey: clientKeyFromRequest(request) }
+      );
     }
 
     if (body.action === 'generate') {
@@ -245,7 +250,15 @@ export async function POST(request: NextRequest) {
       );
     }
     if (error instanceof VaultStepUpError) {
-      return NextResponse.json({ error: error.message }, { status: error.status });
+      return NextResponse.json(
+        { error: error.message },
+        {
+          status: error.status,
+          headers: error.retryAfterSec
+            ? { 'Retry-After': String(error.retryAfterSec) }
+            : undefined,
+        }
+      );
     }
     console.error('Encryption key action failed:', error);
     return NextResponse.json(

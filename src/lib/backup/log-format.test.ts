@@ -4,8 +4,12 @@ import {
   buildFileRetentionLog,
   buildPeerRetentionLog,
   buildPreBackupLog,
+  buildSkippedSymlinkWarning,
   combineBackupLog,
   formatPreBackupCommandLog,
+  isArchiveTransferMethod,
+  parseArchiveTransferStats,
+  parseRsyncUnsafeSymlinkWarnings,
   splitBackupLog,
 } from './log-format';
 
@@ -228,5 +232,93 @@ describe('splitBackupLog', () => {
     expect(combined).toContain(LOG_SECTION.transferDatabase);
     const parts = splitBackupLog(combined);
     expect(parts.transfer).toContain('Engine: postgres');
+  });
+});
+
+describe('rsync unsafe symlink warnings', () => {
+  test('parses rsync --safe-links lines from stdout or stderr', () => {
+    const text = [
+      'sending incremental file list',
+      'ignoring unsafe symlink "leak" -> "/etc/passwd"',
+      '  ignoring unsafe symlink "abs" => "/srv/src/file"',
+      'ok.txt',
+      'ignoring unsafe symlink "" -> ""',
+    ].join('\n');
+
+    expect(parseRsyncUnsafeSymlinkWarnings(text)).toEqual([
+      { name: 'leak', target: '/etc/passwd' },
+      { name: 'abs', target: '/srv/src/file' },
+    ]);
+  });
+
+  test('combineBackupLog adds a warning section for unsafe symlinks', () => {
+    const stdout = [
+      'sending incremental file list',
+      'ignoring unsafe symlink "leak" -> "/etc/passwd"',
+      'Number of files: 2',
+    ].join('\n');
+    const combined = combineBackupLog('', stdout, 'rsync');
+
+    expect(combined).toContain(LOG_SECTION.warnings);
+    expect(combined).toContain(
+      'WARNING: rsync skipped 1 symlink(s) that point outside the backed-up tree'
+    );
+    expect(combined).toContain('- leak -> /etc/passwd');
+    expect(combined.indexOf(LOG_SECTION.transferRsync)).toBeLessThan(
+      combined.indexOf(LOG_SECTION.warnings)
+    );
+  });
+
+  test('warnings in transfer stderr are included, empty stderr adds nothing', () => {
+    const combined = combineBackupLog(
+      '',
+      'Number of files: 1',
+      'rsync',
+      '',
+      'ignoring unsafe symlink "secret" -> "../secret"\n'
+    );
+    expect(combined).toContain(LOG_SECTION.warnings);
+    expect(combined).toContain('- secret -> ../secret');
+    expect(combineBackupLog('', 'Number of files: 1', 'rsync')).not.toContain(
+      LOG_SECTION.warnings
+    );
+  });
+
+  test('S3 skipped-symlink warning lists paths', () => {
+    expect(buildSkippedSymlinkWarning([])).toBe('');
+    const warning = buildSkippedSymlinkWarning(['logs/current', 'sub/link']);
+    expect(warning).toContain('2 symlink(s) were not uploaded');
+    expect(warning).toContain('- logs/current');
+    expect(warning).toContain('- sub/link');
+  });
+});
+
+describe('archive transfer stats', () => {
+  test('encrypted path archives count as single-file transfers', () => {
+    expect(isArchiveTransferMethod('path-file-peer-mailbox-age')).toBe(true);
+    expect(isArchiveTransferMethod('path-file-local-age')).toBe(true);
+    expect(isArchiveTransferMethod('docker-file-peer-mailbox-age')).toBe(true);
+    expect(isArchiveTransferMethod('database-file-s3-age')).toBe(true);
+    expect(isArchiveTransferMethod('local-rsync')).toBe(false);
+    expect(isArchiveTransferMethod('push-rsync')).toBe(false);
+  });
+
+  test('reads Size from land output', () => {
+    const stdout = [
+      'Archive: app.tar.gz.age',
+      'Peer: bro',
+      'Object: srv1/app.tar.gz.age',
+      'Size: 31470781 bytes',
+      'SHA-256: abc',
+    ].join('\n');
+    expect(parseArchiveTransferStats(stdout)).toEqual({
+      fileCount: 1,
+      totalSize: 31470781,
+      transferredSize: 31470781,
+    });
+  });
+
+  test('returns null when no Size line exists', () => {
+    expect(parseArchiveTransferStats('Archive: x\nRemote path: /x')).toBeNull();
   });
 });

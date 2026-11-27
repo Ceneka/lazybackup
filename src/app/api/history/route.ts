@@ -3,6 +3,7 @@ import { redactHistoryEntry } from '@/lib/api/redact';
 import { db } from '@/lib/db';
 import { backupConfigs, backupHistory, servers } from '@/lib/db/schema';
 import { localDayRange } from '@/lib/backup/local-date';
+import { deliveryStateForHistoryRow } from '@/lib/peer/delivery-state';
 import { and, desc, eq, gte, inArray, like, lt, or, sql } from 'drizzle-orm';
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -25,7 +26,11 @@ export async function GET(request: NextRequest) {
 
     const conditions = [];
 
-    if (status && (status === 'running' || status === 'success' || status === 'failed')) {
+    if (status === 'waiting') {
+      // Bro Space UI filter: staged on this host, not yet on the friend's disk.
+      // Kept on `mailbox_pending` so it works before/without C4 deliveryState.
+      conditions.push(eq(backupHistory.mailboxPending, true));
+    } else if (status && (status === 'running' || status === 'success' || status === 'failed')) {
       conditions.push(eq(backupHistory.status, status));
     }
 
@@ -98,9 +103,10 @@ export async function GET(request: NextRequest) {
     }
 
     return NextResponse.json({
-      history: history.map((row) =>
-        redactHistoryEntry(row as unknown as Record<string, unknown>)
-      ),
+      history: history.map((row) => ({
+        ...redactHistoryEntry(row as unknown as Record<string, unknown>),
+        deliveryState: deliveryStateForHistoryRow(row),
+      })),
       pagination: {
         total,
         limit,

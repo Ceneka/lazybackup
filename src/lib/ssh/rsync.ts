@@ -17,6 +17,19 @@ export function assertSafeCliToken(value: string, label: string): string {
   return assertSafePathString(value, label);
 }
 
+/**
+ * Positional path/token that a CLI (rsync, scp, ssh) must not mistake for an
+ * option. Leading `-` is an option injection: e.g. a "path" of
+ * `--rsync-path=<cmd>` makes rsync run `<cmd>` on the remote host.
+ */
+export function assertSafePositionalPath(value: string, label: string): string {
+  const safe = assertSafePathString(value, label);
+  if (safe.startsWith('-')) {
+    throw new Error(`${label} must not start with "-"`);
+  }
+  return safe;
+}
+
 export function assertSshPort(port: number): number {
   const n = Number(port);
   if (!Number.isInteger(n) || n < 1 || n > 65535) {
@@ -26,7 +39,7 @@ export function assertSshPort(port: number): number {
 }
 
 export function sshUserHost(username: string, host: string): string {
-  assertSafeCliToken(username, 'SSH username');
+  assertSafePositionalPath(username, 'SSH username');
   assertSafeCliToken(host, 'SSH host');
   if (username.includes('@') || /[\s:]/.test(username) || /[\s]/.test(host)) {
     throw new Error('Invalid SSH username or host');
@@ -53,6 +66,25 @@ export async function sshCliArgv(options: {
   ];
 }
 
+/**
+ * A shell word for a remote path that expands a leading `~` on the remote
+ * host, matching rsync/scp (`host:~/dir` expands `~`) instead of creating a
+ * literal `~` directory with quoted mkdir/ls/rm. The path is otherwise
+ * single-quoted, so no shell metacharacters are interpreted.
+ */
+export function remotePathShellWord(remotePath: string): string {
+  if (!remotePath) {
+    throw new Error('Remote path is required');
+  }
+  if (remotePath === '~') {
+    return '"$HOME"';
+  }
+  if (remotePath.startsWith('~/')) {
+    return `"$HOME"/${shellSingleQuote(remotePath.slice(2))}`;
+  }
+  return shellSingleQuote(remotePath);
+}
+
 /** rsync `-e` takes a single command string; quote args that need it. */
 export function formatRshArgument(sshArgv: string[]): string {
   return sshArgv
@@ -69,8 +101,8 @@ export function buildRsyncArgv(options: {
   /** Remove dest files that no longer exist at source (rsync --delete, not --delete-excluded) */
   deleteExtraneous?: boolean;
 }): string[] {
-  const sourcePath = assertSafeCliToken(options.sourcePath, 'Source path');
-  const destinationPath = assertSafeCliToken(options.destinationPath, 'Destination path');
+  const sourcePath = assertSafePositionalPath(options.sourcePath, 'Source path');
+  const destinationPath = assertSafePositionalPath(options.destinationPath, 'Destination path');
   const args = ['-avz', '--stats', '--safe-links'];
   if (options.deleteExtraneous) {
     args.push('--delete');
@@ -162,7 +194,7 @@ export async function runScp(
  */
 export function buildFindCommand(remotePath: string, excludePatterns: string[] = []): string {
   assertSafeCliToken(remotePath, 'Remote path');
-  const quoted = shellSingleQuote(remotePath);
+  const quoted = remotePathShellWord(remotePath);
   const pruneParts: string[] = [];
   for (const pattern of excludePatterns) {
     assertSafeCliToken(pattern, 'Exclude pattern');

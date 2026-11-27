@@ -183,7 +183,11 @@ export async function connectToServer(server: Server): Promise<NodeSSH> {
   }
 
   const ssh = new NodeSSH();
-  const hostVerifier = createHostVerifier(server.host, server.port);
+  /** ssh2 only reports “Host denied (verification failed)”; keep the actionable reason. */
+  let hostKeyRejection: string | undefined;
+  const hostVerifier = createHostVerifier(server.host, server.port, (reason) => {
+    hostKeyRejection = reason;
+  });
 
   try {
     // If using password authentication
@@ -211,6 +215,9 @@ export async function connectToServer(server: Server): Promise<NodeSSH> {
     return ssh;
   } catch (error) {
     console.error(`Failed to connect to server ${server.name}:`, error);
+    if (hostKeyRejection) {
+      throw new Error(hostKeyRejection);
+    }
     throw error;
   }
 }

@@ -17,6 +17,8 @@ import {
   type ApiTokenPermission,
   type CreatedApiToken,
 } from '@/lib/hooks/useApiTokens'
+import { useAuth } from '@/lib/hooks/useAuth'
+import { performVaultPasskeyStepUp } from '@/lib/hooks/useEncryption'
 import {
   buildClaudeCodeCommand,
   buildClaudeDesktopSnippet,
@@ -24,7 +26,7 @@ import {
   buildMcpJsonSnippet,
   buildVsCodeInstallLink,
 } from '@/lib/mcp/install-links'
-import { ClipboardIcon, KeyIcon, TrashIcon } from 'lucide-react'
+import { ClipboardIcon, FingerprintIcon, KeyIcon, TrashIcon } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
 
@@ -44,11 +46,23 @@ function formatDate(value: string | null | undefined) {
 
 export function McpSettingsPanel() {
   const tokensQuery = useApiTokens()
+  const auth = useAuth()
   const [newName, setNewName] = useState('MCP agent')
   const [allowRemoteExec, setAllowRemoteExec] = useState(false)
   const [readOnly, setReadOnly] = useState(false)
   const [allowAuthorizeKeys, setAllowAuthorizeKeys] = useState(false)
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [stepUpToken, setStepUpToken] = useState('')
+  const [verifyingPasskey, setVerifyingPasskey] = useState(false)
   const [created, setCreated] = useState<CreatedApiToken | null>(null)
+
+  const locked = Boolean(auth.data?.authEnabled)
+  const hasPassword = Boolean(auth.data?.hasPassword)
+  const hasPasskeys = Boolean(auth.data?.hasPasskeys)
+  const stepUpReady =
+    !locked ||
+    Boolean(stepUpToken) ||
+    (hasPassword && currentPassword.length > 0)
 
   const origin = typeof window !== 'undefined' ? window.location.origin : ''
 
@@ -63,6 +77,21 @@ export function McpSettingsPanel() {
     }
   }, [created, origin])
 
+  const handleVerifyPasskey = async () => {
+    setVerifyingPasskey(true)
+    try {
+      const proof = await performVaultPasskeyStepUp()
+      setStepUpToken(proof.stepUpToken ?? '')
+      toast.success('Passkey verified — valid for 2 minutes')
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : 'Passkey verification failed'
+      )
+    } finally {
+      setVerifyingPasskey(false)
+    }
+  }
+
   const handleCreate = async () => {
     try {
       const permissions: ApiTokenPermission[] = readOnly
@@ -75,12 +104,20 @@ export function McpSettingsPanel() {
       const result = await tokensQuery.createToken.mutateAsync({
         name: newName.trim() || 'MCP agent',
         permissions,
+        ...(locked
+          ? {
+              currentPassword: currentPassword || undefined,
+              stepUpToken: stepUpToken || undefined,
+            }
+          : {}),
       })
       setCreated(result)
       setNewName('MCP agent')
       setAllowRemoteExec(false)
       setReadOnly(false)
       setAllowAuthorizeKeys(false)
+      setCurrentPassword('')
+      setStepUpToken('')
     } catch {
       // toast in hook
     }
@@ -97,11 +134,18 @@ export function McpSettingsPanel() {
             backups and servers; remote shell (<code className="text-xs">exec_command</code>)
             and changing pre-backup commands require an explicit permission. A{' '}
             <code className="text-xs">read_only</code> token can inspect and validate but
-            cannot mutate (write tools are omitted from the MCP catalog). Prefer HTTPS (or a
-            trusted LAN) when exposing the instance.
+            cannot mutate (write tools are omitted from the MCP catalog), and cannot run
+            ad-hoc connection probes. Prefer HTTPS (or a trusted LAN) when exposing the
+            instance.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
+          {!locked && (
+            <p className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-sm">
+              Set an app password or passkey before creating API tokens. Unprotected
+              instances cannot mint tokens.
+            </p>
+          )}
           <div className="space-y-3">
             <Label htmlFor="token-name">New token name</Label>
             <div className="flex flex-col gap-2 sm:flex-row">
@@ -115,11 +159,58 @@ export function McpSettingsPanel() {
               <LoadingButton
                 onClick={handleCreate}
                 isLoading={tokensQuery.createToken.isPending}
-                disabled={!newName.trim()}
+                disabled={!newName.trim() || !locked || !stepUpReady}
               >
                 Create token
               </LoadingButton>
             </div>
+
+            {locked && (
+              <div className="max-w-xl space-y-2 rounded-md border p-3">
+                <p className="text-sm font-medium">
+                  Confirm it&apos;s you before minting a token
+                </p>
+                {hasPassword && (
+                  <div className="space-y-2">
+                    <Label htmlFor="token-current-password">Current password</Label>
+                    <Input
+                      id="token-current-password"
+                      type="password"
+                      autoComplete="current-password"
+                      value={currentPassword}
+                      onChange={(e) => {
+                        setCurrentPassword(e.target.value)
+                        if (e.target.value) setStepUpToken('')
+                      }}
+                      placeholder="Required unless you verify a passkey"
+                    />
+                  </div>
+                )}
+                {hasPasskeys && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={verifyingPasskey}
+                      onClick={() => void handleVerifyPasskey()}
+                    >
+                      <FingerprintIcon className="mr-2 h-4 w-4" />
+                      {verifyingPasskey ? 'Waiting for passkey…' : 'Verify with passkey'}
+                    </Button>
+                    {stepUpToken && (
+                      <span className="text-xs text-emerald-600 dark:text-emerald-400">
+                        Passkey verified (valid for 2 minutes)
+                      </span>
+                    )}
+                  </div>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  A token is a durable credential: it keeps working until revoked,
+                  so a fresh check is required.
+                </p>
+              </div>
+            )}
             <label className="flex items-start gap-2 text-sm max-w-xl cursor-pointer">
               <input
                 type="checkbox"
@@ -135,9 +226,10 @@ export function McpSettingsPanel() {
                 <span className="font-medium">Read only</span>
                 <span className="block text-muted-foreground">
                   Grants <code className="text-xs">read_only</code>: list/get,{' '}
-                  <code className="text-xs">validate_backup</code>, and{' '}
-                  <code className="text-xs">test_*</code>. Cannot create, run, or
-                  delete backups. Cannot be combined with remote command execution.
+                  <code className="text-xs">validate_backup</code>, and tests of stored
+                  endpoints by id. Cannot create, run, or delete backups, and cannot send
+                  ad-hoc connection probes. Cannot be combined with remote command
+                  execution.
                 </span>
               </span>
             </label>

@@ -5,12 +5,15 @@ import { restoreDatabaseBackup, restoreDockerVolumeBackup, restoreGitRepoBackup,
 import {
   READ_ONLY_DENIED,
   REMOTE_EXEC_DENIED,
+  assertCanRetargetPreBackupCommands,
   assertCanSetPreBackupCommands,
 } from '@/lib/auth/permissions'
 import { writeAuditLog, type AuditActor } from '@/lib/auth/audit'
 import { attachLastValidation, validateBackupConfig } from '@/lib/backup/validate'
 import { loadOperatorStatus } from '@/lib/status/load-status'
 import { PeerRecallPendingError, peerRecallWaitingResponse } from '@/lib/peer/recall'
+import { deliveryStateForHistoryRow } from '@/lib/peer/delivery-state'
+import { publicPeerColumns } from '@/lib/api/history-query'
 import { redactBackup, redactS3, redactServer } from '@/lib/api/redact'
 import { db } from '@/lib/db'
 import {
@@ -126,6 +129,24 @@ function assertMcpCanSetPreBackup(
   )
 }
 
+function assertMcpCanRetargetPreBackup(
+  ctx: McpOpsContext,
+  incoming: string | null | undefined,
+  existing: string | null | undefined,
+  sourceEndpointChanged: boolean
+) {
+  assertCanRetargetPreBackupCommands(
+    {
+      authorized: true,
+      via: ctx.canRemoteExec ? 'session' : 'bearer',
+      apiToken: ctx.canRemoteExec ? undefined : { permissions: [] },
+    },
+    incoming,
+    existing,
+    sourceEndpointChanged
+  )
+}
+
 export async function listBackupsOp(_ctx: McpOpsContext) {
   const configs = await db.query.backupConfigs.findMany({
     with: backupWithEndpoints,
@@ -198,6 +219,15 @@ export async function updateBackupOp(ctx: McpOpsContext, id: string, input: unkn
     })
     if (!existing) throw new Error(`Backup not found: ${id}`)
     assertMcpCanSetPreBackup(ctx, validatedData.preBackupCommands, existing.preBackupCommands)
+    const sourceEndpointChanged =
+      (validatedData.sourceKind ?? 'server') !== (existing.sourceKind ?? 'server') ||
+      (validatedData.serverId ?? null) !== (existing.serverId ?? null)
+    assertMcpCanRetargetPreBackup(
+      ctx,
+      validatedData.preBackupCommands,
+      existing.preBackupCommands,
+      sourceEndpointChanged
+    )
     await assertTransferServersHaveKeys(validatedData)
 
     const conflictingBackup = await findExactDestinationConflict(
@@ -276,12 +306,15 @@ export async function runBackupOp(ctx: McpOpsContext, id: string) {
     })
     if (!config) throw new Error(`Backup not found: ${id}`)
 
-    const { assertCanStartBackup } = await import('@/lib/backup/concurrent-run')
-    await assertCanStartBackup(config.id)
-
+    const { assertCanStartBackup, withBackupStartLock } = await import(
+      '@/lib/backup/concurrent-run'
+    )
     const { createBackupHistoryEntry } = await import('@/lib/backup/history')
-    const historyEntry = await createBackupHistoryEntry(config.id, {
-      backupName: config.name,
+    const historyEntry = await withBackupStartLock(config.id, async () => {
+      await assertCanStartBackup(config.id)
+      return createBackupHistoryEntry(config.id, {
+        backupName: config.name,
+      })
     })
     executeBackup(config, historyEntry.id).catch((error) => {
       console.error(`Backup execution failed for ${config.name}:`, error)
@@ -344,7 +377,16 @@ export async function listHistoryOp(
     where: conditions.length ? and(...conditions) : undefined,
     with: {
       backupConfig: {
-        columns: { id: true, name: true, sourceType: true },
+        columns: {
+          id: true,
+          name: true,
+          sourceType: true,
+          destinationKind: true,
+          destinationPeerId: true,
+        },
+        with: {
+          destinationPeer: { columns: publicPeerColumns },
+        },
       },
     },
     orderBy: [desc(backupHistory.startTime)],
@@ -354,6 +396,7 @@ export async function listHistoryOp(
   return jsonResult(
     rows.map((row) => ({
       ...row,
+      deliveryState: deliveryStateForHistoryRow(row),
       logOutput: truncateLog(row.logOutput),
     }))
   )
@@ -369,6 +412,7 @@ export async function getHistoryOp(_ctx: McpOpsContext, id: string) {
   if (!row) return errorResult(`History entry not found: ${id}`)
   return jsonResult({
     ...row,
+    deliveryState: deliveryStateForHistoryRow(row),
     logOutput: truncateLog(row.logOutput),
     backupConfig: row.backupConfig
       ? redactBackupForMcp(row.backupConfig as unknown as Record<string, unknown>)
@@ -399,7 +443,13 @@ export async function restoreHistoryOp(
     })
     if (!historyEntry) throw new Error(`History entry not found: ${id}`)
 
-    const sourceType = historyEntry.backupConfig?.sourceType || 'path'
+    // The run's frozen type wins: editing a config from path → database must
+    // not route an old artifact into a different restore pipeline.
+    const { parseRestoreSnapshot } = await import('@/lib/backup/restore-snapshot')
+    const sourceType =
+      parseRestoreSnapshot(historyEntry.configSnapshot)?.sourceType ||
+      historyEntry.backupConfig?.sourceType ||
+      'path'
     const allowRetarget = Boolean(
       opts.databaseName || opts.volumeName || opts.targetPath || opts.targetServerId
     )

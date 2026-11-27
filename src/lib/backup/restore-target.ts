@@ -1,5 +1,7 @@
 /** Where a restore lands: original source, this host, or a different configured server. */
 
+import { restoreRequestError } from './restore-errors';
+
 export type ResolvedRestoreHost = {
   kind: 'local' | 'server' | 's3';
   /** Server to restore onto; null for local copy or S3 prefix restore. */
@@ -26,7 +28,10 @@ export function resolveRestoreHost(input: {
   confirm?: boolean;
 }): ResolvedRestoreHost {
   if (!input.confirm) {
-    throw new Error('Refusing to restore: pass confirm=true to proceed');
+    throw restoreRequestError(
+      'Refusing to restore: pass confirm=true to proceed',
+      'target-refused'
+    );
   }
 
   const sourceKind = input.sourceKind || 'server';
@@ -38,7 +43,7 @@ export function resolveRestoreHost(input: {
 
   if (sourceKind === 's3') {
     if (requested) {
-      throw new Error(RESTORE_S3_SOURCE_TO_SERVER);
+      throw restoreRequestError(RESTORE_S3_SOURCE_TO_SERVER, 'target-refused');
     }
     return {
       kind: 's3',
@@ -58,7 +63,7 @@ export function resolveRestoreHost(input: {
       };
     }
     if (!input.allowRetarget) {
-      throw new Error(RESTORE_SERVER_RETARGET_REQUIRED);
+      throw restoreRequestError(RESTORE_SERVER_RETARGET_REQUIRED, 'target-refused');
     }
     return {
       kind: 'server',
@@ -79,7 +84,7 @@ export function resolveRestoreHost(input: {
 
   const retargeted = requested !== originalServerId;
   if (retargeted && !input.allowRetarget) {
-    throw new Error(RESTORE_SERVER_RETARGET_REQUIRED);
+    throw restoreRequestError(RESTORE_SERVER_RETARGET_REQUIRED, 'target-refused');
   }
   return {
     kind: 'server',

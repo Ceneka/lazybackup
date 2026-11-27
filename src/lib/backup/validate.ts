@@ -1,6 +1,7 @@
 import { normalizeS3Prefix } from '@/lib/backup/destination';
 import type { BackupConfigWithEndpoints } from '@/lib/backup/index';
 import { assertLocalDestinationPath, expandLocalPath } from '@/lib/backup/local-paths';
+import { buildRemoteDestWritableCommand } from '@/lib/backup/remote-path-probe';
 import {
   connectionFromConfig,
   testDatabaseConnectionLocal,
@@ -555,10 +556,7 @@ export async function validateBackupConfig(
       if (ssh) {
         try {
           const destPath = config.destinationPath.replace(/\/+$/, '') || config.destinationPath;
-          const quoted = destPath.replace(/'/g, `'\\''`);
-          const probe = await ssh.execCommand(
-            `bash -lc 'p='"'"'${quoted}'"'"'; d=$(dirname "$p"); test -d "$p" || test -w "$d"'`
-          );
+          const probe = await ssh.execCommand(buildRemoteDestWritableCommand(destPath));
           if (probe.code === 0) {
             push(
               checks,

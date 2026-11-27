@@ -6,6 +6,7 @@ import {
   NavigationPendingOverlay,
   NavigationPendingProvider,
 } from "@/components/navigation-pending"
+import { UnprotectedBanner } from "@/components/unprotected-banner"
 import { BackupEventsProvider } from "@/lib/hooks/useBackupEvents"
 import { usePathname } from "next/navigation"
 
@@ -20,6 +21,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <NavigationPendingProvider>
       <Navbar />
+      <UnprotectedBanner />
       <BackupEventsProvider />
       <main className="relative flex-1 container mx-auto py-6 px-4">
         <NavigationPendingOverlay />

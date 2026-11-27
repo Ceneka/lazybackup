@@ -38,8 +38,8 @@ ${
     ? 'exec_command and changing preBackupCommands require the API token remote_exec permission (or a browser session). Prefer exec_command for one-off shell instead of abusing preBackupCommands.'
     : 'This token cannot run remote shell (no remote_exec); changing preBackupCommands is also blocked.'
 }`
-    : `This connection is read_only: only inspect/list tools, validate_backup, and test_* are available (mutating tools are omitted from the catalog).
-Use list_backups / get_dashboard / get_status to inspect state; validate_backup to probe endpoints.`
+    : `This connection is read_only: only inspect/list tools and validate_backup are available (mutating and ad-hoc probe tools are omitted or denied).
+Use list_backups / get_dashboard / get_status to inspect state; validate_backup to probe stored endpoints.`
 
   const requestHandler = createMcpHandler(
     (server) => {

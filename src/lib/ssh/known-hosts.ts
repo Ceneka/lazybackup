@@ -129,7 +129,11 @@ function readKnownHostsSync(filePath: string): string {
  * ssh2 hostVerifier: pin unknown keys, reject mismatches.
  * Must be synchronous (ssh2 handshake).
  */
-export function createHostVerifier(host: string, port: number): (key: Buffer) => boolean {
+export function createHostVerifier(
+  host: string,
+  port: number,
+  onReject?: (reason: string) => void
+): (key: Buffer) => boolean {
   return (key: Buffer) => {
     try {
       const filePath = getKnownHostsPath();
@@ -137,6 +141,7 @@ export function createHostVerifier(host: string, port: number): (key: Buffer) =>
       const current = readKnownHostsSync(filePath);
       const result = verifyOrPinHostKey(current, host, port, key);
       if (!result.ok) {
+        onReject?.(result.reason);
         console.error(result.reason);
         return false;
       }
@@ -178,4 +183,20 @@ export function sshStrictHostKeyCliOptions(knownHostsPath: string): string[] {
     '-o',
     'LogLevel=ERROR',
   ];
+}
+
+/**
+ * OpenSSH CLI options that only accept host keys already pinned in the given
+ * known_hosts file (`StrictHostKeyChecking=yes`). Used when a direct
+ * server-to-server transfer copies known_hosts to the source: an unknown
+ * destination key must fail (and fall back to the relay) instead of TOFU-ing
+ * a key on a host we have not verified.
+ */
+export function sshStrictHostKeyPinnedCliOptions(knownHostsPath: string): string[] {
+  const options = sshStrictHostKeyCliOptions(knownHostsPath);
+  const index = options.indexOf('StrictHostKeyChecking=accept-new');
+  if (index !== -1) {
+    options[index] = 'StrictHostKeyChecking=yes';
+  }
+  return options;
 }

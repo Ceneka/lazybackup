@@ -106,6 +106,7 @@ describe('selectFilesToDelete', () => {
 describe('isBackupArtifactFileName', () => {
   test('accepts dump and archive names', () => {
     expect(isBackupArtifactFileName('appdb.sql.gz')).toBe(true);
+    expect(isBackupArtifactFileName('app.sqlite.gz')).toBe(true);
     expect(isBackupArtifactFileName('vol.tar.gz')).toBe(true);
     expect(isBackupArtifactFileName('vol.tar.gz.age')).toBe(true);
     expect(isBackupArtifactFileName('lazybackup-instance-x.tar.gz.age')).toBe(true);
@@ -176,6 +177,17 @@ describe('selectPeerKeysForVersionRetention', () => {
       { key: '2026-08-02_00-00-00/vol.tar.gz.age', mtimeMs: 2 },
     ];
     expect(selectPeerKeysForVersionRetention(objects, '', 2)).toEqual([]);
+  });
+
+  test('orders collision-suffixed versions numerically', () => {
+    const objects = [
+      { key: '2026-08-01_00-00-00/vol.tar.gz.age', mtimeMs: 1 },
+      { key: '2026-08-01_00-00-00-2/vol.tar.gz.age', mtimeMs: 2 },
+      { key: '2026-08-01_00-00-00-10/vol.tar.gz.age', mtimeMs: 3 },
+    ];
+    expect(selectPeerKeysForVersionRetention(objects, '', 2)).toEqual([
+      '2026-08-01_00-00-00/vol.tar.gz.age',
+    ]);
   });
 });
 

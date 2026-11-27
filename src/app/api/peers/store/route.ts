@@ -7,8 +7,8 @@ import {
 } from '@/lib/peer/storage';
 import {
   assertDeclaredUploadSize,
-  PeerUploadLimitError,
 } from '@/lib/peer/upload-limit';
+import { publicUploadErrorMessage } from '@/lib/peer/upload-errors';
 import { NextRequest, NextResponse } from 'next/server';
 import { Readable } from 'stream';
 
@@ -85,11 +85,8 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json(result);
   } catch (error) {
     console.error('Peer store PUT failed:', error);
-    const status = error instanceof PeerUploadLimitError ? error.status : 400;
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Upload failed' },
-      { status }
-    );
+    const { status, message } = publicUploadErrorMessage(error);
+    return NextResponse.json({ error: message }, { status });
   }
 }
 

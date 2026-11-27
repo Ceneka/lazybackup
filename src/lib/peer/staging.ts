@@ -1,5 +1,6 @@
 import fs from 'fs/promises';
 import { createReadStream } from 'fs';
+import { randomBytes } from 'crypto';
 import path from 'path';
 import { sha256File } from './digest';
 
@@ -28,6 +29,28 @@ export function peerStagingObjectPath(peerId: string, objectKey: string): string
   return path.join(peerStagingDir(peerId), safe);
 }
 
+/**
+ * In-progress copies live outside the peer's object namespace so a legitimate
+ * object key can never be mistaken for a temp file (`.part-` is legal in a
+ * source path, database dump or Docker volume name). The directory is a
+ * sibling of every peer dir, on the same filesystem as the final rename.
+ */
+export function peerStagingTempDir(peerId: string): string {
+  return path.join(getPeerStagingRoot(), '.incoming', peerId);
+}
+
+/**
+ * Temp path for an in-progress staged copy. The final rename into the peer
+ * namespace is atomic: peers never see a half-written artifact, and a crashed
+ * copy cannot wedge the mailbox with an un-ACKable object.
+ */
+export function peerStagingTempPath(peerId: string, _objectKey: string): string {
+  return path.join(
+    peerStagingTempDir(peerId),
+    `${process.pid}-${randomBytes(6).toString('hex')}`
+  );
+}
+
 async function dirSize(dir: string): Promise<number> {
   let total = 0;
   let entries: Awaited<ReturnType<typeof fs.readdir>>;
@@ -52,17 +75,61 @@ export async function stagingUsedBytes(peerId: string): Promise<number> {
   return dirSize(peerStagingDir(peerId));
 }
 
+function formatGb(bytes: number): string {
+  return `${Math.round((bytes / (1024 * 1024 * 1024)) * 100) / 100} GB`;
+}
+
+/**
+ * Refuse to stage a mailbox artifact that would push the peer's pending outgoing
+ * bytes above the agreed quota. A non-versioned destination reuses the same key,
+ * so an existing staged copy is replaced (its bytes do not count twice).
+ */
+export async function assertStagingQuota(options: {
+  peerId: string;
+  quotaBytes: number;
+  additionalBytes: number;
+  replacingObjectKey?: string;
+}): Promise<void> {
+  const { peerId, quotaBytes, additionalBytes, replacingObjectKey } = options;
+  if (!Number.isFinite(quotaBytes) || quotaBytes <= 0) return;
+  let used = await stagingUsedBytes(peerId);
+  if (replacingObjectKey) {
+    const existing = await fs.stat(peerStagingObjectPath(peerId, replacingObjectKey)).catch(
+      () => null
+    );
+    if (existing?.isFile()) {
+      used = Math.max(0, used - existing.size);
+    }
+  }
+  if (used + additionalBytes > quotaBytes) {
+    const free = Math.max(0, quotaBytes - used);
+    throw new Error(
+      `Bro Space quota exceeded: this backup needs ${formatGb(additionalBytes)} but only ${formatGb(free)} of ${formatGb(quotaBytes)} is free. Delete older backups on this bro or raise the quota.`
+    );
+  }
+}
+
 export async function writeStagedObject(
   peerId: string,
   objectKey: string,
   localFilePath: string
 ): Promise<{ size: number; sha256: string }> {
   const dest = peerStagingObjectPath(peerId, objectKey);
-  await fs.mkdir(path.dirname(dest), { recursive: true });
-  await fs.copyFile(localFilePath, dest);
-  const st = await fs.stat(dest);
-  const sha256 = await sha256File(dest);
-  return { size: st.size, sha256 };
+  const temp = peerStagingTempPath(peerId, objectKey);
+  try {
+    // Copy + hash under a private temp dir: the object becomes visible to
+    // peers in a single atomic rename only once it is complete.
+    await fs.mkdir(path.dirname(temp), { recursive: true });
+    await fs.copyFile(localFilePath, temp);
+    const st = await fs.stat(temp);
+    const sha256 = await sha256File(temp);
+    await fs.mkdir(path.dirname(dest), { recursive: true });
+    await fs.rename(temp, dest);
+    return { size: st.size, sha256 };
+  } catch (error) {
+    await fs.unlink(temp).catch(() => {});
+    throw error;
+  }
 }
 
 export async function stagedObjectDigest(
@@ -74,8 +141,10 @@ export async function stagedObjectDigest(
     const st = await fs.stat(dest);
     const sha256 = await sha256File(dest);
     return { size: st.size, sha256 };
-  } catch {
-    return null;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT' || code === 'ENOTDIR') return null;
+    throw error;
   }
 }
 
@@ -96,8 +165,12 @@ export async function stagedObjectExists(
   try {
     await fs.access(peerStagingObjectPath(peerId, objectKey));
     return true;
-  } catch {
-    return false;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    // Only "not there" means the ACK already consumed it. A permission or I/O
+    // error must not be mistaken for a verified delivery.
+    if (code === 'ENOENT' || code === 'ENOTDIR') return false;
+    throw error;
   }
 }
 

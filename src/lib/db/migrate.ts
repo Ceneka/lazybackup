@@ -1,4 +1,5 @@
 import { db } from '@/lib/db';
+import { restrictSqliteFilePermissions } from '@/lib/db/sqlite-path';
 import { sql } from 'drizzle-orm';
 
 // Run migration
@@ -270,6 +271,10 @@ export async function runMigration() {
         sql`ALTER TABLE backup_history ADD COLUMN artifact_removed INTEGER NOT NULL DEFAULT 0`
       );
     }
+    // bro-lifecycle: reason for artifactRemoved (retention vs non-versioned overwrite)
+    if (!historyColumns.includes('artifact_removed_reason')) {
+      await db.run(sql`ALTER TABLE backup_history ADD COLUMN artifact_removed_reason TEXT`);
+    }
 
     // S3-compatible profiles + backup_configs FKs
     await db.run(sql`
@@ -494,6 +499,23 @@ export async function runMigration() {
       );
     `);
 
+    // Bro Space peer status report (C3): peer-reported usage + last delivery error.
+    const peerReportInfo = await db.run(sql`PRAGMA table_info(peers)`);
+    const peerReportCols = peerReportInfo.rows.map((row: any) => row.name as string);
+    const peerReportColumns: Array<[string, string]> = [
+      ['remote_used_bytes', 'INTEGER'],
+      ['remote_quota_bytes', 'INTEGER'],
+      ['remote_last_error', 'TEXT'],
+      ['remote_last_sync_at', 'INTEGER'],
+      ['remote_app_version', 'TEXT'],
+      ['remote_reported_at', 'INTEGER'],
+    ];
+    for (const [name, type] of peerReportColumns) {
+      if (!peerReportCols.includes(name)) {
+        await db.run(sql.raw(`ALTER TABLE peers ADD COLUMN ${name} ${type}`));
+      }
+    }
+
     // Migrate legacy settings ageIdentity/ageRecipient → age_keys vault
     const legacyIdentity = await db.run(
       sql`SELECT id, value FROM settings WHERE key = 'ageIdentity' LIMIT 1`
@@ -524,6 +546,23 @@ export async function runMigration() {
       }
       await db.run(sql`DELETE FROM settings WHERE key IN ('ageIdentity', 'ageRecipient')`);
     }
+
+    // --- restore-core wave 2: run-start config snapshot + retention reason ---
+    const backupHistoryRestoreCore = await db.run(sql`PRAGMA table_info(backup_history)`);
+    const historyRestoreCoreColumns = backupHistoryRestoreCore.rows.map(
+      (row: any) => row.name
+    );
+    if (!historyRestoreCoreColumns.includes('config_snapshot')) {
+      await db.run(sql`ALTER TABLE backup_history ADD COLUMN config_snapshot TEXT`);
+    }
+    if (!historyRestoreCoreColumns.includes('artifact_removed_reason')) {
+      await db.run(
+        sql`ALTER TABLE backup_history ADD COLUMN artifact_removed_reason TEXT`
+      );
+    }
+
+    // DB holds SSH/S3/DB credentials and tokens; keep it owner-only.
+    await restrictSqliteFilePermissions();
 
     console.log('Migration completed successfully');
   } catch (error) {

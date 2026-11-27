@@ -10,17 +10,36 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { LoadingButton } from "@/components/ui/loading-button"
+import { Progress } from "@/components/ui/progress"
 import {
   canRestoreBackup,
   restoreEligibilityFromHistory,
 } from "@/lib/backup/restore-eligibility"
+import {
+  deliveryErrorFor,
+  deriveDeliveryState,
+  peerIdForHistoryRow,
+} from "@/lib/backup/delivery-state"
 import { useRestoreBackupHistory } from "@/lib/hooks/useHistory"
+import { usePeers } from "@/lib/hooks/usePeers"
 import { useServers } from "@/lib/hooks/useServers"
-import { PEER_RECALL_WAITING_MESSAGE } from "@/lib/peer/recall-pending"
-import { RotateCcwIcon } from "lucide-react"
-import { useEffect, useRef, useState, type ReactNode } from "react"
+import {
+  friendAppKind,
+  friendIsOnline,
+  formatElapsed,
+  RECALL_CLOSE_HINT_AFTER_MS,
+  resolveFriendName,
+  resolvePeer,
+  restorePreflightCopy,
+  restoreStages,
+  restoreWaitingCopy,
+  shouldStopRecallPolling,
+} from "@/lib/peer/friend-copy"
+import { AlertTriangleIcon, CheckCircle2Icon, RotateCcwIcon } from "lucide-react"
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 
 const LOCAL_HOST_VALUE = "local"
 
@@ -29,11 +48,33 @@ export type HistoryRestoreEntry = {
   status?: string | null
   artifactPath?: string | null
   artifactRemoved?: boolean | null
+  mailboxPending?: boolean | null
+  deliveryState?: string | null
+  deliveryError?: string | null
+  mailboxError?: string | null
+  /** Contract C5 (optional until restore-core lands): defaults from the run. */
+  restoreDefaults?: {
+    targetPath: string | null
+    targetServerId: string | null
+    databaseName: string | null
+    volumeName: string | null
+    configChangedSinceRun: boolean
+  } | null
   backupConfig?: {
     sourceType?: string | null
     sourceKind?: string | null
     sourcePath?: string | null
     destinationKind?: string | null
+    destinationPath?: string | null
+    destinationPeerId?: string | null
+    destinationPeer?: {
+      id?: string | null
+      name?: string | null
+      kind?: "lazybro" | "lazybackup" | null
+      remoteBaseUrl?: string | null
+      online?: boolean | null
+      lastSeenAt?: string | null
+    } | null
     server?: { id?: string | null; name?: string | null } | null
     destinationServer?: { authType?: string | null } | null
   } | null
@@ -60,11 +101,19 @@ export function HistoryRestoreButton({
 }: HistoryRestoreButtonProps) {
   const restoreMutation = useRestoreBackupHistory()
   const serversQuery = useServers()
+  const peersQuery = usePeers()
+  const peers = peersQuery.data?.peers || []
   const [open, setOpen] = useState(false)
   const [targetName, setTargetName] = useState(entry.backupConfig?.sourcePath || "")
   const [waitingForBro, setWaitingForBro] = useState(false)
+  const [recallStartedAt, setRecallStartedAt] = useState<number | null>(null)
+  const [elapsedMs, setElapsedMs] = useState(0)
+  const [timedOut, setTimedOut] = useState(false)
+  const [recallError, setRecallError] = useState<string | null>(null)
+  const [restoredTarget, setRestoredTarget] = useState<string | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const inFlightRef = useRef(false)
+  const defaultsAppliedFor = useRef<string | null>(null)
 
   const sourceType = entry.backupConfig?.sourceType || "path"
   const sourceKind = entry.backupConfig?.sourceKind || "server"
@@ -79,9 +128,50 @@ export function HistoryRestoreButton({
       : originalServerId || LOCAL_HOST_VALUE
   const [targetHost, setTargetHost] = useState(defaultHostValue)
 
+  const peerId = peerIdForHistoryRow({
+    artifactPath: entry.artifactPath,
+    destinationPeerId: entry.backupConfig?.destinationPeerId,
+    destinationPeer: entry.backupConfig?.destinationPeer,
+  })
+  const isPeerRun = Boolean(peerId)
+  const peer = resolvePeer(peers, peerId)
+  const friendName = resolveFriendName(peers, peerId)
+  const friendKind = peer ? friendAppKind(peer) : null
+  const friendOnline = friendIsOnline(peer)
+  const deliveryState = deriveDeliveryState({
+    status: entry.status,
+    deliveryState: entry.deliveryState,
+    mailboxPending: entry.mailboxPending,
+    deliveryError: entry.deliveryError,
+    mailboxError: entry.mailboxError,
+    artifactPath: entry.artifactPath,
+    artifactRemoved: (entry as { artifactRemoved?: boolean | null }).artifactRemoved,
+    destinationKind: entry.backupConfig?.destinationKind,
+  })
+  const deliveryError = deliveryErrorFor({
+    deliveryError: entry.deliveryError,
+    mailboxError: entry.mailboxError,
+  })
+  const preflight = isPeerRun
+    ? restorePreflightCopy({
+        friendName,
+        kind: friendKind,
+        online: friendOnline,
+        waitingForDelivery: deliveryState === "waiting",
+      })
+    : null
+  const stages = restoreStages(friendName, friendKind)
+  const waitingCopy = restoreWaitingCopy({
+    friendName,
+    kind: friendKind,
+    online: friendOnline,
+    elapsedMs,
+  })
+
   const eligible = canRestoreBackup(restoreEligibilityFromHistory(entry))
 
   useEffect(() => {
+    if (entry.restoreDefaults) return
     if (isGit) {
       setTargetName("")
       return
@@ -89,22 +179,57 @@ export function HistoryRestoreButton({
     if (entry.backupConfig?.sourcePath) {
       setTargetName(entry.backupConfig.sourcePath)
     }
-  }, [entry.backupConfig?.sourcePath, isGit])
+  }, [entry.backupConfig?.sourcePath, entry.restoreDefaults, isGit])
 
   useEffect(() => {
+    if (entry.restoreDefaults) return
     setTargetHost(defaultHostValue)
-  }, [defaultHostValue])
+  }, [defaultHostValue, entry.restoreDefaults])
 
-  const stopPolling = () => {
+  // Contract C5: prefill from the run itself, not today's live config.
+  useEffect(() => {
+    const defaults = entry.restoreDefaults
+    if (!defaults || defaultsAppliedFor.current === entry.id) return
+    defaultsAppliedFor.current = entry.id
+    if (isDatabase) {
+      if (defaults.databaseName) setTargetName(defaults.databaseName)
+    } else if (isPath || isGit) {
+      if (defaults.targetPath) setTargetName(defaults.targetPath)
+    } else if (defaults.volumeName) {
+      setTargetName(defaults.volumeName)
+    }
+    if (showHostPicker) {
+      setTargetHost(defaults.targetServerId || LOCAL_HOST_VALUE)
+    }
+  }, [entry.id, entry.restoreDefaults, isDatabase, isGit, isPath, showHostPicker])
+
+  const stopPolling = useCallback(() => {
     if (pollRef.current) {
       clearInterval(pollRef.current)
       pollRef.current = null
     }
-  }
+  }, [])
 
   useEffect(() => {
     return () => stopPolling()
-  }, [])
+  }, [stopPolling])
+
+  // Tick elapsed time; stop polling at the max instead of spinning forever.
+  useEffect(() => {
+    if (!waitingForBro || recallStartedAt == null) return
+    const tick = () => {
+      const elapsed = Date.now() - recallStartedAt
+      setElapsedMs(elapsed)
+      if (shouldStopRecallPolling(elapsed)) {
+        stopPolling()
+        setWaitingForBro(false)
+        setTimedOut(true)
+      }
+    }
+    tick()
+    const handle = setInterval(tick, 1000)
+    return () => clearInterval(handle)
+  }, [waitingForBro, recallStartedAt, stopPolling])
 
   if (!eligible) {
     return null
@@ -122,6 +247,17 @@ export function HistoryRestoreButton({
   const originalHostId =
     sourceKind === "local" || sourceKind === "git" ? null : originalServerId || null
   const hostChanged = selectedServerId !== originalHostId
+  const actionLabel = preflight?.primaryLabel || "Restore"
+
+  const finishRestore = (data: { log: string; targetPath?: string; database?: string; volumeName?: string }) => {
+    stopPolling()
+    setWaitingForBro(false)
+    setTimedOut(false)
+    setRecallError(null)
+    const target = data.targetPath || data.database || data.volumeName || targetName.trim()
+    setRestoredTarget(target || "the target")
+    onRestored?.(data.log)
+  }
 
   const handleRestore = () => {
     const configured = entry.backupConfig?.sourcePath || ""
@@ -139,16 +275,19 @@ export function HistoryRestoreButton({
           : { volumeName: requested || undefined }),
     }
 
-    const onDoneWaiting = (log: string) => {
-      stopPolling()
-      setWaitingForBro(false)
-      setOpen(false)
-      onRestored?.(log)
-    }
+    // After a failed attempt (e.g. the friend sent back a corrupt copy), the
+    // server refuses until the client explicitly asks again.
+    const retryFailedRecall = Boolean(recallError)
 
-    restoreMutation.mutate(payload, {
+    setRecallError(null)
+    setRestoredTarget(null)
+    setTimedOut(false)
+
+    restoreMutation.mutate({ ...payload, retry: retryFailedRecall }, {
       onSuccess: (data) => {
         if (data.status === "waiting") {
+          setRecallStartedAt(Date.now())
+          setElapsedMs(0)
           setWaitingForBro(true)
           if (!pollRef.current) {
             pollRef.current = setInterval(() => {
@@ -157,11 +296,14 @@ export function HistoryRestoreButton({
               restoreMutation.mutate(payload, {
                 onSuccess: (again) => {
                   if (again.status === "waiting") return
-                  onDoneWaiting(again.log)
+                  finishRestore(again)
                 },
-                onError: () => {
+                onError: (error) => {
                   stopPolling()
                   setWaitingForBro(false)
+                  setRecallError(
+                    error instanceof Error ? error.message : "Restore failed"
+                  )
                 },
                 onSettled: () => {
                   inFlightRef.current = false
@@ -171,7 +313,12 @@ export function HistoryRestoreButton({
           }
           return
         }
-        onDoneWaiting(data.log)
+        finishRestore(data)
+      },
+      onError: (error) => {
+        stopPolling()
+        setWaitingForBro(false)
+        setRecallError(error instanceof Error ? error.message : "Restore failed")
       },
     })
   }
@@ -184,6 +331,9 @@ export function HistoryRestoreButton({
         if (!next) {
           stopPolling()
           setWaitingForBro(false)
+          setTimedOut(false)
+          setRecallError(null)
+          setRestoredTarget(null)
         }
       }}
     >
@@ -207,20 +357,107 @@ export function HistoryRestoreButton({
                   : "Restore Docker volume?"}
           </AlertDialogTitle>
           <AlertDialogDescription>
-            {isDatabase
-              ? "This loads the .sql.gz dump into the target database using the backup’s connection settings. Existing objects may be overwritten or conflict depending on the dump contents. Credentials on a new host may not match — restore will fail clearly rather than using the original box."
-              : isPath
-                ? "This copies the backed-up files back onto the source (local path, SSH host, or S3 prefix). Existing files at the target may be overwritten. Artifacts on S3, Bro, or an SSH destination are pulled onto this host first."
-                : isGit
-                  ? "This unpacks the bare Git mirror archive into the target directory (this host or an SSH dest). Existing files at that path may be overwritten."
-                  : "This uploads the backup archive to the target host and extracts it into the target volume. Existing files in that volume will be overwritten. Images, networks, and compose config are not restored."}
+            {isPeerRun
+              ? `This backup is stored on ${friendName}'s computer. We'll ask their app for it, then restore it here. Existing files at the target may be overwritten.`
+              : isDatabase
+                ? "This loads the .sql.gz dump into the target database using the backup’s connection settings. Existing objects may be overwritten or conflict depending on the dump contents. Credentials on a new host may not match — restore will fail clearly rather than using the original box."
+                : isPath
+                  ? "This copies the backed-up files back onto the source (local path, SSH host, or S3 prefix). Existing files at the target may be overwritten. Artifacts on S3 or an SSH destination are pulled onto this host first."
+                  : isGit
+                    ? "This unpacks the bare Git mirror archive into the target directory (this host or an SSH dest). Existing files at that path may be overwritten."
+                    : "This uploads the backup archive to the target host and extracts it into the target volume. Existing files in that volume will be overwritten. Images, networks, and compose config are not restored."}
           </AlertDialogDescription>
         </AlertDialogHeader>
-        {waitingForBro ? (
-          <p className="text-sm text-amber-700 dark:text-amber-400">
-            {PEER_RECALL_WAITING_MESSAGE}
-          </p>
+
+        {preflight ? (
+          <RestorePreflightAlert
+            preflight={preflight}
+            restoredTarget={restoredTarget}
+          />
         ) : null}
+
+        {deliveryState === "failed" && deliveryError ? (
+          <Alert variant="destructive">
+            <AlertTriangleIcon className="h-4 w-4" />
+            <AlertTitle>Delivery failed</AlertTitle>
+            <AlertDescription>{deliveryError}</AlertDescription>
+          </Alert>
+        ) : null}
+
+        {entry.restoreDefaults?.configChangedSinceRun ? (
+          <Alert className="border-amber-500/40 bg-amber-500/10">
+            <AlertTriangleIcon className="h-4 w-4" />
+            <AlertTitle>This backup was changed after this run</AlertTitle>
+            <AlertDescription>
+              Targets below come from the run itself. Double-check the path or
+              database before restoring.
+            </AlertDescription>
+          </Alert>
+        ) : null}
+
+        {restoredTarget ? (
+          <Alert className="border-emerald-500/40 bg-emerald-500/10">
+            <CheckCircle2Icon className="h-4 w-4" />
+            <AlertTitle>Restore complete</AlertTitle>
+            <AlertDescription>
+              Restored to <span className="font-mono break-all">{restoredTarget}</span>
+            </AlertDescription>
+          </Alert>
+        ) : null}
+
+        {recallError ? (
+          <Alert variant="destructive">
+            <AlertTriangleIcon className="h-4 w-4" />
+            <AlertTitle>Restore failed</AlertTitle>
+            <AlertDescription>{recallError}</AlertDescription>
+          </Alert>
+        ) : null}
+
+        {waitingForBro ? (
+          <div className="space-y-3 rounded-md border bg-muted/20 p-3">
+            <Progress value={35} className="animate-pulse" />
+            <div className="space-y-1">
+              <p className="text-sm font-medium">{waitingCopy.headline}</p>
+              <p className="text-xs text-muted-foreground">{waitingCopy.detail}</p>
+              <p className="text-xs text-muted-foreground">
+                Elapsed {formatElapsed(elapsedMs)}
+              </p>
+              {waitingCopy.closeHint ? (
+                <p className="text-xs font-medium text-amber-700 dark:text-amber-400">
+                  {waitingCopy.closeHint}
+                </p>
+              ) : null}
+            </div>
+            <ol className="space-y-1.5 text-sm">
+              {stages.map((stage, index) => (
+                <li key={stage.id} className="flex items-start gap-2">
+                  <span
+                    className={
+                      index === 0
+                        ? "mt-1 h-2 w-2 shrink-0 animate-pulse rounded-full bg-amber-500"
+                        : "mt-1 h-2 w-2 shrink-0 rounded-full bg-muted-foreground/30"
+                    }
+                    aria-hidden
+                  />
+                  <span
+                    className={
+                      index === 0 ? "font-medium" : "text-muted-foreground"
+                    }
+                  >
+                    {stage.label}
+                  </span>
+                </li>
+              ))}
+            </ol>
+            {elapsedMs >= RECALL_CLOSE_HINT_AFTER_MS ? null : (
+              <p className="text-xs text-muted-foreground">
+                Keep this window open for progress — the request is saved even if
+                you close it.
+              </p>
+            )}
+          </div>
+        ) : null}
+
         <div className="space-y-2 py-2">
           {showHostPicker ? (
             <div className="space-y-2">
@@ -231,7 +468,8 @@ export function HistoryRestoreButton({
                 id={`restore-host-${entry.id}`}
                 value={targetHost}
                 onChange={(e) => setTargetHost(e.target.value)}
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm disabled:opacity-60"
+                disabled={waitingForBro || Boolean(restoredTarget)}
               >
                 {sourceKind === "local" || sourceKind === "git" ? (
                   <option value={LOCAL_HOST_VALUE}>This host</option>
@@ -270,7 +508,8 @@ export function HistoryRestoreButton({
             id={`restore-target-${entry.id}`}
             value={targetName}
             onChange={(e) => setTargetName(e.target.value)}
-            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm disabled:opacity-60"
+            disabled={waitingForBro || Boolean(restoredTarget)}
             placeholder={
               isGit
                 ? "/backups/git/restore"
@@ -280,17 +519,61 @@ export function HistoryRestoreButton({
           />
         </div>
         <AlertDialogFooter>
-          <AlertDialogCancel disabled={restoreMutation.isPending}>Cancel</AlertDialogCancel>
-          <LoadingButton
-            onClick={handleRestore}
-            isLoading={restoreMutation.isPending || waitingForBro}
-            loadingText={waitingForBro ? PEER_RECALL_WAITING_MESSAGE : "Restoring..."}
-            disabled={!targetName.trim() || restoreMutation.isPending || waitingForBro}
-          >
-            Restore
-          </LoadingButton>
+          <AlertDialogCancel>
+            {waitingForBro || timedOut ? "Close" : restoredTarget ? "Done" : "Cancel"}
+          </AlertDialogCancel>
+          {restoredTarget ? null : timedOut ? (
+            <LoadingButton
+              onClick={handleRestore}
+              isLoading={restoreMutation.isPending}
+              loadingText="Requesting…"
+            >
+              Request again
+            </LoadingButton>
+          ) : (
+            <LoadingButton
+              onClick={handleRestore}
+              isLoading={restoreMutation.isPending || waitingForBro}
+              loadingText={waitingForBro ? "Waiting for your friend…" : "Restoring…"}
+              disabled={
+                !targetName.trim() ||
+                restoreMutation.isPending ||
+                waitingForBro
+              }
+            >
+              {actionLabel}
+            </LoadingButton>
+          )}
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+  )
+}
+
+/**
+ * Pre-restore warning (friend offline / delivery waiting). Hidden once a
+ * restore has completed so the success state cannot sit next to a stale
+ * "LazyBro is offline" warning.
+ */
+export function RestorePreflightAlert({
+  preflight,
+  restoredTarget,
+}: {
+  preflight: ReturnType<typeof restorePreflightCopy>
+  restoredTarget: string | null
+}) {
+  if (!preflight || restoredTarget) return null
+  return (
+    <Alert
+      className={
+        preflight.tone === "warning"
+          ? "border-amber-500/40 bg-amber-500/10"
+          : "border-blue-500/30 bg-blue-500/5"
+      }
+    >
+      <AlertTriangleIcon className="h-4 w-4" />
+      <AlertTitle>{preflight.title}</AlertTitle>
+      <AlertDescription>{preflight.detail}</AlertDescription>
+    </Alert>
   )
 }

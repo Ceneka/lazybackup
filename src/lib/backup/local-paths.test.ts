@@ -5,6 +5,7 @@ import * as path from 'path';
 import {
   allowArbitraryLocalPaths,
   assertLocalDestinationPath,
+  assertRestorableLocalTarget,
   assertSafePathString,
   confineRelativePath,
   expandLocalPath,
@@ -88,5 +89,119 @@ describe('assertLocalDestinationPath', () => {
 describe('expandLocalPath', () => {
   test('resolves relative paths', () => {
     expect(path.isAbsolute(expandLocalPath('./backups/x'))).toBe(true);
+  });
+});
+
+describe('assertRestorableLocalTarget', () => {
+  const prevStorage = process.env.BACKUP_STORAGE_PATH;
+  const prevDb = process.env.DATABASE_URL;
+  const prevHome = process.env.HOME;
+  let tmp: string | null = null;
+
+  afterEach(async () => {
+    if (prevStorage === undefined) delete process.env.BACKUP_STORAGE_PATH;
+    else process.env.BACKUP_STORAGE_PATH = prevStorage;
+    if (prevDb === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = prevDb;
+    if (prevHome === undefined) delete process.env.HOME;
+    else process.env.HOME = prevHome;
+    if (tmp) await fs.rm(tmp, { recursive: true, force: true });
+    tmp = null;
+  });
+
+  test('allows ordinary application paths (restores target the original source)', () => {
+    process.env.BACKUP_STORAGE_PATH = '/backups';
+    expect(assertRestorableLocalTarget('/srv/app/data')).toBe(
+      path.resolve('/srv/app/data')
+    );
+  });
+
+  test('refuses the filesystem root and system directories', () => {
+    process.env.BACKUP_STORAGE_PATH = '/backups';
+    expect(() => assertRestorableLocalTarget('/')).toThrow(/Refusing to restore/);
+    expect(() => assertRestorableLocalTarget('/boot/efi')).toThrow(
+      /Refusing to restore/
+    );
+    expect(() => assertRestorableLocalTarget('/proc/self')).toThrow(
+      /Refusing to restore/
+    );
+  });
+
+  test('still allows /etc and application trees (config / app recovery)', () => {
+    process.env.BACKUP_STORAGE_PATH = '/backups';
+    expect(assertRestorableLocalTarget('/etc/nginx')).toBe(
+      path.resolve('/etc/nginx')
+    );
+    expect(assertRestorableLocalTarget('/usr/local/share/app')).toBe(
+      path.resolve('/usr/local/share/app')
+    );
+  });
+
+  test('refuses the storage root and the backup\'s own destination, not other subfolders', () => {
+    tmp = path.join(os.tmpdir(), `lbtest-storage-${Date.now()}`);
+    process.env.BACKUP_STORAGE_PATH = tmp;
+    const ownDest = path.join(tmp, 'server', 'job');
+    expect(() => assertRestorableLocalTarget(tmp)).toThrow(/storage root/);
+    // Docker: /backups is often the only host mount, so a restore subfolder is fine.
+    expect(assertRestorableLocalTarget(path.join(tmp, 'restores', 'app'))).toBe(
+      path.join(tmp, 'restores', 'app')
+    );
+    expect(() =>
+      assertRestorableLocalTarget(ownDest, { protectedPaths: [ownDest] })
+    ).toThrow(/Refusing to restore/);
+    expect(() =>
+      assertRestorableLocalTarget(path.join(ownDest, '2026-01-01_00-00-00'), {
+        protectedPaths: [ownDest],
+      })
+    ).toThrow(/Refusing to restore/);
+  });
+
+  test('refuses the instance database and its directory', () => {
+    tmp = path.join(os.tmpdir(), `lbtest-instance-${Date.now()}`);
+    process.env.BACKUP_STORAGE_PATH = '/backups';
+    process.env.DATABASE_URL = `file:${path.join(tmp, 'data.db')}`;
+    expect(() => assertRestorableLocalTarget(path.join(tmp, 'data.db'))).toThrow(
+      /Refusing to restore/
+    );
+    expect(() => assertRestorableLocalTarget(`${path.join(tmp, 'data.db')}-wal`)).toThrow(
+      /Refusing to restore/
+    );
+    expect(() => assertRestorableLocalTarget(tmp)).toThrow(/data directory/);
+    expect(() => assertRestorableLocalTarget(path.dirname(tmp))).toThrow(/Refusing to restore/);
+    // A subfolder cannot overwrite the database next to it (bare-metal installs
+    // often keep data.db in the working directory).
+    expect(assertRestorableLocalTarget(path.join(tmp, 'other'))).toBe(path.join(tmp, 'other'));
+  });
+
+  test('refuses the SSH directory', () => {
+    tmp = path.join(os.tmpdir(), `lbtest-home-${Date.now()}`);
+    process.env.BACKUP_STORAGE_PATH = '/backups';
+    process.env.HOME = tmp;
+    expect(() => assertRestorableLocalTarget(path.join(tmp, '.ssh'))).toThrow(
+      /Refusing to restore/
+    );
+  });
+
+  test('refuses a parent of the instance data directory', () => {
+    tmp = path.join(os.tmpdir(), `lbtest-inst-parent-${Date.now()}`);
+    process.env.BACKUP_STORAGE_PATH = '/backups';
+    process.env.DATABASE_URL = `file:${path.join(tmp, 'instance', 'data.db')}`;
+    // The tree can contain instance/data.db and overwrite the live database.
+    expect(() => assertRestorableLocalTarget(tmp)).toThrow(/Refusing to restore/);
+  });
+
+  test('refuses a parent of the backup storage root', () => {
+    tmp = path.join(os.tmpdir(), `lbtest-storage-parent-${Date.now()}`);
+    process.env.BACKUP_STORAGE_PATH = path.join(tmp, 'backups');
+    // The tree can contain backups/<every artifact> and overwrite them.
+    expect(() => assertRestorableLocalTarget(tmp)).toThrow(/contains backup storage/);
+  });
+
+  test('refuses a home directory that contains ~/.ssh', () => {
+    tmp = path.join(os.tmpdir(), `lbtest-home-parent-${Date.now()}`);
+    process.env.BACKUP_STORAGE_PATH = '/backups';
+    process.env.HOME = tmp;
+    // Restoring a home tree onto $HOME would overwrite .ssh/authorized_keys.
+    expect(() => assertRestorableLocalTarget(tmp)).toThrow(/Refusing to restore/);
   });
 });

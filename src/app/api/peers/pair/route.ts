@@ -1,4 +1,10 @@
 import { completePairFromAcceptor, PAIRING_FAILED_MESSAGE } from '@/lib/peer/pairing';
+import {
+  CappedJsonError,
+  PEER_PAIR_JSON_LIMIT,
+  readCappedRequestJson,
+} from '@/lib/net/capped-json';
+import { clientKeyFromRequest } from '@/lib/auth/rate-limit';
 import { consumeIpRateLimit } from '@/lib/net/ip-throttle';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
@@ -17,26 +23,21 @@ const pairSchema = z.object({
   }),
 });
 
-function requestIp(request: NextRequest): string {
-  const forwarded = request.headers.get('x-forwarded-for');
-  if (forwarded) {
-    const first = forwarded.split(',')[0]?.trim();
-    if (first) return first;
-  }
-  return request.headers.get('x-real-ip')?.trim() || 'unknown';
-}
-
 /**
  * POST /api/peers/pair — called by accepting bro / LazyBro (no session).
  * Authenticated by invite code + secret.
  */
 export async function POST(request: NextRequest) {
-  if (!consumeIpRateLimit(`pair:${requestIp(request)}`)) {
+  // Shared client key: honours AUTH_TRUST_PROXY instead of trusting
+  // X-Forwarded-For unconditionally (callers could spoof it to bypass limits).
+  if (!consumeIpRateLimit(`pair:${clientKeyFromRequest(request)}`)) {
     return NextResponse.json({ error: PAIRING_FAILED_MESSAGE }, { status: 429 });
   }
 
   try {
-    const body = pairSchema.parse(await request.json());
+    const body = pairSchema.parse(
+      await readCappedRequestJson(request, PEER_PAIR_JSON_LIMIT)
+    );
     const result = await completePairFromAcceptor({
       code: body.code,
       secret: body.secret,
@@ -51,9 +52,17 @@ export async function POST(request: NextRequest) {
     });
     return NextResponse.json(result);
   } catch (error) {
+    if (error instanceof CappedJsonError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     if (error instanceof z.ZodError) {
+      const issue = error.issues[0];
+      const field = issue?.path?.join('.') || 'request';
       return NextResponse.json(
-        { error: 'Validation error', details: error.issues },
+        {
+          error: `Invalid pairing request: ${field} ${issue?.message || 'is invalid'}`,
+          details: error.issues,
+        },
         { status: 400 }
       );
     }

@@ -1,5 +1,9 @@
 import { describe, expect, test } from 'bun:test';
+import { promises as fs } from 'fs';
+import os from 'os';
+import path from 'path';
 import {
+  createHostVerifier,
   findKnownHost,
   formatKnownHostsLine,
   knownHostsHostField,
@@ -62,5 +66,25 @@ describe('known hosts helpers', () => {
     const line = formatKnownHostsLine('h', 22, key);
     const entries = parseKnownHosts(`# comment\n${line}\n`);
     expect(findKnownHost(entries, 'h', 22)?.base64).toBe(parseSshPublicKeyBuffer(key).base64);
+  });
+
+  test('createHostVerifier exposes the mismatch reason to callers', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'lbkh-'));
+    const previous = process.env.LAZYBACKUP_KNOWN_HOSTS;
+    process.env.LAZYBACKUP_KNOWN_HOSTS = path.join(dir, 'ssh_known_hosts');
+    try {
+      const reasons: string[] = [];
+      const verifier = createHostVerifier('box.example', 2222, (reason) =>
+        reasons.push(reason)
+      );
+      expect(verifier(fakeEd25519Key(1))).toBe(true);
+      expect(verifier(fakeEd25519Key(2))).toBe(false);
+      expect(reasons[0]).toMatch(/mismatch/i);
+      expect(reasons[0]).toContain('[box.example]:2222');
+    } finally {
+      if (previous === undefined) delete process.env.LAZYBACKUP_KNOWN_HOSTS;
+      else process.env.LAZYBACKUP_KNOWN_HOSTS = previous;
+      await fs.rm(dir, { recursive: true, force: true });
+    }
   });
 });

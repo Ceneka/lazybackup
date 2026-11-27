@@ -15,6 +15,9 @@ const contentSecurityPolicy = [
   "frame-ancestors 'none'",
 ].join("; ");
 
+/** API responses carry secrets (settings, SSH keys, logs); never let a proxy store them. */
+const noStoreHeaders = [{ key: "Cache-Control", value: "private, no-store, max-age=0" }];
+
 const securityHeaders = [
   { key: "Content-Security-Policy", value: contentSecurityPolicy },
   { key: "X-Frame-Options", value: "DENY" },
@@ -48,6 +51,14 @@ const nextConfig: NextConfig = {
       {
         source: "/(.*)",
         headers: securityHeaders,
+      },
+      {
+        source: "/api/:path*",
+        headers: noStoreHeaders,
+      },
+      {
+        source: "/mcp",
+        headers: noStoreHeaders,
       },
     ];
   },

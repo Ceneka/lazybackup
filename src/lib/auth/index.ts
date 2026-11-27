@@ -68,6 +68,7 @@ export {
 export {
   createApiToken,
   listApiTokens,
+  revokeAllApiTokens,
   revokeApiToken,
   verifyApiToken,
   parseBearerToken,
@@ -83,6 +84,7 @@ export {
   ReadOnlyPermissionError,
   RemoteExecPermissionError,
   allowsPasswordSet,
+  assertCanRetargetPreBackupCommands,
   assertCanSetPreBackupCommands,
   authAllowsAuthorizeKeys,
   authAllowsRemoteExec,
@@ -92,6 +94,7 @@ export {
   normalizeApiTokenPermissionsInput,
   parseApiTokenPermissions,
   preBackupChangeRequiresRemoteExec,
+  preBackupRetargetRequiresRemoteExec,
   serializeApiTokenPermissions,
   type ApiTokenPermission,
   type AuthPermissionView,

@@ -2,11 +2,10 @@ import { resolveLocalBackupPath } from "@/lib/backup/destination"
 import { formatBytes } from "@/lib/utils"
 import { readdir, stat } from "fs/promises"
 import { join } from "path"
+import { VERSION_DIR_PATTERN, compareVersionDirNames } from "@/lib/backup/version-dirs"
 
 export { resolveLocalBackupPath }
-
-/** Timestamp folder names created when versioning is enabled: YYYY-MM-DD_HH-mm-ss */
-export const VERSION_DIR_PATTERN = /^\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}$/
+export { VERSION_DIR_PATTERN }
 
 export type BackupStorageStats = {
   path: string
@@ -377,7 +376,7 @@ export async function getBackupDestinationSummary(options: {
   const limitedTopLevel = topLevel.slice(0, entryLimit)
   const versions = topLevel
     .filter((entry) => entry.isVersionDir)
-    .sort((a, b) => b.name.localeCompare(a.name))
+    .sort((a, b) => compareVersionDirNames(b.name, a.name))
 
   return {
     configuredPath,

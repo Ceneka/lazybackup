@@ -9,11 +9,20 @@ import {
   isAuthorized,
   isSessionAuthorized,
   markAuthSetupCompleted,
+  revokeAllApiTokens,
   SESSION_COOKIE_NAME,
   sessionCookieOptions,
   setPasswordHash,
   verifyPassword,
 } from '@/lib/auth'
+import {
+  assertNotRateLimited,
+  clientKeyFromSessionOrRequest,
+  rateLimitKey,
+  recordAuthFailure,
+  recordAuthSuccess,
+} from '@/lib/auth/rate-limit'
+import { hasJsonContentType } from '@/lib/auth/request-content'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 
@@ -26,6 +35,8 @@ const passwordSchema = z.discriminatedUnion('action', [
     action: z.literal('change'),
     currentPassword: z.string().min(1),
     password: z.string().min(1),
+    /** Optional: revoke every active API token after the change (default off). */
+    revokeApiTokens: z.boolean().optional(),
   }),
   z.object({
     action: z.literal('remove'),
@@ -36,6 +47,13 @@ const passwordSchema = z.discriminatedUnion('action', [
 // POST /api/auth/password — set / change / remove app password
 export async function POST(request: NextRequest) {
   try {
+    if (!hasJsonContentType(request.headers)) {
+      return NextResponse.json(
+        { error: 'Content-Type must be application/json' },
+        { status: 415 }
+      )
+    }
+
     const body = await request.json()
     const data = passwordSchema.parse(body)
     const existingHash = await getPasswordHash()
@@ -83,16 +101,32 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
+    // Throttle current-password verification per session/IP. Buckets reset on
+    // success so a legitimate typo does not lock the operator out.
+    const limitKey = rateLimitKey(
+      'password-current',
+      clientKeyFromSessionOrRequest(request, cookieHeader)
+    )
+    const limited = assertNotRateLimited(limitKey)
+    if (!limited.ok) {
+      return NextResponse.json(
+        { error: 'Too many attempts. Try again shortly.' },
+        { status: 429, headers: { 'Retry-After': String(limited.retryAfterSec) } }
+      )
+    }
+
     const currentValid = await verifyPassword(
       data.currentPassword,
       existingHash
     )
     if (!currentValid) {
+      recordAuthFailure(limitKey)
       return NextResponse.json(
         { error: 'Current password is incorrect' },
         { status: 401 }
       )
     }
+    recordAuthSuccess(limitKey)
 
     if (data.action === 'change') {
       const strengthError = assertPasswordStrength(data.password)
@@ -104,8 +138,16 @@ export async function POST(request: NextRequest) {
       await setPasswordHash(passwordHash)
       await bumpSessionEpoch()
 
+      const revokedApiTokens = data.revokeApiTokens
+        ? await revokeAllApiTokens()
+        : 0
+
       const token = await createSessionCookieValue()
-      const response = NextResponse.json({ ok: true, authEnabled: true })
+      const response = NextResponse.json({
+        ok: true,
+        authEnabled: true,
+        revokedApiTokens,
+      })
       response.cookies.set(SESSION_COOKIE_NAME, token, sessionCookieOptions())
       return response
     }

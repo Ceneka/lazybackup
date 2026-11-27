@@ -14,6 +14,7 @@ export function publicConfig(cfg: BroConfig) {
     folderBackupPath: cfg.folderBackupPath,
     lastFolderBackupAt: cfg.lastFolderBackupAt,
     autostartPrompted: cfg.autostartPrompted,
+    pollIntervalMs: cfg.pollIntervalMs,
     port: cfg.port,
   };
 }

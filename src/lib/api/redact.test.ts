@@ -7,6 +7,7 @@ import {
   redactGitRepo,
   redactHistoryEntry,
   redactS3,
+  redactS3ForAudience,
   redactServer,
   redactSettingsForBearer,
   redactSshKey,
@@ -61,6 +62,35 @@ describe('redactS3', () => {
   });
 });
 
+describe('redactS3ForAudience', () => {
+  test('cookie sessions keep the full access key id', () => {
+    const result = redactS3ForAudience(
+      { accessKeyId: 'AKIA123456', secretAccessKey: 'x' },
+      'session'
+    );
+    expect(result.accessKeyId).toBe('AKIA123456');
+    expect(result).not.toHaveProperty('secretAccessKey');
+  });
+
+  test('Bearer callers get the MCP-masked access key id', () => {
+    const result = redactS3ForAudience(
+      { accessKeyId: 'AKIA123456', secretAccessKey: 'x' },
+      'bearer'
+    );
+    expect(result.accessKeyId).toBe('AKIA…');
+  });
+
+  test('unlocked / unauthenticated keep the full key (no Bearer header)', () => {
+    for (const via of ['unlocked', 'none']) {
+      const result = redactS3ForAudience(
+        { accessKeyId: 'AKIA123456', secretAccessKey: 'x' },
+        via
+      );
+      expect(result.accessKeyId).toBe('AKIA123456');
+    }
+  });
+});
+
 describe('redactBackup', () => {
   test('redacts nested endpoints and db password', () => {
     const result = redactBackup({
@@ -97,6 +127,26 @@ describe('redactBackup', () => {
     expect(result.sourceGitRepo).toEqual(
       redactGitRepo({ id: 'g1', name: 'app', url: 'git@host:org/app.git' })
     );
+  });
+
+  test('redacts the destination peer bearer token', () => {
+    const result = redactBackup({
+      id: 'b1',
+      destinationPeer: {
+        id: 'p1',
+        name: 'Bro',
+        outboundToken: 'lbpeer_plaintext-secret',
+        inboundTokenHash: 'deadbeef',
+        inboundTokenPrefix: 'lbpeer_aaaa…',
+        quotaBytes: 1024,
+        usedBytes: 0,
+        transport: 'mailbox',
+        status: 'active',
+      },
+    });
+    expect(result.destinationPeer).toMatchObject({ id: 'p1', name: 'Bro' });
+    expect(result.destinationPeer).not.toHaveProperty('outboundToken');
+    expect(result.destinationPeer).not.toHaveProperty('inboundTokenHash');
   });
 });
 

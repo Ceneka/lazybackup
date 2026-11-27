@@ -1,10 +1,19 @@
 import fs from 'fs/promises';
 import { createReadStream } from 'fs';
+import { readCappedResponseJson } from '@/lib/net/capped-json';
 import { pinnedFetch, type PinnedRequestInit } from '@/lib/net/pinned-fetch';
 import { peerUrlPolicy } from '@/lib/net/url-guard';
 import { writeCappedResponseToFile } from './capped-body';
 import { PEER_UPLOAD_HARD_CAP_BYTES } from './upload-limit';
 import type { PeerRow } from './types';
+
+const PEER_ERROR_JSON_LIMIT = 64 * 1024;
+
+async function readPeerError(response: Response): Promise<{ error?: string }> {
+  return (await readCappedResponseJson(response, PEER_ERROR_JSON_LIMIT).catch(
+    () => ({})
+  )) as { error?: string };
+}
 
 function peerApi(baseUrl: string, apiPath: string): string {
   const base = baseUrl.replace(/\/+$/, '');
@@ -57,14 +66,15 @@ export async function uploadPeerObject(
     body,
   });
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
+    const err = await readPeerError(res);
     throw new Error(
-      (err as { error?: string }).error ||
-        `Peer upload failed (${res.status}) for ${peer.name}`
+      err.error || `Peer upload failed (${res.status}) for ${peer.name}`
     );
   }
-  const json = (await res.json()) as { size: number };
-  return { size: json.size };
+  const json = (await readCappedResponseJson(res, PEER_ERROR_JSON_LIMIT).catch(
+    () => ({})
+  )) as { size?: unknown };
+  return { size: typeof json.size === 'number' ? json.size : stat.size };
 }
 
 export async function deletePeerObject(
@@ -75,10 +85,9 @@ export async function deletePeerObject(
     method: 'DELETE',
   });
   if (res.ok || res.status === 404) return;
-  const err = await res.json().catch(() => ({}));
+  const err = await readPeerError(res);
   throw new Error(
-    (err as { error?: string }).error ||
-      `Peer delete failed (${res.status}) for ${peer.name}`
+    err.error || `Peer delete failed (${res.status}) for ${peer.name}`
   );
 }
 
@@ -91,10 +100,9 @@ export async function downloadPeerObject(
     method: 'GET',
   });
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
+    const err = await readPeerError(res);
     throw new Error(
-      (err as { error?: string }).error ||
-        `Peer download failed (${res.status}) for ${peer.name}`
+      err.error || `Peer download failed (${res.status}) for ${peer.name}`
     );
   }
   await writeCappedResponseToFile({

@@ -1,11 +1,25 @@
-import { describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { execFileSync } from 'child_process';
+import { promises as fs } from 'fs';
+import os from 'os';
+import path from 'path';
 import {
   buildAuthorizedKeysEntry,
   buildEphemeralKeyMarker,
+  buildReachabilityProbeCommand,
+  buildRemoteFileListCommand,
   buildRemoveAuthorizedKeysCommand,
+  ensureRemoteDirectory,
   EPHEMERAL_KEY_MARKER_PREFIX,
+  cleanupRemoteOldFiles,
+  cleanupRemoteOldVersions,
+  parseRemoteFileListing,
+  runEphemeralDirectRsync,
   stripAuthorizedKeysMarker,
 } from '@/lib/ssh/ephemeral';
+import { remotePathShellWord } from '@/lib/ssh/rsync';
+import { sshStrictHostKeyPinnedCliOptions } from '@/lib/ssh/known-hosts';
+import type { NodeSSH } from 'node-ssh';
 
 describe('ephemeral authorized_keys helpers', () => {
   test('builds marker with prefix', () => {
@@ -42,5 +56,248 @@ describe('ephemeral authorized_keys helpers', () => {
     const cmd = buildRemoveAuthorizedKeysCommand('lazybackup-ephemeral:abc');
     expect(cmd).toContain("sed -i '/lazybackup-ephemeral:abc/d'");
     expect(cmd).toContain('authorized_keys');
+  });
+
+  test('reachability probe is valid POSIX shell syntax', () => {
+    const cmd = buildReachabilityProbeCommand('box.example', 2222);
+    // `PATH=… ( … )` used to be a syntax error, which forced every S2S transfer to relay.
+    expect(() => execFileSync('sh', ['-n', '-c', cmd], { stdio: 'pipe' })).not.toThrow();
+    expect(cmd).toContain('export PATH=');
+    expect(cmd).not.toMatch(/PATH="[^"]*"\s+\(/);
+  });
+
+  test('reachability probe quotes the destination host', () => {
+    const cmd = buildReachabilityProbeCommand("evil'; touch /tmp/pwn; '", 22);
+    expect(cmd).toContain(`'evil'\\''; touch /tmp/pwn; '\\'''`);
+    expect(cmd).toContain('exec 3<>/dev/tcp/"$1"/"$2"');
+    expect(() => execFileSync('sh', ['-n', '-c', cmd], { stdio: 'pipe' })).not.toThrow();
+  });
+});
+
+describe('remote path expansion and mkdir safety', () => {
+  test('expands a leading ~ the way rsync/scp do', () => {
+    expect(remotePathShellWord('~/backups')).toBe(`"$HOME"/'backups'`);
+    expect(remotePathShellWord('~')).toBe('"$HOME"');
+    expect(remotePathShellWord('/srv/backups')).toBe(`'/srv/backups'`);
+    expect(remotePathShellWord("/srv/it's here")).toBe(`'/srv/it'\\''s here'`);
+  });
+
+  test('ensureRemoteDirectory uses mkdir -p -- and expands ~', async () => {
+    const commands: string[] = [];
+    const fakeSsh = {
+      execCommand: async (command: string) => {
+        commands.push(command);
+        return { code: 0, stdout: '', stderr: '' };
+      },
+    } as unknown as NodeSSH;
+
+    await ensureRemoteDirectory(fakeSsh, '~/my backups');
+    await ensureRemoteDirectory(fakeSsh, '-leading-dash');
+
+    expect(commands[0]).toContain('mkdir -p -- "$HOME"/\'my backups\'');
+    expect(commands[1]).toContain("mkdir -p -- '-leading-dash'");
+    expect(commands[0]).not.toMatch(/mkdir -p '/);
+  });
+
+  test('pinned known_hosts options fail on unknown hosts', () => {
+    const options = sshStrictHostKeyPinnedCliOptions('/tmp/kh');
+    expect(options).toContain('StrictHostKeyChecking=yes');
+    expect(options).not.toContain('StrictHostKeyChecking=accept-new');
+    expect(options).toContain('UserKnownHostsFile=/tmp/kh');
+  });
+
+  test('retention helpers expand ~ and protect leading dashes', async () => {
+    const commands: string[] = [];
+    const fakeSsh = {
+      execCommand: async (command: string) => {
+        commands.push(command);
+        if (command.includes('ls -1')) {
+          return {
+            code: 0,
+            stdout: '2020-01-01_00-00-00\n2021-01-01_00-00-00\n',
+            stderr: '',
+          };
+        }
+        if (command.includes('find ')) {
+          return { code: 0, stdout: '1600000000 ./old.sql.gz\n', stderr: '' };
+        }
+        return { code: 0, stdout: '', stderr: '' };
+      },
+    } as unknown as NodeSSH;
+
+    await cleanupRemoteOldVersions(fakeSsh, '~/versions', 1);
+    await cleanupRemoteOldFiles(fakeSsh, '~/files', 1, 'days', 0);
+
+    expect(commands[0]).toContain(`ls -1 -- "$HOME"/'versions'`);
+    expect(commands[1]).toContain(`rm -rf -- "$HOME"/'versions/2020-01-01_00-00-00'`);
+    expect(commands[2]).toContain(`cd "$HOME"/'files' && find . -maxdepth 1 -type f`);
+    expect(commands[2]).toContain(`stat -c '%Y %n'`);
+    expect(commands[2]).not.toContain('-printf');
+    expect(commands[3]).toContain(`rm -f -- "$HOME"/'files/old.sql.gz'`);
+  });
+});
+
+describe('remote file retention listing (BusyBox + GNU)', () => {
+  test('builds a portable find/stat command with ~ expansion and quoting', () => {
+    expect(buildRemoteFileListCommand('~/backups')).toBe(
+      `PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" cd "$HOME"/'backups' && find . -maxdepth 1 -type f -exec stat -c '%Y %n' {} +`
+    );
+    expect(buildRemoteFileListCommand('/srv/my backups')).toContain(`cd '/srv/my backups'`);
+    expect(buildRemoteFileListCommand("/srv/it's here")).toContain(`cd '/srv/it'\\''s here'`);
+    expect(buildRemoteFileListCommand('/srv/b')).not.toContain('-printf');
+  });
+
+  test('parses stat output with spaces and quotes in file names', () => {
+    const { files, invalidLines } = parseRemoteFileListing(
+      [
+        '1600000000 ./old.sql.gz',
+        '1600000001 ./old 2.tar.gz',
+        "1600000002 ./old-quoted 'x'.tar.gz.age",
+        '',
+      ].join('\n')
+    );
+    expect(invalidLines).toBe(0);
+    expect(files).toEqual([
+      { name: 'old.sql.gz', mtimeMs: 1600000000 * 1000 },
+      { name: 'old 2.tar.gz', mtimeMs: 1600000001 * 1000 },
+      { name: "old-quoted 'x'.tar.gz.age", mtimeMs: 1600000002 * 1000 },
+    ]);
+  });
+
+  test('counts unparseable lines and rejects traversal names', () => {
+    const { files, invalidLines } = parseRemoteFileListing(
+      ['garbage', 'not-a-number ./x.tar.gz', '1600000000 ./ok.tar.gz', '1600000000 ./sub/'].join(
+        '\n'
+      )
+    );
+    expect(invalidLines).toBe(3);
+    expect(files).toEqual([{ name: 'ok.tar.gz', mtimeMs: 1600000000 * 1000 }]);
+  });
+
+  test('empty listing means an empty directory, not an error', () => {
+    expect(parseRemoteFileListing('')).toEqual({ files: [], invalidLines: 0 });
+  });
+
+  test('logs a warning and deletes nothing when the listing command fails', async () => {
+    const commands: string[] = [];
+    const fakeSsh = {
+      execCommand: async (command: string) => {
+        commands.push(command);
+        return { code: 127, stdout: '', stderr: 'stat: not found' };
+      },
+    } as unknown as NodeSSH;
+
+    const warnings: unknown[][] = [];
+    const originalWarn = console.warn;
+    console.warn = (...args: unknown[]) => {
+      warnings.push(args);
+    };
+    try {
+      await expect(cleanupRemoteOldFiles(fakeSsh, '/srv/backups', 1, 'days', 0)).resolves.toEqual(
+        []
+      );
+    } finally {
+      console.warn = originalWarn;
+    }
+
+    expect(warnings.length).toBe(1);
+    expect(String(warnings[0][0])).toContain('could not list remote files');
+    expect(String(warnings[0][0])).toContain('stat: not found');
+    expect(commands.join('\n')).not.toContain('rm -f');
+  });
+
+  test('warns about unparseable listing lines', async () => {
+    const fakeSsh = {
+      execCommand: async () => ({
+        code: 0,
+        stdout: '1600000000 ./old.sql.gz\nmystery output\n',
+        stderr: '',
+      }),
+    } as unknown as NodeSSH;
+
+    const warnings: unknown[][] = [];
+    const originalWarn = console.warn;
+    console.warn = (...args: unknown[]) => {
+      warnings.push(args);
+    };
+    try {
+      const deleted = await cleanupRemoteOldFiles(fakeSsh, '/srv/backups', 1, 'days', 0);
+      expect(deleted).toEqual(['old.sql.gz']);
+    } finally {
+      console.warn = originalWarn;
+    }
+
+    expect(warnings.length).toBe(1);
+    expect(String(warnings[0][0])).toContain('unparseable line');
+  });
+});
+
+describe('runEphemeralDirectRsync option injection', () => {
+  const prevKnownHosts = process.env.LAZYBACKUP_KNOWN_HOSTS;
+  let tmpDir = '';
+
+  beforeEach(async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'lbtest-secinj-'));
+    process.env.LAZYBACKUP_KNOWN_HOSTS = path.join(tmpDir, 'known_hosts');
+  });
+
+  afterEach(async () => {
+    if (prevKnownHosts === undefined) delete process.env.LAZYBACKUP_KNOWN_HOSTS;
+    else process.env.LAZYBACKUP_KNOWN_HOSTS = prevKnownHosts;
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  test('rejects a server source path rsync would parse as an option', async () => {
+    const commands: string[] = [];
+    const fakeSsh = {
+      putFile: async () => undefined,
+      execCommand: async (command: string) => {
+        commands.push(command);
+        return { code: 0, stdout: '', stderr: '' };
+      },
+    } as unknown as NodeSSH;
+
+    await expect(
+      runEphemeralDirectRsync({
+        sourceSsh: fakeSsh,
+        sourcePath: '--rsync-path=touch /tmp/lbtest-secinj/pwned',
+        destUsername: 'backup',
+        destHost: '10.0.0.2',
+        destPort: 22,
+        destPath: '/srv/backups',
+        ephemeralPrivateKeyPath: path.join(tmpDir, 'id_ed25519'),
+      })
+    ).rejects.toThrow(/must not start with "-"/);
+
+    // Pre-fix this command contains the unquoted option as rsync's source
+    // positional, so rsync runs it on the destination host.
+    expect(commands.join('\n')).not.toContain('--rsync-path');
+  });
+
+  test('direct rsync trusts only pinned destination host keys', async () => {
+    const commands: string[] = [];
+    const fakeSsh = {
+      putFile: async () => undefined,
+      execCommand: async (command: string) => {
+        commands.push(command);
+        return { code: 0, stdout: '', stderr: '' };
+      },
+    } as unknown as NodeSSH;
+
+    await runEphemeralDirectRsync({
+      sourceSsh: fakeSsh,
+      sourcePath: '/srv/data',
+      destUsername: 'backup',
+      destHost: '10.0.0.2',
+      destPort: 2222,
+      destPath: '~/dest',
+      ephemeralPrivateKeyPath: path.join(tmpDir, 'id_ed25519'),
+    });
+
+    const rsyncCommand = commands.find((command) => command.includes('rsync -avz'));
+    expect(rsyncCommand).toBeDefined();
+    expect(rsyncCommand).toContain('StrictHostKeyChecking=yes');
+    expect(rsyncCommand).not.toContain('accept-new');
+    expect(rsyncCommand).toContain('backup@10.0.0.2:~/dest');
   });
 });

@@ -1,6 +1,11 @@
 import { describe, expect, test } from 'bun:test';
+import { execFileSync } from 'child_process';
+import fs from 'fs/promises';
+import os from 'os';
+import path from 'path';
 import {
   assertValidDockerVolumeName,
+  buildDockerVolumeRestoreScript,
   buildPackDockerVolumeCommand,
   buildRestoreDockerVolumeCommand,
   buildTarExcludeArgs,
@@ -75,6 +80,73 @@ describe('buildRestoreDockerVolumeCommand', () => {
     expect(cmd).toContain('sh -c');
     expect(cmd).toContain('*/../*');
     expect(cmd).toContain('Refusing absolute tar member');
+  });
+
+  test('alpine restore script is valid POSIX shell', () => {
+    const script = buildDockerVolumeRestoreScript('/from/myvol.tar.gz');
+    expect(() =>
+      execFileSync('sh', ['-n', '-c', script], { stdio: 'pipe' })
+    ).not.toThrow();
+  });
+});
+
+describe('buildDockerVolumeRestoreScript behaviour (fake tar)', () => {
+  async function runWithMembers(members: string[]) {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'lazybackup-tar-safety-'));
+    const bin = path.join(root, 'bin');
+    await fs.mkdir(bin);
+    const listFile = path.join(root, 'members.txt');
+    const marker = path.join(root, 'extracted.txt');
+    await fs.writeFile(listFile, members.join('\n') + '\n');
+    await fs.writeFile(
+      path.join(bin, 'tar'),
+      [
+        '#!/bin/sh',
+        'case "$1" in',
+        `  tzf) cat '${listFile}' ;;`,
+        '  --help) echo "busybox tar" ;;',
+        `  xzf) echo extracted > '${marker}' ;;`,
+        'esac',
+        'exit 0',
+      ].join('\n'),
+      { mode: 0o755 }
+    );
+    try {
+      execFileSync('sh', ['-c', buildDockerVolumeRestoreScript('/from/vol.tar.gz')], {
+        env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+        stdio: 'pipe',
+      });
+      return { ok: true, markerExists: (await fs.stat(marker).catch(() => null)) !== null };
+    } catch (error) {
+      const err = error as { stderr?: Buffer; status?: number };
+      return {
+        ok: false,
+        status: err.status,
+        stderr: err.stderr?.toString() ?? '',
+        markerExists: (await fs.stat(marker).catch(() => null)) !== null,
+      };
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  }
+
+  test('extracts ordinary members', async () => {
+    const result = await runWithMembers(['./', './a.txt', './sub/', './sub/b.txt']);
+    expect(result).toEqual({ ok: true, markerExists: true });
+  });
+
+  test('rejects absolute member names', async () => {
+    const result = await runWithMembers(['a.txt', '/etc/passwd']);
+    expect(result.ok).toBe(false);
+    expect(result.markerExists).toBe(false);
+    expect(result.stderr).toContain('Refusing absolute tar member');
+  });
+
+  test('rejects traversal member names', async () => {
+    const result = await runWithMembers(['a.txt', '../outside']);
+    expect(result.ok).toBe(false);
+    expect(result.markerExists).toBe(false);
+    expect(result.stderr).toContain('Refusing tar member path traversal');
   });
 });
 

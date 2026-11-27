@@ -97,7 +97,7 @@ export function authAllowsAuthorizeKeys(auth: AuthPermissionView): boolean {
 
 /**
  * Session/unlocked always write. Bearer tokens with read_only cannot mutate
- * (except allowlisted probes: validate_backup / test_*).
+ * (except by-id probes: validate_backup / test of a stored endpoint).
  */
 export function authAllowsWrite(auth: AuthPermissionView): boolean {
   if (!auth.authorized) return false
@@ -120,7 +120,12 @@ export class ReadOnlyPermissionError extends Error {
   }
 }
 
-/** GET always; POST probes (validate / test_*) and /mcp for read_only bearers. */
+/**
+ * GET always; by-id probes (validate / test configured resource) and /mcp for
+ * read_only bearers. Ad-hoc probes with caller-supplied targets are denied:
+ * they would let a read_only token SSRF/port-scan from this host or a
+ * configured SSH server.
+ */
 export function isReadOnlyApiException(method: string, pathname: string): boolean {
   const m = method.toUpperCase()
   if (m === 'GET' || m === 'HEAD' || m === 'OPTIONS') return true
@@ -130,9 +135,9 @@ export function isReadOnlyApiException(method: string, pathname: string): boolea
     return true
   }
   if (m !== 'POST') return false
-  if (pathname === '/api/backups/database/test') return true
-  if (pathname === '/api/servers/test') return true
-  if (pathname === '/api/s3-profiles/test') return true
+  // Only tests that use already-stored endpoints. `POST /api/servers/test`,
+  // `/api/s3-profiles/test`, `/api/git-repos/test`, and
+  // `/api/backups/database/test` accept arbitrary hosts/URLs and are excluded.
   if (/^\/api\/backups\/[^/]+\/validate$/.test(pathname)) return true
   if (/^\/api\/servers\/[^/]+\/test$/.test(pathname)) return true
   if (/^\/api\/s3-profiles\/[^/]+\/test$/.test(pathname)) return true
@@ -166,6 +171,47 @@ export function assertCanSetPreBackupCommands(
   if (!preBackupChangeRequiresRemoteExec(incoming, existing)) return
   if (!authAllowsRemoteExec(auth)) {
     throw new RemoteExecPermissionError()
+  }
+}
+
+/**
+ * Moving a job that still carries pre-backup commands to another source host
+ * (or from an SSH host to this host) runs those commands somewhere new. The
+ * command text is unchanged, but the effect is still remote execution.
+ */
+export function preBackupRetargetRequiresRemoteExec(input: {
+  incomingCommands: string | null | undefined
+  existingCommands: string | null | undefined
+  sourceEndpointChanged: boolean
+}): boolean {
+  if (!input.sourceEndpointChanged) return false
+  // undefined = field omitted from a full-config PUT, so the stored value stays.
+  const effective =
+    input.incomingCommands === undefined
+      ? input.existingCommands
+      : input.incomingCommands
+  return Boolean((effective ?? '').trim())
+}
+
+export function assertCanRetargetPreBackupCommands(
+  auth: AuthPermissionView,
+  incoming: string | null | undefined,
+  existing: string | null | undefined,
+  sourceEndpointChanged: boolean
+): void {
+  if (
+    !preBackupRetargetRequiresRemoteExec({
+      incomingCommands: incoming,
+      existingCommands: existing,
+      sourceEndpointChanged,
+    })
+  ) {
+    return
+  }
+  if (!authAllowsRemoteExec(auth)) {
+    throw new RemoteExecPermissionError(
+      'API token lacks remote_exec permission. Moving a backup with pre-backup commands to another source host would run those commands on the new host.'
+    )
   }
 }
 

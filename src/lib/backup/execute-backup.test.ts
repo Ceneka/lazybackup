@@ -102,6 +102,22 @@ describe('executeBackup', () => {
     expect(successArgs[1]).toMatchObject({ artifactPath: destDir });
   });
 
+  test('a failed versioned run removes the version folder it allocated', async () => {
+    const destRoot = path.join(tmpRoot, 'versioned-dest');
+    const config = baseLocalConfig({
+      sourcePath: path.join(tmpRoot, 'does-not-exist'),
+      destinationPath: destRoot,
+      enableVersioning: true,
+      versionsToKeep: 3,
+    });
+
+    await expect(executeBackup(config, 'hist-version-fail')).rejects.toThrow();
+
+    // An empty version folder would otherwise consume a retention slot on
+    // every failed run and eventually evict good older backups.
+    expect(await fs.readdir(destRoot).catch(() => [])).toEqual([]);
+  });
+
   test('missing source server records failure and rethrows', async () => {
     const config = baseLocalConfig({
       sourcePath: '/tmp/x',
@@ -150,6 +166,29 @@ describe('executeBackup', () => {
     });
     await expect(executeBackup(config, 'hist-path')).rejects.toThrow(/BACKUP_STORAGE_PATH/);
     expect(updateFailure).toHaveBeenCalled();
+  });
+
+  test('peer destination fails fast when the peer is revoked', async () => {
+    const config = baseLocalConfig({
+      sourcePath: path.join(tmpRoot, 'src'),
+      destinationPath: 'prefix',
+      destinationKind: 'peer',
+      destinationPeer: {
+        id: 'peer-1',
+        name: 'bro',
+        status: 'revoked',
+        transport: 'mailbox',
+        remoteBaseUrl: '',
+        quotaBytes: 1024,
+        usedBytes: 0,
+      } as never,
+    });
+
+    await expect(executeBackup(config, 'hist-revoked')).rejects.toThrow(
+      /revoked; re-pair/i
+    );
+    expect(updateFailure).toHaveBeenCalled();
+    expect(updateSuccess).not.toHaveBeenCalled();
   });
 
   test('instance meta-backup to S3 without passphrase fails closed', async () => {
