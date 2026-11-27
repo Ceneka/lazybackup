@@ -72,7 +72,7 @@ mock.module('@/lib/ssh', () => ({
   resolvePrivateKeyForSshKeyId: async () => null,
 }));
 
-const { restoreGitRepoBackup } = await import('@/lib/backup');
+const { restoreGitRepoBackup } = await import(`./index.ts?real=${Date.now()}`);
 
 async function writeGitArchive(archivePath: string): Promise<void> {
   const archive = pack();

@@ -36,7 +36,7 @@ mock.module('./history', () => ({
   updateBackupHistoryFailure: updateFailure,
 }));
 
-const { executeBackup } = await import('./index');
+const { executeBackup } = await import(`./index.ts?real=${Date.now()}`);
 import type { BackupConfigWithEndpoints } from './index';
 
 function baseLocalConfig(

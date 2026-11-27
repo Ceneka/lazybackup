@@ -52,7 +52,7 @@ const {
   restoreDockerVolumeBackup,
   restoreDatabaseBackup,
   restorePathBackup,
-} = await import('./index');
+} = await import(`./index.ts?real=${Date.now()}`);
 
 afterAll(async () => {
   // Module mocks are process-wide in Bun; restore full copies for later files.

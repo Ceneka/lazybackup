@@ -23,7 +23,7 @@ mock.module('@/lib/db', () => ({
   },
 }));
 
-const { restorePathBackup, restoreDatabaseBackup } = await import('@/lib/backup');
+const { restorePathBackup, restoreDatabaseBackup } = await import(`./index.ts?real=${Date.now()}`);
 
 afterAll(async () => {
   // Module mocks are process-wide in Bun; restore full copies for later files.

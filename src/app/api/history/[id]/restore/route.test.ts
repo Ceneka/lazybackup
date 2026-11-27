@@ -25,6 +25,12 @@ mock.module('@/lib/db', () => ({
   },
 }));
 
+// Another test file mocks @/lib/backup; make sure the route binds real exports.
+const realBackup = await import(
+  `../../../../../lib/backup/index.ts?real=${Date.now()}`
+);
+mock.module('@/lib/backup', () => realBackup);
+
 const { POST } = await import('@/app/api/history/[id]/restore/route');
 const { beginRestore, resetRestoreLocksForTests } = await import(
   '@/lib/backup/concurrent-run'
@@ -43,6 +49,10 @@ afterAll(async () => {
   mock.restore();
   const freshDb = await import(`../../../../../lib/db/index.ts?real=${Date.now()}`);
   mock.module('@/lib/db', () => freshDb);
+  const freshBackup = await import(
+    `../../../../../lib/backup/index.ts?real=${Date.now()}`
+  );
+  mock.module('@/lib/backup', () => freshBackup);
 });
 
 describe('POST /api/history/[id]/restore — sqlite targets', () => {

@@ -42,9 +42,7 @@ mock.module('@/lib/crypto/files', () => ({
   },
 }));
 
-const { resolveLocalRestoreArtifact, resolveLocalPathRestoreTree } = await import(
-  './index'
-);
+const { resolveLocalRestoreArtifact, resolveLocalPathRestoreTree } = await import(`./index.ts?real=${Date.now()}`);
 
 const TEMP_PREFIXES = [
   'lazybackup-restore-',

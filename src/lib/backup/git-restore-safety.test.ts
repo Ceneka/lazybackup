@@ -27,7 +27,7 @@ mock.module('@/lib/db', () => ({
   },
 }));
 
-const { restoreGitRepoBackup } = await import('@/lib/backup');
+const { restoreGitRepoBackup } = await import(`./index.ts?real=${Date.now()}`);
 
 async function writeTarGz(
   archivePath: string,
