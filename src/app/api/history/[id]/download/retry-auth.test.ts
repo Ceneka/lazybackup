@@ -6,6 +6,8 @@ process.env.NEXT_RUNTIME = 'nodejs';
 type Row = Record<string, unknown> | null;
 let historyFixture: Row = null;
 
+const realAuth = await import(`../../../../../lib/auth/index.ts?real=${Date.now()}`);
+
 mock.module('@/lib/db', () => ({
   db: {
     query: {
@@ -16,7 +18,10 @@ mock.module('@/lib/db', () => ({
   },
 }));
 
+// Keep every real export: a partial namespace would hide named exports from
+// other test files that import @/lib/auth while this mock is installed.
 mock.module('@/lib/auth', () => ({
+  ...realAuth,
   resolveAuth: async () => ({
     authorized: true,
     via: 'bearer',
@@ -38,7 +43,7 @@ beforeEach(() => {
 });
 
 afterAll(async () => {
-  // Bun module mocks are process-wide: put the real modules back.
+  // Bun patches module namespaces in place: restore full copies for later files.
   const freshDb = await import(`../../../../../lib/db/index.ts?real=${Date.now()}`);
   mock.module('@/lib/db', () => freshDb);
   const freshAuth = await import(`../../../../../lib/auth/index.ts?real=${Date.now()}`);
