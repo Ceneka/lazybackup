@@ -24,6 +24,50 @@ export const changelogEntries: readonly ChangelogEntry[] = [
     "sections": []
   },
   {
+    "id": "0-4-2",
+    "title": "0.4.2",
+    "date": "2026-11-27",
+    "sections": [
+      {
+        "heading": "Added",
+        "items": [
+          "Clear API method errors — a request with an unsupported method to a static API path now gets 405 { error } and an Allow header instead of an empty body; OPTIONS answers 204 with Allow. Routes with dynamic segments keep Next.js's default response.",
+          "Passkey count in the auth status — GET /api/auth/status reports passkeyCount (0 when none are registered)."
+        ]
+      },
+      {
+        "heading": "Fixed",
+        "items": [
+          "A mistyped Docker volume is no longer a green empty backup — the volume is inspected before packing and the helper no longer uses -v, which silently created a missing volume. A wrong or deleted name now fails the run with \"volume was not found\" and produces no artifact, instead of an 86-byte archive reported as success.",
+          "Editing a backup keeps the settings you did not touch — updates now merge: omitted fields keep their stored values, null clears, and provided values are set. A partial update used to reset enabled, versioning, file retention and deleteExtraneous to their defaults.",
+          "Invalid cron schedules are rejected when saving — an unparseable expression used to be stored on an enabled backup that then never ran.",
+          "Pre-backup commands can be cleared — clearing the field now persists an empty value instead of keeping the old commands (#50).",
+          "Instance backups work outside the Docker image — the SQLite snapshot finds bun on PATH (or BUN_BINARY) and falls back to a WAL-safe copy, so bun run dev and bun run start no longer fail with a bun: module error.",
+          "MCP updates no longer wipe the database password — a full-config update_backup keeps the stored password when it is blank (the API never returns it) and clears it only when the source stops being a database.",
+          "Unusable credentials are rejected at save — private keys are parsed, password auth requires a password, ports are bounded to 1–65535, S3 bucket names follow the provider rules, and loopback/private S3 endpoints are refused at write time (same ALLOW_PRIVATE_S3_ENDPOINTS opt-in as before). install-command answers 400 for a saved key that cannot be parsed.",
+          "Unknown connections return 400 instead of 500 — a backup or Git repository pointing at a nonexistent server, S3 profile, SSH key or peer is rejected with a field error (and no config is stored with a dangling peer).",
+          "Stale pre-backup commands no longer run for instance backups after switching a configuration to \"LazyBackup instance data\".",
+          "Unknown API paths return JSON — 404 { error } instead of an HTML page; POST /api/backups/start answers 404 for an unknown config and 400 for a malformed body; restores reject non-normalized targets and report a failed retarget with the server name.",
+          "Bro delivery failures carry a reason — the failure is persisted on the history row and shown in History instead of a bare \"failed\".",
+          "Webhook settings are validated — non-http(s) URLs and unknown methods are refused on save, and a malformed webhook-test request returns 400 instead of firing the stored webhook.",
+          "Git probes fail fast — an unreachable host now times out in about 20 s with \"host unreachable?\" instead of hanging for two minutes.",
+          "History detail fails fast on a missing id — one request instead of retries.",
+          "~ is expanded in system SSH key paths (connection and validation).",
+          "Cloning a database or instance backup warns that its secret is not copied and must be re-entered before the first run.",
+          "Fast dashboard first load — the local storage walk (backup file count and size under BACKUP_STORAGE_PATH) no longer blocks the dashboard response. It loads in its own card: totals are cached server-side for 5 minutes (stale-while-revalidate), warmed at startup, and refreshed after a backup finishes. Large backup trees no longer make the dashboard wait seconds on a cold first visit."
+        ]
+      },
+      {
+        "heading": "Changed",
+        "items": [
+          "History scales better on long-lived installs — indexes on backup_history, slimmer peer-history polling, and run logs capped at 512 KB (the tail is kept, with a truncation marker).",
+          "Peer transfers are bounded — recall chunks stream to disk instead of being buffered, the per-peer lock queue is capped (PEER_LOCK_QUEUE_MAX, 8 by default) and answers 429 when full, and passphrase-wrapped instance exports stream the archive instead of loading it into memory.",
+          "Clearer volume and instance logs — volume packs show \"Docker Volume Backup\" and instance packs \"LazyBackup Instance Backup\" instead of the generic rsync header."
+        ]
+      }
+    ]
+  },
+  {
     "id": "0-4-1",
     "title": "0.4.1",
     "date": "2026-11-27",
