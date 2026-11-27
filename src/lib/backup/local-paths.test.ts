@@ -163,9 +163,14 @@ describe('assertRestorableLocalTarget', () => {
     expect(() => assertRestorableLocalTarget(path.join(tmp, 'data.db'))).toThrow(
       /Refusing to restore/
     );
-    expect(() => assertRestorableLocalTarget(path.join(tmp, 'other'))).toThrow(
+    expect(() => assertRestorableLocalTarget(`${path.join(tmp, 'data.db')}-wal`)).toThrow(
       /Refusing to restore/
     );
+    expect(() => assertRestorableLocalTarget(tmp)).toThrow(/data directory/);
+    expect(() => assertRestorableLocalTarget(path.dirname(tmp))).toThrow(/Refusing to restore/);
+    // A subfolder cannot overwrite the database next to it (bare-metal installs
+    // often keep data.db in the working directory).
+    expect(assertRestorableLocalTarget(path.join(tmp, 'other'))).toBe(path.join(tmp, 'other'));
   });
 
   test('refuses the SSH directory', () => {
@@ -189,7 +194,7 @@ describe('assertRestorableLocalTarget', () => {
     tmp = path.join(os.tmpdir(), `lbtest-storage-parent-${Date.now()}`);
     process.env.BACKUP_STORAGE_PATH = path.join(tmp, 'backups');
     // The tree can contain backups/<every artifact> and overwrite them.
-    expect(() => assertRestorableLocalTarget(tmp)).toThrow(/backup storage root/);
+    expect(() => assertRestorableLocalTarget(tmp)).toThrow(/contains backup storage/);
   });
 
   test('refuses a home directory that contains ~/.ssh', () => {

@@ -150,12 +150,17 @@ export function assertRestorableLocalTarget(
   // where /backups is often the only host mount) is a legitimate target.
   const exactOnly = new Set<string>();
 
+  // The instance data directory is treated like a storage root: the directory
+  // itself (and anything containing it) is refused, a subfolder is fine — it
+  // cannot overwrite the database next to it. The database files themselves
+  // are always refused.
   const dataDir = instanceDataDir();
-  if (dataDir && dataDir !== '/') forbidden.add(dataDir);
+  if (dataDir && dataDir !== '/') exactOnly.add(dataDir);
 
   const dbFile = (process.env.DATABASE_URL || '').trim().replace(/^file:/, '');
   if (dbFile && dbFile !== ':memory:') {
-    forbidden.add(path.resolve(dbFile));
+    const dbPath = path.resolve(dbFile);
+    for (const suffix of ['', '-wal', '-shm', '-journal']) forbidden.add(dbPath + suffix);
   }
 
   for (const root of getAllowedLocalStorageRoots()) {
@@ -172,7 +177,7 @@ export function assertRestorableLocalTarget(
 
   if (exactOnly.has(resolved)) {
     throw new Error(
-      `Refusing to restore onto ${resolved}: this is the backup storage root. Choose a subfolder or a different target.`
+      `Refusing to restore onto ${resolved}: this is the backup storage root or the LazyBackup data directory. Choose a subfolder or a different target.`
     );
   }
 
@@ -181,7 +186,7 @@ export function assertRestorableLocalTarget(
     // the restored tree and overwrite the backups themselves.
     if (isPathInside(resolved, root)) {
       throw new Error(
-        `Refusing to restore onto ${resolved}: it contains the backup storage root (${root}). Choose a subfolder or a different target.`
+        `Refusing to restore onto ${resolved}: it contains backup storage or LazyBackup's own data (${root}). Choose a subfolder or a different target.`
       );
     }
   }
