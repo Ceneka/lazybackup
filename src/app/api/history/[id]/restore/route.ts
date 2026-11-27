@@ -10,7 +10,12 @@ import { isValidDockerVolumeName } from '@/lib/docker/volumes';
 import { DB_NAME_RE, assertValidSqlitePath } from '@/lib/database';
 import { db } from '@/lib/db';
 import { backupHistory } from '@/lib/db/schema';
-import { PeerRecallPendingError, peerRecallWaitingResponse } from '@/lib/peer/recall';
+import {
+  PeerRecallBlockedError,
+  PeerRecallFailedError,
+  PeerRecallPendingError,
+  peerRecallWaitingResponse,
+} from '@/lib/peer/recall';
 import { eq } from 'drizzle-orm';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
@@ -47,6 +52,19 @@ export async function POST(
 
     if (!historyEntry) {
       return NextResponse.json({ error: 'Backup history entry not found' }, { status: 404 });
+    }
+
+    // Explicit retry after a failed peer recall (digest mismatch, …): forget the
+    // failed attempt so the normal restore path can ask the friend again.
+    if ((body as { retry?: unknown })?.retry === true && historyEntry.artifactPath) {
+      const { parsePeerArtifactPath } = await import('@/lib/peer/retention');
+      const { resetFailedRecall } = await import('@/lib/peer/recall');
+      const parsed = parsePeerArtifactPath(historyEntry.artifactPath);
+      await resetFailedRecall({
+        historyId: historyEntry.id,
+        peerId: parsed?.peerId,
+        objectKey: parsed?.objectKey,
+      });
     }
 
     const snapshot = parseRestoreSnapshot(historyEntry.configSnapshot);
@@ -140,6 +158,9 @@ export async function POST(
       return NextResponse.json(peerRecallWaitingResponse(error.recallId), {
         status: 202,
       });
+    }
+    if (error instanceof PeerRecallBlockedError || error instanceof PeerRecallFailedError) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
     }
     console.error(`Failed to restore backup ${id}:`, error);
 

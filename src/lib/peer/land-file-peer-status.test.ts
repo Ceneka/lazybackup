@@ -58,6 +58,24 @@ describe('mailbox staging only for an active peer', () => {
     expect(await stagedObjectExists('peer_mailbox', 'backups/config/artifact.age')).toBe(true);
   });
 
+  test('refuses to stage when the new artifact exceeds the peer quota', async () => {
+    const { writeStagedObject } = await import('./staging');
+    const existing = path.join(tmp, 'existing.age');
+    await fs.writeFile(existing, Buffer.alloc(8, 1));
+    await writeStagedObject('peer_mailbox', 'backups/config/existing.age', existing);
+
+    await expect(
+      landLocalFileArtifact({
+        localFilePath: src,
+        archiveName: 'artifact.age',
+        destinationKind: 'peer',
+        destinationPeer: peerRow({ quotaBytes: 10 }) as never,
+        peerPrefix: 'backups/config',
+      })
+    ).rejects.toThrow(/quota exceeded/i);
+    expect(await stagedObjectExists('peer_mailbox', 'backups/config/artifact.age')).toBe(false);
+  });
+
   test('refuses to stage for a revoked peer', async () => {
     await expect(
       landLocalFileArtifact({

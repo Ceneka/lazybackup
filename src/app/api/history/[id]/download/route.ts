@@ -9,7 +9,12 @@ import {
 import { httpStatusForRestoreError } from '@/lib/backup/restore-errors';
 import { db } from '@/lib/db';
 import { backupHistory } from '@/lib/db/schema';
-import { PeerRecallPendingError, peerRecallWaitingResponse } from '@/lib/peer/recall';
+import {
+  PeerRecallBlockedError,
+  PeerRecallFailedError,
+  PeerRecallPendingError,
+  peerRecallWaitingResponse,
+} from '@/lib/peer/recall';
 import { execFile } from 'child_process';
 import { eq } from 'drizzle-orm';
 import { createReadStream } from 'fs';
@@ -49,7 +54,7 @@ function streamFile(
 
 // GET /api/history/[id]/download — stream the restore artifact (session)
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
@@ -86,6 +91,17 @@ export async function GET(
         { error: 'Backup history entry not found' },
         { status: 404 }
       );
+    }
+
+    if (request.nextUrl.searchParams.get('retry') === '1' && historyEntry.artifactPath) {
+      const { parsePeerArtifactPath } = await import('@/lib/peer/retention');
+      const { resetFailedRecall } = await import('@/lib/peer/recall');
+      const parsed = parsePeerArtifactPath(historyEntry.artifactPath);
+      await resetFailedRecall({
+        historyId: historyEntry.id,
+        peerId: parsed?.peerId,
+        objectKey: parsed?.objectKey,
+      });
     }
 
     const config = historyEntry.backupConfig;
@@ -146,6 +162,9 @@ export async function GET(
       return NextResponse.json(peerRecallWaitingResponse(error.recallId), {
         status: 202,
       });
+    }
+    if (error instanceof PeerRecallBlockedError || error instanceof PeerRecallFailedError) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
     }
     console.error(`Failed to download backup ${id}:`, error);
     const message =

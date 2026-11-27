@@ -56,8 +56,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: error.status });
     }
     if (error instanceof z.ZodError) {
+      const issue = error.issues[0];
+      const field = issue?.path?.join('.') || 'request';
       return NextResponse.json(
-        { error: 'Validation error', details: error.issues },
+        {
+          error: `Invalid pairing request: ${field} ${issue?.message || 'is invalid'}`,
+          details: error.issues,
+        },
         { status: 400 }
       );
     }

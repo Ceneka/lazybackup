@@ -3,6 +3,7 @@ import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
 import {
+  assertStagingQuota,
   deleteStagedObject,
   listStagedObjects,
   stagedObjectExists,
@@ -27,6 +28,41 @@ describe('peer staging', () => {
       expect(listed.some((o) => o.key === key && o.size === 9)).toBe(true);
       await deleteStagedObject(peerId, key);
       expect(await stagedObjectExists(peerId, key)).toBe(false);
+    } finally {
+      if (prev === undefined) delete process.env.BACKUP_STORAGE_PATH;
+      else process.env.BACKUP_STORAGE_PATH = prev;
+      await fs.rm(tmp, { recursive: true, force: true });
+    }
+  });
+
+  test('refuses staging when pending bytes exceed the peer quota', async () => {
+    const prev = process.env.BACKUP_STORAGE_PATH;
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'lb-stage-quota-'));
+    process.env.BACKUP_STORAGE_PATH = tmp;
+    try {
+      const src = path.join(tmp, 'src.bin');
+      await fs.writeFile(src, Buffer.alloc(6, 1));
+      const peerId = 'peer_quota';
+      await writeStagedObject(peerId, 'old.age', src);
+
+      await expect(
+        assertStagingQuota({
+          peerId,
+          quotaBytes: 10,
+          additionalBytes: 5,
+          replacingObjectKey: 'new.age',
+        })
+      ).rejects.toThrow(/quota exceeded/i);
+
+      // Replacing the same key only counts the net growth.
+      await expect(
+        assertStagingQuota({
+          peerId,
+          quotaBytes: 10,
+          additionalBytes: 5,
+          replacingObjectKey: 'old.age',
+        })
+      ).resolves.toBeUndefined();
     } finally {
       if (prev === undefined) delete process.env.BACKUP_STORAGE_PATH;
       else process.env.BACKUP_STORAGE_PATH = prev;

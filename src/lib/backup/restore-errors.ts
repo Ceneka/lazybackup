@@ -133,7 +133,7 @@ export function httpStatusForRestoreError(error: unknown): number {
 
   const message = errorMessage(error);
   if (
-    /artifact removed by retention|re-pair before restoring|Refusing to restore|Only successful|only supported|only for path|no stored artifact|not found on disk|missing from S3/i.test(
+    /artifact removed by retention|re-pair before restoring|Refusing to restore|Only successful|only supported|only for path|no stored artifact|not found on disk|missing from S3|replaced by a newer run|removed from Bro Space/i.test(
       message
     )
   ) {

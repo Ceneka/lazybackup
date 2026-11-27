@@ -52,6 +52,40 @@ export async function stagingUsedBytes(peerId: string): Promise<number> {
   return dirSize(peerStagingDir(peerId));
 }
 
+function formatGb(bytes: number): string {
+  return `${Math.round((bytes / (1024 * 1024 * 1024)) * 100) / 100} GB`;
+}
+
+/**
+ * Refuse to stage a mailbox artifact that would push the peer's pending outgoing
+ * bytes above the agreed quota. A non-versioned destination reuses the same key,
+ * so an existing staged copy is replaced (its bytes do not count twice).
+ */
+export async function assertStagingQuota(options: {
+  peerId: string;
+  quotaBytes: number;
+  additionalBytes: number;
+  replacingObjectKey?: string;
+}): Promise<void> {
+  const { peerId, quotaBytes, additionalBytes, replacingObjectKey } = options;
+  if (!Number.isFinite(quotaBytes) || quotaBytes <= 0) return;
+  let used = await stagingUsedBytes(peerId);
+  if (replacingObjectKey) {
+    const existing = await fs.stat(peerStagingObjectPath(peerId, replacingObjectKey)).catch(
+      () => null
+    );
+    if (existing?.isFile()) {
+      used = Math.max(0, used - existing.size);
+    }
+  }
+  if (used + additionalBytes > quotaBytes) {
+    const free = Math.max(0, quotaBytes - used);
+    throw new Error(
+      `Bro Space quota exceeded: this backup needs ${formatGb(additionalBytes)} but only ${formatGb(free)} of ${formatGb(quotaBytes)} is free. Delete older backups on this bro or raise the quota.`
+    );
+  }
+}
+
 export async function writeStagedObject(
   peerId: string,
   objectKey: string,

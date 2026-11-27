@@ -1,8 +1,16 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, like } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { timingSafeEqual } from 'crypto';
 import { db } from '@/lib/db';
-import { backupHistory, peerInvites, peers, settings } from '@/lib/db/schema';
+import {
+  backupConfigs,
+  backupHistory,
+  peerDeletes,
+  peerInvites,
+  peerRecalls,
+  peers,
+  settings,
+} from '@/lib/db/schema';
 import {
   PEER_PAIR_RESPONSE_JSON_LIMIT,
   readCappedResponseJson,
@@ -22,8 +30,10 @@ import {
 } from './tokens';
 import { INSTANCE_BASE_URL_KEY, gbToBytes, redactPeer, type PeerPublic } from './types';
 import fs from 'fs/promises';
+import path from 'path';
+import { peerRecallDir } from './recall';
 import { peerDataDir } from './storage';
-import { listStagedObjects } from './staging';
+import { listStagedObjects, peerStagingDir } from './staging';
 
 /** Uniform public error for invite not found / bad secret / quota / already used. */
 export const PAIRING_FAILED_MESSAGE = 'Pairing failed';
@@ -111,6 +121,167 @@ export async function listPeers(): Promise<PeerPublic[]> {
   return out;
 }
 
+function normalizePeerUrlForCompare(raw: string): string {
+  const trimmed = raw.trim().replace(/\/+$/, '');
+  try {
+    const url = new URL(trimmed);
+    const pathname = url.pathname.replace(/\/+$/, '');
+    return `${url.protocol}//${url.host.toLowerCase()}${pathname}`;
+  } catch {
+    return trimmed.toLowerCase();
+  }
+}
+
+/**
+ * Refuse to pair this instance with itself. The invite code is checked too so a
+ * changed Instance URL does not make a self-invite slip through.
+ */
+async function assertNotOwnInvite(payload: InvitePayload, ourBaseUrl: string): Promise<void> {
+  const ownInvite = await db.query.peerInvites.findFirst({
+    where: eq(peerInvites.code, payload.c),
+  });
+  if (ownInvite) {
+    throw new Error("That's your own invite. Share it with your friend instead.");
+  }
+  if (
+    ourBaseUrl &&
+    payload.u &&
+    normalizePeerUrlForCompare(ourBaseUrl) === normalizePeerUrlForCompare(payload.u)
+  ) {
+    throw new Error("That's your own invite. Share it with your friend instead.");
+  }
+}
+
+async function findExistingPeerForRemote(options: {
+  remotePeerId?: string | null;
+  remoteBaseUrl?: string | null;
+}): Promise<typeof peers.$inferSelect | null> {
+  if (options.remotePeerId) {
+    const byId = await db.query.peers.findFirst({
+      where: eq(peers.remotePeerId, options.remotePeerId),
+    });
+    if (byId) return byId;
+  }
+  if (options.remoteBaseUrl) {
+    const byUrl = await db.query.peers.findFirst({
+      where: eq(peers.remoteBaseUrl, options.remoteBaseUrl),
+    });
+    if (byUrl) return byUrl;
+  }
+  return null;
+}
+
+function formatQuotaGb(bytes: number): string {
+  return `${Math.round((bytes / (1024 * 1024 * 1024)) * 100) / 100} GB`;
+}
+
+export async function renamePeer(peerId: string, name: string): Promise<PeerPublic> {
+  const trimmed = name.trim();
+  if (!trimmed) {
+    throw new Error('Peer name is required');
+  }
+  if (trimmed.length > 80) {
+    throw new Error('Peer name must be 80 characters or fewer');
+  }
+  const updated = await db
+    .update(peers)
+    .set({ name: trimmed, updatedAt: new Date() })
+    .where(eq(peers.id, peerId))
+    .returning();
+  const row = updated[0];
+  if (!row) {
+    throw new Error('Peer not found');
+  }
+  return redactPeer(row);
+}
+
+async function dirBytes(dir: string): Promise<number> {
+  let entries: Awaited<ReturnType<typeof fs.readdir>>;
+  try {
+    entries = await fs.readdir(dir, { withFileTypes: true });
+  } catch {
+    return 0;
+  }
+  let total = 0;
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      total += await dirBytes(full);
+    } else if (entry.isFile()) {
+      total += (await fs.stat(full).catch(() => ({ size: 0 }))).size;
+    }
+  }
+  return total;
+}
+
+export type RemovePeerResult = {
+  removed: true;
+  disabledBackups: number;
+  freedBytes: number;
+};
+
+/**
+ * Fully remove a paired peer from this host:
+ * revoke it (stop dialing), disable backups that point to it, purge staged /
+ * inbound / recall data + rows, and delete the peer row.
+ */
+export async function removePeer(peerId: string): Promise<RemovePeerResult | null> {
+  const peer = await db.query.peers.findFirst({ where: eq(peers.id, peerId) });
+  if (!peer) return null;
+
+  if (peer.status === 'active') {
+    await revokePeer(peerId);
+  }
+
+  const affectedConfigs = await db
+    .select({ id: backupConfigs.id })
+    .from(backupConfigs)
+    .where(eq(backupConfigs.destinationPeerId, peerId));
+  if (affectedConfigs.length > 0) {
+    const { stopBackup } = await import('@/lib/scheduler');
+    for (const config of affectedConfigs) {
+      stopBackup(config.id);
+    }
+    await db
+      .update(backupConfigs)
+      .set({ enabled: false, updatedAt: new Date() })
+      .where(eq(backupConfigs.destinationPeerId, peerId));
+  }
+
+  const dirs = [peerStagingDir(peerId), peerDataDir(peerId), peerRecallDir(peerId)];
+  let freedBytes = 0;
+  for (const dir of dirs) {
+    freedBytes += await dirBytes(dir);
+    await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+
+  // Artifacts of a removed peer can never be recalled again: mark their history
+  // rows so restore fails with a clear reason instead of a missing-peer error.
+  await db
+    .update(backupHistory)
+    .set({
+      artifactRemoved: true,
+      artifactRemovedReason:
+        'This backup was stored on a bro that was removed from Bro Space',
+      mailboxPending: false,
+    })
+    .where(like(backupHistory.artifactPath, `peer://${peerId}/%`));
+
+  await db.delete(peerRecalls).where(eq(peerRecalls.peerId, peerId));
+  await db.delete(peerDeletes).where(eq(peerDeletes.peerId, peerId));
+  await db
+    .update(peerInvites)
+    .set({ peerId: null })
+    .where(eq(peerInvites.peerId, peerId));
+  await db.delete(peers).where(eq(peers.id, peerId));
+
+  return {
+    removed: true,
+    disabledBackups: affectedConfigs.length,
+    freedBytes,
+  };
+}
+
 export async function createInvite(options: {
   label: string;
   quotaGb: number;
@@ -181,11 +352,7 @@ export async function acceptInvite(options: {
   mode?: 'client' | 'host';
 }): Promise<PeerPublic> {
   const payload = decodeInvitePayload(options.inviteCode);
-  const remoteBase = (payload.u || '').replace(/\/+$/, '');
-  const remoteCheck = await validatePeerUrlResolved(remoteBase);
-  if (!remoteCheck.ok) {
-    throw new Error(remoteCheck.error);
-  }
+  const remoteRaw = (payload.u || '').replace(/\/+$/, '');
 
   const mode = options.mode || 'host';
   const ourBaseUrl =
@@ -199,26 +366,47 @@ export async function acceptInvite(options: {
     assertPeerUrlOrThrow(ourBaseUrl);
   }
 
-  const ourInbound = generatePeerToken();
-  const ourPeerId = nanoid();
+  await assertNotOwnInvite(payload, ourBaseUrl);
 
-  const pairUrl = `${remoteCheck.url.replace(/\/+$/, '')}/api/peers/pair`;
-  const res = await pinnedFetch(pairUrl, peerUrlPolicy(), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      code: payload.c,
-      secret: payload.s,
-      acceptor: {
-        peerId: ourPeerId,
-        baseUrl: ourBaseUrl || undefined,
-        mode,
-        label: options.localLabel.trim() || 'LazyBackup',
-        inboundToken: ourInbound.token,
-        quotaBytes: payload.q,
-      },
-    }),
-  });
+  const remoteCheck = await validatePeerUrlResolved(remoteRaw);
+  if (!remoteCheck.ok) {
+    throw new Error(
+      `Cannot use the invite address ${remoteRaw || '(empty)'}: ${remoteCheck.error}. Check the address, use Tailscale, or set ALLOW_PRIVATE_PEER_URLS=true for a LAN address.`
+    );
+  }
+  const remoteBase = remoteCheck.url.replace(/\/+$/, '');
+
+  // Re-pairing the same remote instance must update its peer row (and keep the
+  // existing peer id, staging data, and quota) instead of creating a duplicate.
+  const existingBefore = await findExistingPeerForRemote({ remoteBaseUrl: remoteBase });
+  const ourInbound = generatePeerToken();
+  const ourPeerId = existingBefore?.id ?? nanoid();
+
+  const pairUrl = `${remoteBase}/api/peers/pair`;
+  let res: Response;
+  try {
+    res = await pinnedFetch(pairUrl, peerUrlPolicy(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        code: payload.c,
+        secret: payload.s,
+        acceptor: {
+          peerId: ourPeerId,
+          baseUrl: ourBaseUrl || undefined,
+          mode,
+          label: options.localLabel.trim() || 'LazyBackup',
+          inboundToken: ourInbound.token,
+          quotaBytes: payload.q,
+        },
+      }),
+    });
+  } catch {
+    // Never surface raw socket errors (connect ECONNREFUSED, EAI_AGAIN, …).
+    throw new Error(
+      `Could not reach ${remoteBase}. Check the address, make sure the other instance is online, and use Tailscale or set ALLOW_PRIVATE_PEER_URLS=true if it is on your LAN.`
+    );
+  }
 
   if (!res.ok) {
     const err = await readCappedResponseJson(res, PEER_PAIR_RESPONSE_JSON_LIMIT).catch(
@@ -245,8 +433,13 @@ export async function acceptInvite(options: {
     assertPeerUrlOrThrow(storedRemoteUrl);
   }
 
-  await db.insert(peers).values({
-    id: ourPeerId,
+  const existing =
+    (await findExistingPeerForRemote({
+      remotePeerId: remote.peerId,
+      remoteBaseUrl: storedRemoteUrl,
+    })) ?? existingBefore;
+  const peerId = existing?.id ?? ourPeerId;
+  const values = {
     name: remote.label || payload.n || 'Bro',
     remoteBaseUrl: storedRemoteUrl,
     remotePeerId: remote.peerId,
@@ -254,16 +447,25 @@ export async function acceptInvite(options: {
     inboundTokenHash: ourInbound.hash,
     inboundTokenPrefix: ourInbound.prefix,
     quotaBytes: payload.q,
-    usedBytes: 0,
-    transport: 'mailbox',
-    status: 'active',
-    createdAt: new Date(),
+    transport: 'mailbox' as const,
+    status: 'active' as const,
     updatedAt: new Date(),
-  });
+  };
 
-  await fs.mkdir(peerDataDir(ourPeerId), { recursive: true });
+  if (existing) {
+    await db.update(peers).set(values).where(eq(peers.id, existing.id));
+  } else {
+    await db.insert(peers).values({
+      id: peerId,
+      ...values,
+      usedBytes: 0,
+      createdAt: new Date(),
+    });
+  }
 
-  const row = await db.query.peers.findFirst({ where: eq(peers.id, ourPeerId) });
+  await fs.mkdir(peerDataDir(peerId), { recursive: true });
+
+  const row = await db.query.peers.findFirst({ where: eq(peers.id, peerId) });
   if (!row) throw new Error('Failed to create peer');
   return redactPeer(row);
 }
@@ -328,7 +530,10 @@ export async function completePairFromAcceptor(body: {
     throw new Error('Invite has expired. Ask your bro for a new one.');
   }
   if (body.acceptor.quotaBytes !== invite.quotaBytes) {
-    throw new Error(PAIRING_FAILED_MESSAGE);
+    // Secret already verified above, so it is safe to explain the mismatch.
+    throw new Error(
+      `Quota mismatch: the invite is for ${formatQuotaGb(invite.quotaBytes)} but the pairing request offered ${formatQuotaGb(body.acceptor.quotaBytes)}. Ask for a new invite.`
+    );
   }
 
   const mode = body.acceptor.mode || 'host';
@@ -339,14 +544,35 @@ export async function completePairFromAcceptor(body: {
   if (mode === 'host') {
     const urlCheck = await validatePeerUrlResolved(acceptorUrl);
     if (!urlCheck.ok) {
-      throw new Error(urlCheck.error);
+      throw new Error(
+        `Cannot use the accepting instance address ${acceptorUrl}: ${urlCheck.error}. Use Tailscale or set ALLOW_PRIVATE_PEER_URLS=true for a LAN address.`
+      );
     }
   }
 
   const ourInbound = generatePeerToken();
-  const ourPeerId = nanoid();
   const ourBase = invite.localBaseUrl;
   const storedAcceptorUrl = mode === 'client' ? '' : acceptorUrl;
+
+  // Re-pairing the same remote instance updates its row instead of creating a
+  // duplicate (the acceptor may have rotated its token/keys).
+  const existing = await findExistingPeerForRemote({
+    remotePeerId: body.acceptor.peerId,
+    remoteBaseUrl: storedAcceptorUrl,
+  });
+  const ourPeerId = existing?.id ?? nanoid();
+  const values = {
+    name: body.acceptor.label || 'Bro',
+    remoteBaseUrl: storedAcceptorUrl,
+    remotePeerId: body.acceptor.peerId,
+    outboundToken: body.acceptor.inboundToken,
+    inboundTokenHash: ourInbound.hash,
+    inboundTokenPrefix: ourInbound.prefix,
+    quotaBytes: invite.quotaBytes,
+    transport: 'mailbox' as const,
+    status: 'active' as const,
+    updatedAt: new Date(),
+  };
 
   await db.transaction(async (tx) => {
     const claimed = await consumePendingInvite(invite.id, tx);
@@ -354,21 +580,16 @@ export async function completePairFromAcceptor(body: {
       throw new Error(PAIRING_FAILED_MESSAGE);
     }
 
-    await tx.insert(peers).values({
-      id: ourPeerId,
-      name: body.acceptor.label || 'Bro',
-      remoteBaseUrl: storedAcceptorUrl,
-      remotePeerId: body.acceptor.peerId,
-      outboundToken: body.acceptor.inboundToken,
-      inboundTokenHash: ourInbound.hash,
-      inboundTokenPrefix: ourInbound.prefix,
-      quotaBytes: invite.quotaBytes,
-      usedBytes: 0,
-      transport: 'mailbox',
-      status: 'active',
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
+    if (existing) {
+      await tx.update(peers).set(values).where(eq(peers.id, existing.id));
+    } else {
+      await tx.insert(peers).values({
+        id: ourPeerId,
+        ...values,
+        usedBytes: 0,
+        createdAt: new Date(),
+      });
+    }
 
     await tx
       .update(peerInvites)

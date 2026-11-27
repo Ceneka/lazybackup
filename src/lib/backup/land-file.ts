@@ -156,7 +156,14 @@ export async function landLocalFileArtifact(options: {
       };
     }
 
-    const { writeStagedObject } = await import('@/lib/peer/staging');
+    const { writeStagedObject, assertStagingQuota } = await import('@/lib/peer/staging');
+    const localStat = await fs.stat(localFilePath);
+    await assertStagingQuota({
+      peerId: peer.id,
+      quotaBytes: peer.quotaBytes,
+      additionalBytes: localStat.size,
+      replacingObjectKey: objectKey,
+    });
     const staged = await writeStagedObject(peer.id, objectKey, localFilePath);
     return {
       artifactPath: `peer://${peer.id}/${objectKey}`,

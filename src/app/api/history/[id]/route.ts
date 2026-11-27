@@ -59,7 +59,22 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
-    
+
+    // Peer artifacts live on the friend's disk: queue a mailbox delete before
+    // dropping the row, so the friend's storage is freed on the next sync.
+    const existing = await db.query.backupHistory.findFirst({
+      where: eq(backupHistory.id, id),
+      columns: { id: true, artifactPath: true, artifactRemoved: true },
+    });
+    if (existing) {
+      try {
+        const { enqueuePeerDeleteForHistory } = await import('@/lib/peer/retention');
+        await enqueuePeerDeleteForHistory(existing);
+      } catch (peerError) {
+        console.warn('Failed to queue peer delete for history entry:', peerError);
+      }
+    }
+
     // Delete the history entry
     const deletedHistoryEntry = await db
       .delete(backupHistory)

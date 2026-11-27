@@ -2157,6 +2157,30 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
           }
         : archiveStats ?? parseRsyncOutput(backupResult.stdout);
 
+    // Non-versioned peer destinations reuse the same object key. Older rows for
+    // this key no longer describe what the friend stores; mark them removed
+    // with a clear reason (and drop any stale delete queued for the key).
+    if (destinationKind === 'peer' && !config.enableVersioning) {
+      try {
+        const {
+          parsePeerArtifactPath,
+          markSupersededPeerHistory,
+          clearPeerDeletesForNewLanding,
+        } = await import('@/lib/peer/retention');
+        const parsedPeer = parsePeerArtifactPath(artifactPath);
+        if (parsedPeer) {
+          await clearPeerDeletesForNewLanding(parsedPeer.peerId, parsedPeer.objectKey);
+          await markSupersededPeerHistory({
+            peerId: parsedPeer.peerId,
+            objectKey: parsedPeer.objectKey,
+            currentHistoryId: historyId,
+          });
+        }
+      } catch (error) {
+        console.warn('Failed to mark superseded peer history:', error);
+      }
+    }
+
     await updateBackupHistorySuccess(historyId, {
       ...parsedOutput,
       logOutput: combineBackupLog(

@@ -271,6 +271,10 @@ export async function runMigration() {
         sql`ALTER TABLE backup_history ADD COLUMN artifact_removed INTEGER NOT NULL DEFAULT 0`
       );
     }
+    // bro-lifecycle: reason for artifactRemoved (retention vs non-versioned overwrite)
+    if (!historyColumns.includes('artifact_removed_reason')) {
+      await db.run(sql`ALTER TABLE backup_history ADD COLUMN artifact_removed_reason TEXT`);
+    }
 
     // S3-compatible profiles + backup_configs FKs
     await db.run(sql`
