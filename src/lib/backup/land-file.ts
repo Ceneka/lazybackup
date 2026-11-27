@@ -47,6 +47,13 @@ export async function landLocalFileArtifact(options: {
   s3DestinationPrefix?: string | null;
   destinationPeer?: PeerRow | null;
   peerPrefix?: string;
+  /**
+   * A non-versioned peer destination reuses one object key. Clear any
+   * retention delete still queued for that key *before* the new object becomes
+   * visible to the peer's sync worker, otherwise the worker can honor the old
+   * delete, drop the just-staged bytes, and ACK it as if it were the old copy.
+   */
+  clearStalePeerDeletes?: boolean;
 }): Promise<{
   artifactPath: string;
   usedMethod: string;
@@ -156,6 +163,13 @@ export async function landLocalFileArtifact(options: {
       };
     }
 
+    if (options.clearStalePeerDeletes) {
+      // Must happen before writeStagedObject: the sync worker lists staged
+      // objects concurrently, and a pending delete for this reused key would
+      // otherwise remove the new staging file and complete its ACK.
+      const { clearPeerDeletesForNewLanding } = await import('@/lib/peer/retention');
+      await clearPeerDeletesForNewLanding(peer.id, objectKey);
+    }
     const { writeStagedObject, assertStagingQuota } = await import('@/lib/peer/staging');
     const localStat = await fs.stat(localFilePath);
     await assertStagingQuota({
