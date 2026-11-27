@@ -1,5 +1,6 @@
 import { ensureRemoteDirectory } from '@/lib/ssh/ephemeral';
 import { remotePathShellWord } from '@/lib/ssh/rsync';
+import type { NodeSSH } from 'node-ssh';
 import {
   formatVersionDirName,
   parseVersionDirName,
@@ -31,7 +32,7 @@ export async function createUniqueRemoteVersionDir(
   timestamp: string
 ): Promise<string> {
   const base = baseDir.replace(/\/+$/, '') || '/';
-  await ensureRemoteDirectory(ssh as never, base);
+  await ensureRemoteDirectory(ssh as unknown as NodeSSH, base);
 
   for (let ordinal = 1; ordinal <= 10_000; ordinal += 1) {
     const candidate = `${base}/${formatVersionDirName(timestamp, ordinal)}`;
