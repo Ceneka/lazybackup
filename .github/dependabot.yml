@@ -1,13 +1,12 @@
 version: 2
 updates:
-  - package-ecosystem: github-actions
-    directory: /
-    schedule:
-      interval: weekly
+  # GitHub Actions are pinned by major tag (@vN) and bumped by hand when the
+  # workflow is touched — Dependabot only ever proposed major bumps and each PR
+  # burned a full CI suite for a one-line YAML change.
   - package-ecosystem: docker
     directory: /
     schedule:
-      interval: weekly
+      interval: monthly
   # Every JS manifest here is managed by bun.lock, so the ecosystem has to be
   # `bun`: with `npm_and_yarn` Dependabot fails with misconfigured_tooling
   # ("cannot update bun.lock"), including for security updates.

@@ -20,6 +20,15 @@ permissions:
   contents: read
   actions: write
 
+# A new push to the same ref supersedes the old run (no queued duplicate suites
+# after a few quick pushes to main). Tags live in their own group, so a release
+# build is never cancelled by a main push.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# Runs: PR → test + bro-test (fast). main → + docker-alpine. v* tag → + arm64,
+# publish, release notes. Nothing is pushed to GHCR before a tag.
 jobs:
   # Host glibc unit tests (fast fail). Alpine/musl is a separate job because
   # native addons (@libsql, argon2) can pass here and fail in the GHCR image.
@@ -65,7 +74,10 @@ jobs:
 
   # Production image is Alpine/musl — catch native addon / NFT gaps host glibc misses.
   # amd64 only here so we can --load and smoke; GHA cache feeds the tag-time push.
+  # PRs stop after the host tests; main runs the full image build (the tag-time
+  # publish reuses this GHA cache).
   docker-alpine:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: read
