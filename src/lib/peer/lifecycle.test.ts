@@ -408,6 +408,24 @@ describe('removePeer', () => {
     expect(await fs.stat(path.join(tmp, 'peers-recall', 'peer_old')).catch(() => null)).toBeNull();
   });
 
+  test('does not flag another peer history when the id contains a LIKE wildcard', async () => {
+    await insertPeer({ id: 'peer_a_b', name: 'Underscore' });
+    await insertPeer({ id: 'peer_aXb', name: 'Other' });
+    await client.execute(
+      `INSERT INTO backup_history (id, artifact_path) VALUES
+        ('h-under', 'peer://peer_a_b/old.age'),
+        ('h-other', 'peer://peer_aXb/keep.age')`
+    );
+
+    await removePeer('peer_a_b');
+
+    const rows = await client.execute(
+      'SELECT id, artifact_removed FROM backup_history ORDER BY id'
+    );
+    expect(rows.rows.find((row) => row.id === 'h-under')?.artifact_removed).toBe(1);
+    expect(rows.rows.find((row) => row.id === 'h-other')?.artifact_removed).toBe(0);
+  });
+
   test('returns null for an unknown peer', async () => {
     expect(await removePeer('missing')).toBeNull();
   });
