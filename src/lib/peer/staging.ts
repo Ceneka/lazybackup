@@ -1,5 +1,5 @@
 import fs from 'fs/promises';
-import { createReadStream } from 'fs';
+import { createReadStream, type Dirent } from 'fs';
 import { randomBytes } from 'crypto';
 import path from 'path';
 import { sha256File } from './digest';
@@ -53,7 +53,7 @@ export function peerStagingTempPath(peerId: string, _objectKey: string): string 
 
 async function dirSize(dir: string): Promise<number> {
   let total = 0;
-  let entries: Awaited<ReturnType<typeof fs.readdir>>;
+  let entries: Dirent[];
   try {
     entries = await fs.readdir(dir, { withFileTypes: true });
   } catch {
@@ -188,7 +188,7 @@ export async function listStagedObjects(
   const out: Array<{ key: string; size: number; mtime: string }> = [];
 
   async function walk(dir: string, prefix: string) {
-    let entries: Awaited<ReturnType<typeof fs.readdir>>;
+    let entries: Dirent[];
     try {
       entries = await fs.readdir(dir, { withFileTypes: true });
     } catch {

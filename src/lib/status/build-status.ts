@@ -6,6 +6,8 @@ export type StatusCheck = {
   title: string
   detail: string
   href?: string
+  /** Action-oriented link text; falls back to a severity-based label in the UI. */
+  linkLabel?: string
 }
 
 export type StatusSnapshot = {
@@ -81,7 +83,7 @@ export function buildStatusChecks(s: StatusSnapshot): StatusCheck[] {
       title: 'Dashboard is unlocked',
       detail:
         'Anyone who can reach this URL can manage backups and secrets. Set an app password or register a passkey.',
-      href: '/settings',
+      href: '/settings?tab=general#app-password',
     })
   } else {
     if (s.auth.hasPassword && s.auth.passkeyCount > 0) {
@@ -90,7 +92,7 @@ export function buildStatusChecks(s: StatusSnapshot): StatusCheck[] {
         severity: 'ok',
         title: 'Password and passkey protect login',
         detail: `${s.auth.passkeyCount} passkey${s.auth.passkeyCount === 1 ? '' : 's'} registered alongside the app password.`,
-        href: '/settings',
+        href: '/settings?tab=general#app-password',
       })
     } else if (s.auth.passkeyCount > 0) {
       checks.push({
@@ -98,7 +100,7 @@ export function buildStatusChecks(s: StatusSnapshot): StatusCheck[] {
         severity: 'ok',
         title: 'Passkey login enabled',
         detail: `${s.auth.passkeyCount} passkey${s.auth.passkeyCount === 1 ? '' : 's'} — consider adding a password as a fallback.`,
-        href: '/settings',
+        href: '/settings?tab=general#app-password',
       })
     } else {
       checks.push({
@@ -106,7 +108,7 @@ export function buildStatusChecks(s: StatusSnapshot): StatusCheck[] {
         severity: 'info',
         title: 'App password protects login',
         detail: 'A passkey adds phishing-resistant unlock on this device.',
-        href: '/settings',
+        href: '/settings?tab=general#app-password',
       })
     }
   }
@@ -118,7 +120,7 @@ export function buildStatusChecks(s: StatusSnapshot): StatusCheck[] {
       title: 'Session cookie is not marked Secure',
       detail:
         'Fine on a trusted LAN. Set AUTH_COOKIE_SECURE=true when serving over HTTPS.',
-      href: '/settings',
+      href: '/settings?tab=general#app-password',
     })
   }
 
@@ -207,6 +209,7 @@ export function buildStatusChecks(s: StatusSnapshot): StatusCheck[] {
       detail:
         'Create an instance backup so SQLite, age keys, and SSH keys can be recovered if this host dies.',
       href: '/backups/new?source=lazybackup_instance',
+      linkLabel: 'Create instance backup',
     })
   } else {
     if (s.instanceBackup.enabledCount === 0) {
@@ -275,7 +278,7 @@ export function buildStatusChecks(s: StatusSnapshot): StatusCheck[] {
       severity: 'info',
       title: 'No failure webhook',
       detail: 'Optional — get notified when a scheduled backup fails.',
-      href: '/settings',
+      href: '/settings?tab=general#failure-webhook',
     })
   } else if (s.notifications.failureWebhookConfigured) {
     checks.push({
@@ -283,7 +286,8 @@ export function buildStatusChecks(s: StatusSnapshot): StatusCheck[] {
       severity: 'ok',
       title: 'Failure webhook configured',
       detail: 'Failed backups can notify Discord, Telegram, ntfy, or any HTTP endpoint.',
-      href: '/settings',
+      href: '/settings?tab=general#failure-webhook',
+      linkLabel: 'Manage notifications',
     })
   }
 
@@ -303,7 +307,11 @@ export function buildStatusChecks(s: StatusSnapshot): StatusCheck[] {
         extra > 0
           ? `${names}, and ${extra} more — last run is older than one schedule interval.`
           : `${names} — last run is older than one schedule interval.`,
-      href: '/history',
+      href:
+        s.backups.overdueSchedules.length === 1
+          ? `/backups/${s.backups.overdueSchedules[0].id}`
+          : '/backups',
+      linkLabel: 'Review backups',
     })
   }
 
@@ -314,7 +322,8 @@ export function buildStatusChecks(s: StatusSnapshot): StatusCheck[] {
       severity: 'warn',
       title: 'Recent backup failures',
       detail: `${s.backups.failedLast24h} failed run${s.backups.failedLast24h === 1 ? '' : 's'} in the last 24 hours.`,
-      href: '/history',
+      href: '/history?status=failed',
+      linkLabel: 'See failures',
     })
   } else if (s.backups.enabled > 0) {
     checks.push({
@@ -323,6 +332,7 @@ export function buildStatusChecks(s: StatusSnapshot): StatusCheck[] {
       title: 'No failures in the last 24 hours',
       detail: `${s.backups.enabled} enabled backup${s.backups.enabled === 1 ? '' : 's'}.`,
       href: '/history',
+      linkLabel: 'View history',
     })
   }
 
@@ -332,7 +342,7 @@ export function buildStatusChecks(s: StatusSnapshot): StatusCheck[] {
       id: 'servers-password-only',
       severity: 'warn',
       title: 'Servers using password-only SSH',
-      detail: `${s.servers.passwordOnlyCount} server${s.servers.passwordOnlyCount === 1 ? '' : 's'} lack an SSH key — path transfers need a key on each endpoint.`,
+      detail: `${s.servers.passwordOnlyCount} ${s.servers.passwordOnlyCount === 1 ? 'server lacks' : 'servers lack'} an SSH key — path transfers need a key on each endpoint.`,
       href: '/servers',
     })
   } else if (s.servers.total > 0) {
@@ -373,6 +383,7 @@ export function buildStatusChecks(s: StatusSnapshot): StatusCheck[] {
       title: 'Update available',
       detail: `Running ${currentLabel}; latest is ${latestLabel}.`,
       href: s.update.htmlUrl,
+      linkLabel: 'View release',
     })
   }
 

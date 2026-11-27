@@ -13,8 +13,19 @@ const badgeVariants = cva(
         secondary:
           "border-transparent bg-secondary text-secondary-foreground hover:bg-secondary/80",
         destructive:
-          "border-transparent bg-destructive text-destructive-foreground hover:bg-destructive/80",
+          "border-transparent bg-destructive text-white hover:bg-destructive/80",
         outline: "text-foreground",
+        // Tonal status variants: tinted background + matching foreground with
+        // AA contrast in light and dark mode. Prefer these over overriding
+        // `bg-*` on the default variant (which keeps white text).
+        success:
+          "border-transparent bg-emerald-500/15 text-emerald-700 ring-1 ring-inset ring-emerald-500/30 dark:bg-emerald-400/10 dark:text-emerald-300 dark:ring-emerald-400/25",
+        warning:
+          "border-transparent bg-amber-500/15 text-amber-800 ring-1 ring-inset ring-amber-500/30 dark:bg-amber-400/10 dark:text-amber-300 dark:ring-amber-400/25",
+        info:
+          "border-transparent bg-sky-500/15 text-sky-700 ring-1 ring-inset ring-sky-500/30 dark:bg-sky-400/10 dark:text-sky-300 dark:ring-sky-400/25",
+        muted:
+          "border-transparent bg-muted text-muted-foreground ring-1 ring-inset ring-border",
       },
     },
     defaultVariants: {

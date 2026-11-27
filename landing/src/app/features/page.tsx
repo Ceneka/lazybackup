@@ -12,14 +12,14 @@ import { SiteHeader } from "@/components/landing/site-header";
 export const metadata: Metadata = {
   title: "Features",
   description:
-    "Technical reference for LazyBackup: From→To endpoints, validate before run, failure webhooks, age vault, Bro Space, Status posture, passkeys, MCP.",
+    "Technical reference for LazyBackup: From→To endpoints, backup health, pause/resume, safer restores, validate, failure webhooks, age vault, Bro Space, MCP.",
   alternates: {
     canonical: "/features",
   },
   openGraph: {
     title: "Features · LazyBackup",
     description:
-      "Endpoints, validate before run, failure webhooks, age vault, Bro Space, Status checks, passkeys, and MCP—reference-style.",
+      "Endpoints, backup health, pause/resume, safer restores, validate, failure webhooks, age vault, Bro Space, and MCP—reference-style.",
     type: "website",
     url: `${SITE_URL}/features`,
     images: [OG_IMAGE],
@@ -28,7 +28,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "Features · LazyBackup",
     description:
-      "Validate before run, failure webhooks, From→To endpoints, age vault, Bro Space, MCP—reference-style.",
+      "From→To endpoints, health at a glance, pause/resume, safer restores, age vault, Bro Space, and MCP—reference-style.",
     images: [OG_IMAGE.url],
   },
 };
@@ -49,8 +49,26 @@ export default function FeaturesPage() {
           </h1>
           <p className="mt-4 max-w-2xl text-base leading-relaxed text-slate-400">
             Reference for what the self-hosted app implements today. Prefer this
-            page over marketing blurbs when wiring backups, validate, webhooks,
-            encryption, or MCP.
+            page over marketing blurbs when wiring backups, health checks,
+            restores, validation, webhooks, encryption, or MCP.
+          </p>
+          <p className="mt-3 max-w-2xl text-sm text-slate-500">
+            v0.3.0 adds health at a glance, pause/resume, safer restores, and
+            connection readiness—see the{" "}
+            <Link
+              href="/changelog"
+              className="text-emerald-300 transition hover:text-emerald-200"
+            >
+              changelog
+            </Link>{" "}
+            or the{" "}
+            <Link
+              href="/blog/lazybackup-0-3-0-ui-ux"
+              className="text-emerald-300 transition hover:text-emerald-200"
+            >
+              release notes
+            </Link>
+            .
           </p>
           <nav
             aria-label="Feature sections"

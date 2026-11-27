@@ -7,6 +7,7 @@ import {
   type BackupFormData,
 } from "@/components/backup-config-form"
 import { ResourceEditLayout } from "@/components/resource-detail-layout"
+import { ApiError, readApiError } from "@/lib/api/client-error"
 import { QueryState } from "@/components/ui/query-state"
 import { useBackup, backupKeys } from "@/lib/hooks/useBackups"
 import { Server } from "@/lib/hooks/useServers"
@@ -42,16 +43,14 @@ export default function EditBackupPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(formDataToPayload(data)),
       })
-      const body = await response.json()
       if (!response.ok) {
-        throw new Error(body.error || "Failed to update backup")
+        const { message, fieldErrors } = await readApiError(response)
+        throw new ApiError(message, { status: response.status, fieldErrors })
       }
       await queryClient.invalidateQueries({ queryKey: ["backups"] })
       await queryClient.invalidateQueries({ queryKey: backupKeys.detail(backupId) })
       toast.success("Backup updated")
       router.push(`/backups/${backupId}`)
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to update backup")
     } finally {
       setSaving(false)
     }

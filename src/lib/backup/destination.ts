@@ -103,6 +103,36 @@ export function suggestDestinationPath(options: {
   return `${root}/${serverSlug}/${backupSlug}`;
 }
 
+/**
+ * True when an absolute local path lies inside one of the allowed storage roots.
+ * Relative paths and `~` paths are treated as unknown (`true`) because the browser
+ * cannot resolve them against the server's working directory / home directory.
+ */
+export function isLocalPathInsideStorageRoots(
+  localPath: string,
+  roots: string[]
+): boolean {
+  const trimmed = localPath.trim();
+  if (!trimmed || trimmed.startsWith('~')) {
+    return true;
+  }
+  const isAbsolute = trimmed.startsWith('/') || /^[a-zA-Z]:[\\/]/.test(trimmed);
+  if (!isAbsolute) {
+    return true;
+  }
+  const normalize = (value: string): string =>
+    value.replace(/\\/g, '/').replace(/\/+$/, '') || '/';
+  const target = normalize(trimmed);
+  return roots.some((root) => {
+    const allowed = normalize(root);
+    return (
+      allowed === '/' ||
+      target === allowed ||
+      target.startsWith(`${allowed}/`)
+    );
+  });
+}
+
 /** Normalized key for comparing local destinations (resolved + no trailing slash). */
 export function destinationCompareKey(destinationPath: string): string {
   return resolveLocalBackupPath(destinationPath);

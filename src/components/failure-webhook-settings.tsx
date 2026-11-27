@@ -4,6 +4,7 @@ import { LoadingButton } from "@/components/ui/loading-button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
+import { ConfirmActionDialog } from "@/components/settings/confirm-action-dialog"
 import {
   WEBHOOK_PRESETS,
   WEBHOOK_TAG_KEYS,
@@ -11,7 +12,7 @@ import {
   type WebhookPreset,
 } from "@/lib/notify/presets"
 import { useSettings } from "@/lib/hooks/useSettings"
-import { useQueryClient } from "@tanstack/react-query"
+import { cn } from "@/lib/utils"
 import { useEffect, useState } from "react"
 import { toast } from "sonner"
 
@@ -19,54 +20,66 @@ type Props = {
   settings: ReturnType<typeof useSettings>
 }
 
-async function postSetting(key: string, value: string) {
-  const response = await fetch("/api/settings", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ key, value }),
-  })
-  if (!response.ok) {
-    const data = await response.json().catch(() => ({}))
-    throw new Error(data.error || "Failed to update setting")
-  }
-}
-
 export function FailureWebhookSettings({ settings }: Props) {
-  const queryClient = useQueryClient()
-  const [url, setUrl] = useState("")
-  const [method, setMethod] = useState<WebhookHttpMethod>("POST")
-  const [headers, setHeaders] = useState("")
-  const [body, setBody] = useState("")
+  const savedUrl = settings.settings.failureWebhookUrl || ""
+  const savedMethod = (() => {
+    const m = (settings.settings.failureWebhookMethod || "POST").toUpperCase()
+    return (m === "GET" || m === "PUT" ? m : "POST") as WebhookHttpMethod
+  })()
+  const savedHeaders = settings.settings.failureWebhookHeaders || ""
+  const savedBody = settings.settings.failureWebhookBody || ""
+
+  const [url, setUrl] = useState(savedUrl)
+  const [method, setMethod] = useState<WebhookHttpMethod>(savedMethod)
+  const [headers, setHeaders] = useState(savedHeaders)
+  const [body, setBody] = useState(savedBody)
+  const [activePreset, setActivePreset] = useState<WebhookPreset | null>(null)
+  const [confirmReplace, setConfirmReplace] = useState(false)
   const [testLoading, setTestLoading] = useState(false)
 
   useEffect(() => {
-    if (!settings.settings) return
-    setUrl(settings.settings.failureWebhookUrl || "")
-    const m = (settings.settings.failureWebhookMethod || "POST").toUpperCase()
-    setMethod(m === "GET" || m === "PUT" ? m : "POST")
-    setHeaders(settings.settings.failureWebhookHeaders || "")
-    setBody(settings.settings.failureWebhookBody || "")
-  }, [settings.settings])
+    setUrl(savedUrl)
+    setMethod(savedMethod)
+    setHeaders(savedHeaders)
+    setBody(savedBody)
+  }, [savedUrl, savedMethod, savedHeaders, savedBody])
 
-  const save = (key: string, value: string) => {
-    settings.updateSetting.mutate({ key, value })
-  }
+  const dirty =
+    url.trim() !== savedUrl ||
+    method !== savedMethod ||
+    headers !== savedHeaders ||
+    body !== savedBody
+  const hasExistingConfig = Boolean(savedUrl || savedHeaders || savedBody)
 
-  const applyPreset = async (preset: WebhookPreset) => {
+  const applyPreset = (preset: WebhookPreset) => {
     setUrl(preset.url)
     setMethod(preset.method)
     setHeaders(preset.headers)
     setBody(preset.body)
-    try {
-      await postSetting("failureWebhookUrl", preset.url)
-      await postSetting("failureWebhookMethod", preset.method)
-      await postSetting("failureWebhookHeaders", preset.headers)
-      await postSetting("failureWebhookBody", preset.body)
-      await queryClient.invalidateQueries({ queryKey: ["settings"] })
-      toast.success(`Applied ${preset.name} preset — edit placeholders before testing`)
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to apply preset")
+    setActivePreset(preset)
+  }
+
+  const save = async () => {
+    await settings.updateSettings.mutateAsync({
+      values: {
+        failureWebhookUrl: url.trim(),
+        failureWebhookMethod: method,
+        failureWebhookHeaders: headers,
+        failureWebhookBody: body,
+      },
+      label: "Failure webhook",
+    })
+    setActivePreset(null)
+  }
+
+  const requestSave = () => {
+    if (hasExistingConfig && dirty) {
+      setConfirmReplace(true)
+      return
     }
+    void save().catch(() => {
+      // toast in hook
+    })
   }
 
   const handleTest = async () => {
@@ -98,21 +111,42 @@ export function FailureWebhookSettings({ settings }: Props) {
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
         Use <code className="text-xs">{"{{tags}}"}</code> in the URL, headers, or body.
-        Empty URL disables notifications.
+        Empty URL disables notifications. Changes are not saved until you click{" "}
+        <strong>Save webhook settings</strong>.
       </p>
 
-      <div className="flex flex-wrap gap-2">
-        {WEBHOOK_PRESETS.map((preset) => (
-          <button
-            key={preset.id}
-            type="button"
-            title={preset.description}
-            onClick={() => void applyPreset(preset)}
-            className="rounded-md border bg-background px-2.5 py-1 text-xs font-medium hover:bg-accent hover:text-accent-foreground"
-          >
-            {preset.name}
-          </button>
-        ))}
+      <div className="space-y-2">
+        <div className="flex flex-wrap gap-2">
+          {WEBHOOK_PRESETS.map((preset) => (
+            <button
+              key={preset.id}
+              type="button"
+              title={preset.description}
+              aria-pressed={activePreset?.id === preset.id}
+              onClick={() => applyPreset(preset)}
+              className={cn(
+                "rounded-md border bg-background px-2.5 py-1 text-xs font-medium hover:bg-accent hover:text-accent-foreground",
+                activePreset?.id === preset.id && "border-primary bg-primary/10"
+              )}
+            >
+              {preset.name}
+            </button>
+          ))}
+        </div>
+        {activePreset ? (
+          <div className="rounded-md border bg-muted/40 px-3 py-2 text-xs">
+            <p className="font-medium text-foreground">{activePreset.name}</p>
+            <p className="mt-0.5 text-muted-foreground">{activePreset.description}</p>
+            <p className="mt-1 text-muted-foreground">
+              Filled into the form only — review the placeholders and click Save
+              to apply.
+            </p>
+          </div>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            Presets only fill this form; nothing is saved until you click Save.
+          </p>
+        )}
       </div>
 
       <div className="grid gap-4 sm:grid-cols-[7rem_1fr]">
@@ -121,11 +155,7 @@ export function FailureWebhookSettings({ settings }: Props) {
           <select
             id="failureWebhookMethod"
             value={method}
-            onChange={(e) => {
-              const next = e.target.value as WebhookHttpMethod
-              setMethod(next)
-              save("failureWebhookMethod", next)
-            }}
+            onChange={(e) => setMethod(e.target.value as WebhookHttpMethod)}
             className="mt-1 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           >
             <option value="POST">POST</option>
@@ -140,7 +170,6 @@ export function FailureWebhookSettings({ settings }: Props) {
             type="text"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
-            onBlur={(e) => save("failureWebhookUrl", e.target.value.trim())}
             placeholder="https://hooks.example.com/… or Kuma push URL"
             className="mt-1"
           />
@@ -153,7 +182,6 @@ export function FailureWebhookSettings({ settings }: Props) {
           id="failureWebhookHeaders"
           value={headers}
           onChange={(e) => setHeaders(e.target.value)}
-          onBlur={(e) => save("failureWebhookHeaders", e.target.value)}
           placeholder={"Content-Type: application/json\nAuthorization: Bearer …"}
           className="mt-1 min-h-[88px] font-mono text-xs"
         />
@@ -168,7 +196,6 @@ export function FailureWebhookSettings({ settings }: Props) {
           id="failureWebhookBody"
           value={body}
           onChange={(e) => setBody(e.target.value)}
-          onBlur={(e) => save("failureWebhookBody", e.target.value)}
           placeholder='Leave empty for default JSON, or e.g. {"content":"{{backupName}}: {{errorMessage}}"}'
           className="mt-1 min-h-[120px] font-mono text-xs"
           disabled={method === "GET"}
@@ -187,16 +214,49 @@ export function FailureWebhookSettings({ settings }: Props) {
         </p>
       </div>
 
-      <LoadingButton
-        variant="outline"
-        size="sm"
-        onClick={() => void handleTest()}
-        isLoading={testLoading}
-        loadingText="Sending…"
-        disabled={!url.trim()}
-      >
-        Send test notification
-      </LoadingButton>
+      <div className="flex flex-wrap items-center gap-2">
+        <LoadingButton
+          type="button"
+          onClick={requestSave}
+          isLoading={settings.updateSettings.isPending}
+          loadingText="Saving…"
+          disabled={!dirty}
+        >
+          Save webhook settings
+        </LoadingButton>
+        <LoadingButton
+          variant="outline"
+          size="sm"
+          onClick={() => void handleTest()}
+          isLoading={testLoading}
+          loadingText="Sending…"
+          disabled={!url.trim()}
+        >
+          Send test notification
+        </LoadingButton>
+        {dirty ? (
+          <span className="text-xs text-muted-foreground">Unsaved changes</span>
+        ) : (
+          <span className="text-xs text-muted-foreground">Saved</span>
+        )}
+      </div>
+
+      <ConfirmActionDialog
+        open={confirmReplace}
+        onOpenChange={setConfirmReplace}
+        hideTrigger
+        title="Replace the current failure webhook?"
+        description={
+          <>
+            The saved webhook at{" "}
+            <code className="break-all">{savedUrl || "an existing configuration"}</code>{" "}
+            will be replaced with the values currently in this form.
+          </>
+        }
+        confirmLabel="Replace webhook"
+        pendingLabel="Saving…"
+        onConfirm={save}
+      />
     </div>
   )
 }

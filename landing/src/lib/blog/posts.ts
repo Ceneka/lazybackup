@@ -21,6 +21,201 @@ export type BlogPost = {
 
 export const posts: BlogPost[] = [
   {
+    slug: "lazybackup-0-3-0-ui-ux",
+    title: "LazyBackup 0.3.0: a UI that tells you what needs attention",
+    description:
+      "The 0.3.0 UI/UX pass: health at a glance, one-click Pause/Resume, safer restores, navigable history, connection readiness, and settings with an explicit Save.",
+    date: "2026-11-21",
+    dateLabel: "Nov 21, 2026",
+    readingMinutes: 7,
+    tags: ["release", "ui", "product"],
+    cover: {
+      src: "/screenshots/backup-detail.png",
+      alt: "Backup detail page with a live Running since banner, a Pause button, and encryption and file-retention rows",
+    },
+    body: [
+      {
+        type: "p",
+        text: "0.3.0 is an app-wide UI/UX pass. We audited every screen—dashboard, backups, history, connections, settings, dialogs—and fixed roughly 90 issues. The From → To model did not change: same jobs, same artifacts, same history. What changed is what the UI tells you, and how hard it is to do the wrong thing.",
+      },
+      {
+        type: "callout",
+        text: "This is a UI release. No database migration, no config rewrite, no new required settings—pull the image and reload.",
+      },
+      {
+        type: "h2",
+        text: "Health at a glance",
+      },
+      {
+        type: "p",
+        text: "The dashboard now answers the operator question directly: am I protected? It shows the last successful backup, whether schedules are overdue, and a short Needs attention list of jobs that missed their window. If every backup is disabled, an amber banner says nothing will run on schedule. Bro runs still waiting for the peer no longer look like they landed.",
+      },
+      {
+        type: "p",
+        text: "Backup cards work at job level. Each card shows the last run—success, failed, running, or Never run—with a relative time, the next run or Paused, and a Validation failed badge when the last check found a problem. The detail page adds a live Running since HH:MM (elapsed) banner with a View log link, plus the encryption, file-retention, and versioning settings without opening the edit form.",
+      },
+      {
+        type: "img",
+        src: "/screenshots/dashboard.png",
+        alt: "Dashboard with last success, overdue schedules, a Needs attention list, and the backup status chart",
+        caption:
+          "Dashboard — last success, overdue schedules, and the jobs that need attention.",
+      },
+      {
+        type: "img",
+        src: "/screenshots/backups.png",
+        alt: "Backup cards showing last-run status, next run, Paused, and Validation failed badges",
+        caption:
+          "Backup cards — last run, next run or Paused, and a warning when validation failed.",
+      },
+      {
+        type: "img",
+        src: "/screenshots/backup-detail.png",
+        alt: "Running backup detail with the live Running since banner, Pause button, and encryption and retention rows",
+        caption:
+          "A running job — live elapsed time, a log link, and the settings that matter without opening Edit.",
+      },
+      {
+        type: "h2",
+        text: "Pause and resume without touching the schedule",
+      },
+      {
+        type: "p",
+        text: "Schedules stop for maintenance windows, not because you want to rewrite a cron expression. Pause and Resume are one click from the backup detail page or the card’s overflow menu. Pausing keeps the configuration and the last validation result; resuming puts the next run back on the schedule. A paused job shows Paused where the next run would be, so silence is not mistaken for health.",
+      },
+      {
+        type: "h2",
+        text: "Safer restores",
+      },
+      {
+        type: "p",
+        text: "The restore dialog now shows what you are about to do before the button is live: which run (date and size), the source endpoint, and the target host with the path, database, or volume. For path restores it states the rule plainly: this is a merge, and files at the target that are not in the backup are not deleted. Database restores warn that existing objects may be overwritten or conflict depending on the dump.",
+      },
+      {
+        type: "p",
+        text: "If you change the host or target away from the backup’s source, a checkbox appears: I understand this restores to a different host or target than the backup’s source location. Restore stays disabled until you tick it. The run page keeps the result—success or failure, with the log—as an alert, so the outcome does not disappear with the dialog.",
+      },
+      {
+        type: "img",
+        src: "/screenshots/restore-dialog.png",
+        alt: "Restore dialog with the selected run, From and To endpoints, a merge note, and the restore target field",
+        caption:
+          "Restore — the run, the endpoints, and the merge rule before anything runs.",
+      },
+      {
+        type: "h2",
+        text: "History you can navigate",
+      },
+      {
+        type: "p",
+        text: "History filters live in the URL: page, search, status, and date. Press Back from a run and you return to the same filtered view. Quick ranges—Today, 7 days, 30 days—sit next to a day picker and Clear filters. A Statistics page charts runs over time; day boundaries and chart buckets use the app timezone.",
+      },
+      {
+        type: "p",
+        text: "Failed runs put the error at the top of the run page instead of burying it in the log. A running run stays current on its detail page. Downloads stream large artifacts instead of buffering them in the browser, encrypted .age files are labelled, and the button no longer leaves a stuck Loading overlay. Bro downloads stop waiting when you leave the page.",
+      },
+      {
+        type: "img",
+        src: "/screenshots/history.png",
+        alt: "History list with mixed run statuses, search and status filters, and Today, 7 days, and 30 days chips",
+        caption:
+          "History — filters, quick date ranges, and status at a glance; the view survives Back.",
+      },
+      {
+        type: "img",
+        src: "/screenshots/history-detail.png",
+        alt: "Failed run detail page with a red error alert at the top and restore controls",
+        caption:
+          "A failed run — the error is visible before the log, with copy and restore within reach.",
+      },
+      {
+        type: "h2",
+        text: "Connection readiness",
+      },
+      {
+        type: "p",
+        text: "Password-only servers are called out before a transfer fails: a Password only badge on the card, the SSH key name when one is configured, and a note that path backups need a key. Test connection on an edit page now uses the values currently on screen, not the saved ones, and the result stays visible with a copyable error. Secret fields get show/hide, and the Git form can create an SSH key on the spot.",
+      },
+      {
+        type: "img",
+        src: "/screenshots/connections.png",
+        alt: "Connections Servers tab with Key and Password only badges and the key name shown on each card",
+        caption:
+          "Connections → Servers — key state is visible before a job runs.",
+      },
+      {
+        type: "h2",
+        text: "Settings that don’t bite",
+      },
+      {
+        type: "p",
+        text: "Settings → General now has an explicit Save changes button. Timezone, SSH defaults, and the rest of the General fields wait for it; nothing is applied until you click. Webhook presets fill the form and stop there—review the placeholders, send a test (it uses the values on screen), then click Save webhook settings. One-time values such as a new API token or a Bro invite code now live in a banner above the tabs, so switching tabs does not destroy them. The active tab is in the URL, so a reload stays put.",
+      },
+      {
+        type: "p",
+        text: "API tokens now ask for an access level before creation: Read only, Read & write, or Read, write & shell. Nothing is preselected. Existing unrestricted tokens are labelled Full access, so you can see which ones can do everything; read-only tokens are marked and write tools are omitted from their MCP catalog.",
+      },
+      {
+        type: "img",
+        src: "/screenshots/mcp-api.png",
+        alt: "Settings API tab with the access-level choices and existing tokens labelled Full access and Read only",
+        caption:
+          "Settings → API — choose the token’s access level before it exists.",
+      },
+      {
+        type: "h2",
+        text: "Accessible and keyboard-friendly",
+      },
+      {
+        type: "p",
+        text: "The pass was not only cosmetic: a skip-to-content link, labelled controls, status badges that stay readable in light and dark mode, keyboard-operable card menus that flip near the viewport edge, scrollable dialogs, and delete or revoke confirmations that name what is affected.",
+      },
+      {
+        type: "img",
+        src: "/screenshots/dashboard-dark.png",
+        alt: "Dashboard in dark mode with readable status badges, last success, and the backup status chart",
+        caption: "Dark mode — the same health signals, readable badges.",
+      },
+      {
+        type: "h2",
+        text: "Upgrading",
+      },
+      {
+        type: "p",
+        text: "Pull the release image and recreate the container. There is no database migration and no configuration rewrite; jobs, history, keys, and peers stay where they are.",
+      },
+      {
+        type: "code",
+        lang: "bash",
+        code: `# pin the release
+docker pull ghcr.io/ceneka/lazybackup:v0.3.0
+
+# or track latest
+docker pull ghcr.io/ceneka/lazybackup:latest
+
+# compose
+docker compose pull && docker compose up -d`,
+      },
+      {
+        type: "p",
+        text: "Behavior changes worth knowing on upgrade:",
+      },
+      {
+        type: "ul",
+        items: [
+          "Settings → General saves only when you click Save changes. Webhook presets only fill the form until you click Save webhook settings.",
+          "New API tokens require an access level—Read only, Read & write, or Read, write & shell. Existing unrestricted tokens show as Full access.",
+          "Dashboard and History day filters, chart buckets, and scheduled times use the app timezone. Success rate counts finished runs only, so running jobs cannot skew it.",
+          "The backup form rejects invalid cron expressions at save time instead of storing a schedule that never runs.",
+        ],
+      },
+      {
+        type: "p",
+        text: "The full list is in the 0.3.0 section of the changelog.",
+      },
+    ],
+  },
+  {
     slug: "age-vault-recovery",
     title: "Age vault: keys, export, and recovery",
     description:
@@ -31,7 +226,7 @@ export const posts: BlogPost[] = [
     tags: ["howto", "encryption", "recovery"],
     cover: {
       src: "/screenshots/encryption.png",
-      alt: "LazyBackup Settings Encryption tab with the age key vault",
+      alt: "LazyBackup Settings Encryption tab with an active age key, a retired key, and recovery recipients",
     },
     body: [
       {
@@ -57,7 +252,7 @@ export const posts: BlogPost[] = [
       {
         type: "img",
         src: "/screenshots/encryption.png",
-        alt: "Encryption settings with generate key and recovery recipients",
+        alt: "Encryption settings with an active key, a retired key, and a recovery recipient",
         caption: "Settings → Encryption — vault, export, and recovery recipients on one tab.",
       },
       {
@@ -155,7 +350,7 @@ export const posts: BlogPost[] = [
     tags: ["howto", "bro-space", "encryption"],
     cover: {
       src: "/screenshots/bro-space.png",
-      alt: "LazyBackup Settings Bro Space tab for inviting a friend to share backup space",
+      alt: "LazyBackup Settings Bro Space tab with a paired peer and a pending invite",
     },
     body: [
       {
@@ -180,7 +375,7 @@ export const posts: BlogPost[] = [
       {
         type: "img",
         src: "/screenshots/bro-space.png",
-        alt: "Bro Space settings with LazyBackup address and invite flow",
+        alt: "Bro Space settings with a paired peer, a pending invite, and the LazyBackup address",
         caption: "Settings → Bro Space — save your address, create an invite, send it.",
       },
       {
@@ -310,7 +505,7 @@ Land:  age ciphertext → local mailbox staging → peer pull → ack`,
     tags: ["product", "mcp", "agents"],
     cover: {
       src: "/screenshots/dashboard.png",
-      alt: "LazyBackup dashboard — the same instance agents can manage over MCP",
+      alt: "LazyBackup dashboard with backup health — the same instance agents can manage over MCP",
     },
     body: [
       {
@@ -333,14 +528,14 @@ Land:  age ciphertext → local mailbox staging → peer pull → ack`,
         type: "ol",
         items: [
           "Enable an app password (recommended) so the UI and API aren’t open on the network.",
-          "Open Settings → API / MCP.",
-          "Create a token, copy it immediately—plaintext is shown once.",
+          "Open Settings → API (API tokens & MCP).",
+          "Create a token and choose an access level—the plaintext stays in the banner at the top of Settings until you hide it or leave the page.",
           "Revoke anytime from the same list if a laptop or agent is gone.",
         ],
       },
       {
         type: "p",
-        text: "Tokens default to write access (same gate as a logged-in session), minus remote shell unless you opt in to remote_exec. A read_only token may inspect, validate_backup, and test_*—it cannot mutate. Treat write tokens like the app password. Prefer HTTPS, or keep the instance on a trusted LAN.",
+        text: "Tokens are created with an explicit access level. Read only can inspect, validate_backup, and test_*—it cannot mutate, and write tools are omitted from its MCP catalog. Read & write can create, edit, run, and delete backups and connections but has no remote shell. Read, write & shell adds exec_command and pre-backup commands. Nothing is preselected, and older unrestricted tokens are labelled Full access. Treat write tokens like the app password. Prefer HTTPS, or keep the instance on a trusted LAN.",
       },
       {
         type: "h2",
@@ -385,10 +580,12 @@ Land:  age ciphertext → local mailbox staging → peer pull → ack`,
       {
         type: "ul",
         items: [
-          "Inspect: list_backups, get_backup, list_history, get_dashboard, get_status, list_servers, list_s3_profiles",
-          "Probe: validate_backup, test_server, test_database (allowed for read_only tokens)",
+          "Inspect: list_backups, get_backup, list_history, get_history, get_dashboard, get_status, list_servers, list_s3_profiles",
+          "Discover: find_server, list_docker_volumes, list_docker_containers, get_container_db_hints",
+          "Probe: validate_backup, test_server, test_database (allowed for read-only tokens)",
           "Operate: run_backup, toggle_backup",
           "Manage: create_backup, update_backup, create_server, update_server",
+          "Shell (needs shell access): exec_command",
           "Destructive (need confirm=true): delete_backup, delete_server, restore_history",
         ],
       },
@@ -399,7 +596,7 @@ Land:  age ciphertext → local mailbox staging → peer pull → ack`,
       {
         type: "img",
         src: "/screenshots/dashboard.png",
-        alt: "LazyBackup dashboard",
+        alt: "LazyBackup dashboard with last success and overdue schedules",
         caption: "Same dashboard your agent can summarize with get_dashboard.",
       },
       {
@@ -430,7 +627,7 @@ If anything failed in the last day, summarize the error from history.`,
       },
       {
         type: "callout",
-        text: "Deploy LazyBackup, open Settings → API / MCP, hit Add to Cursor, and ask your agent to manage backups on the box you already trust.",
+        text: "Deploy LazyBackup, open Settings → API, hit Add to Cursor, and ask your agent to manage backups on the box you already trust.",
       },
     ],
   },
@@ -445,7 +642,7 @@ If anything failed in the last day, summarize the error from history.`,
     tags: ["product", "self-hosted"],
     cover: {
       src: "/screenshots/dashboard.png",
-      alt: "LazyBackup dashboard with backup status, success rate, and upcoming schedules",
+      alt: "LazyBackup dashboard with last successful backup, overdue schedules, and the backup status chart",
     },
     body: [
       {
@@ -459,8 +656,8 @@ If anything failed in the last day, summarize the error from history.`,
       {
         type: "img",
         src: "/screenshots/dashboard.png",
-        alt: "LazyBackup dashboard overview",
-        caption: "Dashboard — last 30 days, storage, and what’s scheduled next.",
+        alt: "LazyBackup dashboard with last success, overdue schedules, and recent activity",
+        caption: "Dashboard — health, last 30 days, storage, and what’s scheduled next.",
       },
       {
         type: "h2",
@@ -482,8 +679,8 @@ If anything failed in the last day, summarize the error from history.`,
       {
         type: "img",
         src: "/screenshots/backups.png",
-        alt: "LazyBackup backup jobs list",
-        caption: "Jobs with cron schedules, destinations, and enable toggles.",
+        alt: "LazyBackup backup cards with last-run status, next run, and Paused badges",
+        caption: "Jobs with endpoints, last run, next run (or Paused), and validation warnings.",
       },
       {
         type: "h2",
@@ -496,8 +693,8 @@ If anything failed in the last day, summarize the error from history.`,
       {
         type: "img",
         src: "/screenshots/servers.png",
-        alt: "LazyBackup servers page",
-        caption: "Add hosts, test SSH, and keep keys in one place.",
+        alt: "Server detail page with SSH transport details and the key in use",
+        caption: "Connections → Servers — add hosts, test SSH, and keep keys in one place.",
       },
       {
         type: "h2",
@@ -508,10 +705,14 @@ If anything failed in the last day, summarize the error from history.`,
         text: "Cron runs in your app timezone. Optional versioning creates timestamped folders; file retention cleans dump-style destinations by age (local, S3, or Bro mailbox). History keeps run status, sizes, and logs. Path, volume, and database restores work from History when the artifact is local, on S3 or Bro, or on an SSH destination with a key—or download the file without restoring in place.",
       },
       {
+        type: "p",
+        text: "The dashboard and backup cards show the last run, the next run, and anything overdue; pause a schedule in one click when you need to, without rewriting the cron expression.",
+      },
+      {
         type: "img",
         src: "/screenshots/history.png",
-        alt: "LazyBackup history page with run logs",
-        caption: "History — status, sizes, timestamps, and logs per run.",
+        alt: "LazyBackup history with status filters and quick date ranges",
+        caption: "History — status, sizes, logs, and filters that stay in the URL.",
       },
       {
         type: "h2",
@@ -547,7 +748,7 @@ If anything failed in the last day, summarize the error from history.`,
       },
       {
         type: "p",
-        text: "For a hands-on dump walkthrough, see Easily back up a Docker database—logical dumps for Postgres/MySQL/MariaDB, not volume tarballs. Land those dumps on S3/MinIO/R2 in the sequel: Database dumps to S3. To lend encrypted space to a friend, see Share backup space with Bro Space.",
+        text: "For a hands-on dump walkthrough, see Easily back up a Docker database—logical dumps for Postgres/MySQL/MariaDB, not volume tarballs. Land those dumps on S3/MinIO/R2 in the sequel: Database dumps to S3. To lend encrypted space to a friend, see Share backup space with Bro Space. For the 0.3.0 UI pass—health at a glance, safer restores, and settings with an explicit Save—see LazyBackup 0.3.0: a UI that tells you what needs attention.",
       },
     ],
   },
@@ -562,7 +763,7 @@ If anything failed in the last day, summarize the error from history.`,
     tags: ["howto", "docker", "database"],
     cover: {
       src: "/screenshots/db-dump-form.png",
-      alt: "New backup form configured as a Postgres database dump from a server",
+      alt: "New backup form configured as a Postgres database dump with a Docker container selected",
     },
     body: [
       {
@@ -589,7 +790,7 @@ If anything failed in the last day, summarize the error from history.`,
       {
         type: "img",
         src: "/screenshots/db-dump-form.png",
-        alt: "From server database dump to this host path",
+        alt: "From → To form with Source type set to Database dump and a Docker container picked",
         caption: "From → To with Source type set to Database dump.",
       },
       {
@@ -598,12 +799,12 @@ If anything failed in the last day, summarize the error from history.`,
       },
       {
         type: "p",
-        text: "Under Servers, add the host where Docker (or the native client) runs. Test the connection. Transfers need SSH key auth; password-only is enough to poke around, not to pull dumps.",
+        text: "Open Connections → Servers and add the host where Docker (or the native client) runs. The card shows a Key or Password only badge and the key name, so a password-only host is flagged before a transfer fails: it can test, but it needs an SSH key to pull dumps.",
       },
       {
         type: "img",
         src: "/screenshots/servers.png",
-        alt: "Servers list in LazyBackup",
+        alt: "Server detail page with SSH transport details and the key in use",
         caption: "One SSH endpoint per machine you dump from or push to.",
       },
       {
@@ -625,8 +826,8 @@ If anything failed in the last day, summarize the error from history.`,
       {
         type: "img",
         src: "/screenshots/db-connection.png",
-        alt: "Database connection fields for PostgreSQL dump",
-        caption: "Engine, client, and credentials. Use Test connection before you rely on cron.",
+        alt: "Database section with a Test connection result",
+        caption: "Engine, client, and credentials. Test connection uses the values on screen and keeps the result visible.",
       },
       {
         type: "h2",
@@ -654,7 +855,7 @@ Out:   something like app_2026-08-11_….sql.gz`,
       {
         type: "img",
         src: "/screenshots/history.png",
-        alt: "Backup history with successful runs",
+        alt: "Backup history with status filters and quick date ranges",
         caption: "After a run, History shows status, size, and logs—and restore when you need it.",
       },
       {
@@ -663,7 +864,7 @@ Out:   something like app_2026-08-11_….sql.gz`,
       },
       {
         type: "p",
-        text: "From History, restore loads the dump into the target engine (local artifact, or pull from S3, Bro, or an SSH destination with a key first). Same idea as the dump: native client or docker exec on the destination side of the restore flow. You can restore onto a different host from the History server picker.",
+        text: "From History, restore loads the dump into the target engine (local artifact, or pull from S3, Bro, or an SSH destination with a key first). The restore dialog shows the run and the target, and the database note warns that existing objects may conflict or be overwritten. Same idea as the dump: native client or docker exec on the destination side of the restore flow. You can restore onto a different host from the Restore onto picker; retargeting asks for an extra confirmation.",
       },
       {
         type: "h2",
@@ -705,7 +906,7 @@ Out:   something like app_2026-08-11_….sql.gz`,
       },
       {
         type: "callout",
-        text: "Empty webhook URL = notifications off. HTTPS is required; http:// is allowed only for localhost / private LAN hosts. Use Send test notification after you paste a preset.",
+        text: "Empty webhook URL = notifications off. HTTPS is required; http:// is allowed only for localhost / private LAN hosts. Presets fill the form only—review the placeholders, send a test, then click Save webhook settings.",
       },
       {
         type: "h2",
@@ -716,14 +917,14 @@ Out:   something like app_2026-08-11_….sql.gz`,
         items: [
           "Open Settings → General",
           "Find Failure webhook (method, URL, headers, body)",
-          "Pick a preset or start from Default JSON",
-          "Send test notification, then save",
+          "Pick a preset or start from Default JSON—it fills the form, nothing is saved yet",
+          "Send test notification (it uses the values on screen), then click Save webhook settings",
         ],
       },
       {
         type: "img",
         src: "/screenshots/settings.png",
-        alt: "LazyBackup Settings page",
+        alt: "Settings → General with the failure webhook section and presets",
         caption: "Settings holds the webhook URL once for the whole instance—not per backup.",
       },
       {
@@ -766,7 +967,7 @@ Out:   something like app_2026-08-11_….sql.gz`,
       },
       {
         type: "p",
-        text: "Create an Incoming Webhook in your Discord channel (Channel settings → Integrations → Webhooks). In LazyBackup, choose the Discord preset and paste that URL.",
+        text: "Create an Incoming Webhook in your Discord channel (Channel settings → Integrations → Webhooks). In LazyBackup, choose the Discord preset, replace the URL with yours, then Save webhook settings.",
       },
       {
         type: "code",
@@ -887,7 +1088,7 @@ Body:   (unused for GET)`,
       },
       {
         type: "p",
-        text: "Open S3 Profiles → New. Fill endpoint, region, bucket, access key, and secret. For MinIO, Cloudflare R2, and Backblaze B2, enable path-style (forcePathStyle) when the provider expects it—LazyBackup’s form exposes that toggle.",
+        text: "Open Connections → S3 and choose Add S3 profile. Fill endpoint, region, bucket, access key, and secret. For MinIO, Cloudflare R2, and Backblaze B2, enable Force path-style URLs when the provider expects it—LazyBackup’s form exposes that toggle.",
       },
       {
         type: "ul",
@@ -900,7 +1101,7 @@ Body:   (unused for GET)`,
       },
       {
         type: "p",
-        text: "Use Test connection on the profile before you point jobs at it. Secrets never come back in GET responses—leave the secret blank on edit to keep the stored value.",
+        text: "Use Test connection on the profile before you point jobs at it; the result stays on the page with a copyable error. Secrets never come back in GET responses—leave the secret blank on edit to keep the stored value.",
       },
       {
         type: "h2",
@@ -941,12 +1142,12 @@ Relay: always via the LazyBackup host (upload after dump)`,
       },
       {
         type: "p",
-        text: "Validate before run is useful here: it probes SSH/DB and the S3 profile without uploading a dump. Open the backup detail → Validate; the last result sticks until you edit the job.",
+        text: "Validate before run is useful here: it probes SSH/DB and the S3 profile without uploading a dump. Open the backup detail → Validate; the last result sticks until you edit the job, and a failed check also shows on the backup card.",
       },
       {
         type: "img",
         src: "/screenshots/history.png",
-        alt: "Backup history after a successful dump",
+        alt: "History list with status filters and quick date ranges",
         caption: "History stores artifactPath as s3://bucket/key when the dump landed on object storage.",
       },
       {
@@ -955,7 +1156,7 @@ Relay: always via the LazyBackup host (upload after dump)`,
       },
       {
         type: "p",
-        text: "From History → Restore on a successful database run, LazyBackup downloads the artifact from S3 first, then pipes into psql/mysql (native or docker exec). Encrypted .age objects decrypt with vault identities automatically.",
+        text: "From History → Restore on a successful database run, LazyBackup downloads the artifact from S3 first, then pipes into psql/mysql (native or docker exec). The restore dialog shows the run and target and warns that existing objects may conflict or be overwritten. Encrypted .age objects decrypt with vault identities automatically.",
       },
       {
         type: "h2",

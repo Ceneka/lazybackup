@@ -1,6 +1,6 @@
 {
   "name": "lazybackup",
-  "version": "0.2.7",
+  "version": "0.3.0",
   "private": true,
   "license": "MIT",
   "description": "Self-hosted From→To backup manager for paths, Docker volumes, and database dumps between local, SSH, and S3.",
@@ -68,7 +68,7 @@
     "lucide-react": "^0.477.0",
     "mcp-handler": "^2.3.1",
     "nanoid": "^5.1.16",
-    "next": "15.5.28",
+    "next": "15.5.29",
     "next-themes": "^0.4.6",
     "node-ssh": "^13.2.1",
     "react": "^19.3.1",
@@ -88,7 +88,7 @@
     "@types/tar-stream": "^3.1.5",
     "drizzle-kit": "^0.31.11",
     "eslint": "^9.21.0",
-    "eslint-config-next": "15.5.28",
+    "eslint-config-next": "15.5.29",
     "tailwindcss": "^4.3.5",
     "typescript": "^5.8.2"
   },

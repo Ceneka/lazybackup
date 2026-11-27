@@ -55,7 +55,7 @@ export function ConfigExportCard() {
   }
 
   return (
-    <Card className="w-full">
+    <Card id="config-export" className="w-full scroll-mt-24">
       <CardHeader>
         <CardTitle>Export configuration</CardTitle>
         <CardDescription>

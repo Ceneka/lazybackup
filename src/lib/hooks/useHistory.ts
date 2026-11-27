@@ -1,5 +1,5 @@
+import { readApiError } from "@/lib/api/client-error"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useState } from "react"
 import { toast } from "sonner"
 
 type HistoryFilter = {
@@ -7,6 +7,10 @@ type HistoryFilter = {
   configId?: string
   search?: string
   day?: string
+  /** Inclusive local day key (`YYYY-MM-DD`) for the start of a range. */
+  from?: string
+  /** Inclusive local day key (`YYYY-MM-DD`) for the end of a range. */
+  to?: string
 }
 
 type Pagination = {
@@ -19,13 +23,13 @@ export type BackupHistory = {
   id: string
   configId: string
   startTime: string
-  endTime?: string
+  endTime?: string | null
   status: "running" | "success" | "failed"
-  fileCount?: number
-  totalSize?: number
-  transferredSize?: number
-  errorMessage?: string
-  logOutput?: string
+  fileCount?: number | null
+  totalSize?: number | null
+  transferredSize?: number | null
+  errorMessage?: string | null
+  logOutput?: string | null
   artifactPath?: string | null
   artifactSha256?: string | null
   mailboxPending?: boolean
@@ -45,21 +49,30 @@ export type BackupHistory = {
     id: string
     name: string
     sourceKind?: 'local' | 'server' | 's3' | 'git' | null
-    sourceType?: 'path' | 'docker_volume' | 'database' | 'lazybackup_instance' | 'git_repo'
-    sourcePath?: string
+    sourceType?:
+      | 'path'
+      | 'docker_volume'
+      | 'database'
+      | 'lazybackup_instance'
+      | 'git_repo'
+      | null
+    sourcePath?: string | null
     destinationKind?: 'local' | 'server' | 's3' | 'peer' | null
     destinationPath?: string | null
     destinationPeerId?: string | null
     dbEngine?: string | null
-    server: {
-      id: string
+    server?: { id?: string | null; name: string } | null
+    destinationServer?: {
+      id?: string | null
       name: string
+      authType?: string | null
     } | null
-    sourceS3Profile?: { name?: string | null } | null
-    sourceGitRepo?: { name?: string | null } | null
+    sourceS3Profile?: { name: string } | null
+    destinationS3Profile?: { name: string } | null
+    sourceGitRepo?: { name: string } | null
     destinationPeer?: {
       id?: string | null
-      name?: string | null
+      name: string
       kind?: 'lazybro' | 'lazybackup' | null
       remoteBaseUrl?: string | null
       online?: boolean | null
@@ -81,11 +94,16 @@ export function useHistoryList(
       if (filters.configId) searchParams.set("configId", filters.configId)
       if (filters.search) searchParams.set("search", filters.search)
       if (filters.day) searchParams.set("day", filters.day)
+      if (filters.from) searchParams.set("from", filters.from)
+      if (filters.to) searchParams.set("to", filters.to)
       searchParams.set("limit", pagination.limit.toString())
       searchParams.set("offset", pagination.offset.toString())
 
       const res = await fetch(`/api/history?${searchParams.toString()}`)
-      if (!res.ok) throw new Error("Failed to fetch history")
+      if (!res.ok) {
+        const { message } = await readApiError(res)
+        throw new Error(message)
+      }
       return res.json()
     },
     refetchInterval: (query) => {
@@ -111,24 +129,30 @@ export function useHistoryDetail(id: string) {
     queryKey: ["history", id],
     queryFn: async () => {
       const res = await fetch(`/api/history/${id}`)
-      if (!res.ok) throw new Error("Failed to fetch history entry")
-      return res.json()
+      if (!res.ok) {
+        const { message } = await readApiError(res)
+        throw new Error(message)
+      }
+      return res.json() as Promise<BackupHistory>
     },
     enabled: !!id,
+    // A running job has no SSE update until it finishes; keep the detail fresh
+    // so Completed/Duration/log follow the run. Staged Bro Space runs keep
+    // polling until the friend ACKs (or the delivery fails).
     refetchInterval: (query) => {
-      const row = query.state.data as
+      const entry = query.state.data as
         | {
             status?: string
+            endTime?: string | null
             mailboxPending?: boolean
             deliveryState?: string | null
           }
         | undefined
-      if (!row) return false
-      return row.status === "running" ||
-        row.mailboxPending === true ||
-        row.deliveryState === "waiting"
-        ? 15_000
-        : false
+      if (!entry) return false
+      if (entry.mailboxPending === true || entry.deliveryState === "waiting") {
+        return 15_000
+      }
+      return entry.status === "running" && !entry.endTime ? 10_000 : false
     },
   })
 }
@@ -139,13 +163,11 @@ export function useHistoryStats() {
     queryKey: ["historyStats"],
     queryFn: async () => {
       const res = await fetch("/api/history/stats?chartData=true")
-      if (!res.ok) throw new Error("Failed to fetch history stats")
-      const data = await res.json()
-
-      // Log the data to help with debugging
-      console.log("History stats data:", data)
-
-      return data
+      if (!res.ok) {
+        const { message } = await readApiError(res)
+        throw new Error(message)
+      }
+      return res.json()
     },
     // Refresh data every minute
     refetchInterval: 60000,
@@ -163,7 +185,8 @@ export function useDeleteHistory() {
       })
 
       if (!res.ok) {
-        throw new Error("Failed to delete history entry")
+        const { message } = await readApiError(res)
+        throw new Error(message)
       }
 
       return id
@@ -174,7 +197,7 @@ export function useDeleteHistory() {
       toast.success("History entry deleted successfully")
     },
     onError: (error) => {
-      toast.error("Failed to delete history entry")
+      toast.error(error instanceof Error ? error.message : "Failed to delete history entry")
       console.error(error)
     },
   })
@@ -255,59 +278,3 @@ export function useRestoreBackupHistory() {
     },
   })
 }
-
-// Custom hook that combines history list with pagination state
-export function usePaginatedHistory(initialFilters: HistoryFilter = {}) {
-  const defaultFilters = {
-    status: "",
-    configId: "",
-    search: "",
-    day: "",
-    ...initialFilters
-  };
-
-  const [filters, setFilters] = useState<HistoryFilter>(defaultFilters)
-  const [pagination, setPagination] = useState<Pagination>({
-    limit: 10,
-    offset: 0,
-  })
-
-  const query = useHistoryList(filters, pagination)
-
-  const updateFilters = (newFilters: Partial<HistoryFilter>) => {
-    setFilters((prev) => ({ ...prev, ...newFilters }))
-    // Reset pagination when filters change
-    setPagination((prev) => ({ ...prev, offset: 0 }))
-  }
-
-  const goToPage = (page: number) => {
-    setPagination((prev) => ({
-      ...prev,
-      offset: page * prev.limit,
-    }))
-  }
-
-  const nextPage = () => {
-    setPagination((prev) => ({
-      ...prev,
-      offset: prev.offset + prev.limit,
-    }))
-  }
-
-  const prevPage = () => {
-    setPagination((prev) => ({
-      ...prev,
-      offset: Math.max(0, prev.offset - prev.limit),
-    }))
-  }
-
-  return {
-    ...query,
-    filters,
-    pagination,
-    updateFilters,
-    goToPage,
-    nextPage,
-    prevPage,
-  }
-} 

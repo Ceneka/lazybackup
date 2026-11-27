@@ -2,7 +2,16 @@
 
 import { OverflowMenu, type OverflowItem } from "@/components/overflow-menu"
 import type { useResourceQuickActions } from "@/lib/resource-actions"
-import { CableIcon, CopyIcon, EyeIcon, FolderPlusIcon, PlayIcon, SettingsIcon } from "lucide-react"
+import {
+  CableIcon,
+  CopyIcon,
+  EyeIcon,
+  FolderPlusIcon,
+  PauseIcon,
+  PlayIcon,
+  SettingsIcon,
+  TrashIcon,
+} from "lucide-react"
 import Link from "next/link"
 
 type QuickActions = ReturnType<typeof useResourceQuickActions>
@@ -84,6 +93,12 @@ export function s3OverflowItems(opts: {
       onSelect: () => void actions.testS3(id, name),
     },
     { type: "link", href: `/s3-profiles/${id}`, label: "View", icon: EyeIcon },
+    {
+      type: "link",
+      href: `/backups/new?s3ProfileId=${id}`,
+      label: "Create backup",
+      icon: FolderPlusIcon,
+    },
     { type: "separator" },
     {
       type: "delete",
@@ -132,19 +147,50 @@ export function gitOverflowItems(opts: {
 export function backupOverflowItems(opts: {
   id: string
   name: string
+  enabled?: boolean
+  /** A run for this config is in flight — Delete is blocked server-side safety. */
+  running?: boolean
   actions: QuickActions
+  onToggle?: () => void
+  isToggling?: boolean
   onDelete: () => void
   isDeleting: boolean
 }): OverflowItem[] {
-  const { id, name, actions, onDelete, isDeleting } = opts
+  const {
+    id,
+    name,
+    enabled = true,
+    running = false,
+    actions,
+    onToggle,
+    isToggling = false,
+    onDelete,
+    isDeleting,
+  } = opts
+  const toggleLabel = enabled ? "Pause" : "Resume"
   return [
     {
       type: "action",
-      label: actions.isBusy(`backup:${id}`) ? "Running" : "Run now",
+      label: running
+        ? "Running…"
+        : actions.isBusy(`backup:${id}`)
+          ? "Running"
+          : "Run now",
       icon: PlayIcon,
-      disabled: actions.isBusy(`backup:${id}`),
-      onSelect: () => void actions.runBackup(id, name),
+      disabled: running || actions.isBusy(`backup:${id}`),
+      onSelect: () => void actions.runBackup(id),
     },
+    ...(onToggle
+      ? [
+          {
+            type: "action" as const,
+            label: isToggling ? "Updating…" : toggleLabel,
+            icon: enabled ? PauseIcon : PlayIcon,
+            disabled: isToggling || actions.isBusy(`backup:${id}`),
+            onSelect: onToggle,
+          },
+        ]
+      : []),
     { type: "link", href: `/backups/${id}`, label: "View", icon: EyeIcon },
     {
       type: "link",
@@ -153,13 +199,25 @@ export function backupOverflowItems(opts: {
       icon: CopyIcon,
     },
     { type: "separator" },
-    {
-      type: "delete",
-      title: "Delete this backup?",
-      description:
-        "This deletes the backup configuration and its history rows. Files already on disk at the destination are not removed.",
-      onDelete,
-      isDeleting,
-    },
+    ...(running
+      ? [
+          {
+            type: "action" as const,
+            label: "Delete — run in progress",
+            icon: TrashIcon,
+            disabled: true,
+            onSelect: () => {},
+          },
+        ]
+      : [
+          {
+            type: "delete" as const,
+            title: `Delete “${name}”?`,
+            description:
+              "This deletes the backup configuration and its history and restore entries. Files stay at the destination, but they can no longer be restored through LazyBackup.",
+            onDelete,
+            isDeleting,
+          },
+        ]),
   ]
 }

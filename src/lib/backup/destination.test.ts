@@ -7,6 +7,7 @@ import {
   findExactConflictInList,
   findNestedOverlapsInList,
   getSuggestStorageRoot,
+  isLocalPathInsideStorageRoots,
   slugifyName,
   suggestDestinationPath,
 } from './destination';
@@ -47,6 +48,27 @@ describe('suggestDestinationPath', () => {
         storageRoot: '/backups',
       })
     ).toBe('/backups/prod-vps/wordpress');
+  });
+});
+
+describe('isLocalPathInsideStorageRoots', () => {
+  test('accepts paths inside any allowed root', () => {
+    expect(isLocalPathInsideStorageRoots('/backups/app', ['/backups'])).toBe(true);
+    expect(isLocalPathInsideStorageRoots('/app/backups/app', ['/backups', '/app/backups'])).toBe(
+      true
+    );
+    expect(isLocalPathInsideStorageRoots('/backups', ['/backups/'])).toBe(true);
+  });
+
+  test('rejects paths outside the roots', () => {
+    expect(isLocalPathInsideStorageRoots('/var/www', ['/backups'])).toBe(false);
+    expect(isLocalPathInsideStorageRoots('/backups-other/app', ['/backups'])).toBe(false);
+  });
+
+  test('treats relative and home paths as unknown', () => {
+    expect(isLocalPathInsideStorageRoots('backups/app', ['/data/backups'])).toBe(true);
+    expect(isLocalPathInsideStorageRoots('~/backups/app', ['/data/backups'])).toBe(true);
+    expect(isLocalPathInsideStorageRoots('', ['/backups'])).toBe(true);
   });
 });
 

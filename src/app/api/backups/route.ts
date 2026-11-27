@@ -9,8 +9,11 @@ import { backupConfigSchema } from '@/lib/backup/schema';
 import { assertTransferServersHaveKeys } from '@/lib/backup/assert-transfer-keys';
 import { TransferKeyRequiredError } from '@/lib/backup/transfer-keys';
 import { attachLastValidation } from '@/lib/backup/validate';
+import { listLatestRunsByConfig } from '@/lib/backup/latest-run';
+import { buildUpcomingEntry } from '@/lib/cron/next';
 import { db } from '@/lib/db';
 import { backupConfigs } from '@/lib/db/schema';
+import { getAppTimezone } from '@/lib/settings/timezone';
 import { eq } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { NextRequest, NextResponse } from 'next/server';
@@ -28,16 +31,28 @@ const backupWithEndpoints = {
 // GET /api/backups - List all backup configurations
 export async function GET() {
   try {
-    const configs = await db.query.backupConfigs.findMany({
-      with: backupWithEndpoints,
-    });
+    const [configs, timeZone] = await Promise.all([
+      db.query.backupConfigs.findMany({
+        with: backupWithEndpoints,
+      }),
+      getAppTimezone(),
+    ]);
+    const latestRuns = await listLatestRunsByConfig(configs.map((c) => c.id));
 
     return NextResponse.json(
-      configs.map((c) =>
-        attachLastValidation(
-          redactBackup(c as unknown as Record<string, unknown>) as Record<string, unknown>
-        )
-      )
+      configs.map((c) => {
+        const upcoming = buildUpcomingEntry(c, timeZone);
+        return {
+          ...attachLastValidation(
+            redactBackup(c as unknown as Record<string, unknown>) as Record<string, unknown>
+          ),
+          scheduleLabel: upcoming.scheduleLabel,
+          timezone: timeZone,
+          nextRun: c.enabled ? upcoming.nextRun : null,
+          nextRunFormatted: c.enabled ? upcoming.nextRunFormatted : null,
+          latestRun: latestRuns.get(c.id) ?? null,
+        };
+      })
     );
   } catch (error) {
     console.error('Failed to fetch backup configurations:', error);

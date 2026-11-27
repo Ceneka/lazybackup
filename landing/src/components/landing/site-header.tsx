@@ -12,7 +12,6 @@ const homeNav = [
   { href: "/blog", label: "Blog" },
   { href: "/changelog", label: "Changelog" },
   { href: "/#screenshots", label: "Screenshots" },
-  { href: "/#how-it-works", label: "How it works" },
   { href: "/#cta", label: "Deploy" },
   { href: GITHUB_URL, label: "GitHub", external: true },
 ] as const;
@@ -47,7 +46,7 @@ export function SiteHeader({ variant = "home" }: SiteHeaderProps) {
           />
         </Link>
 
-        <div className="hidden items-center gap-1 md:flex">
+        <div className="hidden items-center gap-1 lg:flex">
           {nav.map((item) => (
             <Link
               key={item.href + item.label}
@@ -71,7 +70,7 @@ export function SiteHeader({ variant = "home" }: SiteHeaderProps) {
           </Link>
           <button
             type="button"
-            className="inline-flex rounded-lg p-2 text-slate-300 md:hidden"
+            className="inline-flex rounded-lg p-2 text-slate-300 lg:hidden"
             aria-expanded={open}
             aria-label={open ? "Close menu" : "Open menu"}
             onClick={() => setOpen((v) => !v)}
@@ -98,7 +97,7 @@ export function SiteHeader({ variant = "home" }: SiteHeaderProps) {
       <motion.div
         initial={false}
         animate={{ height: open ? "auto" : 0, opacity: open ? 1 : 0 }}
-        className="overflow-hidden border-b border-white/[0.06] md:hidden"
+        className="overflow-hidden border-b border-white/[0.06] lg:hidden"
       >
         <div className="flex flex-col gap-1 px-5 pb-4">
           {nav.map((item) => (

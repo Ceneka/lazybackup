@@ -1,23 +1,46 @@
 "use client"
 
 import { SSHKeyBootstrap } from "@/components/ssh-key-bootstrap"
+import {
+  ConnectionTestResultPanel,
+  ServerTransportDetails,
+} from "@/components/connections/connection-test-result"
+import { FieldError, PasswordInput } from "@/components/connections/form-controls"
+import { PasswordAuthWarning } from "@/components/connections/server-auth"
 import { Button } from "@/components/ui/button"
-import { SSHKey, getSystemKeyPathFromId, isSystemKeyId, useSSHKeys } from "@/lib/hooks/useSSHKeys"
+import { ApiError, readApiError } from "@/lib/api/client-error"
+import { getSystemKeyPathFromId, isSystemKeyId, useSSHKeys } from "@/lib/hooks/useSSHKeys"
 import { useTestNewServerBackupCapabilities } from "@/lib/hooks/useServers"
 import { useQueryClient } from "@tanstack/react-query"
-import { ArrowLeftIcon, CheckCircleIcon, KeyIcon, Loader2Icon, XCircleIcon } from "lucide-react"
+import { ArrowLeftIcon, KeyIcon, Loader2Icon } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { toast } from "sonner"
+
+type SshKeyOption = {
+  id: string
+  name: string
+  privateKeyPath?: string | null
+  isSystemKey?: boolean
+}
 
 export default function NewServerPage() {
   const router = useRouter()
   const queryClient = useQueryClient()
   const [loading, setLoading] = useState(false)
   const [authType, setAuthType] = useState<'password' | 'key'>('key')
+  const [formError, setFormError] = useState<string | null>(null)
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
+  const [testError, setTestError] = useState<string | null>(null)
+  const [testFieldErrors, setTestFieldErrors] = useState<Record<string, string>>({})
   const { keys, allKeys, isLoading: keysLoading } = useSSHKeys(true) // Include system keys
-  const { testServer, isLoading: testingBackup, result: testResult } = useTestNewServerBackupCapabilities()
+  const {
+    testServer,
+    isLoading: testingBackup,
+    result: testResult,
+    resetResult,
+  } = useTestNewServerBackupCapabilities()
 
   const [formData, setFormData] = useState({
     name: '',
@@ -36,52 +59,36 @@ export default function NewServerPage() {
       ...prev,
       [name]: name === 'port' ? parseInt(value) || 22 : value
     }))
+    clearTestState()
   }
 
   const handleAuthTypeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     setAuthType(e.target.value as 'password' | 'key')
+    clearTestState()
   }
 
-  // When SSH key selection changes, sync derived key fields (system path vs DB id).
-  useEffect(() => {
-    if (!formData.sshKeyId) return
+  function clearTestState() {
+    resetResult()
+    setTestError(null)
+    setTestFieldErrors({})
+  }
 
-    if (isSystemKeyId(formData.sshKeyId)) {
-      const systemPath = getSystemKeyPathFromId(formData.sshKeyId)
-      setFormData((prev) => {
-        if (
-          prev.sshKeyId === "" &&
-          prev.systemKeyPath === systemPath &&
-          prev.privateKey === ""
-        ) {
-          return prev
-        }
-        return {
-          ...prev,
-          privateKey: "",
-          sshKeyId: "",
-          systemKeyPath: systemPath,
-        }
-      })
-      return
-    }
-
-    setFormData((prev) => {
-      if (prev.privateKey === "" && prev.systemKeyPath === "" && prev.sshKeyId === formData.sshKeyId) {
-        return prev
-      }
-      return {
-        ...prev,
-        privateKey: "",
-        systemKeyPath: "",
-        sshKeyId: formData.sshKeyId,
-      }
-    })
-  }, [formData.sshKeyId])
+  function handleSshKeySelectChange(e: React.ChangeEvent<HTMLSelectElement>) {
+    const raw = e.target.value
+    setFormData((prev) => ({
+      ...prev,
+      privateKey: "",
+      sshKeyId: isSystemKeyId(raw) ? "" : raw,
+      systemKeyPath: isSystemKeyId(raw) ? getSystemKeyPathFromId(raw) : "",
+    }))
+    clearTestState()
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
+    setFormError(null)
+    setFieldErrors({})
 
     try {
       const payload = {
@@ -102,10 +109,11 @@ export default function NewServerPage() {
         body: JSON.stringify(payload),
       })
 
-      const data = await response.json()
-
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to create server')
+        const { message, fieldErrors } = await readApiError(response)
+        setFormError(message)
+        setFieldErrors(fieldErrors)
+        return
       }
 
       // Invalidate servers query cache
@@ -115,7 +123,9 @@ export default function NewServerPage() {
       router.push('/connections?tab=servers')
     } catch (error) {
       console.error('Error adding server:', error)
-      toast.error(error instanceof Error ? error.message : 'Failed to add server')
+      const message = error instanceof Error ? error.message : 'Failed to add server'
+      setFormError(message)
+      toast.error(message)
     } finally {
       setLoading(false)
     }
@@ -123,6 +133,32 @@ export default function NewServerPage() {
 
   // Add a new function to test backup capabilities
   const handleTestBackupCapabilities = async () => {
+    clearTestState()
+
+    const nextErrors: Record<string, string> = {}
+    if (!formData.host.trim()) nextErrors.host = "Host is required"
+    if (!formData.username.trim()) nextErrors.username = "Username is required"
+    if (!formData.port || formData.port < 1 || formData.port > 65535) {
+      nextErrors.port = "Port must be between 1 and 65535"
+    }
+    if (authType === 'password' && !formData.password.trim()) {
+      nextErrors.password = "Password is required to test"
+    }
+    if (
+      authType === 'key' &&
+      !formData.sshKeyId &&
+      !formData.systemKeyPath &&
+      !formData.privateKey.trim()
+    ) {
+      nextErrors.privateKey = "Select or paste an SSH key to test"
+    }
+
+    if (Object.keys(nextErrors).length > 0) {
+      setTestFieldErrors(nextErrors)
+      setTestError("Fix the highlighted fields to test the connection.")
+      return
+    }
+
     try {
       // Prepare server data from form
       const serverData = {
@@ -135,24 +171,15 @@ export default function NewServerPage() {
         systemKeyPath: authType === 'key' && formData.systemKeyPath ? formData.systemKeyPath : undefined,
       }
 
-      // Run the test
-      const result = await testServer(serverData)
-
-      if (result.success) {
-        if (result.rsyncAvailable) {
-          toast.success("Backups will use rsync on the remote (preferred).");
-        } else if (result.scpAvailable) {
-          toast.info("No rsync on remote — backups will fall back to local SCP.");
-        } else {
-          toast.error("No rsync on remote and no local scp — backups cannot run.");
-        }
-      } else {
-        toast.error(`Connection failed: ${result.message || "Failed to connect to server"}`);
-      }
+      // Run the test — the hook keeps the inline result (success or failure).
+      await testServer(serverData)
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unknown error occurred");
+      if (error instanceof ApiError) setTestFieldErrors(error.fieldErrors)
     }
   }
+
+  const errorFor = (name: string) =>
+    testFieldErrors[name] ?? fieldErrors[name]
 
   return (
     <div className="space-y-6">
@@ -161,7 +188,7 @@ export default function NewServerPage() {
             <ArrowLeftIcon className="h-4 w-4" />
             <span className="sr-only">Back to servers</span>
           </Link>
-          <h1 className="text-3xl font-bold">Add New Server</h1>
+          <h1 className="text-3xl font-bold">Add server</h1>
         </div>
 
         <div className="rounded-lg border bg-card text-card-foreground shadow">
@@ -181,7 +208,10 @@ export default function NewServerPage() {
                     onChange={handleChange}
                     className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                     placeholder="My Server"
+                    aria-invalid={fieldErrors.name ? true : undefined}
+                    aria-describedby={fieldErrors.name ? "server-name-error" : undefined}
                   />
+                  <FieldError id="server-name-error" message={fieldErrors.name} />
                 </div>
 
                 <div>
@@ -197,7 +227,10 @@ export default function NewServerPage() {
                     onChange={handleChange}
                     className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                     placeholder="example.com or 192.168.1.1"
+                    aria-invalid={errorFor("host") ? true : undefined}
+                    aria-describedby={errorFor("host") ? "server-host-error" : undefined}
                   />
+                  <FieldError id="server-host-error" message={errorFor("host")} />
                 </div>
 
                 <div>
@@ -215,7 +248,10 @@ export default function NewServerPage() {
                     placeholder="22"
                     min="1"
                     max="65535"
+                    aria-invalid={errorFor("port") ? true : undefined}
+                    aria-describedby={errorFor("port") ? "server-port-error" : undefined}
                   />
+                  <FieldError id="server-port-error" message={errorFor("port")} />
                 </div>
 
                 <div>
@@ -231,7 +267,10 @@ export default function NewServerPage() {
                     onChange={handleChange}
                     className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                     placeholder="root"
+                    aria-invalid={errorFor("username") ? true : undefined}
+                    aria-describedby={errorFor("username") ? "server-username-error" : undefined}
                   />
+                  <FieldError id="server-username-error" message={errorFor("username")} />
                 </div>
 
                 <SSHKeyBootstrap
@@ -247,6 +286,7 @@ export default function NewServerPage() {
                       systemKeyPath: "",
                       sshKeyId: key.id,
                     }))
+                    clearTestState()
                   }}
                 />
 
@@ -271,16 +311,18 @@ export default function NewServerPage() {
                     <label htmlFor="password" className="block text-sm font-medium mb-2">
                       Password
                     </label>
-                    <input
+                    <PasswordInput
                       id="password"
                       name="password"
-                      type="password"
                       required={authType === 'password'}
                       value={formData.password}
                       onChange={handleChange}
-                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                       placeholder="Enter password"
+                      autoComplete="new-password"
+                      aria-invalid={errorFor("password") ? true : undefined}
+                      aria-describedby={errorFor("password") ? "server-password-error" : undefined}
                     />
+                    <FieldError id="server-password-error" message={errorFor("password")} />
                     <p className="text-sm text-muted-foreground mt-1">
                       Password can test a connection, but backups need an SSH key — use Create key above.
                     </p>
@@ -299,7 +341,7 @@ export default function NewServerPage() {
                             formData.sshKeyId ||
                             (formData.systemKeyPath ? `system:${formData.systemKeyPath}` : "")
                           }
-                          onChange={handleChange}
+                          onChange={handleSshKeySelectChange}
                           className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           <option value="">-- Enter key manually or select below --</option>
@@ -311,7 +353,7 @@ export default function NewServerPage() {
                             <>
                               {keys.length > 0 && (
                                 <optgroup label="Database Keys">
-                                  {keys.map((key: SSHKey) => (
+                                  {keys.map((key: SshKeyOption) => (
                                     <option key={key.id} value={key.id}>
                                       [DB] {key.name} {key.privateKeyPath ? `(${key.privateKeyPath})` : ''}
                                     </option>
@@ -321,7 +363,7 @@ export default function NewServerPage() {
 
                               {allKeys.filter(k => k.isSystemKey).length > 0 && (
                                 <optgroup label="System Keys">
-                                  {allKeys.filter(k => k.isSystemKey).map((key: SSHKey) => (
+                                  {allKeys.filter(k => k.isSystemKey).map((key: SshKeyOption) => (
                                     <option key={key.id} value={key.id}>
                                       [System] {key.name} ({key.privateKeyPath})
                                     </option>
@@ -366,51 +408,64 @@ export default function NewServerPage() {
                           onChange={handleChange}
                           className="flex min-h-[120px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                           placeholder="Paste your private key here"
+                          aria-invalid={errorFor("privateKey") ? true : undefined}
+                          aria-describedby={errorFor("privateKey") ? "server-private-key-error" : undefined}
                         />
+                        <FieldError id="server-private-key-error" message={errorFor("privateKey")} />
                       </div>
                     )}
                   </div>
                 )}
               </div>
 
-              {/* Add the Test Backup Capabilities Button after the form fields, before the submit button */}
-              <div className="flex space-x-4">
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={testingBackup || loading}
-                  onClick={handleTestBackupCapabilities}
-                >
-                  {testingBackup ? (
-                    <>
-                      <Loader2Icon className="mr-2 h-4 w-4 animate-spin" />
-                      Testing Backup Capabilities...
-                    </>
-                  ) : (
-                    <>Test Backup Capabilities</>
-                  )}
-                </Button>
+              {formError ? (
+                <p className="text-sm text-destructive" role="alert">
+                  {formError}
+                </p>
+              ) : null}
 
-                {testResult && testResult.success && (
-                  <div className="flex items-center text-sm">
-                    {testResult.rsyncAvailable ? (
-                      <div className="flex items-center text-green-600">
-                        <CheckCircleIcon className="mr-1 h-4 w-4" />
-                        Will use rsync (preferred)
-                      </div>
-                    ) : testResult.scpAvailable ? (
-                      <div className="flex items-center text-yellow-600">
-                        <CheckCircleIcon className="mr-1 h-4 w-4" />
-                        Will fall back to local SCP
-                      </div>
+              {/* Test connection after the form fields, before the submit button */}
+              <div className="space-y-2">
+                <div className="flex space-x-4">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={testingBackup || loading}
+                    onClick={handleTestBackupCapabilities}
+                  >
+                    {testingBackup ? (
+                      <>
+                        <Loader2Icon className="mr-2 h-4 w-4 animate-spin" />
+                        Testing…
+                      </>
                     ) : (
-                      <div className="flex items-center text-red-600">
-                        <XCircleIcon className="mr-1 h-4 w-4" />
-                        No transport (no remote rsync, no local scp)
-                      </div>
+                      <>Test connection</>
                     )}
-                  </div>
-                )}
+                  </Button>
+                </div>
+
+                {testError ? (
+                  <p className="text-sm text-destructive" role="alert">
+                    {testError}
+                  </p>
+                ) : null}
+
+                {testResult ? (
+                  <ConnectionTestResultPanel
+                    result={testResult}
+                    showMessage={!testResult.success}
+                    details={
+                      testResult.success ? (
+                        <ServerTransportDetails result={testResult} />
+                      ) : null
+                    }
+                    warning={
+                      authType === "password" ? (
+                        <PasswordAuthWarning />
+                      ) : null
+                    }
+                  />
+                ) : null}
               </div>
 
               <div className="flex justify-end space-x-4">
@@ -424,7 +479,7 @@ export default function NewServerPage() {
                       Adding...
                     </>
                   ) : (
-                    'Add Server'
+                    'Add server'
                   )}
                 </Button>
               </div>

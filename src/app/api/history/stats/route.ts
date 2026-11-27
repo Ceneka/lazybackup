@@ -33,7 +33,8 @@ export async function GET(request: NextRequest) {
       return acc;
     }, { running: 0, success: 0, failed: 0 });
 
-    const successRate = calcSuccessRate(statusCounts.success, totalBackups);
+    // Rate over finished runs only (running runs are neither success nor failure yet).
+    const successRate = calcSuccessRate(statusCounts.success, statusCounts.success + statusCounts.failed);
 
     // Get average backup size
     const avgSizeQuery = await db

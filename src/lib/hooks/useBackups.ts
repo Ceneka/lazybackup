@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
+import type { LatestRunSummary } from "@/lib/backup/run-status"
 
 export type ValidateCheck = {
   id: string
@@ -91,6 +92,8 @@ export interface Backup {
   createdAt: string
   updatedAt: string
   lastValidation?: LastValidation | null
+  /** Newest history row (status, timing, short error) for list/detail health. */
+  latestRun?: LatestRunSummary | null
 }
 
 export interface BackupDestinationEntry {
@@ -157,6 +160,16 @@ export function useBackups() {
   })
 }
 
+/** Typed 404 so the detail page can render a not-found state without Retry. */
+export class BackupNotFoundError extends Error {
+  readonly status = 404
+
+  constructor() {
+    super("Backup not found")
+    this.name = "BackupNotFoundError"
+  }
+}
+
 // Fetch a single backup
 export function useBackup(id: string) {
   return useQuery({
@@ -166,13 +179,18 @@ export function useBackup(id: string) {
       
       if (!response.ok) {
         if (response.status === 404) {
-          throw new Error("Backup not found")
+          throw new BackupNotFoundError()
         }
-        throw new Error("Failed to fetch backup")
+        throw new Error(`Failed to fetch backup (${response.status})`)
       }
       
       const data = await response.json()
       return data as Backup
+    },
+    // A missing config will stay missing — don't spend retries on 404.
+    retry: (failureCount, error) => {
+      if (error instanceof BackupNotFoundError) return false
+      return failureCount < 2
     },
     enabled: !!id
   })
@@ -200,14 +218,27 @@ export type BackupRunOutcome = {
   /** Bro Space: the artifact is staged here and waiting for the friend's app. */
   mailboxPending?: boolean
   deliveryState?: string | null
+  /** The POST hit an already-running run and we followed that one. */
+  attached: boolean
+}
+
+export type BackupStartOutcome = {
+  historyId: string
+  attached: boolean
 }
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-/** Start a backup and wait until the history row is success or failed. */
-export async function runBackupUntilDone(id: string): Promise<BackupRunOutcome> {
+/** Maximum time the quick-action poll waits before handing off to History. */
+const RUN_POLL_TIMEOUT_MS = 30 * 60 * 1000
+
+/**
+ * Start a run without waiting for it. `attached` is true when the server
+ * answered 409 and returned the id of a run that was already in progress.
+ */
+export async function startBackup(id: string): Promise<BackupStartOutcome> {
   const response = await fetch(`/api/backups/${id}/run`, { method: "POST" })
   const body = (await response.json().catch(() => ({}))) as {
     error?: string
@@ -228,10 +259,25 @@ export async function runBackupUntilDone(id: string): Promise<BackupRunOutcome> 
     throw new Error(body.error || "Failed to start backup")
   }
 
+  return { historyId, attached: response.status === 409 }
+}
+
+/** Start a backup and wait until the history row is success or failed. */
+export async function runBackupUntilDone(id: string): Promise<BackupRunOutcome> {
+  const started = await startBackup(id)
+  const historyId = started.historyId
+
+  const deadline = Date.now() + RUN_POLL_TIMEOUT_MS
   let delayMs = 700
   let consecutiveErrors = 0
 
   for (;;) {
+    if (Date.now() > deadline) {
+      throw new Error(
+        "Backup is still running — follow it from History instead of waiting here"
+      )
+    }
+
     const histRes = await fetch(`/api/history/${historyId}`)
     if (!histRes.ok) {
       consecutiveErrors += 1
@@ -256,6 +302,7 @@ export async function runBackupUntilDone(id: string): Promise<BackupRunOutcome> 
         errorMessage: entry.errorMessage ?? null,
         mailboxPending: Boolean(entry.mailboxPending),
         deliveryState: entry.deliveryState ?? null,
+        attached: started.attached,
       }
     }
     await sleep(delayMs)
@@ -283,6 +330,66 @@ export function useBackupStorage(id: string) {
   })
 }
 
+// Pause / resume a backup without opening the edit form
+// (`POST /api/backups/:id/toggle` only flips `enabled`; validation stays).
+export function useToggleBackup() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const response = await fetch(`/api/backups/${id}/toggle`, {
+        method: "POST",
+      })
+
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as {
+          error?: string
+        } | null
+        throw new Error(body?.error || "Failed to toggle backup")
+      }
+
+      const updated = (await response.json()) as {
+        id?: string
+        enabled?: boolean
+      }
+      return {
+        id: typeof updated.id === "string" ? updated.id : id,
+        enabled: Boolean(updated.enabled),
+      }
+    },
+    onMutate: async (id) => {
+      const lists = queryClient.getQueryData<Backup[]>(backupKeys.lists())
+
+      // Optimistically flip the list badges. The detail view is left alone so
+      // its Pause/Resume button keeps describing the in-flight action.
+      if (lists) {
+        queryClient.setQueryData<Backup[]>(
+          backupKeys.lists(),
+          lists.map((backup) =>
+            backup.id === id ? { ...backup, enabled: !backup.enabled } : backup
+          )
+        )
+      }
+
+      return { lists }
+    },
+    onError: (error, _id, context) => {
+      if (context?.lists) {
+        queryClient.setQueryData(backupKeys.lists(), context.lists)
+      }
+      toast.error(error instanceof Error ? error.message : "Failed to toggle backup")
+    },
+    onSuccess: (result) => {
+      toast.success(result.enabled ? "Backup resumed" : "Backup paused")
+    },
+    onSettled: (_result, _error, id) => {
+      void queryClient.invalidateQueries({ queryKey: backupKeys.detail(id), exact: true })
+      void queryClient.invalidateQueries({ queryKey: backupKeys.lists() })
+      void queryClient.invalidateQueries({ queryKey: ["dashboard"] })
+    },
+  })
+}
+
 // Delete a backup
 export function useDeleteBackup() {
   const queryClient = useQueryClient()
@@ -304,7 +411,8 @@ export function useDeleteBackup() {
     },
     onSuccess: (id) => {
       queryClient.invalidateQueries({ queryKey: backupKeys.lists() })
-      queryClient.invalidateQueries({ queryKey: backupKeys.detail(id) })
+      // exact: keep the destination storage summary (recursive walk) untouched.
+      queryClient.invalidateQueries({ queryKey: backupKeys.detail(id), exact: true })
       toast.success("Backup deleted successfully")
     },
     onError: (error) => {

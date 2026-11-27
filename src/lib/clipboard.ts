@@ -6,6 +6,8 @@
  * nothing. We fall back to the old hidden-textarea + `execCommand("copy")`
  * path and return `false` when the browser blocks both, so callers can show a
  * selectable textarea instead of claiming success.
+ *
+ * `copyToClipboard` is a drop-in alias used by the settings/connections UI.
  */
 
 export type ClipboardDeps = {
@@ -105,3 +107,6 @@ export async function copyText(
   if (await copyWithClipboardApi(value, deps.clipboard)) return true
   return copyWithExecCommand(value, deps.document)
 }
+
+/** Alias kept for call sites that predate `copyText`. */
+export const copyToClipboard = copyText

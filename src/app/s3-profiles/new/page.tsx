@@ -2,6 +2,7 @@
 
 import { ResourceEditLayout } from "@/components/resource-detail-layout"
 import { S3ProfileForm } from "@/components/s3-profile-form"
+import { readApiError } from "@/lib/api/client-error"
 import { s3ProfileKeys, type S3ProfileInput } from "@/lib/hooks/useS3Profiles"
 import { useQueryClient } from "@tanstack/react-query"
 import { useRouter } from "next/navigation"
@@ -22,23 +23,30 @@ export default function NewS3ProfilePage() {
   const router = useRouter()
   const queryClient = useQueryClient()
   const [submitting, setSubmitting] = useState(false)
+  const [formError, setFormError] = useState<string | null>(null)
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
 
   async function handleSubmit(data: S3ProfileInput) {
     setSubmitting(true)
+    setFormError(null)
+    setFieldErrors({})
     try {
       const response = await fetch("/api/s3-profiles", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
       })
-      const body = await response.json()
       if (!response.ok) {
-        throw new Error(body.error || "Failed to create profile")
+        const { message, fieldErrors } = await readApiError(response)
+        setFormError(message)
+        setFieldErrors(fieldErrors)
+        return
       }
       await queryClient.invalidateQueries({ queryKey: s3ProfileKeys.lists() })
       toast.success("S3 profile created")
       router.push("/connections?tab=s3")
     } catch (err) {
+      setFormError(err instanceof Error ? err.message : "Failed to create profile")
       toast.error(err instanceof Error ? err.message : "Failed to create profile")
     } finally {
       setSubmitting(false)
@@ -49,13 +57,15 @@ export default function NewS3ProfilePage() {
     <ResourceEditLayout
       backHref="/connections?tab=s3"
       backLabel="Back to S3 profiles"
-      title="Add S3 Profile"
+      title="Add S3 profile"
     >
       <S3ProfileForm
         initial={empty}
         submitting={submitting}
-        submitLabel="Add Profile"
+        submitLabel="Add profile"
         cancelHref="/connections?tab=s3"
+        formError={formError}
+        fieldErrors={fieldErrors}
         onSubmit={handleSubmit}
       />
     </ResourceEditLayout>

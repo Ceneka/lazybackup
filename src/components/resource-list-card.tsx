@@ -28,23 +28,31 @@ export function ResourceListCard({
   return (
     <div className="group relative z-0 rounded-lg border bg-card p-6 text-card-foreground shadow-sm transition-shadow hover:z-10 hover:shadow-md focus-within:z-10">
       <Link href={href} className="absolute inset-0 z-0 rounded-lg" aria-label={title} />
-      <div className="relative z-10 flex items-start justify-between gap-2">
-        <div className="pointer-events-none flex min-w-0 items-center">
-          <Icon className="mr-2 h-5 w-5 shrink-0 text-muted-foreground" />
-          <h3 className="truncate font-medium">{title}</h3>
+      <div className="relative z-10">
+        <div className="flex items-start justify-between gap-2">
+          <div className="pointer-events-none flex min-w-0 flex-1 items-center">
+            <Icon className="mr-2 h-5 w-5 shrink-0 text-muted-foreground" />
+            <h3 className="truncate font-medium" title={title}>
+              {title}
+            </h3>
+          </div>
+          <div className="flex shrink-0 items-center gap-0.5">
+            <ResourceQuickActionBar
+              editHref={editHref}
+              editLabel={`Edit ${title}`}
+              overflow={overflow}
+              flash={flash}
+            />
+          </div>
         </div>
-        <div className="flex shrink-0 items-center gap-0.5">
-          {badges}
-          <ResourceQuickActionBar
-            editHref={editHref}
-            editLabel={`Edit ${title}`}
-            overflow={overflow}
-            flash={flash}
-          />
+        {badges ? (
+          <div className="pointer-events-none mt-1.5 flex flex-wrap items-center gap-1">
+            {badges}
+          </div>
+        ) : null}
+        <div className="pointer-events-none mt-2 text-sm text-muted-foreground">
+          {children}
         </div>
-      </div>
-      <div className="pointer-events-none relative z-10 mt-2 text-sm text-muted-foreground">
-        {children}
       </div>
     </div>
   )

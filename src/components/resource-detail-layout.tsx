@@ -19,12 +19,14 @@ export function ResourcePageHeader({
 }) {
   return (
     <div className="space-y-1">
-      <div className="flex items-center space-x-2">
-        <Link href={backHref} className={backButtonClassName}>
+      <div className="flex items-start space-x-2">
+        <Link href={backHref} className={cn(backButtonClassName, "shrink-0")}>
           <ArrowLeftIcon className="h-4 w-4" />
           <span className="sr-only">{backLabel}</span>
         </Link>
-        <h1 className="text-3xl font-bold">{title}</h1>
+        <h1 className="min-w-0 break-words text-2xl font-bold tracking-tight sm:text-3xl">
+          {title}
+        </h1>
       </div>
       {description ? (
         <p className="pl-12 text-sm text-muted-foreground">{description}</p>
@@ -69,6 +71,7 @@ export function ResourceDetailLayout({
   details,
   actions,
   actionsExtra,
+  hideHeader = false,
   children,
 }: {
   backHref: string
@@ -78,17 +81,22 @@ export function ResourceDetailLayout({
   details: ReactNode
   actions: ReactNode
   actionsExtra?: ReactNode
+  /** Page already renders `ResourcePageHeader` outside its query state. */
+  hideHeader?: boolean
   children?: ReactNode
 }) {
   return (
     <div className="space-y-6">
-      <ResourcePageHeader backHref={backHref} backLabel={backLabel} title={title} />
+      {hideHeader ? null : (
+        <ResourcePageHeader backHref={backHref} backLabel={backLabel} title={title} />
+      )}
       <div className="grid grid-cols-1 items-start gap-6 md:grid-cols-2">
-        <div className="rounded-lg border bg-card p-6 text-card-foreground shadow">
+        <div className="order-2 min-w-0 rounded-lg border bg-card p-6 text-card-foreground shadow md:order-1">
           <h2 className="mb-4 text-xl font-semibold">{detailsTitle}</h2>
           {details}
         </div>
-        <div className="w-full self-start rounded-lg border bg-card p-6 text-card-foreground shadow">
+        {/* Actions are the reason to open a detail page — lead on mobile. */}
+        <div className="order-1 w-full min-w-0 self-start rounded-lg border bg-card p-6 text-card-foreground shadow md:order-2">
           <h2 className="mb-4 text-xl font-semibold">Actions</h2>
           {actions}
           {actionsExtra}
@@ -112,14 +120,28 @@ export function DetailFields({
 export function DetailField({
   label,
   children,
+  mono = false,
+  className,
 }: {
   label: string
   children: ReactNode
+  /** Monospace + smaller text for URLs, IDs, and long paths. */
+  mono?: boolean
+  /** Extra classes for the value line (e.g. `text-base`). */
+  className?: string
 }) {
   return (
-    <div>
+    <div className="min-w-0">
       <dt className="text-sm font-medium text-muted-foreground">{label}</dt>
-      <dd className="text-lg">{children}</dd>
+      <dd
+        className={cn(
+          "break-words",
+          mono ? "break-all font-mono text-sm" : "text-lg",
+          className
+        )}
+      >
+        {children}
+      </dd>
     </div>
   )
 }

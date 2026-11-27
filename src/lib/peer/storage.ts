@@ -1,5 +1,5 @@
 import fs from 'fs/promises';
-import { createReadStream } from 'fs';
+import { createReadStream, type Dirent } from 'fs';
 import path from 'path';
 import { eq } from 'drizzle-orm';
 import { db } from '@/lib/db';
@@ -35,7 +35,7 @@ export const MAX_PEER_OBJECTS = 20_000;
 async function dirStats(dir: string): Promise<{ bytes: number; files: number }> {
   let bytes = 0;
   let files = 0;
-  let entries: Awaited<ReturnType<typeof fs.readdir>>;
+  let entries: Dirent[];
   try {
     entries = await fs.readdir(dir, { withFileTypes: true });
   } catch {
@@ -200,7 +200,7 @@ export async function listPeerObjects(peerId: string): Promise<
   const out: Array<{ key: string; size: number; mtime: string }> = [];
 
   async function walk(dir: string, prefix: string) {
-    let entries: Awaited<ReturnType<typeof fs.readdir>>;
+    let entries: Dirent[];
     try {
       entries = await fs.readdir(dir, { withFileTypes: true });
     } catch {

@@ -47,6 +47,20 @@ export function IconClock(props: { className?: string }) {
   );
 }
 
+export function IconActivity(props: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={props.className} aria-hidden>
+      <path
+        d="M3 12h4l2.5-6 5 12 2.5-6h4"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 export function IconLayers(props: { className?: string }) {
   return (
     <svg viewBox="0 0 24 24" fill="none" className={props.className} aria-hidden>
@@ -295,71 +309,6 @@ export function IconWebhook(props: { className?: string }) {
 
 export type FeatureIcon = ComponentType<{ className?: string }>;
 
-export type FeatureHighlight = {
-  title: string;
-  desc: string;
-  Icon: FeatureIcon;
-};
-
-/** Compact cards shown on the home page. */
-export const homeFeatures: readonly FeatureHighlight[] = [
-  {
-    title: "From → To endpoints",
-    desc: "Local, SSH servers, and S3-compatible storage (MinIO, R2, B2, AWS). Path, Docker volume, database dump, or instance meta-backup sources.",
-    Icon: IconArrows,
-  },
-  {
-    title: "Server → Server",
-    desc: "Ephemeral SSH keys for direct rsync when source can reach dest; otherwise pull then push via the LazyBackup host. S3 always relays.",
-    Icon: IconRelay,
-  },
-  {
-    title: "age encryption vault",
-    desc: "Optional ciphertext before land. Multi-key vault (active / retired / compromised), recovery recipients, passphrase-wrapped key export.",
-    Icon: IconAge,
-  },
-  {
-    title: "Bro Space",
-    desc: "Lend backup space to a friend. They install LazyBro, paste your invite, and share a folder — encrypted end to end. Mailbox retention uses the same version/age rules as S3.",
-    Icon: IconUsers,
-  },
-  {
-    title: "Validate before run",
-    desc: "Probe SSH, S3, paths, and DB credentials without transferring. Last result is stored with a timestamp on the backup detail page.",
-    Icon: IconValidate,
-  },
-  {
-    title: "Failure webhooks",
-    desc: "HTTPS notify on backup.failed—method, headers, and {{tag}} templates. Presets for Discord, ntfy, Uptime Kuma, Telegram, and Slack. Optional success pings (same channel presets) when a run succeeds.",
-    Icon: IconWebhook,
-  },
-  {
-    title: "Status posture",
-    desc: "A Status page scores what you already configured—auth, key export, instance backup, missed schedules, password-only SSH, webhooks—and links to fix each gap.",
-    Icon: IconShield,
-  },
-  {
-    title: "Passkeys + app password",
-    desc: "Lock the UI with WebAuthn passkeys and/or a single app password. No users table; 30-day sliding session cookie.",
-    Icon: IconPasskey,
-  },
-  {
-    title: "Database dumps",
-    desc: "Postgres / MySQL / MariaDB / SQLite logical dumps—.sql.gz or .sqlite.gz—native client or docker exec, with container env hints from docker inspect.",
-    Icon: IconDatabase,
-  },
-  {
-    title: "Paths & Docker volumes",
-    desc: "rsync/scp paths, or alpine-pack named volumes on a source server or this host’s Docker socket. Restore from History (local, S3, Bro, or SSH dest with a key)—or download the artifact without restoring in place.",
-    Icon: IconDocker,
-  },
-  {
-    title: "MCP for agents",
-    desc: "Streamable HTTP MCP at /mcp with Bearer API tokens. validate_backup and get_status; opt-in remote_exec for shell or read_only for inspect-only. Destructive tools need confirm=true.",
-    Icon: IconMcp,
-  },
-] as const;
-
 export type DetailedFeature = {
   id: string;
   title: string;
@@ -388,14 +337,15 @@ export const detailedFeatures: readonly DetailedFeature[] = [
   {
     id: "source-types",
     title: "Source types",
-    tags: ["path", "docker_volume", "database", "lazybackup_instance"],
+    tags: ["path", "docker_volume", "database", "lazybackup_instance", "git_repo"],
     summary:
-      "Four source types. Destinations are always paths or object prefixes—never “to a volume.”",
+      "Five source types. Destinations are always paths or object prefixes—never “to a volume.”",
     points: [
       "path — filesystem tree or S3 prefix; rsync preferred, scp fallback.",
       "docker_volume — named volume on a source server or this host’s Docker socket; alpine packs .tar.gz (not a consistent live-DB backup).",
       "database — Postgres / MySQL / MariaDB logical dump → .sql.gz via native client or docker exec (local or server). SQLite → .sqlite.gz (native file / sqlite3 .backup only).",
       "lazybackup_instance — packs SQLite + age vault + SSH keys; optional age passphrase wrap (not the instance age key).",
+      "git_repo — git clone --mirror on the LazyBackup host (vault SSH key for SSH remotes), tar the bare mirror, then land it like a volume archive. Pre-backup commands and rsync --delete do not apply.",
     ],
     Icon: IconBackup,
   },
@@ -477,6 +427,7 @@ export const detailedFeatures: readonly DetailedFeature[] = [
       "Operator checklist derived from stored config—not a separate monitoring agent.",
     points: [
       "Critical / warn / info / ok checks for unlocked UI, missing age key, unexported keys, no recovery recipients, missing or stale instance backup, missed (overdue) schedules, password-only SSH servers, recent failures, webhooks, remote_exec tokens.",
+      "The dashboard carries the same signals: last successful backup, overdue schedules, a short needs-attention list, and an alert when every backup is disabled.",
       "Each row deep-links to Settings, Backups, or History.",
       "Refreshes about every minute from a single session-authenticated API.",
     ],
@@ -487,8 +438,10 @@ export const detailedFeatures: readonly DetailedFeature[] = [
     title: "Restore",
     tags: ["POST /api/history/:id/restore", "GET /api/history/:id/download"],
     summary:
-      "Path, volume, and database restore from History. Artifacts can be local, on S3, on Bro, or on an SSH destination with key auth (pulled onto this host first).",
+      "Path, volume, database, and Git mirror restore from History. The dialog shows the run and From → To; artifacts can be local, on S3, on Bro, or on an SSH destination with key auth.",
     points: [
+      "The dialog summarizes the selected run (date, size) and the From → To endpoints. Path restores are a merge: files at the target that are not in the backup are not deleted.",
+      "Restoring to a different host or path asks for an extra confirmation. Results stay on the page with a clear error.",
       "Path: rsync/push the backed-up tree back to the local path, SSH host, or S3 source prefix. History offers a host picker to restore onto a different server (key auth required).",
       "Docker volume: push/extract into a named volume on the original source or a retargeted host (SSH server or this host’s Docker socket).",
       "Database: pipe into psql/mysql/sqlite (native or docker exec) on the original or a retargeted host.",
@@ -497,15 +450,31 @@ export const detailedFeatures: readonly DetailedFeature[] = [
     Icon: IconRestore,
   },
   {
+    id: "history",
+    title: "History & run statistics",
+    tags: ["/history", "from/to", "statistics"],
+    summary:
+      "A navigable run list with filters that survive Back, date chips, a statistics chart, and errors visible on failed runs.",
+    points: [
+      "Page, search, status, and date filters live in the URL—Back returns to the same view. Today / 7 days / 30 days chips plus a day picker; Clear filters resets.",
+      "A linked Statistics page charts runs per day. Success rates count finished runs only and never round failures up to 100%.",
+      "Running runs appear live over SSE. Failed runs show the error on the detail page without opening the log.",
+      "Downloads stream large artifacts, label encrypted .age files, and stop waiting for Bro when you leave the page.",
+      "Times and day buckets use the app timezone.",
+    ],
+    Icon: IconClock,
+  },
+  {
     id: "servers",
     title: "Servers & SSH keys",
     tags: ["node-ssh", "authType password|key"],
     summary:
-      "Manage VPS connections—host, port, user, credentials—then reuse them as From or To.",
+      "Manage VPS connections—host, port, user, credentials—then reuse them as From or To. Cards show whether each host is key-ready.",
     points: [
-      "Password auth works for Test connection and helpers (list volumes/containers, remote shell).",
-      "Path transfers require an SSH key on every server endpoint involved.",
-      "Store keys in the app, reference a system path, or attach a saved ssh_keys row.",
+      "Password-only servers carry a Password only badge and “path backups need an SSH key” on the card, detail, and test results. Key names are shown next to Key.",
+      "Password auth still works for Test connection and helpers (list volumes/containers, remote shell); path transfers require an SSH key on every server endpoint involved.",
+      "Tests use the values on screen, including on edit pages, and stay visible with a copyable error. Secret fields have show/hide.",
+      "Store keys in the app, reference a system path, or attach a saved ssh_keys row. The Git form can create an SSH key too.",
     ],
     Icon: IconServer,
   },
@@ -516,12 +485,28 @@ export const detailedFeatures: readonly DetailedFeature[] = [
     summary:
       "Cron in the app timezone, excludes, pre-backup commands, versioned subfolders, and age-based file retention.",
     points: [
-      "5-field cron; invalid expressions fail at schedule time. New Backup offers preset chips and VPS path / volume recipes for a first job.",
+      "5-field cron in the app timezone; invalid expressions block saving. Step expressions get correct labels (Every 6 hours, not Daily at */6:00).",
+      "New Backup offers preset chips and VPS path / volume recipes for a first job. Switching source type, server, or destination clears stale paths, containers, or forced encryption.",
       "Versioning: YYYY-MM-DD_HH-mm-ss subfolders with count-based keep.",
       "File retention: age + min-keep for dump-style destinations (not with versioning)—local, remote SSH, S3, and Bro mailbox.",
       "Pre-backup commands: SSH or local shell; Bearer tokens need remote_exec to set/change them.",
     ],
     Icon: IconClock,
+  },
+  {
+    id: "health",
+    title: "Backup health & pause/resume",
+    tags: ["latestRun", "nextRun", "scheduleLabel", "Paused"],
+    summary:
+      "Every backup card answers what happened last time and what runs next; pause a schedule without opening the edit form.",
+    points: [
+      "Cards show the last run (success, failed, running, never run), the next run or Paused, and a warning when validation failed.",
+      "Pause / Resume from the card menu or the backup detail page—stored validation results are kept.",
+      "The detail page shows a live “Running since…” banner with a link to the log, plus encryption and file-retention settings.",
+      "Dashboard shows last successful backup, overdue schedules, a short needs-attention list, and an alert when every backup is disabled.",
+      "API: GET /api/backups and /api/backups/:id include latestRun, nextRun, and scheduleLabel.",
+    ],
+    Icon: IconActivity,
   },
   {
     id: "validate",
@@ -531,6 +516,7 @@ export const detailedFeatures: readonly DetailedFeature[] = [
       "Dry-run connectivity and credentials without transferring data. Open a backup → Validate; the last result is stored for later.",
     points: [
       "Probes SSH reachability / key capability, local or remote paths, S3 profile access, and database dump credentials as applicable.",
+      "Password-only SSH servers are reported as warnings—tests still connect, but path transfers need a key.",
       "Returns pass / fail / warn checks with messages—no rsync, pack, or dump side effects.",
       "lastValidatedAt / lastValidationOk / lastValidationChecks persist on the config; cleared when you edit the job.",
     ],
@@ -541,10 +527,10 @@ export const detailedFeatures: readonly DetailedFeature[] = [
     title: "Failure webhooks",
     tags: ["failureWebhookUrl", "successPingUrl", "backup.failed"],
     summary:
-      "Optional HTTPS notification when a backup fails, plus optional success pings. Configure once under Settings → General; empty URL disables.",
+      "Optional HTTPS notification when a backup fails, plus optional success pings. Configure once under Settings → General and press Save changes; empty URL disables.",
     points: [
       "Method GET / POST / PUT; URL, headers, and body support {{event}}, {{backupName}}, {{configId}}, {{historyId}}, {{errorMessage}}, {{endedAt}}.",
-      "Failure presets: Default JSON, Discord, Telegram, Uptime Kuma push, ntfy, Slack—paste your URL and tweak the template.",
+      "Failure presets: Default JSON, Discord, Telegram, Uptime Kuma push, ntfy, Slack—presets fill the form; the change applies on Save.",
       "Success pings: Healthchecks-style GET (or POST) on backup.succeeded; Discord, ntfy, and Telegram presets share the same channel templates.",
       "Empty POST/PUT body sends the built-in backup.failed JSON. HTTPS required (http only for localhost/LAN). Send test notification to verify.",
     ],
@@ -567,15 +553,15 @@ export const detailedFeatures: readonly DetailedFeature[] = [
   {
     id: "mcp",
     title: "MCP & API tokens",
-    tags: ["/mcp", "Authorization: Bearer", "remote_exec", "read_only"],
+    tags: ["/mcp", "Authorization: Bearer", "read_only", "remote_exec", "authorize_keys"],
     summary:
-      "Streamable HTTP MCP on the same instance so coding agents manage backups without a local bridge.",
+      "Streamable HTTP MCP on the same instance so coding agents manage backups without a local bridge. Tokens carry an access level.",
     points: [
-      "Create tokens under Settings → API / MCP (shown once; hashed at rest; revoke anytime).",
-      "Tokens cannot mint tokens—CRUD requires a browser session.",
-      "validate_backup probes endpoints without transferring (persists lastValidation). get_status returns the Status posture snapshot. Both are allowed for read_only tokens.",
-      "remote_exec gates exec_command and changing preBackupCommands; sessions always allowed. read_only (mutually exclusive with remote_exec) may list/get, validate, and test_*; it cannot mutate. Existing tokens without it still write.",
-      "Destructive tools (delete_*, restore_history, exec_command) require confirm=true. Audit log without secrets.",
+      "Create tokens under Settings → API / MCP with an access level: Read only, Read & write, or Read, write & shell. Unrestricted tokens are labelled Full access (shown once; hashed at rest; revoke anytime).",
+      "Tokens cannot mint tokens—CRUD requires a browser session. A new token survives switching Settings tabs.",
+      "Read only may list/get, validate, and test_*; it cannot mutate. Read & write adds create/edit/run/delete. Read, write & shell adds exec_command and pre-backup commands (remote_exec).",
+      "authorize_keys works with Read only and is implied by shell: a client can add its own SSH public key to a server’s authorized_keys, audited with the fingerprint.",
+      "validate_backup probes endpoints without transferring (persists lastValidation). get_status returns the Status posture snapshot. Destructive tools (delete_*, restore_history, exec_command) require confirm=true. Audit log without secrets.",
     ],
     Icon: IconMcp,
   },

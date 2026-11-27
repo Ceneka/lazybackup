@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils"
-import { Loader2Icon } from "lucide-react"
+import { AlertCircleIcon, Loader2Icon, RefreshCwIcon } from "lucide-react"
 import * as React from "react"
 import { Button } from "./button"
 
@@ -45,6 +45,15 @@ export interface DataStateProps {
    */
   onRetry?: () => void
   /**
+   * Whether a retry request is currently in flight (spinner + disabled Retry).
+   */
+  isRetrying?: boolean
+  /**
+   * Also render `children` below the empty state. Useful when controls such as
+   * pagination must stay visible on an empty page.
+   */
+  showChildrenWhenEmpty?: boolean
+  /**
    * Custom loading component or element
    */
   loadingComponent?: React.ReactNode
@@ -76,6 +85,8 @@ export function DataState({
   errorIcon,
   showRetry = true,
   onRetry,
+  isRetrying = false,
+  showChildrenWhenEmpty = false,
   loadingComponent,
   className,
   spinnerSize = 8,
@@ -88,8 +99,16 @@ export function DataState({
     }
     
     return (
-      <div className={cn("flex justify-center items-center py-12", className)}>
-        <Loader2Icon className={`h-${spinnerSize} w-${spinnerSize} animate-spin text-muted-foreground`} />
+      <div
+        className={cn("flex justify-center items-center py-12", className)}
+        role="status"
+        aria-live="polite"
+      >
+        <Loader2Icon
+          className={`h-${spinnerSize} w-${spinnerSize} animate-spin text-muted-foreground`}
+          aria-hidden
+        />
+        <span className="sr-only">Loading</span>
       </div>
     )
   }
@@ -98,13 +117,19 @@ export function DataState({
   if (error) {
     return (
       <div className={cn("flex flex-col items-center justify-center py-12 text-center", className)}>
-        {errorIcon || <div className="h-12 w-12 text-red-500 mb-4">{errorIcon}</div>}
+        {errorIcon ?? (
+          <AlertCircleIcon className="mb-4 h-12 w-12 text-destructive" aria-hidden />
+        )}
         <h3 className="text-lg font-medium">Error loading data</h3>
         <p className="text-muted-foreground mt-2 mb-4">{error}</p>
         {showRetry && onRetry && (
-          <Button onClick={onRetry} className="mt-2">
-            <Loader2Icon className="mr-2 h-4 w-4" />
-            Retry
+          <Button onClick={onRetry} className="mt-2" disabled={isRetrying}>
+            {isRetrying ? (
+              <Loader2Icon className="mr-2 h-4 w-4 animate-spin" aria-hidden />
+            ) : (
+              <RefreshCwIcon className="mr-2 h-4 w-4" aria-hidden />
+            )}
+            {isRetrying ? "Retrying…" : "Retry"}
           </Button>
         )}
       </div>
@@ -113,7 +138,7 @@ export function DataState({
 
   // Empty state
   if (isEmpty) {
-    return (
+    const emptyState = (
       <div className={cn("flex flex-col items-center justify-center py-12 text-center", className)}>
         {emptyIcon ? <div className="mb-4">{emptyIcon}</div> : null}
         <h3 className="text-lg font-medium">{emptyMessage}</h3>
@@ -122,6 +147,15 @@ export function DataState({
         ) : null}
         {emptyAction ? <div className="mt-4">{emptyAction}</div> : null}
       </div>
+    )
+
+    if (!showChildrenWhenEmpty) return emptyState
+
+    return (
+      <>
+        {emptyState}
+        {children}
+      </>
     )
   }
 

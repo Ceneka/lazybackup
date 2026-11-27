@@ -1,11 +1,15 @@
 "use client"
 
 import {
+  ConnectionTestResultPanel,
+  type ConnectionTestOutcome,
+} from "@/components/connections/connection-test-result"
+import {
   DetailField,
   DetailFields,
   ResourceDetailLayout,
 } from "@/components/resource-detail-layout"
-import { UsedByBackupsCard } from "@/components/used-by-backups"
+import { InUseBlockers, UsedByBackupsCard, type UsedByBackup } from "@/components/used-by-backups"
 import { DeleteConfirmationDialog } from "@/components/ui/delete-confirmation-dialog"
 import {
   DetailActionLink,
@@ -16,8 +20,8 @@ import {
 } from "@/components/ui/detail-actions"
 import { LoadingButton } from "@/components/ui/loading-button"
 import { QueryState } from "@/components/ui/query-state"
+import { readApiError } from "@/lib/api/client-error"
 import { isResourceInUseError } from "@/lib/api/resource-in-use"
-import { testStoredS3Profile } from "@/lib/resource-actions"
 import { s3ProfileKeys, useDeleteS3Profile, useS3Profile } from "@/lib/hooks/useS3Profiles"
 import { useQueryClient } from "@tanstack/react-query"
 import { CableIcon, CloudIcon, FolderPlusIcon, PencilIcon } from "lucide-react"
@@ -33,6 +37,8 @@ export default function S3ProfilePage() {
   const query = useS3Profile(id)
   const deleteProfile = useDeleteS3Profile()
   const [testing, setTesting] = useState(false)
+  const [testResult, setTestResult] = useState<ConnectionTestOutcome | null>(null)
+  const [deleteBlockers, setDeleteBlockers] = useState<UsedByBackup[] | null>(null)
 
   useEffect(() => {
     if (query.error?.message === "S3 profile not found") {
@@ -46,22 +52,58 @@ export default function S3ProfilePage() {
   async function handleTest() {
     if (!query.data) return
     setTesting(true)
+    setTestResult(null)
+    const testedLabel = `Saved profile · ${query.data.name}`
     try {
-      await testStoredS3Profile(query.data.id, query.data.name)
+      const response = await fetch(`/api/s3-profiles/${query.data.id}/test`)
+      if (!response.ok) {
+        const { message } = await readApiError(response)
+        setTestResult({
+          success: false,
+          message,
+          testedAt: Date.now(),
+          testedLabel,
+        })
+        return
+      }
+      const body = (await response.json()) as {
+        success?: boolean
+        message?: string
+        error?: string
+      }
+      setTestResult({
+        success: body.success !== false,
+        message: body.message || body.error || "S3 connection OK",
+        testedAt: Date.now(),
+        testedLabel,
+      })
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "S3 connection failed")
+      setTestResult({
+        success: false,
+        message: error instanceof Error ? error.message : "S3 connection failed",
+        testedAt: Date.now(),
+        testedLabel,
+      })
     } finally {
       setTesting(false)
     }
   }
 
   const handleDelete = () => {
+    setDeleteBlockers(null)
     deleteProfile.mutate(id, {
       onSuccess: () => {
         router.push("/connections?tab=s3")
       },
       onError: (error) => {
         if (isResourceInUseError(error)) {
+          setDeleteBlockers(
+            error.resources.map((resource) => ({
+              id: resource.id,
+              name: resource.name,
+              roles: (resource.roles as UsedByBackup["roles"]) || ["source"],
+            }))
+          )
           queryClient.invalidateQueries({ queryKey: s3ProfileKeys.detail(id) })
         }
       },
@@ -82,13 +124,13 @@ export default function S3ProfilePage() {
           backHref="/connections?tab=s3"
           backLabel="Back to S3 profiles"
           title={query.data.name}
-          detailsTitle="S3 Details"
+          detailsTitle="S3 details"
           details={
             <DetailFields>
-              <DetailField label="Endpoint">{query.data.endpoint}</DetailField>
+              <DetailField label="Endpoint" mono>{query.data.endpoint}</DetailField>
               <DetailField label="Bucket">{query.data.bucket}</DetailField>
               <DetailField label="Region">{query.data.region}</DetailField>
-              <DetailField label="Access Key ID">{query.data.accessKeyId}</DetailField>
+              <DetailField label="Access Key ID" mono>{query.data.accessKeyId}</DetailField>
               <DetailField label="Path-style URLs">
                 {query.data.forcePathStyle !== false ? "On" : "Off"}
               </DetailField>
@@ -111,7 +153,7 @@ export default function S3ProfilePage() {
                 <CableIcon />
                 Test connection
               </LoadingButton>
-              <DetailActionLink href="/backups/new">
+              <DetailActionLink href={`/backups/new?s3ProfileId=${query.data.id}`}>
                 <FolderPlusIcon />
                 Create backup
               </DetailActionLink>
@@ -129,6 +171,20 @@ export default function S3ProfilePage() {
                 triggerButtonClassName={detailActionDestructiveClassName}
               />
             </DetailActions>
+          }
+          actionsExtra={
+            testResult || deleteBlockers?.length ? (
+              <div className="mt-3 space-y-3">
+                {testResult ? (
+                  <ConnectionTestResultPanel
+                    result={testResult}
+                    onRetry={() => void handleTest()}
+                    retrying={testing}
+                  />
+                ) : null}
+                <InUseBlockers blockers={deleteBlockers} />
+              </div>
+            ) : null
           }
         >
           <UsedByBackupsCard

@@ -166,7 +166,14 @@ export function useEncryption() {
         action: "setStatus",
         ...args,
       }),
-    onSuccess: () => invalidate(),
+    onSuccess: (_data, variables) => {
+      invalidate()
+      toast.success(
+        variables.status === "compromised"
+          ? "Key marked compromised — it can no longer be activated"
+          : "Key marked retired"
+      )
+    },
     onError: (e: Error) => toast.error(e.message),
   })
 
@@ -226,7 +233,12 @@ export function useEncryption() {
 
   return {
     status: statusQuery.data,
+    hasStatus: statusQuery.data !== undefined,
     isLoading: statusQuery.isLoading,
+    isFetching: statusQuery.isFetching,
+    isError: statusQuery.isError,
+    error: statusQuery.error,
+    refetch: statusQuery.refetch,
     generate,
     importKey,
     reveal,

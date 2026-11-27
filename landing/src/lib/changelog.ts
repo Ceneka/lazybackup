@@ -24,6 +24,74 @@ export const changelogEntries: readonly ChangelogEntry[] = [
     "sections": []
   },
   {
+    "id": "0-3-0",
+    "title": "0.3.0",
+    "date": "2026-11-21",
+    "intro": "An app-wide UI/UX pass: every screen was audited and roughly 90 issues fixed.",
+    "sections": [
+      {
+        "heading": "Added",
+        "items": [
+          "Pause / Resume backups — toggle a schedule from the backup detail page or the card menu without opening the edit form (validation results are kept).",
+          "Backup health at a glance — backup cards show the last run (success, failed, running, never run), the next run or \"Paused\", and a warning when validation failed. The detail page shows a live \"Running since…\" banner with a link to the log, plus encryption and file-retention settings.",
+          "Dashboard answers \"am I protected?\" — last successful backup, overdue schedules, a short \"needs attention\" list, an alert when every backup is disabled, and Bro runs still waiting for the peer are no longer shown as landed.",
+          "History filters that stick — page, search, status and date live in the URL (Back returns to the same view), with Today / 7 days / 30 days chips, a day picker, Clear filters, and a linked Statistics page with a run chart.",
+          "Safer restores — the restore dialog shows which run (date, size), the source → target endpoints, that files missing from the backup are not deleted, and asks for an extra confirmation when restoring to a different host or path. Results stay on the page.",
+          "Connection readiness — password-only servers are flagged (\"path backups need an SSH key\") on cards, detail and test results; servers show which key they use; test results stay visible with a copyable error; secret fields get show/hide; the Git form can create an SSH key.",
+          "Create backup from an S3 profile — prefills the S3 source."
+        ]
+      },
+      {
+        "heading": "Fixed",
+        "items": [
+          "Backup form — path inputs no longer lose focus on every keystroke; invalid cron expressions block saving instead of silently never running; server validation errors appear next to the field; switching source type, server or destination no longer leaves stale paths, containers or forced encryption behind; destination suggestions use the real BACKUP_STORAGE_PATH and no longer overwrite recipe defaults; missing age key or instance passphrase is flagged before the first run; the database test works with a stored password.",
+          "Settings — a new API token or Bro invite code is no longer lost when switching tabs; a failed settings load shows an error instead of blank fields that could overwrite your config; Copy works on plain-HTTP LAN setups; webhook presets fill the form and need an explicit Save; tabs are kept in the URL.",
+          "Error states — History, SSH keys, passkeys and Bro peers show load errors with Retry instead of looking empty; a failed background refresh keeps the data on screen with a \"Couldn't refresh\" notice.",
+          "Downloads — the History download no longer leaves a stuck \"Loading…\" overlay, streams large artifacts instead of buffering them in the browser, labels encrypted .age files, and stops waiting for Bro when you leave.",
+          "Times and rates — dashboard, history day filters and chart buckets all use the app timezone; success rates count finished runs only and never round failures up to 100%.",
+          "Schedules — labels for step expressions are correct (\"Every 6 hours\" instead of \"Daily at */6:00\").",
+          "Edit pages test what's on screen — server, S3 and Git \"Test connection\" on edit pages use the current form values, not the saved ones.",
+          "\"Shared destination\" — no longer flagged for backups on different Bro peers.",
+          "Usability and accessibility — card menus open upward near the bottom of the screen and work with the keyboard; long dialogs scroll; readable status badges in light and dark mode; skip-to-content link; labelled controls and clearer delete / revoke confirmations that name what is affected."
+        ]
+      },
+      {
+        "heading": "Changed",
+        "items": [
+          "Settings → General saves with an explicit Save button; API tokens ask for an access level (Read only / Read & write / shell) before creation and unrestricted tokens are labelled \"Full access\".",
+          "API (additive) — GET /api/backups and /api/backups/:id include latestRun, nextRun and scheduleLabel; GET /api/history accepts from/to day keys; POST /api/settings accepts a batch { settings: { … } }; server responses include the SSH key name."
+        ]
+      }
+    ]
+  },
+  {
+    "id": "0-2-8",
+    "title": "0.2.8",
+    "date": "2026-11-21",
+    "sections": [
+      {
+        "heading": "Added",
+        "items": [
+          "Authorize SSH keys for linked clients — new authorize_keys API token permission (works together with Read only) and POST/DELETE /api/servers/:id/authorize-key. A client such as sshya sends its own public key and LazyBackup adds it to the server's ~/.ssh/authorized_keys with the stored credentials, so keys generated inside LazyBackup stay inside it. Each call is audited with the key fingerprint."
+        ]
+      },
+      {
+        "heading": "Security",
+        "items": [
+          "SimpleWebAuthn 14 — passkey registration and login move to @simplewebauthn/server 14.1.0 / browser 14, which fix GHSA-2g3p-m8c9-hhwh and GHSA-j3h4-m3m2-7p7j.",
+          "Landing site — Next.js 16.4.5 for lazy.zic.ar (static export, not shipped in the Docker image)."
+        ]
+      },
+      {
+        "heading": "Changed",
+        "items": [
+          "Dependency refresh — 34 minor/patch updates across the app (AWS SDK, libsql client, Radix UI, TanStack Query, React 19.3, Tailwind 4.3, cron, drizzle-kit, …) and LazyBro (nanoid 6, age-encryption 0.3.1).",
+          "Dependabot — now tracks the Bun lockfiles for the app, LazyBro and the landing site, so dependency and security updates arrive as PRs again."
+        ]
+      }
+    ]
+  },
+  {
     "id": "0-2-7",
     "title": "0.2.7",
     "date": "2026-11-10",

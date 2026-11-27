@@ -22,7 +22,9 @@ const serverSchema = z.object({
 // GET /api/servers - List all servers
 export async function GET() {
   try {
-    const allServers = await db.select().from(servers);
+    const allServers = await db.query.servers.findMany({
+      with: { sshKey: { columns: { id: true, name: true } } },
+    });
     return NextResponse.json(
       allServers.map((s) => redactServer(s as unknown as Record<string, unknown>))
     );

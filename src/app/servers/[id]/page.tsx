@@ -5,7 +5,12 @@ import {
   DetailFields,
   ResourceDetailLayout,
 } from "@/components/resource-detail-layout"
-import { backupRoleLabel, UsedByBackupsCard, type UsedByBackup } from "@/components/used-by-backups"
+import { PasswordAuthWarning } from "@/components/connections/server-auth"
+import {
+  InUseBlockers,
+  UsedByBackupsCard,
+  type UsedByBackup,
+} from "@/components/used-by-backups"
 import { DeleteConfirmationDialog } from "@/components/ui/delete-confirmation-dialog"
 import {
   DetailActionLink,
@@ -76,16 +81,45 @@ export default function ServerPage() {
           backHref="/connections?tab=servers"
           backLabel="Back to servers"
           title={query.data.name}
-          detailsTitle="Server Details"
+          detailsTitle="Server details"
           details={
-            <DetailFields>
-              <DetailField label="Host">{query.data.host}</DetailField>
-              <DetailField label="Port">{query.data.port}</DetailField>
-              <DetailField label="Username">{query.data.username}</DetailField>
-              <DetailField label="Authentication Type">
-                <span className="capitalize">{query.data.authType}</span>
-              </DetailField>
-            </DetailFields>
+            <div className="space-y-4">
+              <DetailFields>
+                <DetailField label="Host">{query.data.host}</DetailField>
+                <DetailField label="Port">{query.data.port}</DetailField>
+                <DetailField label="Username">{query.data.username}</DetailField>
+                <DetailField label="Authentication">
+                  {query.data.authType === "key" ? "Key" : "Password"}
+                </DetailField>
+                <DetailField label="Credential">
+                  {query.data.authType === "password" ? (
+                    <span className="text-sm text-amber-700 dark:text-amber-300">
+                      Password stored — path transfers need an SSH key
+                    </span>
+                  ) : query.data.sshKey?.name ? (
+                    <Link
+                      href="/settings?tab=ssh-keys"
+                      className="text-base underline underline-offset-2 hover:no-underline"
+                    >
+                      Key: {query.data.sshKey.name}
+                    </Link>
+                  ) : query.data.systemKeyPath ? (
+                    <span className="break-all font-mono text-sm">
+                      System key: {query.data.systemKeyPath}
+                    </span>
+                  ) : query.data.hasPrivateKey ? (
+                    <span className="text-base">Inline private key stored</span>
+                  ) : (
+                    <span className="text-sm text-destructive">
+                      Key missing — edit the server to select one
+                    </span>
+                  )}
+                </DetailField>
+              </DetailFields>
+              {query.data.authType === "password" ? (
+                <PasswordAuthWarning editHref={`/servers/${serverId}/edit`} />
+              ) : null}
+            </div>
           }
           actions={
             <DetailActions>
@@ -114,23 +148,10 @@ export default function ServerPage() {
                 buttonText="Delete"
                 triggerButtonClassName={detailActionDestructiveClassName}
               />
-              {(deleteBlockers?.length || 0) > 0 && (
-                <div className="col-span-2 mt-1 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm">
-                  <p className="font-medium text-destructive">Cannot delete — still used by:</p>
-                  <ul className="mt-2 space-y-1">
-                    {(deleteBlockers ?? []).map((backup) => (
-                      <li key={backup.id}>
-                        <Link href={`/backups/${backup.id}`} className="underline hover:no-underline">
-                          {backup.name}
-                        </Link>
-                        <span className="ml-2 text-muted-foreground">
-                          ({backupRoleLabel(backup.roles)})
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
+              <InUseBlockers
+                blockers={deleteBlockers}
+                className="col-span-2 mt-1"
+              />
             </DetailActions>
           }
         >

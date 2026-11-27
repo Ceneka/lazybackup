@@ -1,9 +1,18 @@
 "use client"
 
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { LoadingButton } from "@/components/ui/loading-button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import {
   Card,
   CardContent,
@@ -11,6 +20,10 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { QueryState } from "@/components/ui/query-state"
+import { OverflowMenu, type OverflowItem } from "@/components/overflow-menu"
+import { ConfirmActionDialog } from "@/components/settings/confirm-action-dialog"
+import { CopyButton } from "@/components/settings/copy-button"
 import {
   useEncryption,
   performVaultPasskeyStepUp,
@@ -20,21 +33,17 @@ import {
 } from "@/lib/hooks/useEncryption"
 import { useAuthStatus } from "@/lib/hooks/useAuth"
 import { MIN_WRAP_PASSPHRASE_LENGTH } from "@/lib/crypto/constants"
-import {
-  AlertTriangleIcon,
-  CopyIcon,
-  DownloadIcon,
-  KeyRoundIcon,
-  ShieldIcon,
-} from "lucide-react"
+import { AlertTriangleIcon, DownloadIcon, KeyRoundIcon, ShieldIcon } from "lucide-react"
 import Link from "next/link"
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { toast } from "sonner"
 
-function statusBadgeClass(status: PublicAgeKey["status"]) {
-  if (status === "active") return "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
-  if (status === "compromised") return "bg-red-500/15 text-red-700 dark:text-red-400"
-  return "bg-muted text-muted-foreground"
+function statusVariant(
+  status: PublicAgeKey["status"]
+): "success" | "destructive" | "muted" {
+  if (status === "active") return "success"
+  if (status === "compromised") return "destructive"
+  return "muted"
 }
 
 function ExportAckDialog({
@@ -53,86 +62,123 @@ function ExportAckDialog({
     offline: false,
     understand: false,
   })
+  const [confirmDiscard, setConfirmDiscard] = useState(false)
+  const identityRef = useRef<HTMLTextAreaElement>(null)
   const allChecked = checks.copied && checks.offline && checks.understand
 
+  const requestDismiss = () => {
+    if (allChecked) {
+      onDismiss()
+      return
+    }
+    setConfirmDiscard(true)
+  }
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-w-lg rounded-lg border bg-background p-4 shadow-lg space-y-4">
-        <div>
-          <h3 className="font-semibold text-lg">Save this private key</h3>
-          <p className="text-sm text-muted-foreground mt-1">
-            The private key is stored on this LazyBackup instance. Export a copy
-            for disaster recovery — if you lose both this instance and the
-            offline copy, encrypted backups cannot be restored.
-          </p>
-        </div>
-        <div className="space-y-2">
-          <Label>Private identity</Label>
-          <textarea
-            readOnly
-            className="w-full min-h-[80px] rounded-md border bg-background p-2 font-mono text-xs"
-            value={revealed.identity}
-          />
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              void navigator.clipboard.writeText(revealed.identity)
-              toast.success("Identity copied")
-              setChecks((c) => ({ ...c, copied: true }))
-            }}
-          >
-            <CopyIcon className="mr-2 h-4 w-4" />
-            Copy identity
-          </Button>
-        </div>
-        <div className="space-y-2 text-sm">
-          <label className="flex gap-2 items-start">
-            <input
-              type="checkbox"
-              className="mt-1"
-              checked={checks.copied}
-              onChange={(e) => setChecks((c) => ({ ...c, copied: e.target.checked }))}
+    <>
+      <AlertDialog
+        open
+        onOpenChange={(next) => {
+          if (!next) requestDismiss()
+        }}
+      >
+        <AlertDialogContent
+          className="sm:max-w-2xl"
+          onOpenAutoFocus={(event) => {
+            event.preventDefault()
+            identityRef.current?.focus()
+            identityRef.current?.select()
+          }}
+        >
+          <AlertDialogHeader>
+            <AlertDialogTitle>Save this private key</AlertDialogTitle>
+            <AlertDialogDescription>
+              The private key is stored on this LazyBackup instance. Export a copy
+              for disaster recovery — if you lose both this instance and the
+              offline copy, encrypted backups cannot be restored.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          <div className="space-y-2">
+            <Label htmlFor="revealedIdentity">Private identity</Label>
+            <textarea
+              id="revealedIdentity"
+              ref={identityRef}
+              readOnly
+              className="min-h-[96px] w-full rounded-md border bg-background p-2 font-mono text-xs"
+              value={revealed.identity}
             />
-            I copied the key (password manager, printed, or secure file)
-          </label>
-          <label className="flex gap-2 items-start">
-            <input
-              type="checkbox"
-              className="mt-1"
-              checked={checks.offline}
-              onChange={(e) => setChecks((c) => ({ ...c, offline: e.target.checked }))}
+            <CopyButton
+              value={revealed.identity}
+              label="Identity"
+              variant="outline"
+              size="sm"
+              onCopied={() => setChecks((c) => ({ ...c, copied: true }))}
             />
-            I stored it somewhere that survives this machine dying
-          </label>
-          <label className="flex gap-2 items-start">
-            <input
-              type="checkbox"
-              className="mt-1"
-              checked={checks.understand}
-              onChange={(e) =>
-                setChecks((c) => ({ ...c, understand: e.target.checked }))
-              }
-            />
-            I understand losing the key means losing access to ciphertext
-          </label>
-        </div>
-        <div className="flex flex-wrap gap-2 justify-end">
-          <Button type="button" variant="ghost" onClick={onDismiss}>
-            Later
-          </Button>
-          <LoadingButton
-            type="button"
-            isLoading={isLoading}
-            disabled={!allChecked}
-            onClick={onAcknowledge}
-          >
-            I saved it
-          </LoadingButton>
-        </div>
-      </div>
-    </div>
+          </div>
+
+          <div className="space-y-2 text-sm">
+            <label className="flex items-start gap-2" htmlFor="export-copied">
+              <input
+                id="export-copied"
+                type="checkbox"
+                className="mt-1"
+                checked={checks.copied}
+                onChange={(e) => setChecks((c) => ({ ...c, copied: e.target.checked }))}
+              />
+              <span>I copied the key (password manager, printed, or secure file)</span>
+            </label>
+            <label className="flex items-start gap-2" htmlFor="export-offline">
+              <input
+                id="export-offline"
+                type="checkbox"
+                className="mt-1"
+                checked={checks.offline}
+                onChange={(e) => setChecks((c) => ({ ...c, offline: e.target.checked }))}
+              />
+              <span>I stored it somewhere that survives this machine dying</span>
+            </label>
+            <label className="flex items-start gap-2" htmlFor="export-understand">
+              <input
+                id="export-understand"
+                type="checkbox"
+                className="mt-1"
+                checked={checks.understand}
+                onChange={(e) =>
+                  setChecks((c) => ({ ...c, understand: e.target.checked }))
+                }
+              />
+              <span>I understand losing the key means losing access to ciphertext</span>
+            </label>
+          </div>
+
+          <AlertDialogFooter>
+            <Button type="button" variant="ghost" onClick={requestDismiss}>
+              Later
+            </Button>
+            <LoadingButton
+              type="button"
+              isLoading={isLoading}
+              disabled={!allChecked}
+              onClick={onAcknowledge}
+            >
+              I saved it
+            </LoadingButton>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <ConfirmActionDialog
+        open={confirmDiscard}
+        onOpenChange={setConfirmDiscard}
+        hideTrigger
+        title="Close without acknowledging the export?"
+        description="This key has not been marked as exported. You can export it later from the key list, but until you do, losing this instance means losing access to encrypted backups."
+        confirmLabel="Close without saving"
+        variant="destructive"
+        onConfirm={onDismiss}
+      />
+    </>
   )
 }
 
@@ -149,10 +195,12 @@ export function EncryptionSettingsPanel() {
   const [passphrase, setPassphrase] = useState("")
   const [recoveryLabel, setRecoveryLabel] = useState("")
   const [recoveryRecipient, setRecoveryRecipient] = useState("")
+  const [confirmGenerate, setConfirmGenerate] = useState(false)
 
   const keys = enc.status?.keys ?? []
   const recovery = enc.status?.recoveryRecipients ?? []
   const configured = Boolean(enc.status?.configured)
+  const activeKey = keys.find((key) => key.status === "active")
   const stepUpReady = !hasPassword || vaultPassword.length > 0
 
   async function vaultStepUp(): Promise<VaultStepUpFields> {
@@ -161,8 +209,105 @@ export function EncryptionSettingsPanel() {
     return {}
   }
 
+  async function generateKey() {
+    const result = await enc.generate.mutateAsync(await vaultStepUp())
+    setRevealed(result)
+    toast.success("New encryption key created — save the private key")
+  }
+
+  async function revealKey(key: PublicAgeKey) {
+    const result = await enc.reveal.mutateAsync({
+      keyId: key.id,
+      ...(await vaultStepUp()),
+    })
+    setRevealed(result)
+  }
+
+  async function setActiveKey(key: PublicAgeKey) {
+    await enc.setActive.mutateAsync({
+      keyId: key.id,
+      ...(await vaultStepUp()),
+    })
+  }
+
+  async function setKeyStatus(key: PublicAgeKey, status: "retired" | "compromised") {
+    await enc.setStatus.mutateAsync({
+      keyId: key.id,
+      status,
+      ...(await vaultStepUp()),
+    })
+  }
+
+  async function deleteKey(key: PublicAgeKey) {
+    await enc.deleteKey.mutateAsync({
+      keyId: key.id,
+      ...(await vaultStepUp()),
+    })
+  }
+
+  function keyMenuItems(key: PublicAgeKey): OverflowItem[] {
+    const items: OverflowItem[] = []
+    if (key.status !== "active" && key.status !== "compromised") {
+      items.push({
+        type: "action",
+        label: "Set as active key",
+        onSelect: () => {
+          void setActiveKey(key).catch(() => {
+            /* toast in hook */
+          })
+        },
+      })
+    }
+    if (key.status === "retired") {
+      items.push({
+        type: "action",
+        label: "Mark as compromised",
+        onSelect: () => {
+          void setKeyStatus(key, "compromised").catch(() => {
+            /* toast in hook */
+          })
+        },
+      })
+    }
+    if (key.status === "compromised") {
+      items.push({
+        type: "action",
+        label: "Mark as retired",
+        onSelect: () => {
+          void setKeyStatus(key, "retired").catch(() => {
+            /* toast in hook */
+          })
+        },
+      })
+    }
+    if (items.length > 0) items.push({ type: "separator" })
+    if (key.status === "active") {
+      items.push({
+        type: "action",
+        label: "Delete (activate another key first)",
+        disabled: true,
+        onSelect: () => {},
+      })
+    } else {
+      items.push({
+        type: "delete",
+        title: `Delete the encryption key “${key.label}”?`,
+        description:
+          "Permanently deletes this private key from the vault. Encrypted backups that only use this key cannot be restored. This cannot be undone.",
+        isDeleting:
+          enc.deleteKey.isPending && enc.deleteKey.variables?.keyId === key.id,
+        onDelete: () => {
+          void deleteKey(key).catch(() => {
+            /* toast in hook */
+          })
+        },
+      })
+    }
+    return items
+  }
+
   return (
-    <Card className="w-full">
+    <Card id="encryption" className="w-full scroll-mt-24">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <ShieldIcon className="h-5 w-5" />
@@ -183,10 +328,24 @@ export function EncryptionSettingsPanel() {
           offline copy of each private key for disaster recovery.
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-6">
+      <CardContent>
+        <QueryState
+          query={{
+            data: enc.status,
+            isLoading: enc.isLoading,
+            isFetching: enc.isFetching,
+            isError: enc.isError,
+            error: enc.error,
+            refetch: enc.refetch,
+          }}
+          dataLabel="encryption status"
+          isDataEmpty={() => false}
+          errorMessage="Couldn’t load encryption status"
+        >
+          <div className="space-y-6">
         {enc.status?.needsExportAck && (
           <div className="flex gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-sm">
-            <AlertTriangleIcon className="h-4 w-4 shrink-0 mt-0.5 text-amber-600" />
+            <AlertTriangleIcon className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
             <div>
               Encrypted or Bro backups are enabled, but the active key has not
               been marked as exported. Export it below and confirm you saved a
@@ -218,29 +377,35 @@ export function EncryptionSettingsPanel() {
           </p>
         )}
 
-        <div className="flex flex-wrap gap-2">
-          <LoadingButton
-            type="button"
-            isLoading={enc.generate.isPending}
-            disabled={!stepUpReady}
-            onClick={async () => {
-              try {
-                const result = await enc.generate.mutateAsync(await vaultStepUp())
-                setRevealed(result)
-                toast.success("New encryption key created — save the private key")
-              } catch {
-                /* toast in hook */
-              }
-            }}
-          >
-            <KeyRoundIcon className="mr-2 h-4 w-4" />
-            {configured ? "Create new key" : "Generate key"}
-          </LoadingButton>
-          <Button type="button" variant="outline" asChild>
-            <Link href="/backups/new?source=lazybackup_instance">
-              Backup LazyBackup data
-            </Link>
-          </Button>
+        <div className="space-y-2">
+          <div className="flex flex-wrap gap-2">
+            <LoadingButton
+              type="button"
+              isLoading={enc.generate.isPending}
+              disabled={!stepUpReady}
+              onClick={() => {
+                if (configured) {
+                  setConfirmGenerate(true)
+                  return
+                }
+                void generateKey().catch(() => {
+                  /* toast in hook */
+                })
+              }}
+            >
+              <KeyRoundIcon className="mr-2 h-4 w-4" />
+              {configured ? "Create new key" : "Generate key"}
+            </LoadingButton>
+            <Button type="button" variant="outline" asChild>
+              <Link href="/backups/new?source=lazybackup_instance">
+                Backup LazyBackup data
+              </Link>
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            New backups encrypt to the active key. Older keys stay in the vault
+            so existing backups can still be restored.
+          </p>
         </div>
 
         {keys.length === 0 ? (
@@ -250,104 +415,29 @@ export function EncryptionSettingsPanel() {
         ) : (
           <div className="space-y-3">
             {keys.map((key) => (
-              <div
-                key={key.id}
-                className="rounded-md border p-3 space-y-2"
-              >
-                <div className="flex flex-wrap items-center gap-2 justify-between">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="font-medium truncate">{key.label}</span>
-                    <span
-                      className={`text-xs px-2 py-0.5 rounded ${statusBadgeClass(key.status)}`}
-                    >
-                      {key.status}
-                    </span>
+              <div key={key.id} className="space-y-2 rounded-md border p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="truncate font-medium">{key.label}</span>
+                    <Badge variant={statusVariant(key.status)}>{key.status}</Badge>
                   </div>
-                  <div className="flex flex-wrap gap-1">
-                    {key.status !== "active" && (
-                      <LoadingButton
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        isLoading={enc.setActive.isPending}
-                        disabled={!stepUpReady}
-                        onClick={async () => {
-                          try {
-                            await enc.setActive.mutateAsync({
-                              keyId: key.id,
-                              ...(await vaultStepUp()),
-                            })
-                          } catch {
-                            /* toast */
-                          }
-                        }}
-                      >
-                        Set active
-                      </LoadingButton>
-                    )}
-                    {key.status === "retired" && (
-                      <LoadingButton
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        isLoading={enc.setStatus.isPending}
-                        disabled={!stepUpReady}
-                        onClick={async () => {
-                          try {
-                            await enc.setStatus.mutateAsync({
-                              keyId: key.id,
-                              status: "compromised",
-                              ...(await vaultStepUp()),
-                            })
-                          } catch {
-                            /* toast */
-                          }
-                        }}
-                      >
-                        Mark compromised
-                      </LoadingButton>
-                    )}
-                    {key.status === "compromised" && (
-                      <LoadingButton
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        isLoading={enc.setStatus.isPending}
-                        disabled={!stepUpReady}
-                        onClick={async () => {
-                          try {
-                            await enc.setStatus.mutateAsync({
-                              keyId: key.id,
-                              status: "retired",
-                              ...(await vaultStepUp()),
-                            })
-                          } catch {
-                            /* toast */
-                          }
-                        }}
-                      >
-                        Mark retired
-                      </LoadingButton>
-                    )}
+                  <div className="flex flex-wrap items-center gap-1">
                     <LoadingButton
                       type="button"
                       size="sm"
                       variant="outline"
-                      isLoading={enc.reveal.isPending}
+                      isLoading={
+                        enc.reveal.isPending &&
+                        enc.reveal.variables?.keyId === key.id
+                      }
                       disabled={!stepUpReady}
-                      onClick={async () => {
-                        try {
-                          const result = await enc.reveal.mutateAsync({
-                            keyId: key.id,
-                            ...(await vaultStepUp()),
-                          })
-                          setRevealed(result)
-                        } catch {
-                          /* toast */
-                        }
+                      onClick={() => {
+                        void revealKey(key).catch(() => {
+                          /* toast in hook */
+                        })
                       }}
                     >
-                      Export
+                      Show private key
                     </LoadingButton>
                     <Button
                       type="button"
@@ -359,54 +449,39 @@ export function EncryptionSettingsPanel() {
                       }}
                     >
                       <DownloadIcon className="mr-1 h-3 w-3" />
-                      Passphrase wrap
+                      Download passphrase-protected copy
                     </Button>
-                    <LoadingButton
-                      type="button"
-                      size="sm"
-                      variant="destructive"
-                      isLoading={enc.deleteKey.isPending}
-                      disabled={!stepUpReady}
-                      onClick={async () => {
-                        if (
-                          !confirm(
-                            "Permanently delete this key? Encrypted backups that only use this key cannot be restored."
-                          )
-                        ) {
-                          return
-                        }
-                        try {
-                          await enc.deleteKey.mutateAsync({
-                            keyId: key.id,
-                            ...(await vaultStepUp()),
-                          })
-                        } catch {
-                          /* toast */
-                        }
-                      }}
-                    >
-                      Delete
-                    </LoadingButton>
+                    <OverflowMenu items={keyMenuItems(key)} />
                   </div>
                 </div>
+
                 <div className="flex gap-2">
                   <Input
                     readOnly
+                    aria-label={`Public recipient for ${key.label}`}
                     value={key.recipient}
                     className="font-mono text-xs"
                   />
-                  <Button
-                    type="button"
+                  <CopyButton
+                    value={key.recipient}
+                    label={`Recipient for ${key.label}`}
+                    iconOnly
                     variant="outline"
                     size="icon"
-                    onClick={() => {
-                      void navigator.clipboard.writeText(key.recipient)
-                      toast.success("Recipient copied")
-                    }}
-                  >
-                    <CopyIcon className="h-4 w-4" />
-                  </Button>
+                  />
                 </div>
+
+                {key.status === "active" && (
+                  <p className="text-xs text-muted-foreground">
+                    Active key — it can’t be deleted. Create or activate another
+                    key first.
+                  </p>
+                )}
+                {key.status === "compromised" && (
+                  <p className="text-xs text-amber-700 dark:text-amber-400">
+                    Marked compromised — it can’t be activated for new backups.
+                  </p>
+                )}
                 {!key.exportAcknowledgedAt && (
                   <p className="text-xs text-amber-700 dark:text-amber-400">
                     Offline export not acknowledged yet
@@ -418,10 +493,12 @@ export function EncryptionSettingsPanel() {
         )}
 
         {passphraseKeyId && (
-          <div className="rounded-md border p-3 space-y-2">
-            <Label>Passphrase for wrapped export</Label>
+          <div className="space-y-2 rounded-md border p-3">
+            <Label htmlFor="wrapPassphrase">Passphrase for wrapped export</Label>
             <Input
+              id="wrapPassphrase"
               type="password"
+              autoComplete="new-password"
               value={passphrase}
               onChange={(e) => setPassphrase(e.target.value)}
               placeholder={`At least ${MIN_WRAP_PASSPHRASE_LENGTH} characters`}
@@ -472,19 +549,29 @@ export function EncryptionSettingsPanel() {
         )}
 
         <div className="space-y-2 border-t pt-4">
-          <Label htmlFor="importIdentity">Import existing identity</Label>
+          <h4 className="font-medium">Import existing identity</h4>
+          <p className="text-sm text-muted-foreground">
+            Add an existing age private key to the vault and make it active.
+          </p>
+          <Label htmlFor="importLabel">Label (optional)</Label>
           <Input
-            placeholder="Label (optional)"
+            id="importLabel"
+            placeholder="e.g. Imported 2026 key"
             value={importLabel}
             onChange={(e) => setImportLabel(e.target.value)}
           />
+          <Label htmlFor="importIdentity">Private identity</Label>
           <textarea
             id="importIdentity"
-            className="w-full min-h-[72px] rounded-md border bg-background p-2 font-mono text-xs"
+            aria-describedby="importIdentityHelp"
+            className="min-h-[72px] w-full rounded-md border bg-background p-2 font-mono text-xs"
             placeholder="AGE-SECRET-KEY-1…"
             value={importValue}
             onChange={(e) => setImportValue(e.target.value)}
           />
+          <p id="importIdentityHelp" className="text-xs text-muted-foreground">
+            Must be an age identity starting with <code>AGE-SECRET-KEY-1</code>.
+          </p>
           <LoadingButton
             type="button"
             variant="secondary"
@@ -527,43 +614,48 @@ export function EncryptionSettingsPanel() {
                   className="flex flex-wrap items-center gap-2 rounded-md border p-2 text-sm"
                 >
                   <span className="font-medium">{r.label}</span>
-                  <code className="font-mono text-xs truncate flex-1">
+                  <code className="min-w-0 flex-1 truncate font-mono text-xs">
                     {r.recipient}
                   </code>
-                  <LoadingButton
-                    type="button"
-                    size="sm"
+                  <ConfirmActionDialog
+                    title={`Remove the recovery recipient “${r.label}”?`}
+                    description="New backups will no longer be encrypted to this key. Existing backups that used it still need its private key to restore."
+                    confirmLabel="Remove recipient"
+                    pendingLabel="Removing…"
                     variant="destructive"
-                    isLoading={enc.deleteRecovery.isPending}
-                    disabled={!stepUpReady}
-                    onClick={async () => {
-                      try {
-                        await enc.deleteRecovery.mutateAsync({
-                          id: r.id,
-                          ...(await vaultStepUp()),
-                        })
-                      } catch {
-                        /* toast */
-                      }
+                    onConfirm={async () => {
+                      await enc.deleteRecovery.mutateAsync({
+                        id: r.id,
+                        ...(await vaultStepUp()),
+                      })
                     }}
+                    disabled={!stepUpReady}
                   >
-                    Remove
-                  </LoadingButton>
+                    <Button type="button" size="sm" variant="destructive" disabled={!stepUpReady}>
+                      Remove
+                    </Button>
+                  </ConfirmActionDialog>
                 </li>
               ))}
             </ul>
           )}
-          <Input
-            placeholder="Label"
-            value={recoveryLabel}
-            onChange={(e) => setRecoveryLabel(e.target.value)}
-          />
-          <Input
-            placeholder="age1…"
-            className="font-mono text-xs"
-            value={recoveryRecipient}
-            onChange={(e) => setRecoveryRecipient(e.target.value)}
-          />
+          <div className="space-y-2">
+            <Label htmlFor="recoveryLabel">Recipient label</Label>
+            <Input
+              id="recoveryLabel"
+              placeholder="e.g. Paper copy"
+              value={recoveryLabel}
+              onChange={(e) => setRecoveryLabel(e.target.value)}
+            />
+            <Label htmlFor="recoveryRecipient">Public key (age1…)</Label>
+            <Input
+              id="recoveryRecipient"
+              placeholder="age1…"
+              className="font-mono text-xs"
+              value={recoveryRecipient}
+              onChange={(e) => setRecoveryRecipient(e.target.value)}
+            />
+          </div>
           <LoadingButton
             type="button"
             variant="secondary"
@@ -586,7 +678,26 @@ export function EncryptionSettingsPanel() {
             Add recovery recipient
           </LoadingButton>
         </div>
+          </div>
+        </QueryState>
       </CardContent>
+
+      <ConfirmActionDialog
+        open={confirmGenerate}
+        onOpenChange={setConfirmGenerate}
+        hideTrigger
+        title="Create a new encryption key?"
+        description={
+          <>
+            New backups will immediately encrypt to the new key.{" "}
+            <strong>{activeKey?.label ?? "The current active key"}</strong> will be
+            retired and kept only so existing backups can be decrypted.
+          </>
+        }
+        confirmLabel="Create new key"
+        pendingLabel="Creating…"
+        onConfirm={generateKey}
+      />
 
       {revealed && (
         <ExportAckDialog

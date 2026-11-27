@@ -14,6 +14,15 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # Next 16 is a planned migration, not a drive-by bump. Dependabot only
+    # offers the newest release, so without this ignore it proposes 16.x (a
+    # major, outside the group) and 15.5.x security patches never arrive.
+    # eslint-config-next must stay on the same version as next.
+    ignore:
+      - dependency-name: next
+        update-types: ["version-update:semver-major"]
+      - dependency-name: eslint-config-next
+        update-types: ["version-update:semver-major"]
     groups:
       app-minor-patch:
         patterns: ["*"]

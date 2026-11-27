@@ -1,3 +1,4 @@
+import { ApiError, readApiError } from "@/lib/api/client-error"
 import { resourceInUseFromResponse } from "@/lib/api/resource-in-use"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
@@ -35,7 +36,8 @@ export function useGitRepos() {
     queryFn: async () => {
       const response = await fetch("/api/git-repos")
       if (!response.ok) {
-        throw new Error(`Failed to fetch Git repositories: ${response.status}`)
+        const { message } = await readApiError(response)
+        throw new ApiError(message, { status: response.status })
       }
       const data = await response.json()
       if (!Array.isArray(data)) {
@@ -52,8 +54,8 @@ export function useGitRepo(id: string) {
     queryFn: async () => {
       const response = await fetch(`/api/git-repos/${id}`)
       if (!response.ok) {
-        if (response.status === 404) throw new Error("Git repository not found")
-        throw new Error("Failed to fetch Git repository")
+        const { message } = await readApiError(response)
+        throw new ApiError(message, { status: response.status })
       }
       return (await response.json()) as GitRepo
     },
@@ -98,9 +100,13 @@ export async function testGitRepoConnection(data: GitRepoInput) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   })
-  const body = await response.json()
   if (!response.ok) {
-    throw new Error(body.error || "Git connection failed")
+    const { message, fieldErrors } = await readApiError(response)
+    throw new ApiError(message, { status: response.status, fieldErrors })
   }
-  return body as { success: boolean; message?: string; refCount?: number }
+  return (await response.json()) as {
+    success: boolean
+    message?: string
+    refCount?: number
+  }
 }

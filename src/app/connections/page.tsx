@@ -45,7 +45,7 @@ function ConnectionsPageInner() {
     <PageLayout>
       <PageHeader
         title="Connections"
-        description="SSH hosts, S3-compatible profiles, and Git remotes used as backup sources and destinations."
+        description="SSH hosts and S3-compatible profiles for backup sources and destinations, plus Git remotes used as backup sources."
         actions={
           <Link
             href={action.href}

@@ -14,13 +14,31 @@ import {
 
 const NavigationPendingContext = createContext(false)
 
+/**
+ * Returns true when clicking `anchor` triggers a Next.js client navigation.
+ *
+ * Opt-outs:
+ * - external targets, `download` anchors, hash links, and query-identical URLs
+ * - API routes (`/api/...`) — they are downloads/streams, not app routes
+ * - the anchor or any ancestor with `data-no-nav`. Use that attribute on links
+ *   whose React `onClick` calls `preventDefault()` and does its own work
+ *   (e.g. a fetch-based download), so the pending overlay never gets stuck.
+ */
 function isInternalNavigation(anchor: HTMLAnchorElement, current: URL) {
   if (anchor.target && anchor.target !== "_self") return false
   if (anchor.hasAttribute("download")) return false
+  if (anchor.closest("[data-no-nav]")) return false
   const href = anchor.getAttribute("href")
   if (!href || href.startsWith("#")) return false
-  const next = new URL(href, current.href)
+  if (href.startsWith("/api/")) return false
+  let next: URL
+  try {
+    next = new URL(href, current.href)
+  } catch {
+    return false
+  }
   if (next.origin !== current.origin) return false
+  if (next.pathname.startsWith("/api/")) return false
   return next.pathname + next.search !== current.pathname + current.search
 }
 
@@ -32,6 +50,14 @@ function NavigationPendingProviderInner({ children }: { children: ReactNode }) {
   useEffect(() => {
     setPending(false)
   }, [pathname, searchParams])
+
+  useEffect(() => {
+    if (!pending) return
+    // Safety net: a blocked/aborted navigation (or a link whose onClick bails
+    // out) must not leave the loading overlay up forever.
+    const timer = window.setTimeout(() => setPending(false), 10_000)
+    return () => window.clearTimeout(timer)
+  }, [pending])
 
   useEffect(() => {
     const onClick = (event: MouseEvent) => {

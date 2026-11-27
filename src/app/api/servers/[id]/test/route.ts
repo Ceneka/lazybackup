@@ -34,7 +34,7 @@ export async function GET(
 
     const result = await testServerBackupCapabilities(server);
 
-    return NextResponse.json(result);
+    return NextResponse.json({ ...result, authType: server.authType });
   } catch (error) {
     console.error('Failed to test server:', error);
     return NextResponse.json(

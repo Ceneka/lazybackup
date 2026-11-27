@@ -1,6 +1,13 @@
 "use client"
 
-import { ResourceDetailLayout } from "@/components/resource-detail-layout"
+import {
+  DetailField,
+  DetailFields,
+  ResourceDetailLayout,
+  ResourcePageHeader,
+} from "@/components/resource-detail-layout"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { DeleteConfirmationDialog } from "@/components/ui/delete-confirmation-dialog"
 import {
   DetailActionLink,
@@ -14,6 +21,10 @@ import { LoadingButton } from "@/components/ui/loading-button"
 import { QueryState } from "@/components/ui/query-state"
 import { DeliveryBadge } from "@/components/peer/delivery-badge"
 import {
+  deliveryErrorFor,
+  deriveDeliveryState,
+} from "@/lib/backup/delivery-state"
+import {
   destinationEndpointName,
   destinationKindOf,
   sourceEndpointName,
@@ -22,32 +33,33 @@ import {
   sourceTypeLabel,
 } from "@/lib/backup/endpoint-display"
 import {
-  backupFinishedToast,
-  deliveryErrorFor,
-  deriveDeliveryState,
-} from "@/lib/backup/delivery-state"
-import { formatCronExpression } from "@/lib/cron/format"
+  formatRelativeTime,
+  pickActiveRunningRun,
+  type BackupRunStatus,
+} from "@/lib/backup/run-status"
+import { formatCronExpression, formatInTimezone } from "@/lib/cron/format"
+import { formatDuration } from "@/lib/format/duration"
+import { useHistoryList } from "@/lib/hooks/useHistory"
+import { usePeers } from "@/lib/hooks/usePeers"
+import { resolveFriendName } from "@/lib/peer/friend-copy"
 import {
+  BackupNotFoundError,
   backupKeys,
-  runBackupUntilDone,
+  startBackup,
   useBackup,
   useBackupStorage,
   useDeleteBackup,
+  useToggleBackup,
   validateBackup,
   type BackupDestinationEntry,
   type ValidateBackupResult,
 } from "@/lib/hooks/useBackups"
-import { useHistoryList } from "@/lib/hooks/useHistory"
-import { usePeers } from "@/lib/hooks/usePeers"
-import {
-  friendAppKind,
-  resolveFriendName,
-  resolvePeer,
-} from "@/lib/peer/friend-copy"
 import { flashClassName } from "@/lib/resource-actions"
 import { cn } from "@/lib/utils"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import {
+  AlertTriangleIcon,
+  ArrowLeftIcon,
   CalendarIcon,
   CheckCircle2Icon,
   ClockIcon,
@@ -58,21 +70,24 @@ import {
   GitBranchIcon,
   HardDriveIcon,
   HistoryIcon,
+  Loader2Icon,
+  PauseIcon,
   PencilIcon,
   PlayIcon,
   RefreshCwIcon,
   ServerIcon,
   ShieldCheckIcon,
+  TrashIcon,
   UsersIcon,
   XCircleIcon,
-  AlertTriangleIcon,
 } from "lucide-react"
+import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 
 function EndpointGlyph({ kind }: { kind: string }) {
-  const className = "h-4 w-4"
+  const className = "h-4 w-4 shrink-0"
   if (kind === "local") return <HardDriveIcon className={className} />
   if (kind === "s3") return <CloudIcon className={className} />
   if (kind === "peer") return <UsersIcon className={className} />
@@ -80,9 +95,9 @@ function EndpointGlyph({ kind }: { kind: string }) {
   return <ServerIcon className={className} />
 }
 
-function formatMtime(value: string | null | undefined) {
+function formatMtime(value: string | null | undefined, timeZone: string) {
   if (!value) return "—"
-  return new Date(value).toLocaleString()
+  return formatInTimezone(new Date(value), timeZone)
 }
 
 function validationSummary(checks: { status: string }[]) {
@@ -96,12 +111,45 @@ function validationSummary(checks: { status: string }[]) {
   return parts.join(" · ")
 }
 
+const RUN_STATUS_LABEL = {
+  success: "Success",
+  failed: "Failed",
+  running: "Running",
+} as const
+
+const RUN_STATUS_TONE = {
+  success: "success",
+  failed: "destructive",
+  running: "info",
+} as const
+
+function RunStatusBadge({ status }: { status: BackupRunStatus }) {
+  const Icon =
+    status === "success"
+      ? CheckCircle2Icon
+      : status === "failed"
+        ? XCircleIcon
+        : Loader2Icon
+
+  return (
+    <Badge variant={RUN_STATUS_TONE[status]} className="gap-1">
+      <Icon
+        className={cn("h-3 w-3", status === "running" && "animate-spin")}
+        aria-hidden
+      />
+      {RUN_STATUS_LABEL[status]}
+    </Badge>
+  )
+}
+
 function EntryRows({
   entries,
   emptyLabel,
+  timeZone,
 }: {
   entries: BackupDestinationEntry[]
   emptyLabel: string
+  timeZone: string
 }) {
   if (entries.length === 0) {
     return <p className="text-sm text-muted-foreground">{emptyLabel}</p>
@@ -135,7 +183,7 @@ function EntryRows({
                 ? `${entry.fileCount} file${entry.fileCount === 1 ? "" : "s"}`
                 : "File"}
               {" · "}
-              {formatMtime(entry.mtime)}
+              {formatMtime(entry.mtime, timeZone)}
             </p>
           </div>
           <div className="shrink-0 text-right font-medium tabular-nums">{entry.size}</div>
@@ -145,26 +193,74 @@ function EntryRows({
   )
 }
 
+/** Live "Running since HH:MM (elapsed)" banner with a link to the log. */
+function RunningRunBanner({
+  run,
+  timeZone,
+}: {
+  run: { id: string; startTime: string }
+  timeZone: string
+}) {
+  const [now, setNow] = useState(0)
+
+  useEffect(() => {
+    setNow(Date.now())
+    const timer = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [run.id])
+
+  const started = new Date(run.startTime)
+  const elapsed = now ? formatDuration(now - started.getTime()) : null
+
+  return (
+    <div
+      role="status"
+      className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-md border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-sm text-sky-900 dark:text-sky-200"
+    >
+      <Loader2Icon className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
+      <span className="min-w-0 flex-1">
+        Running since {formatInTimezone(started, timeZone, { timeStyle: "short" })}
+        {elapsed ? ` (${elapsed})` : null}
+      </span>
+      <Link
+        href={`/history/${run.id}`}
+        className="shrink-0 font-medium underline underline-offset-2 hover:no-underline"
+      >
+        View log
+      </Link>
+    </div>
+  )
+}
+
+type RunningHistoryRow = {
+  id: string
+  status: string
+  startTime: string
+}
+
 export default function BackupDetailPage() {
   const router = useRouter()
   const params = useParams()
   const backupId = params.id as string
   const queryClient = useQueryClient()
-  const [isClient, setIsClient] = useState(false)
-
-  useEffect(() => {
-    setIsClient(true)
-  }, [])
 
   const query = useBackup(backupId)
   const storageQuery = useBackupStorage(backupId)
+  const runningQuery = useHistoryList(
+    { configId: backupId, status: "running" },
+    { limit: 5, offset: 0 }
+  )
   const peersQuery = usePeers()
-  const latestHistoryQuery = useHistoryList({ configId: backupId }, { limit: 1, offset: 0 })
+  const latestHistoryQuery = useHistoryList(
+    { configId: backupId },
+    { limit: 1, offset: 0 }
+  )
   const latestRun = latestHistoryQuery.data?.history?.[0] as
     | {
         startTime: string
         status?: string | null
         artifactPath?: string | null
+        artifactRemoved?: boolean | null
         mailboxPending?: boolean | null
         deliveryState?: string | null
         deliveryError?: string | null
@@ -179,7 +275,6 @@ export default function BackupDetailPage() {
   const peers = peersQuery.data?.peers || []
   const friendPeerId = query.data?.destinationPeerId || null
   const friendName = resolveFriendName(peers, friendPeerId)
-  const friendPeer = resolvePeer(peers, friendPeerId)
   const latestDeliveryState = latestRun
     ? deriveDeliveryState({
         status: latestRun.status,
@@ -188,7 +283,7 @@ export default function BackupDetailPage() {
         deliveryError: latestRun.deliveryError,
         mailboxError: latestRun.mailboxError,
         artifactPath: latestRun.artifactPath,
-        artifactRemoved: (latestRun as { artifactRemoved?: boolean | null }).artifactRemoved,
+        artifactRemoved: latestRun.artifactRemoved,
         destinationKind: latestRun.backupConfig?.destinationKind,
       })
     : null
@@ -199,19 +294,32 @@ export default function BackupDetailPage() {
       })
     : null
   const deleteBackup = useDeleteBackup()
+  const toggleBackup = useToggleBackup()
+
   const [validateResult, setValidateResult] = useState<ValidateBackupResult | null>(null)
-  const [checksExpanded, setChecksExpanded] = useState(false)
+  const [checksToggle, setChecksToggle] = useState<boolean | null>(null)
   const [runFlash, setRunFlash] = useState<"success" | "failed" | null>(null)
+
+  const backup = query.data
+  const timezone = backup?.timezone || "UTC"
+
+  const runningRows = (runningQuery.data?.history ?? []) as RunningHistoryRow[]
+  const runningRun = pickActiveRunningRun(runningRows)
+  const isRunning = Boolean(runningRun)
 
   const displayedValidation: ValidateBackupResult | null =
     validateResult ??
-    (query.data?.lastValidation
+    (backup?.lastValidation
       ? {
-          ok: query.data.lastValidation.ok,
-          checks: query.data.lastValidation.checks,
-          at: query.data.lastValidation.at,
+          ok: backup.lastValidation.ok,
+          checks: backup.lastValidation.checks,
+          at: backup.lastValidation.at,
         }
       : null)
+
+  // Failed validations start expanded so the reason is visible on revisit.
+  const checksExpanded =
+    checksToggle ?? Boolean(displayedValidation && !displayedValidation.ok)
 
   useEffect(() => {
     if (!runFlash) return
@@ -219,29 +327,39 @@ export default function BackupDetailPage() {
     return () => window.clearTimeout(timer)
   }, [runFlash])
 
-  const runBackupMutation = useMutation({
-    mutationFn: () => runBackupUntilDone(backupId),
+  // When the running row disappears (finished), refresh last-run state even if
+  // the SSE connection is unavailable.
+  const sawRunningRun = useRef(false)
+  useEffect(() => {
+    if (runningRun) {
+      sawRunningRun.current = true
+      return
+    }
+    if (sawRunningRun.current && !runningQuery.isFetching) {
+      sawRunningRun.current = false
+      void queryClient.invalidateQueries({
+        queryKey: backupKeys.detail(backupId),
+        exact: true,
+      })
+      void queryClient.invalidateQueries({ queryKey: backupKeys.lists() })
+    }
+  }, [runningRun, runningQuery.isFetching, queryClient, backupId])
+
+  // Start the run and let the history row + SSE events drive progress.
+  const startRunMutation = useMutation({
+    mutationFn: () => startBackup(backupId),
     onSuccess: (outcome) => {
-      queryClient.invalidateQueries({ queryKey: ["history"] })
-      queryClient.invalidateQueries({ queryKey: backupKeys.storage(backupId) })
-      queryClient.invalidateQueries({ queryKey: ["dashboard"] })
-      setRunFlash(outcome.status === "success" ? "success" : "failed")
-      if (outcome.status === "success") {
-        if (outcome.mailboxPending) {
-          const copy = backupFinishedToast({
-            state: "waiting",
-            friendName: resolveFriendName(peers, friendPeerId),
-            kind: friendPeer ? friendAppKind(friendPeer) : null,
-          })
-          toast.info(copy?.title || "Saved on this server — waiting for your friend", {
-            description: copy?.description,
-          })
-        } else {
-          toast.success("Backup completed")
-        }
-      } else {
-        toast.error(outcome.errorMessage || "Backup failed")
+      setRunFlash("success")
+      if (outcome.attached) {
+        toast.info("A run is already in progress — following it")
       }
+      void queryClient.invalidateQueries({ queryKey: ["history"] })
+      void queryClient.invalidateQueries({ queryKey: ["dashboard"] })
+      void queryClient.invalidateQueries({ queryKey: backupKeys.lists() })
+      void queryClient.invalidateQueries({
+        queryKey: backupKeys.detail(backupId),
+        exact: true,
+      })
     },
     onError: (error) => {
       console.error("Error running backup:", error)
@@ -254,13 +372,21 @@ export default function BackupDetailPage() {
     mutationFn: () => validateBackup(backupId),
     onSuccess: (result) => {
       setValidateResult(result)
-      setChecksExpanded(!result.ok)
-      queryClient.invalidateQueries({ queryKey: backupKeys.detail(backupId) })
-      queryClient.invalidateQueries({ queryKey: backupKeys.lists() })
+      setChecksToggle(!result.ok)
+      // exact: don't re-walk /storage just because validation ran.
+      void queryClient.invalidateQueries({
+        queryKey: backupKeys.detail(backupId),
+        exact: true,
+      })
+      void queryClient.invalidateQueries({ queryKey: backupKeys.lists() })
       if (result.ok) {
         const warns = result.checks.filter((c) => c.status === "warn")
         if (warns.length > 0) {
-          toast.success(`Validation passed with ${warns.length} warning(s)`)
+          toast.success(
+            `Validation passed with ${warns.length} warning${
+              warns.length === 1 ? "" : "s"
+            }`
+          )
         } else {
           toast.success("Validation passed — ready to run")
         }
@@ -274,24 +400,8 @@ export default function BackupDetailPage() {
     },
   })
 
-  const handleDelete = () => {
-    deleteBackup.mutate(backupId, {
-      onSuccess: () => {
-        router.push("/backups")
-      },
-    })
-  }
-
-  const handleRunBackup = async () => {
-    runBackupMutation.mutate()
-  }
-
-  const handleValidate = () => {
-    validateMutation.mutate()
-  }
-
-  const scheduleLabel = query.data
-    ? query.data.scheduleLabel || formatCronExpression(query.data.schedule)
+  const scheduleLabel = backup
+    ? backup.scheduleLabel || formatCronExpression(backup.schedule)
     : ""
 
   const storage = storageQuery.data
@@ -300,105 +410,175 @@ export default function BackupDetailPage() {
       ? storage.versioning.versions
       : storage?.topLevel ?? []
 
+  const notFound = query.error instanceof BackupNotFoundError
+
   return (
-    <QueryState
-      query={query}
-      dataLabel="backup configuration"
-      errorIcon={<FolderIcon className="h-12 w-12 text-red-500" />}
-      emptyIcon={<FolderIcon className="h-12 w-12 text-muted-foreground" />}
-      emptyMessage="Backup configuration not found"
-      isDataEmpty={(data) => !data}
-    >
-      {query.data ? (
-        <ResourceDetailLayout
-          backHref="/backups"
-          backLabel="Back to backups"
-          title={query.data.name}
-          detailsTitle="Backup Details"
-          details={
-                <dl className="space-y-4">
-                  <div>
-                    <dt className="text-sm font-medium text-muted-foreground">From</dt>
-                    <dd className="flex items-center space-x-2 text-lg">
-                      <EndpointGlyph kind={sourceKindOf(query.data)} />
-                      <span>
-                        {sourceEndpointName(query.data)}
-                        {` · ${sourcePathLabel(query.data)}`}
+    <div className="space-y-6">
+      <ResourcePageHeader
+        backHref="/backups"
+        backLabel="Back to backups"
+        title={backup?.name ?? "Backup"}
+      />
+
+      {notFound ? (
+        <div className="rounded-lg border border-dashed py-16 text-center">
+          <FolderIcon className="mx-auto mb-3 h-12 w-12 text-muted-foreground" />
+          <h2 className="text-lg font-semibold">Backup not found</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            It may have been deleted, or this link is out of date.
+          </p>
+          <Button asChild className="mt-4">
+            <Link href="/backups">
+              <ArrowLeftIcon className="mr-2 h-4 w-4" />
+              Back to backups
+            </Link>
+          </Button>
+        </div>
+      ) : (
+        <QueryState
+          query={query}
+          dataLabel="backup configuration"
+          errorIcon={<FolderIcon className="h-12 w-12 text-red-500" />}
+          emptyIcon={<FolderIcon className="h-12 w-12 text-muted-foreground" />}
+          emptyMessage="Backup configuration not found"
+          isDataEmpty={(data) => !data}
+        >
+          {backup ? (
+            <>
+              {runningRun ? (
+                <RunningRunBanner run={runningRun} timeZone={timezone} />
+              ) : null}
+              <ResourceDetailLayout
+                backHref="/backups"
+                backLabel="Back to backups"
+                title={backup.name}
+                hideHeader
+                detailsTitle="Backup Details"
+                details={
+                  <DetailFields>
+                    <DetailField label="From" className="text-base">
+                      <div className="flex items-start gap-2">
+                        <EndpointGlyph kind={sourceKindOf(backup)} />
+                        <span className="min-w-0 break-all">
+                          {sourceEndpointName(backup)}
+                          <span className="text-muted-foreground"> · </span>
+                          {sourcePathLabel(backup)}
+                        </span>
+                      </div>
+                    </DetailField>
+                    <DetailField label="To" className="text-base">
+                      <div className="flex items-start gap-2">
+                        <EndpointGlyph kind={destinationKindOf(backup)} />
+                        <span className="min-w-0 break-all">
+                          {destinationEndpointName(backup)}
+                          <span className="text-muted-foreground"> · </span>
+                          {backup.destinationPath}
+                        </span>
+                      </div>
+                    </DetailField>
+                    <DetailField label="Source Type">
+                      {sourceTypeLabel(backup)}
+                    </DetailField>
+                    <DetailField label="Schedule">
+                      <span className="flex items-center gap-2">
+                        <CalendarIcon className="h-4 w-4 shrink-0" />
+                        <span className="min-w-0 break-words">
+                          {scheduleLabel} ({backup.schedule})
+                        </span>
                       </span>
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-sm font-medium text-muted-foreground">To</dt>
-                    <dd className="flex items-center space-x-2 text-lg">
-                      <EndpointGlyph kind={destinationKindOf(query.data)} />
-                      <span>
-                        {destinationEndpointName(query.data)}
-                        {` · ${query.data.destinationPath}`}
-                      </span>
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-sm font-medium text-muted-foreground">Source Type</dt>
-                    <dd className="text-lg">{sourceTypeLabel(query.data)}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-sm font-medium text-muted-foreground">Schedule</dt>
-                    <dd className="flex items-center space-x-2 text-lg">
-                      <CalendarIcon className="h-4 w-4" />
-                      <span>
-                        {scheduleLabel} ({query.data.schedule})
-                      </span>
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-sm font-medium text-muted-foreground">Next run</dt>
-                    <dd className="flex items-center space-x-2 text-lg">
-                      <ClockIcon className="h-4 w-4" />
-                      {query.data.enabled ? (
-                        <span>
-                          {query.data.nextRunFormatted || "—"}
-                          {query.data.timezone ? (
-                            <span className="ml-2 text-sm text-muted-foreground">
-                              ({query.data.timezone})
-                            </span>
-                          ) : null}
+                    </DetailField>
+                    <DetailField label="Next run">
+                      {backup.enabled ? (
+                        <span className="flex flex-wrap items-center gap-2">
+                          <ClockIcon className="h-4 w-4 shrink-0" />
+                          <span>
+                            {backup.nextRunFormatted || "—"}
+                            {backup.timezone ? (
+                              <span className="ml-2 text-sm text-muted-foreground">
+                                ({backup.timezone})
+                              </span>
+                            ) : null}
+                          </span>
                         </span>
                       ) : (
-                        <span className="text-muted-foreground">Disabled</span>
+                        <span className="text-muted-foreground">Paused</span>
                       )}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-sm font-medium text-muted-foreground">Status</dt>
-                    <dd className="text-lg">
-                      <span
-                        className={`rounded-full px-2 py-1 text-xs ${
-                          query.data.enabled
-                            ? "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300"
-                            : "bg-muted text-muted-foreground"
-                        }`}
-                      >
-                        {query.data.enabled ? "Active" : "Disabled"}
-                      </span>
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-sm font-medium text-muted-foreground">Versioning</dt>
-                    <dd className="text-lg">
-                      {query.data.enableVersioning
-                        ? `Enabled (keep ${query.data.versionsToKeep ?? 5})`
+                    </DetailField>
+                    <DetailField label="Last run">
+                      {backup.latestRun ? (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <RunStatusBadge status={backup.latestRun.status} />
+                          <span
+                            className="text-sm text-muted-foreground"
+                            title={backup.latestRun.startTime}
+                          >
+                            {formatRelativeTime(backup.latestRun.startTime)}
+                          </span>
+                          <Link
+                            href={`/history/${backup.latestRun.id}`}
+                            className="text-sm underline underline-offset-2 hover:no-underline"
+                          >
+                            View log
+                          </Link>
+                          {backup.latestRun.status === "failed" &&
+                          backup.latestRun.errorSnippet ? (
+                            <p className="w-full break-words text-xs text-destructive">
+                              {backup.latestRun.errorSnippet}
+                            </p>
+                          ) : null}
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground">Never run</span>
+                      )}
+                    </DetailField>
+                    <DetailField label="Status">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge variant={backup.enabled ? "success" : "muted"}>
+                          {backup.enabled ? "Active" : "Paused"}
+                        </Badge>
+                        <LoadingButton
+                          onClick={() => toggleBackup.mutate(backup.id)}
+                          isLoading={toggleBackup.isPending}
+                          loadingText={backup.enabled ? "Pausing…" : "Resuming…"}
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-xs"
+                        >
+                          {backup.enabled ? (
+                            <PauseIcon className="mr-1 h-3.5 w-3.5" />
+                          ) : (
+                            <PlayIcon className="mr-1 h-3.5 w-3.5" />
+                          )}
+                          {backup.enabled ? "Pause" : "Resume"}
+                        </LoadingButton>
+                      </div>
+                    </DetailField>
+                    <DetailField label="Encryption">
+                      {destinationKindOf(backup) === "peer"
+                        ? "Encrypted (forced for Bro Space)"
+                        : backup.enableEncryption
+                          ? "Encrypted (age)"
+                          : "Not encrypted"}
+                    </DetailField>
+                    <DetailField label="File retention">
+                      {backup.enableFileRetention
+                        ? `${backup.retentionMaxAge ?? 30} ${
+                            backup.retentionMaxAgeUnit === "months"
+                              ? "months"
+                              : "days"
+                          }, keep at least ${backup.retentionMinKeep ?? 5}`
+                        : "Off"}
+                    </DetailField>
+                    <DetailField label="Versioning">
+                      {backup.enableVersioning
+                        ? `Enabled (keep ${backup.versionsToKeep ?? 5})`
                         : "Disabled"}
-                    </dd>
-                  </div>
-                  {destinationKindOf(query.data) === "peer" ? (
-                    <div>
-                      <dt className="text-sm font-medium text-muted-foreground">
-                        Last delivery
-                      </dt>
-                      <dd className="mt-1 space-y-1">
+                    </DetailField>
+                    {backup && destinationKindOf(backup) === "peer" ? (
+                      <DetailField label="Last delivery">
                         {latestRun ? (
                           latestDeliveryState ? (
-                            <>
+                            <div className="space-y-1">
                               <DeliveryBadge
                                 state={latestDeliveryState}
                                 friendName={friendName}
@@ -412,65 +592,66 @@ export default function BackupDetailPage() {
                                       `The last run did not reach ${friendName}'s disk.`
                                     : `Stored off-site on ${friendName}'s computer.`}
                               </p>
-                            </>
+                            </div>
                           ) : (
                             <span className="text-sm text-muted-foreground">
                               Last run {latestRun.status} — no off-site copy recorded.
                             </span>
                           )
                         ) : (
-                          <span className="text-sm text-muted-foreground">
-                            No runs yet
-                          </span>
+                          <span className="text-sm text-muted-foreground">No runs yet</span>
                         )}
-                      </dd>
-                    </div>
-                  ) : null}
-                  {query.data.deleteExtraneous ? (
-                    <div>
-                      <dt className="text-sm font-medium text-muted-foreground">Mirror deletes</dt>
-                      <dd className="text-lg">
+                      </DetailField>
+                    ) : null}
+                    {backup.deleteExtraneous ? (
+                      <DetailField label="Mirror deletes">
                         On — destination files missing at source are removed (rsync --delete)
-                      </dd>
-                    </div>
-                  ) : null}
-                  {query.data.excludePatterns && (
-                    <div>
-                      <dt className="text-sm font-medium text-muted-foreground">Exclude Patterns</dt>
-                      <dd className="mt-1 whitespace-pre-wrap rounded bg-muted p-2 font-mono text-sm">
-                        {query.data.excludePatterns}
-                      </dd>
-                    </div>
-                  )}
-                  {query.data.preBackupCommands && (
-                    <div>
-                      <dt className="text-sm font-medium text-muted-foreground">
-                        Pre-Backup Commands
-                      </dt>
-                      <dd className="mt-1 whitespace-pre-wrap rounded bg-muted p-2 font-mono text-sm">
-                        {query.data.preBackupCommands}
-                      </dd>
-                    </div>
-                  )}
-                </dl>
-          }
-          actions={
+                      </DetailField>
+                    ) : null}
+                    {backup.excludePatterns && (
+                      <div className="min-w-0">
+                        <dt className="text-sm font-medium text-muted-foreground">
+                          Exclude Patterns
+                        </dt>
+                        <dd className="mt-1 whitespace-pre-wrap break-all rounded bg-muted p-2 font-mono text-sm">
+                          {backup.excludePatterns}
+                        </dd>
+                      </div>
+                    )}
+                    {backup.preBackupCommands && (
+                      <div className="min-w-0">
+                        <dt className="text-sm font-medium text-muted-foreground">
+                          Pre-Backup Commands
+                        </dt>
+                        <dd className="mt-1 whitespace-pre-wrap break-all rounded bg-muted p-2 font-mono text-sm">
+                          {backup.preBackupCommands}
+                        </dd>
+                      </div>
+                    )}
+                  </DetailFields>
+                }
+              actions={
                 <DetailActions>
                   <LoadingButton
-                    onClick={handleRunBackup}
-                    isLoading={runBackupMutation.isPending}
-                    loadingText="Running"
+                    onClick={() => startRunMutation.mutate()}
+                    isLoading={startRunMutation.isPending}
+                    loadingText="Starting…"
+                    disabled={isRunning}
                     className={cn(
                       detailActionPrimaryClassName,
                       flashClassName(runFlash)
                     )}
                   >
-                    <PlayIcon />
-                    Run now
+                    {isRunning ? (
+                      <Loader2Icon className="animate-spin" />
+                    ) : (
+                      <PlayIcon />
+                    )}
+                    {isRunning ? "Running…" : "Run now"}
                   </LoadingButton>
 
                   <LoadingButton
-                    onClick={handleValidate}
+                    onClick={() => validateMutation.mutate()}
                     isLoading={validateMutation.isPending}
                     loadingText="Validating…"
                     variant="secondary"
@@ -480,43 +661,51 @@ export default function BackupDetailPage() {
                     Validate
                   </LoadingButton>
 
-                  <DetailActionLink href={`/backups/${query.data.id}/edit`}>
+                  <DetailActionLink href={`/backups/${backup.id}/edit`}>
                     <PencilIcon />
                     Edit
                   </DetailActionLink>
 
-                  <DetailActionLink href={`/backups/new?cloneFrom=${query.data.id}`}>
+                  <DetailActionLink href={`/backups/new?cloneFrom=${backup.id}`}>
                     <CopyIcon />
                     Clone
                   </DetailActionLink>
 
-                  <DetailActionLink href={`/history?configId=${query.data.id}`}>
+                  <DetailActionLink href={`/history?configId=${backup.id}`}>
                     <HistoryIcon />
                     View history
                   </DetailActionLink>
 
-                  {query.data.serverId && (
-                    <DetailActionLink href={`/servers/${query.data.serverId}`}>
+                  {backup.serverId && (
+                    <DetailActionLink href={`/servers/${backup.serverId}`}>
                       <ServerIcon />
                       Source server
                     </DetailActionLink>
                   )}
-                  {query.data.destinationServerId && (
-                    <DetailActionLink href={`/servers/${query.data.destinationServerId}`}>
+                  {backup.destinationServerId && (
+                    <DetailActionLink href={`/servers/${backup.destinationServerId}`}>
                       <ServerIcon />
-                      Dest. server
+                      Destination server
                     </DetailActionLink>
                   )}
-                  {query.data.sourceS3ProfileId && (
-                    <DetailActionLink href={`/s3-profiles/${query.data.sourceS3ProfileId}`}>
+                  {backup.sourceS3ProfileId && (
+                    <DetailActionLink href={`/s3-profiles/${backup.sourceS3ProfileId}`}>
                       <CloudIcon />
                       Source S3
                     </DetailActionLink>
                   )}
-                  {query.data.destinationS3ProfileId && (
-                    <DetailActionLink href={`/s3-profiles/${query.data.destinationS3ProfileId}`}>
+                  {backup.destinationS3ProfileId && (
+                    <DetailActionLink
+                      href={`/s3-profiles/${backup.destinationS3ProfileId}`}
+                    >
                       <CloudIcon />
-                      Dest. S3
+                      Destination S3
+                    </DetailActionLink>
+                  )}
+                  {backup.sourceGitRepoId && (
+                    <DetailActionLink href={`/git-repos/${backup.sourceGitRepoId}`}>
+                      <GitBranchIcon />
+                      Source Git
                     </DetailActionLink>
                   )}
 
@@ -524,15 +713,35 @@ export default function BackupDetailPage() {
 
                   <DeleteConfirmationDialog
                     title="Delete this backup?"
-                    description="This deletes the backup configuration and its history rows. Files already on disk at the destination are not removed."
-                    onDelete={handleDelete}
-                    isDeleting={deleteBackup.isPending}
+                    description="This deletes the backup configuration, its history, and its restore entries. Files stay at the destination, but they can no longer be restored through LazyBackup."
+                    onConfirm={async () => {
+                      await deleteBackup.mutateAsync(backup.id)
+                      router.push("/backups")
+                    }}
+                    isPending={deleteBackup.isPending}
                     buttonText="Delete"
                     triggerButtonClassName={detailActionDestructiveClassName}
-                  />
+                  >
+                    <button
+                      type="button"
+                      disabled={isRunning || startRunMutation.isPending}
+                      title={
+                        isRunning
+                          ? "Cannot delete while a backup is running"
+                          : undefined
+                      }
+                      className={cn(
+                        detailActionDestructiveClassName,
+                        "disabled:pointer-events-none disabled:opacity-50"
+                      )}
+                    >
+                      <TrashIcon />
+                      Delete
+                    </button>
+                  </DeleteConfirmationDialog>
                 </DetailActions>
-          }
-          actionsExtra={
+              }
+              actionsExtra={
                 displayedValidation ? (
                   <div className="mt-3 space-y-2 border-t pt-3">
                     <div className="flex items-start justify-between gap-2">
@@ -540,16 +749,19 @@ export default function BackupDetailPage() {
                         <p className="text-sm font-medium">
                           Validation{" "}
                           {displayedValidation.ok ? (
-                            <span className="text-green-600 dark:text-green-400">passed</span>
+                            <span className="text-green-600 dark:text-green-400">
+                              passed
+                            </span>
                           ) : (
                             <span className="text-destructive">failed</span>
                           )}
                         </p>
                         <p className="text-xs text-muted-foreground">
                           {displayedValidation.at
-                            ? isClient
-                              ? formatMtime(displayedValidation.at)
-                              : "—"
+                            ? formatInTimezone(
+                                new Date(displayedValidation.at),
+                                timezone
+                              )
                             : "Just now"}
                           {" · "}
                           {validationSummary(displayedValidation.checks)}
@@ -557,165 +769,203 @@ export default function BackupDetailPage() {
                       </div>
                       <button
                         type="button"
-                        onClick={() => setChecksExpanded((v) => !v)}
+                        onClick={() => setChecksToggle(!checksExpanded)}
+                        aria-expanded={checksExpanded}
+                        aria-controls="validation-checks"
                         className="shrink-0 cursor-pointer text-xs text-muted-foreground underline-offset-2 hover:underline"
                       >
                         {checksExpanded ? "Hide" : "Details"}
                       </button>
                     </div>
-                    {checksExpanded && (
-                      <ul className="space-y-1.5 text-sm">
-                        {displayedValidation.checks.map((check) => (
-                          <li
-                            key={check.id}
-                            className="flex gap-2 rounded-md border bg-muted/30 px-2.5 py-1.5"
-                          >
-                            {check.status === "pass" ? (
-                              <CheckCircle2Icon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-green-600 dark:text-green-400" />
-                            ) : check.status === "warn" ? (
-                              <AlertTriangleIcon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
-                            ) : (
-                              <XCircleIcon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-destructive" />
-                            )}
-                            <div className="min-w-0">
-                              <div className="text-sm font-medium leading-tight">{check.label}</div>
-                              <p className="text-xs text-muted-foreground">{check.message}</p>
+                    <ul
+                      id="validation-checks"
+                      hidden={!checksExpanded}
+                      className="space-y-1.5 text-sm"
+                    >
+                      {displayedValidation.checks.map((check) => (
+                        <li
+                          key={check.id}
+                          className="flex gap-2 rounded-md border bg-muted/30 px-2.5 py-1.5"
+                        >
+                          {check.status === "pass" ? (
+                            <CheckCircle2Icon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-green-600 dark:text-green-400" />
+                          ) : check.status === "warn" ? (
+                            <AlertTriangleIcon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
+                          ) : (
+                            <XCircleIcon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-destructive" />
+                          )}
+                          <div className="min-w-0">
+                            <div className="text-sm font-medium leading-tight">
+                              {check.label}
                             </div>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
+                            <p className="break-words text-xs text-muted-foreground">
+                              {check.message}
+                            </p>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
                   </div>
                 ) : (
                   <p className="mt-3 border-t pt-3 text-xs text-muted-foreground">
-                    Not validated yet — run Validate to probe endpoints without transferring data.
+                    Not validated yet — run Validate to probe endpoints without
+                    transferring data.
                   </p>
                 )
-          }
-        >
-            <div className="rounded-lg border bg-card p-6 text-card-foreground shadow">
-              <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <h2 className="flex items-center gap-2 text-xl font-semibold">
-                    <HardDriveIcon className="h-5 w-5" />
-                    {destinationKindOf(query.data) === "local"
-                      ? "On-disk backups"
-                      : "Destination storage"}
-                  </h2>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    {destinationKindOf(query.data) === "server"
-                      ? "Destination is on a remote server — local disk listing is unavailable."
-                      : destinationKindOf(query.data) === "s3"
-                        ? "Destination is an S3 prefix — object listing is not shown here."
-                        : destinationKindOf(query.data) === "peer"
-                          ? `Destination is on ${friendName}'s computer — their app stores the files, so a local disk listing is unavailable.`
-                          : "Resume of files stored at this destination on the LazyBackup host."}
-                  </p>
+              }
+            >
+              <div className="rounded-lg border bg-card p-6 text-card-foreground shadow">
+                <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <h2 className="flex items-center gap-2 text-xl font-semibold">
+                      <HardDriveIcon className="h-5 w-5" />
+                      {destinationKindOf(backup) === "local"
+                        ? "On-disk backups"
+                        : "Destination storage"}
+                    </h2>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {destinationKindOf(backup) === "server"
+                        ? "Destination is on a remote server — local disk listing is unavailable."
+                        : destinationKindOf(backup) === "s3"
+                          ? "Destination is an S3 prefix — object listing is not shown here."
+                          : destinationKindOf(backup) === "peer"
+                            ? `Destination is on ${friendName}'s computer — their app stores the files, so a local disk listing is unavailable.`
+                            : "Summary of files stored at this destination on the LazyBackup host."}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => storageQuery.refetch()}
+                    disabled={storageQuery.isFetching}
+                    className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors hover:bg-accent disabled:opacity-50"
+                  >
+                    <RefreshCwIcon
+                      className={`h-4 w-4 ${
+                        storageQuery.isFetching ? "animate-spin" : ""
+                      }`}
+                    />
+                    Refresh
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => storageQuery.refetch()}
-                  disabled={storageQuery.isFetching}
-                  className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors hover:bg-accent disabled:opacity-50"
+
+                <QueryState
+                  query={storageQuery}
+                  dataLabel="on-disk backups"
+                  errorIcon={<HardDriveIcon className="h-12 w-12 text-red-500" />}
+                  emptyIcon={
+                    <HardDriveIcon className="h-12 w-12 text-muted-foreground" />
+                  }
+                  emptyMessage="No storage summary available"
+                  isDataEmpty={(data) => !data}
                 >
-                  <RefreshCwIcon
-                    className={`h-4 w-4 ${storageQuery.isFetching ? "animate-spin" : ""}`}
-                  />
-                  Refresh
-                </button>
-              </div>
-
-              <QueryState
-                query={storageQuery}
-                dataLabel="on-disk backups"
-                errorIcon={<HardDriveIcon className="h-12 w-12 text-red-500" />}
-                emptyIcon={<HardDriveIcon className="h-12 w-12 text-muted-foreground" />}
-                emptyMessage="No storage summary available"
-                isDataEmpty={(data) => !data}
-              >
-                {storage && storage.remote ? (
-                  <div className="space-y-2 text-sm">
-                    <p>
-                      {destinationKindOf(query.data) === "peer"
-                        ? `Folder on ${friendName}'s computer — their app stores and lists these files.`
-                        : `Remote destination${
-                            storage.remoteServerName
-                              ? ` on ${storage.remoteServerName}`
-                              : ""
-                          }`}
-                    </p>
-                    <p className="font-mono text-xs text-muted-foreground" title={storage.path}>
-                      {storage.path}
-                    </p>
-                  </div>
-                ) : storage && (
-                  <div className="space-y-5">
-                    {!storage.exists ? (
-                      <p className="text-sm text-muted-foreground">
-                        Destination path not found yet. It is created when the first backup runs.
+                  {storage && storage.remote ? (
+                    <div className="space-y-2 text-sm">
+                      <p>
+                        {destinationKindOf(backup) === "peer"
+                          ? `Folder on ${friendName}'s computer — their app stores and lists these files.`
+                          : `Remote destination${
+                              storage.remoteServerName
+                                ? ` on ${storage.remoteServerName}`
+                                : ""
+                            }`}
                       </p>
-                    ) : (
-                      <>
-                        <div>
-                          <div className="text-3xl font-bold">{storage.totalSize}</div>
-                          <div className="text-sm text-muted-foreground">Total on disk</div>
-                          <p
-                            className="mt-1 truncate font-mono text-xs text-muted-foreground"
-                            title={storage.path}
-                          >
-                            {storage.path}
+                      <p
+                        className="break-all font-mono text-xs text-muted-foreground"
+                        title={storage.path}
+                      >
+                        {storage.path}
+                      </p>
+                    </div>
+                  ) : (
+                    storage && (
+                      <div className="space-y-5">
+                        {!storage.exists ? (
+                          <p className="text-sm text-muted-foreground">
+                            Destination path not found yet. It is created when the
+                            first backup runs.
                           </p>
-                        </div>
+                        ) : (
+                          <>
+                            <div>
+                              <div className="text-3xl font-bold">
+                                {storage.totalSize}
+                              </div>
+                              <div className="text-sm text-muted-foreground">
+                                Total on disk
+                              </div>
+                              <p
+                                className="mt-1 break-all font-mono text-xs text-muted-foreground"
+                                title={storage.path}
+                              >
+                                {storage.path}
+                              </p>
+                            </div>
 
-                        <dl className="grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
-                          <div className="rounded-md bg-muted/40 p-3">
-                            <dt className="text-muted-foreground">Files</dt>
-                            <dd className="text-lg font-semibold">{storage.fileCount}</dd>
-                          </div>
-                          <div className="rounded-md bg-muted/40 p-3">
-                            <dt className="text-muted-foreground">Folders</dt>
-                            <dd className="text-lg font-semibold">{storage.directoryCount}</dd>
-                          </div>
-                          <div className="rounded-md bg-muted/40 p-3">
-                            <dt className="text-muted-foreground">Versioning</dt>
-                            <dd className="text-lg font-semibold">
-                              {storage.versioning.enabled
-                                ? `${storage.versioning.versionCount}/${storage.versioning.versionsToKeep ?? "—"}`
-                                : "Off"}
-                            </dd>
-                          </div>
-                          <div className="rounded-md bg-muted/40 p-3">
-                            <dt className="text-muted-foreground">Last modified</dt>
-                            <dd className="text-sm font-semibold leading-6">
-                              {isClient ? formatMtime(storage.lastModified) : "—"}
-                            </dd>
-                          </div>
-                        </dl>
+                            <dl className="grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
+                              <div className="rounded-md bg-muted/40 p-3">
+                                <dt className="text-muted-foreground">Files</dt>
+                                <dd className="text-lg font-semibold">
+                                  {storage.fileCount}
+                                </dd>
+                              </div>
+                              <div className="rounded-md bg-muted/40 p-3">
+                                <dt className="text-muted-foreground">Folders</dt>
+                                <dd className="text-lg font-semibold">
+                                  {storage.directoryCount}
+                                </dd>
+                              </div>
+                              <div className="rounded-md bg-muted/40 p-3">
+                                <dt className="text-muted-foreground">
+                                  Versioning
+                                </dt>
+                                <dd className="text-lg font-semibold">
+                                  {storage.versioning.enabled
+                                    ? `${storage.versioning.versionCount}/${
+                                        storage.versioning.versionsToKeep ?? "—"
+                                      }`
+                                    : "Off"}
+                                </dd>
+                              </div>
+                              <div className="rounded-md bg-muted/40 p-3">
+                                <dt className="text-muted-foreground">
+                                  Last modified
+                                </dt>
+                                <dd className="text-sm font-semibold leading-6">
+                                  {formatMtime(storage.lastModified, timezone)}
+                                </dd>
+                              </div>
+                            </dl>
 
-                        <div>
-                          <h3 className="mb-2 text-sm font-medium">
-                            {storage.versioning.enabled && storage.versioning.versionCount > 0
-                              ? "Versions"
-                              : "Top-level entries"}
-                          </h3>
-                          <EntryRows
-                            entries={listingEntries}
-                            emptyLabel="Destination exists but has no readable files yet."
-                          />
-                          {storage.truncated ? (
-                            <p className="mt-2 text-xs text-muted-foreground">
-                              Showing the newest entries only.
-                            </p>
-                          ) : null}
-                        </div>
-                      </>
-                    )}
-                  </div>
-                )}
-              </QueryState>
-            </div>
-        </ResourceDetailLayout>
-      ) : null}
-    </QueryState>
+                            <div>
+                              <h3 className="mb-2 text-sm font-medium">
+                                {storage.versioning.enabled &&
+                                storage.versioning.versionCount > 0
+                                  ? "Versions"
+                                  : "Top-level entries"}
+                              </h3>
+                              <EntryRows
+                                entries={listingEntries}
+                                emptyLabel="Destination exists but has no readable files yet."
+                                timeZone={timezone}
+                              />
+                              {storage.truncated ? (
+                                <p className="mt-2 text-xs text-muted-foreground">
+                                  Showing the newest entries only.
+                                </p>
+                              ) : null}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    )
+                  )}
+                </QueryState>
+              </div>
+            </ResourceDetailLayout>
+            </>
+          ) : null}
+        </QueryState>
+      )}
+    </div>
   )
 }

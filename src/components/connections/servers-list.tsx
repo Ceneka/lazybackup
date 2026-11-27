@@ -2,6 +2,7 @@
 
 import { ResourceListCard } from "@/components/resource-list-card"
 import { serverOverflowItems } from "@/components/resource-overflow"
+import { ServerAuthBadge, serverAuthSummary } from "@/components/connections/server-auth"
 import { Button } from "@/components/ui/button"
 import { QueryState } from "@/components/ui/query-state"
 import { useDeleteServer, useServers } from "@/lib/hooks/useServers"
@@ -40,6 +41,7 @@ export function ConnectionsServersList() {
               editHref={`/servers/${server.id}/edit`}
               icon={ServerIcon}
               title={server.name}
+              badges={<ServerAuthBadge server={server} />}
               overflow={serverOverflowItems({
                 id: server.id,
                 name: server.name,
@@ -53,7 +55,15 @@ export function ConnectionsServersList() {
                 {server.host}:{server.port}
               </p>
               <p>Username: {server.username}</p>
-              <p>Auth: {server.authType}</p>
+              <p
+                className={
+                  server.authType === "password"
+                    ? "text-amber-700 dark:text-amber-300"
+                    : undefined
+                }
+              >
+                {serverAuthSummary(server)}
+              </p>
             </ResourceListCard>
           ))}
         </div>

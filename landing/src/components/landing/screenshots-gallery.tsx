@@ -7,52 +7,82 @@ const screenshots = [
   {
     src: "/screenshots/dashboard.png",
     title: "Dashboard",
-    alt: "LazyBackup dashboard with last-30-day backup status, success rate, storage, recent activity, and upcoming schedules",
-  },
-  {
-    src: "/screenshots/status.png",
-    title: "Status",
-    alt: "LazyBackup Status posture page with critical/warn checklist for auth, age keys, instance backup, and failure webhooks",
-  },
-  {
-    src: "/screenshots/servers.png",
-    title: "Servers",
-    alt: "LazyBackup servers page listing SSH connections with host, port, username, and key auth",
+    alt: "LazyBackup dashboard with last successful backup, overdue schedules, needs-attention list, backup status chart, recent activity, and upcoming runs",
   },
   {
     src: "/screenshots/backups.png",
     title: "Backups",
-    alt: "LazyBackup backup jobs page showing scheduled pull jobs with cron expressions and destinations",
+    alt: "Backups page cards with last-run badges for success, failed, running, paused, and never run, next-run times, validation warnings, and Pause / Resume",
   },
   {
-    src: "/screenshots/s3-profiles.png",
-    title: "S3 profiles",
-    alt: "LazyBackup S3 profiles page listing a MinIO-compatible endpoint, bucket, and region",
+    src: "/screenshots/backup-detail.png",
+    title: "Backup detail",
+    alt: "Backup detail page with a live Running since banner and log link, last and next run, Pause / Resume, and encryption and file-retention settings",
   },
   {
-    src: "/screenshots/encryption.png",
-    title: "Encryption",
-    alt: "LazyBackup Settings Encryption tab showing the age key vault with active key, export, and recovery recipients",
-  },
-  {
-    src: "/screenshots/mcp-api.png",
-    title: "API / MCP",
-    alt: "LazyBackup Settings API tab with Bearer token creation, remote_exec checkbox, and MCP client config snippet",
-  },
-  {
-    src: "/screenshots/bro-space.png",
-    title: "Bro Space",
-    alt: "LazyBackup Settings Bro Space tab for inviting a friend to share backup space",
+    src: "/screenshots/backup-form.png",
+    title: "Backup form",
+    alt: "New backup From → To form with a server to S3 destination, schedule label, next run, encryption, and retention options",
   },
   {
     src: "/screenshots/history.png",
     title: "History",
-    alt: "LazyBackup history page with backup run logs, status badges, sizes, and timestamps",
+    alt: "History list with mixed run statuses, search and status filters, Today / 7 days / 30 days date chips, and a statistics link",
+  },
+  {
+    src: "/screenshots/history-detail.png",
+    title: "History detail",
+    alt: "Failed backup run detail with the error alert at the top, run summary, timestamps, log, restore, and download actions",
+  },
+  {
+    src: "/screenshots/restore-dialog.png",
+    title: "Restore",
+    alt: "Restore dialog for a successful run showing the run date and size, From and To endpoints, merge note, and confirmation",
+  },
+  {
+    src: "/screenshots/connections.png",
+    title: "Connections",
+    alt: "Connections servers tab with Key and Password only badges, SSH key names, and persistent connection test results",
+  },
+  {
+    src: "/screenshots/servers.png",
+    title: "Server detail",
+    alt: "Server detail page with transport details for rsync, SCP, and Docker, plus the SSH key in use",
+  },
+  {
+    src: "/screenshots/s3-profiles.png",
+    title: "S3 profiles",
+    alt: "Connections S3 tab listing an S3-compatible profile with endpoint, bucket, region, and path-style setting",
+  },
+  {
+    src: "/screenshots/status.png",
+    title: "Status",
+    alt: "Status page checklist with text severities for auth, age keys, instance backup, password-only servers, and failure webhooks",
   },
   {
     src: "/screenshots/settings.png",
     title: "Settings",
-    alt: "LazyBackup settings page for timezone, SSH defaults, and optional app password",
+    alt: "Settings General tab with timezone, SSH defaults, failure webhook and success-ping presets, and an explicit Save changes button",
+  },
+  {
+    src: "/screenshots/encryption.png",
+    title: "Encryption",
+    alt: "Settings Encryption tab with the age key vault showing active and retired keys, export, and a recovery recipient",
+  },
+  {
+    src: "/screenshots/mcp-api.png",
+    title: "API / MCP",
+    alt: "Settings API / MCP tab with token access levels Read only, Read & write, and shell, permission badges including Full access, and an MCP client config snippet",
+  },
+  {
+    src: "/screenshots/bro-space.png",
+    title: "Bro Space",
+    alt: "Settings Bro Space tab with a paired peer, a pending invite code, and LazyBro download options",
+  },
+  {
+    src: "/screenshots/dashboard-dark.png",
+    title: "Dark mode",
+    alt: "LazyBackup dashboard in dark mode with the same health summary, backup status chart, recent activity, and upcoming runs",
   },
 ] as const;
 
@@ -71,8 +101,8 @@ export function ScreenshotsGallery() {
             See it in action
           </h2>
           <p className="mt-4 text-lg text-slate-400">
-            Status posture, age vault, S3, Bro Space, MCP tokens, From→To
-            jobs, and history—on your own host.
+            Dashboard health, Pause / Resume, safer restores, history filters,
+            connection readiness, age vault, and MCP—on your own host.
           </p>
         </div>
 

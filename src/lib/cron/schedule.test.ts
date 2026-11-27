@@ -30,8 +30,26 @@ describe('formatCronExpression', () => {
     expect(formatCronExpression('0 0 1 * *')).toBe('Monthly on day 1 at 00:00')
   })
 
+  test('labels simple step schedules', () => {
+    expect(formatCronExpression('0 */6 * * *')).toBe('Every 6 hours')
+    expect(formatCronExpression('*/15 * * * *')).toBe('Every 15 minutes')
+    expect(formatCronExpression('*/1 * * * *')).toBe('Every minute')
+    expect(formatCronExpression('0 */1 * * *')).toBe('Hourly')
+    expect(formatCronExpression('30 */4 * * *')).toBe('Every 4 hours at :30')
+  })
+
   test('returns raw expression when not 5 fields', () => {
     expect(formatCronExpression('0 0 * *')).toBe('0 0 * *')
+  })
+
+  test('returns raw expression for ranges and lists', () => {
+    expect(formatCronExpression('0 2 * * 1-5')).toBe('0 2 * * 1-5')
+    expect(formatCronExpression('0 2 * * 1,3,5')).toBe('0 2 * * 1,3,5')
+    expect(formatCronExpression('0 2 1,15 * *')).toBe('0 2 1,15 * *')
+  })
+
+  test('normalizes 7 to Sunday', () => {
+    expect(formatCronExpression('0 2 * * 7')).toBe('Weekly on Sun at 02:00')
   })
 })
 
