@@ -5,9 +5,8 @@ import path from 'path';
 import {
   assertStagingQuota,
   deleteStagedObject,
-  isStagingTempName,
   listStagedObjects,
-  peerStagingObjectPath,
+  peerStagingTempDir,
   peerStagingTempPath,
   stagedObjectExists,
   stagingUsedBytes,
@@ -46,11 +45,9 @@ describe('peer staging', () => {
     try {
       const peerId = 'peer_partial';
       const key = 'backups/config/big.tar.gz.age';
-      const dest = peerStagingObjectPath(peerId, key);
-      await fs.mkdir(path.dirname(dest), { recursive: true });
       // A copy that is still being written (or was left by a crash).
       const partial = peerStagingTempPath(peerId, key);
-      expect(isStagingTempName(path.basename(partial))).toBe(true);
+      await fs.mkdir(path.dirname(partial), { recursive: true });
       await fs.writeFile(partial, Buffer.alloc(1024, 7));
 
       expect(await listStagedObjects(peerId)).toEqual([]);
@@ -67,8 +64,34 @@ describe('peer staging', () => {
       expect(listed).toHaveLength(1);
       expect(listed[0]!.key).toBe(key);
       expect(await stagingUsedBytes(peerId)).toBe(17);
-      const leftovers = (await fs.readdir(path.dirname(dest))).filter(isStagingTempName);
+      const leftovers = await fs.readdir(peerStagingTempDir(peerId)).catch(() => []);
       expect(leftovers).toEqual([]);
+    } finally {
+      if (prev === undefined) delete process.env.BACKUP_STORAGE_PATH;
+      else process.env.BACKUP_STORAGE_PATH = prev;
+      await fs.rm(tmp, { recursive: true, force: true });
+    }
+  });
+
+  test('a legitimate object key containing ".part-" is still advertised', async () => {
+    const prev = process.env.BACKUP_STORAGE_PATH;
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'lb-stage-partname-'));
+    process.env.BACKUP_STORAGE_PATH = tmp;
+    try {
+      const peerId = 'peer_partname';
+      // Volume names and source paths may contain ".part-": the temp marker
+      // must not hide a real staged object from the friend.
+      const key = 'backups/vol/app.part-2024.tar.gz.age';
+      const src = path.join(tmp, 'src.bin');
+      await fs.writeFile(src, Buffer.from('hello'));
+      await writeStagedObject(peerId, key, src);
+
+      const listed = await listStagedObjects(peerId);
+      expect(listed.map((object) => object.key)).toContain(key);
+      expect(await stagingUsedBytes(peerId)).toBe(5);
+      expect(
+        await stagedObjectExists(peerId, key)
+      ).toBe(true);
     } finally {
       if (prev === undefined) delete process.env.BACKUP_STORAGE_PATH;
       else process.env.BACKUP_STORAGE_PATH = prev;
@@ -88,10 +111,7 @@ describe('peer staging', () => {
       ).rejects.toThrow();
       expect(await stagedObjectExists(peerId, key)).toBe(false);
       expect(await listStagedObjects(peerId)).toEqual([]);
-      const dir = path.dirname(peerStagingObjectPath(peerId, key));
-      const leftovers = (await fs.readdir(dir).catch(() => [] as string[])).filter(
-        isStagingTempName
-      );
+      const leftovers = await fs.readdir(peerStagingTempDir(peerId)).catch(() => []);
       expect(leftovers).toEqual([]);
     } finally {
       if (prev === undefined) delete process.env.BACKUP_STORAGE_PATH;

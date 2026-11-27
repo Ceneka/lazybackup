@@ -33,7 +33,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { peerRecallDir } from './recall';
 import { peerDataDir } from './storage';
-import { listStagedObjects, peerStagingDir } from './staging';
+import { listStagedObjects, peerStagingDir, peerStagingTempDir } from './staging';
 
 /** Uniform public error for invite not found / bad secret / quota / already used. */
 export const PAIRING_FAILED_MESSAGE = 'Pairing failed';
@@ -248,7 +248,12 @@ export async function removePeer(peerId: string): Promise<RemovePeerResult | nul
       .where(eq(backupConfigs.destinationPeerId, peerId));
   }
 
-  const dirs = [peerStagingDir(peerId), peerDataDir(peerId), peerRecallDir(peerId)];
+  const dirs = [
+    peerStagingDir(peerId),
+    peerStagingTempDir(peerId),
+    peerDataDir(peerId),
+    peerRecallDir(peerId),
+  ];
   let freedBytes = 0;
   for (const dir of dirs) {
     freedBytes += await dirBytes(dir);
