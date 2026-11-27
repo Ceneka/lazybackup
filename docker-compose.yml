@@ -36,9 +36,10 @@ services:
       # AUTH_TRUST_PROXY: "true"
       # Exact public origin required for passkeys behind a proxy:
       # AUTH_PUBLIC_URL: "https://backup.example.com"
-      # Bro Space through a tunnel/reverse proxy: peer uploads stream up to
-      # 32 GiB, and proxies cap request bodies (Cloudflare Free/Pro/Business:
-      # 100 MB). Raise that limit or keep Bro Space on Tailscale/LAN.
+      # Bro Space through a tunnel/reverse proxy: mailbox transfers move in
+      # 4 MiB chunks, so request-body caps are not the limit; very large pulls
+      # and downloads still depend on the proxy's response limits/timeouts.
+      # Keep Bro Space on Tailscale/LAN for big datasets.
     volumes:
       - lazybackup_data:/app/data
       # Same host dir at both paths: UI/examples use /backups/... but older docs used /app/backups/...
