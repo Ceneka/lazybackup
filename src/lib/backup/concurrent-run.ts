@@ -187,6 +187,14 @@ export async function beginRestore(options: {
     throw new RestoreAlreadyRunningError(historyId);
   }
 
+  // Different runs of one config restore onto the same target (source path,
+  // database, or volume). Letting two run at once interleaves writes to that
+  // target, so serialize per config as well as per history row.
+  const sameConfig = findActiveRestoreEntry([...activeRestores.values()], configId);
+  if (sameConfig) {
+    throw new RestoreAlreadyRunningError(sameConfig.historyId);
+  }
+
   const token = Symbol(historyId);
   activeRestores.set(historyId, {
     historyId,
