@@ -1,6 +1,7 @@
 import { db } from '@/lib/db'
 import { servers } from '@/lib/db/schema'
 import { eq } from 'drizzle-orm'
+import { getActiveAgeKey } from '@/lib/crypto/keys'
 import {
   passwordOnlyPathTransferError,
   pathJobUsesServerEndpoint,
@@ -28,7 +29,20 @@ export async function assertTransferServersHaveKeys(config: {
   destinationServerId?: string | null
   server?: ServerAuth | null
   destinationServer?: ServerAuth | null
+  enableEncryption?: boolean | null
 }): Promise<void> {
+  // Friend (peer) destinations always encrypt; any encrypted job needs an
+  // active vault key or it only fails later, when it runs.
+  if (
+    (config.destinationKind === 'peer' || config.enableEncryption) &&
+    config.sourceType !== 'lazybackup_instance' &&
+    !(await getActiveAgeKey())
+  ) {
+    throw new TransferKeyRequiredError(
+      'Encryption is required for this backup (friend destinations always encrypt). Create an encryption key in Settings → Encryption first.'
+    )
+  }
+
   if (!pathJobUsesServerEndpoint(config)) return
 
   const toCheck: ServerAuth[] = []
