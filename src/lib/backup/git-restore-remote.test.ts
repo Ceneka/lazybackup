@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from 'bun:test';
+import { describe, expect, mock, test , afterAll} from 'bun:test';
 import fs, { createWriteStream } from 'fs';
 import os from 'os';
 import path from 'path';
@@ -85,6 +85,15 @@ async function writeGitArchive(archivePath: string): Promise<void> {
   archive.finalize();
   await writing;
 }
+
+afterAll(async () => {
+  // Module mocks are process-wide in Bun; restore full copies for later files.
+  mock.restore();
+  const freshDb = await import(`../db/index.ts?real=${Date.now()}`);
+  mock.module('@/lib/db', () => freshDb);
+  const freshSsh = await import(`../ssh/index.ts?real=${Date.now()}`);
+  mock.module('@/lib/ssh', () => freshSsh);
+});
 
 describe('remote Git restore', () => {
   test('pushes to a mktemp dir instead of clobbering targetPath/git-mirror.tar.gz', async () => {

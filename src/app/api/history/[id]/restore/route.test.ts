@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from 'bun:test';
+import { describe, expect, mock, test , afterAll} from 'bun:test';
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
@@ -37,6 +37,13 @@ function request(id: string, body: unknown): NextRequest {
     body: JSON.stringify(body),
   });
 }
+
+afterAll(async () => {
+  // Module mocks are process-wide in Bun; restore full copies for later files.
+  mock.restore();
+  const freshDb = await import(`../../../../../lib/db/index.ts?real=${Date.now()}`);
+  mock.module('@/lib/db', () => freshDb);
+});
 
 describe('POST /api/history/[id]/restore — sqlite targets', () => {
   test('a sqlite restore may target a filesystem path', async () => {

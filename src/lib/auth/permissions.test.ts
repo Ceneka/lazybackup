@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import {
+// Bypass process-wide module mocks (middleware.test mocks @/lib/auth).
+const {
   REMOTE_EXEC_DENIED,
   RemoteExecPermissionError,
   assertCanRetargetPreBackupCommands,
@@ -13,8 +14,8 @@ import {
   parseApiTokenPermissions,
   preBackupChangeRequiresRemoteExec,
   serializeApiTokenPermissions,
-  type ApiTokenPermission,
-} from './permissions'
+} = await import(`./permissions.ts?real=${Date.now()}`)
+type ApiTokenPermission = import('./permissions').ApiTokenPermission
 
 describe('parseApiTokenPermissions', () => {
   test('parses valid JSON array', () => {

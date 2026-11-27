@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, mock, test , afterAll} from 'bun:test';
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
@@ -77,4 +77,11 @@ describe('recall upload quota accounting', () => {
     expect(spool.size).toBe(12);
     expect(updates.some((u) => u.status === 'ready')).toBe(true);
   });
+});
+
+afterAll(async () => {
+  // Module mocks are process-wide in Bun; restore the real db for later files.
+  mock.restore();
+  const freshDb = await import(`../db/index.ts?real=${Date.now()}`);
+  mock.module('@/lib/db', () => freshDb);
 });

@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from 'bun:test';
+import { describe, expect, mock, test , afterAll} from 'bun:test';
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
@@ -55,6 +55,13 @@ function gitHistory(artifactPath: string): Row {
     },
   };
 }
+
+afterAll(async () => {
+  // Module mocks are process-wide in Bun; restore full copies for later files.
+  mock.restore();
+  const freshDb = await import(`../db/index.ts?real=${Date.now()}`);
+  mock.module('@/lib/db', () => freshDb);
+});
 
 describe('git mirror restore archive safety', () => {
   test('rejects an archive with an absolute symlink before extracting it', async () => {

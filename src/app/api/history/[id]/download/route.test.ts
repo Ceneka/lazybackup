@@ -48,8 +48,16 @@ function request(id: string): NextRequest {
   return new NextRequest(`http://127.0.0.1/api/history/${id}/download`);
 }
 
-afterAll(() => {
+afterAll(async () => {
   mock.restore();
+  // mock.restore() does not put module mocks back; later files import the real
+  // backup and db modules, so restore full copies explicitly.
+  const freshBackup = await import(
+    `../../../../../lib/backup/index.ts?real=${Date.now()}`
+  );
+  mock.module('@/lib/backup', () => freshBackup);
+  const freshDb = await import(`../../../../../lib/db/index.ts?real=${Date.now()}`);
+  mock.module('@/lib/db', () => freshDb);
 });
 
 describe('GET /api/history/[id]/download', () => {

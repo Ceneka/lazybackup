@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from 'bun:test';
+import { beforeEach, describe, expect, mock, test , afterAll} from 'bun:test';
 
 let historyRow: { artifactRemoved: boolean | null } | null = null;
 let ackedDelete: { status: string } | null = null;
@@ -19,6 +19,13 @@ mock.module('@/lib/db', () => ({
 const { assertPeerArtifactRestorable } = await import('./retention');
 
 const ARTIFACT = 'peer://peer_a/backups/config/app.tar.gz.age';
+
+afterAll(async () => {
+  // Module mocks are process-wide in Bun; restore full copies for later files.
+  mock.restore();
+  const freshDb = await import(`../db/index.ts?real=${Date.now()}`);
+  mock.module('@/lib/db', () => freshDb);
+});
 
 describe('assertPeerArtifactRestorable', () => {
   beforeEach(() => {

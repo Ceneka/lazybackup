@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, mock, test , afterAll} from 'bun:test';
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
@@ -84,4 +84,11 @@ describe('peer store quota', () => {
     expect(rejected.length).toBe(1);
     expect(String((rejected[0] as PromiseRejectedResult).reason)).toMatch(/quota exceeded/i);
   });
+});
+
+afterAll(async () => {
+  // Module mocks are process-wide in Bun; restore the real db for later files.
+  mock.restore();
+  const freshDb = await import(`../db/index.ts?real=${Date.now()}`);
+  mock.module('@/lib/db', () => freshDb);
 });

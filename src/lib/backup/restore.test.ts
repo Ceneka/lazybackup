@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from 'bun:test';
+import { describe, expect, mock, test , afterAll} from 'bun:test';
 import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
@@ -53,6 +53,13 @@ const {
   restoreDatabaseBackup,
   restorePathBackup,
 } = await import('./index');
+
+afterAll(async () => {
+  // Module mocks are process-wide in Bun; restore full copies for later files.
+  mock.restore();
+  const freshDb = await import(`../db/index.ts?real=${Date.now()}`);
+  mock.module('@/lib/db', () => freshDb);
+});
 
 describe('looksLikePathArchiveName', () => {
   test('detects packed archives', () => {
@@ -171,23 +178,37 @@ describe('resolveLocalRestoreArtifact', () => {
       expect((error as PeerRecallPendingError).recallId).toBe('rec-wait');
       expect((error as Error).message).toBe(PEER_RECALL_WAITING_MESSAGE);
       expect(waited).toBe(false);
+    } finally {
+      // Restore the real module for the rest of this file and later files.
+      mock.module('@/lib/peer/recall', () => recall);
     }
   });
 
   test('rejects a revoked peer when neither staging nor a ready recall has the bytes', async () => {
-    await expect(
-      resolveLocalRestoreArtifact({
-        artifactPath: 'peer://peer1/foo.tar.gz',
-        destinationKind: 'peer',
-        destinationPeer: {
-          id: 'peer1',
-          name: 'bro',
-          status: 'revoked',
-          transport: 'mailbox',
-        } as never,
-        decrypt: false,
-      })
-    ).rejects.toThrow(/revoked; re-pair/i);
+    // The mailbox path asks the peer for the object before it can conclude the
+    // pairing is revoked; stage a pending recall as that answer.
+    mock.module('@/lib/peer/recall', () => ({
+      ...recall,
+      ensureRecall: async () => ({ id: 'rec-none', status: 'pending' }),
+      consumeRecallArtifact: async () => {},
+    }));
+    try {
+      await expect(
+        resolveLocalRestoreArtifact({
+          artifactPath: 'peer://peer1/foo.tar.gz',
+          destinationKind: 'peer',
+          destinationPeer: {
+            id: 'peer1',
+            name: 'bro',
+            status: 'revoked',
+            transport: 'mailbox',
+          } as never,
+          decrypt: false,
+        })
+      ).rejects.toThrow(/revoked; re-pair/i);
+    } finally {
+      mock.module('@/lib/peer/recall', () => recall);
+    }
   });
 
   test('mailbox peer restore fails clearly when retention already removed the blob', async () => {

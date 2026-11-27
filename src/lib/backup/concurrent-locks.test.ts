@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, mock, test } from 'bun:test';
+import { afterEach, describe, expect, mock, test , afterAll} from 'bun:test';
 import { DEFAULT_STALE_RUNNING_MS } from './stale-running';
 
 type RunningRow = { id: string; status: string; startTime: Date };
@@ -156,4 +156,11 @@ describe('withBackupStartLock', () => {
       withBackupStartLock('cfg-1', async () => 'ok')
     ).resolves.toBe('ok');
   });
+});
+
+afterAll(async () => {
+  // Module mocks are process-wide in Bun; restore the real db for later files.
+  mock.restore();
+  const freshDb = await import(`../db/index.ts?real=${Date.now()}`);
+  mock.module('@/lib/db', () => freshDb);
 });

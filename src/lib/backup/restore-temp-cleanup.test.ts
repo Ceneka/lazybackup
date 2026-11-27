@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from 'bun:test';
+import { beforeEach, describe, expect, mock, test , afterAll} from 'bun:test';
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
@@ -80,6 +80,17 @@ const profile = {
 };
 
 let baseline: string[] = [];
+
+afterAll(async () => {
+  // Module mocks are process-wide in Bun; restore full copies for later files.
+  mock.restore();
+  const freshDb = await import(`../db/index.ts?real=${Date.now()}`);
+  mock.module('@/lib/db', () => freshDb);
+  const freshFiles = await import(`../crypto/files.ts?real=${Date.now()}`);
+  mock.module('@/lib/crypto/files', () => freshFiles);
+  const freshS3 = await import(`../s3/index.ts?real=${Date.now()}`);
+  mock.module('@/lib/s3', () => freshS3);
+});
 
 beforeEach(async () => {
   baseline = await restoreTempDirs();

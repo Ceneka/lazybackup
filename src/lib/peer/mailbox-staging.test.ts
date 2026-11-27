@@ -2,7 +2,8 @@ import { describe, expect, test } from 'bun:test';
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
-import {
+// Bypass process-wide mocks of ./staging installed by other test files.
+const {
   assertStagingQuota,
   deleteStagedObject,
   listStagedObjects,
@@ -12,7 +13,7 @@ import {
   stagedObjectExists,
   stagingUsedBytes,
   writeStagedObject,
-} from './staging';
+} = await import(`./staging.ts?real=${Date.now()}`);
 
 describe('peer staging', () => {
   test('write list delete staged object', async () => {

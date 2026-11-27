@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from 'bun:test';
+import { describe, expect, mock, test , afterAll} from 'bun:test';
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
@@ -24,6 +24,13 @@ mock.module('@/lib/db', () => ({
 }));
 
 const { restorePathBackup, restoreDatabaseBackup } = await import('@/lib/backup');
+
+afterAll(async () => {
+  // Module mocks are process-wide in Bun; restore full copies for later files.
+  mock.restore();
+  const freshDb = await import(`../db/index.ts?real=${Date.now()}`);
+  mock.module('@/lib/db', () => freshDb);
+});
 
 describe('local path restore target validation', () => {
   test('refuses to restore onto a system pseudo-filesystem path', async () => {

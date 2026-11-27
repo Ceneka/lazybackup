@@ -29,7 +29,9 @@ await client.execute(`
 `);
 
 const { landLocalFileArtifact } = await import('@/lib/backup/land-file');
-const { stagedObjectExists } = await import('@/lib/peer/staging');
+const { stagedObjectExists } = await import(
+  `../peer/staging.ts?real=${Date.now()}`
+);
 const { withPeerLock } = await import('@/lib/peer/peer-lock');
 
 function peerRow() {

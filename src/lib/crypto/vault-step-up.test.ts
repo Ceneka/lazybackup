@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from 'bun:test'
+import { beforeEach, describe, expect, mock, test , afterAll} from 'bun:test'
 import {
   assertPasswordStrength,
   hashPassword,
@@ -33,6 +33,17 @@ const {
   vaultActionRequiresStepUp,
   VaultStepUpError,
 } = await import('./vault-step-up')
+
+afterAll(async () => {
+  // Module mocks are process-wide in Bun; restore full copies for later files.
+  mock.restore();
+  const freshSettings = await import(`../auth/settings.ts?real=${Date.now()}`);
+  mock.module('@/lib/auth/settings', () => freshSettings);
+  const freshPassword = await import(`../auth/password.ts?real=${Date.now()}`);
+  mock.module('@/lib/auth/password', () => freshPassword);
+  const freshWebauthn = await import(`../auth/webauthn.ts?real=${Date.now()}`);
+  mock.module('@/lib/auth/webauthn', () => freshWebauthn);
+});
 
 test('all destructive and secret-bearing vault actions require step-up', () => {
   for (const action of [

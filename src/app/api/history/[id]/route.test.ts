@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from 'bun:test';
+import { beforeEach, describe, expect, mock, test , afterAll} from 'bun:test';
 import { NextRequest } from 'next/server';
 
 type Row = Record<string, unknown> | null;
@@ -20,6 +20,13 @@ const { GET } = await import('@/app/api/history/[id]/route');
 function request(id: string) {
   return new NextRequest(`http://127.0.0.1/api/history/${id}`);
 }
+
+afterAll(async () => {
+  // Module mocks are process-wide in Bun; restore full copies for later files.
+  mock.restore();
+  const freshDb = await import(`../../../../lib/db/index.ts?real=${Date.now()}`);
+  mock.module('@/lib/db', () => freshDb);
+});
 
 beforeEach(() => {
   historyFixture = null;

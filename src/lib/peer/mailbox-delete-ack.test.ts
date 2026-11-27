@@ -1,8 +1,11 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, mock, test , afterAll} from 'bun:test';
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
-import { stagedObjectExists, writeStagedObject } from './staging';
+// Bypass process-wide mocks of ./staging installed by other test files.
+const { stagedObjectExists, writeStagedObject } = await import(
+  `./staging.ts?real=${Date.now()}`
+);
 
 const updates: Array<Record<string, unknown>> = [];
 /** The conditional pending -> acked update only claims a row when it exists. */
@@ -78,4 +81,11 @@ describe('completePeerDeleteAck', () => {
     expect(await stagedObjectExists('peer1', 'db/obj.sql.gz.age')).toBe(true);
     expect(updates.some((vals) => vals.artifactRemoved === true)).toBe(false);
   });
+});
+
+afterAll(async () => {
+  // Module mocks are process-wide in Bun; restore the real db for later files.
+  mock.restore();
+  const freshDb = await import(`../db/index.ts?real=${Date.now()}`);
+  mock.module('@/lib/db', () => freshDb);
 });
