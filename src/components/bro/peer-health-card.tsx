@@ -268,7 +268,7 @@ export function PeerHealthCard({
           )}
           {storedAt ? (
             <p className="text-xs text-muted-foreground">
-              Last backup stored on {friend}: {storedAt}
+              Last sync with {friend}: {storedAt}
             </p>
           ) : null}
         </div>
