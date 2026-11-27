@@ -65,6 +65,12 @@ const PEER_COLUMNS = `
   status TEXT NOT NULL DEFAULT 'active',
   last_seen_at INTEGER,
   last_activity_at INTEGER,
+  remote_used_bytes INTEGER,
+  remote_quota_bytes INTEGER,
+  remote_last_error TEXT,
+  remote_last_sync_at INTEGER,
+  remote_app_version TEXT,
+  remote_reported_at INTEGER,
   created_at INTEGER NOT NULL DEFAULT (unixepoch()),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch())
 `;
@@ -100,6 +106,7 @@ await client.execute(`
     artifact_path TEXT,
     artifact_removed INTEGER NOT NULL DEFAULT 0,
     artifact_removed_reason TEXT,
+    config_snapshot TEXT,
     mailbox_pending INTEGER NOT NULL DEFAULT 0
   )
 `);
