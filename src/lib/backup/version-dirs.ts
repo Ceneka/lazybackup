@@ -59,15 +59,17 @@ export function selectVersionDirNamesToDelete(
   protectedNames: Iterable<string> = []
 ): string[] {
   const keep = Math.max(0, versionsToKeep);
-  const shielded = new Set(protectedNames);
-  const versionNames = names.filter(
-    (name) => parseVersionDirName(name) !== null && !shielded.has(name)
-  );
-  if (versionNames.length <= keep) return [];
-  return [...versionNames]
-    .sort(compareVersionDirNames)
-    .reverse()
-    .slice(keep);
+  const versionNames = names.filter((name) => parseVersionDirName(name) !== null);
+  const sorted = [...versionNames].sort(compareVersionDirNames).reverse();
+  const keepSet = new Set(sorted.slice(0, keep));
+  // Normally the current folder is inside the newest `keep` and costs no extra
+  // slot. Only a clock-skewed/future-named folder makes it fall outside; keep
+  // it anyway rather than delete the backup that just finished.
+  const available = new Set(versionNames);
+  for (const name of protectedNames) {
+    if (available.has(name)) keepSet.add(name);
+  }
+  return sorted.filter((name) => !keepSet.has(name));
 }
 
 function expandHome(value: string): string {

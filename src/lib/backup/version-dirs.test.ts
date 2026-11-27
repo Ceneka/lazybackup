@@ -75,6 +75,18 @@ describe('version dir names', () => {
       selectVersionDirNamesToDelete(names, 1, ['2026-08-07_23-15-03'])
     ).toEqual([]);
   });
+
+  test('protecting the normal newest folder does not keep an extra version', () => {
+    const names = [
+      '2026-08-07_23-15-01',
+      '2026-08-07_23-15-02',
+      '2026-08-07_23-15-03',
+      '2026-08-07_23-15-04',
+    ];
+    expect(
+      selectVersionDirNamesToDelete(names, 2, ['2026-08-07_23-15-04'])
+    ).toEqual(['2026-08-07_23-15-02', '2026-08-07_23-15-01']);
+  });
 });
 
 describe('local version folders', () => {
