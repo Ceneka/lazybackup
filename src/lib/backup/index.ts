@@ -7,6 +7,7 @@ import { packGitMirror } from '@/lib/git/mirror';
 import { packLazybackupInstance } from '@/lib/backup/instance-export';
 import {
   archiveFileNameForDatabase,
+  databaseArtifactEngine,
   cleanupLocalDbTmpDir,
   cleanupRemoteDbTmpDir,
   connectionFromConfig,
@@ -66,6 +67,7 @@ import {
   formatRshArgument,
   runRsync,
   runScp,
+  remotePathShellWord,
   shellSingleQuote,
   sshCliArgv,
   sshUserHost,
@@ -75,9 +77,12 @@ import {
   createUniqueLocalVersionDir,
   cleanupLocalVersionDirs,
   formatVersionDirName,
-  parseVersionDirName,
   selectVersionDirNamesToDelete,
 } from '@/lib/backup/version-dirs';
+import {
+  cleanupRemoteVersionDirs,
+  createUniqueRemoteVersionDir,
+} from '@/lib/backup/remote-version-dirs';
 import {
   assertLocalDestinationPath,
   assertLocalSourcePath,
@@ -215,33 +220,6 @@ function normalizeServer(server: ServerRow) {
   };
 }
 
-type SshConnection = Awaited<ReturnType<typeof connectToServer>>;
-
-/** Pick a free remote version directory (rare same-second collision). */
-async function createUniqueRemoteVersionDir(
-  ssh: SshConnection,
-  baseDir: string,
-  timestamp: string
-): Promise<string> {
-  const base = baseDir.replace(/\/+$/, '') || '/';
-  await ensureRemoteDirectory(ssh, base);
-
-  for (let ordinal = 1; ordinal <= 10_000; ordinal += 1) {
-    const candidate = `${base}/${formatVersionDirName(timestamp, ordinal)}`;
-    const result = await ssh.execCommand(
-      `PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" mkdir ${shellSingleQuote(candidate)}`
-    );
-    if (result.code === 0) return candidate;
-    const output = `${result.stderr || ''}\n${result.stdout || ''}`.toLowerCase();
-    if (output.includes('file exists')) continue;
-    throw new Error(
-      `Failed to create remote version directory ${candidate}: ${result.stderr || result.stdout}`
-    );
-  }
-
-  throw new Error(`Could not allocate a unique remote version directory for ${timestamp}`);
-}
-
 async function createUniqueS3VersionPrefix(
   profile: S3ProfileConfig,
   basePrefix: string,
@@ -278,42 +256,27 @@ async function createUniquePeerVersionPrefix(
   throw new Error(`Could not allocate a unique peer version prefix for ${timestamp}`);
 }
 
-/** Delete remote version dirs beyond `keep`; returns deleted absolute paths. */
-async function cleanupRemoteVersionDirs(
-  ssh: SshConnection,
-  baseDir: string,
-  versionsToKeep: number
-): Promise<string[]> {
-  const list = await ssh.execCommand(
-    `PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" ls -1 ${shellSingleQuote(baseDir)} 2>/dev/null || true`
-  );
-  const names = (list.stdout || '')
-    .split('\n')
-    .map((name) => name.trim())
-    .filter((name) => parseVersionDirName(name) !== null);
-  const toDelete = selectVersionDirNamesToDelete(names, versionsToKeep);
-
-  const deleted: string[] = [];
-  for (const name of toDelete) {
-    const full = `${baseDir.replace(/\/+$/, '')}/${name}`;
-    console.log(`Deleting old remote backup version: ${full}`);
-    await ssh.execCommand(`rm -rf ${shellSingleQuote(full)}`);
-    deleted.push(full);
-  }
-  return deleted;
-}
-
 /** Delete S3 version prefixes beyond `keep`; returns deleted s3:// artifact paths. */
 async function cleanupS3VersionPrefixes(
   profile: S3ProfileConfig,
   basePrefix: string,
-  versionsToKeep: number
+  versionsToKeep: number,
+  protectedPrefix?: string | null
 ): Promise<string[]> {
   const versions = await listVersionPrefixes(profile, basePrefix);
   const byName = new Map(versions.map((version) => [version.name, version]));
+  const normalizedProtected = protectedPrefix
+    ? normalizeS3Prefix(protectedPrefix)
+    : null;
+  const protectedNames = normalizedProtected
+    ? versions
+        .filter((version) => normalizeS3Prefix(version.prefix) === normalizedProtected)
+        .map((version) => version.name)
+    : [];
   const toDelete = selectVersionDirNamesToDelete(
     versions.map((version) => version.name),
-    versionsToKeep
+    versionsToKeep,
+    protectedNames
   ).map((name) => byName.get(name)).filter((version): version is NonNullable<typeof version> => Boolean(version));
 
   const deleted: string[] = [];
@@ -324,7 +287,7 @@ async function cleanupS3VersionPrefixes(
   return deleted;
 }
 
-type RestoreEndpointRows = {
+export type RestoreEndpointRows = {
   destinationServer: ServerRow | null;
   destinationS3Profile: S3ProfileRow | null;
   destinationPeer: PeerRow | null;
@@ -336,7 +299,7 @@ type RestoreEndpointRows = {
  * Resolve endpoint rows using the run snapshot ids. Falls back to the nested
  * live-config relations when the id is unchanged (or the row is legacy).
  */
-async function loadRestoreEndpointRows(
+export async function loadRestoreEndpointRows(
   config: BackupConfigWithEndpoints,
   effective: EffectiveRestoreConfig
 ): Promise<RestoreEndpointRows> {
@@ -876,6 +839,9 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
   /** 'docker' | 'database' — how to clean remoteTmpDir */
   let remoteTmpKind: 'docker' | 'database' | null = null;
   const encryptTmpPaths: string[] = [];
+  /** Remove the allocated version folder when the transfer never landed. */
+  let failedVersionCleanup: (() => Promise<void>) | null = null;
+  let landed = false;
 
   try {
     console.log(`Starting backup: ${config.name} (${historyId})`);
@@ -1033,6 +999,36 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
       }
     }
 
+    // A version folder is allocated before the transfer. If the transfer never
+    // completes, remove that empty/partial folder: otherwise every failed run
+    // consumes a retention slot and can push a good older backup out.
+    if (config.enableVersioning) {
+      if (destinationKind === 'local' && localDestination) {
+        const createdDir = localDestination;
+        failedVersionCleanup = async () => {
+          await fs.rm(createdDir, { recursive: true, force: true });
+        };
+      } else if (destinationKind === 'server' && remoteDestination) {
+        const createdDir = remoteDestination;
+        failedVersionCleanup = async () => {
+          if (!destSsh) return;
+          await destSsh.execCommand(
+            `PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" rm -rf -- ${remotePathShellWord(createdDir)}`
+          );
+        };
+      } else if (
+        destinationKind === 's3' &&
+        s3DestinationPrefix != null &&
+        s3DestProfile
+      ) {
+        const createdPrefix = s3DestinationPrefix;
+        const profile = s3DestProfile;
+        failedVersionCleanup = async () => {
+          await deletePrefix(profile, createdPrefix);
+        };
+      }
+    }
+
     let backupResult: { stdout: string; stderr: string };
     let usedMethod: string = 'rsync';
     let mailboxPending = false;
@@ -1076,6 +1072,7 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
         s3DestinationPrefix,
         destinationPeer: config.destinationPeer,
         peerPrefix: peerPrefix || '',
+        clearStalePeerDeletes: true,
       });
       if (landed.cleanupDestIdentity) {
         cleanupDestIdentity = landed.cleanupDestIdentity;
@@ -1136,6 +1133,7 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
         s3DestinationPrefix,
         destinationPeer: config.destinationPeer,
         peerPrefix: peerPrefix || '',
+        clearStalePeerDeletes: true,
       });
       if (landed.cleanupDestIdentity) {
         cleanupDestIdentity = landed.cleanupDestIdentity;
@@ -1218,6 +1216,7 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
           s3DestinationPrefix,
           destinationPeer: config.destinationPeer,
           peerPrefix: peerPrefix || '',
+          clearStalePeerDeletes: true,
         });
         if (landed.cleanupDestIdentity) {
           cleanupDestIdentity = landed.cleanupDestIdentity;
@@ -1474,6 +1473,7 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
           s3DestinationPrefix,
           destinationPeer: config.destinationPeer,
           peerPrefix: peerPrefix || '',
+          clearStalePeerDeletes: true,
         });
         if (landed.cleanupDestIdentity) {
           cleanupDestIdentity = landed.cleanupDestIdentity;
@@ -1538,6 +1538,7 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
           s3DestinationPrefix,
           destinationPeer: config.destinationPeer,
           peerPrefix: peerPrefix || '',
+          clearStalePeerDeletes: true,
         });
         if (landed.cleanupDestIdentity) {
           cleanupDestIdentity = landed.cleanupDestIdentity;
@@ -1736,6 +1737,7 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
         s3DestinationPrefix,
         destinationPeer: config.destinationPeer,
         peerPrefix: peerPrefix || '',
+        clearStalePeerDeletes: true,
       });
       if (landed.cleanupDestIdentity) {
         cleanupDestIdentity = landed.cleanupDestIdentity;
@@ -1977,6 +1979,10 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
       throw new Error(`Unsupported transfer direction: ${sourceKind} → ${destinationKind}`);
     }
 
+    // Transfer completed; from here on a failure (retention, stats) must not
+    // delete the artifact that was just written.
+    landed = true;
+
     if (deleteExtraneous) {
       backupResult = {
         ...backupResult,
@@ -2012,7 +2018,9 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
     if (destinationKind === 'local' && localDestination) {
       if (config.enableVersioning && config.versionsToKeep) {
         const baseDir = path.dirname(localDestination);
-        const deleted = await cleanupLocalVersionDirs(baseDir, config.versionsToKeep);
+        const deleted = await cleanupLocalVersionDirs(baseDir, config.versionsToKeep, {
+          protectedNames: [path.basename(localDestination)],
+        });
         if (deleted.length > 0) {
           await markArtifactsRemoved(
             config.id,
@@ -2049,7 +2057,12 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
       }
       if (config.enableVersioning && config.versionsToKeep) {
         const baseDir = path.posix.dirname(remoteDestination);
-        const deleted = await cleanupRemoteVersionDirs(destSsh, baseDir, config.versionsToKeep);
+        const deleted = await cleanupRemoteVersionDirs(
+          destSsh,
+          baseDir,
+          config.versionsToKeep,
+          [path.posix.basename(remoteDestination)]
+        );
         if (deleted.length > 0) {
           await markArtifactsRemoved(
             config.id,
@@ -2087,7 +2100,8 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
         const deleted = await cleanupS3VersionPrefixes(
           s3DestProfile,
           basePrefix,
-          config.versionsToKeep
+          config.versionsToKeep,
+          s3DestinationPrefix
         );
         if (deleted.length > 0) {
           await markArtifactsRemoved(
@@ -2200,6 +2214,11 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
     });
   } catch (error) {
     console.error(`Backup failed: ${error}`);
+    if (!landed && failedVersionCleanup) {
+      await failedVersionCleanup().catch((cleanupError) =>
+        console.warn(`Failed to remove partial version directory: ${cleanupError}`)
+      );
+    }
     if (remoteTmpDir && sourceSsh) {
       const cleanup =
         remoteTmpKind === 'database'
@@ -2899,6 +2918,24 @@ async function restoreDatabaseBackupUnlocked(
   }
   assertHistoryArtifactRestorable(historyEntry);
 
+  // Legacy rows (no snapshot) restore with today's live engine. Editing a
+  // config from SQLite to Postgres (or back) would otherwise gunzip a SQL text
+  // dump straight over a SQLite file (or pipe a binary SQLite file into psql).
+  const artifactEngine = databaseArtifactEngine(historyEntry.artifactPath);
+  const targetEngine = effective.dbEngine ?? config.dbEngine;
+  if (artifactEngine === 'sqlite' && targetEngine && targetEngine !== 'sqlite') {
+    throw restoreRequestError(
+      `This run is a SQLite snapshot (${path.posix.basename(historyEntry.artifactPath)}) but the backup config now uses ${targetEngine}. It cannot be restored with the live database settings.`,
+      'not-restorable'
+    );
+  }
+  if (artifactEngine === 'server' && targetEngine === 'sqlite') {
+    throw restoreRequestError(
+      `This run is a Postgres/MySQL dump (${path.posix.basename(historyEntry.artifactPath)}) but the backup config now uses SQLite. It cannot be restored with the live database settings.`,
+      'not-restorable'
+    );
+  }
+
   const restoreOpts: RestoreTargetOptions =
     typeof databaseNameOrOptions === 'string'
       ? { databaseName: databaseNameOrOptions }
@@ -3390,7 +3427,7 @@ async function restoreGitRepoBackupUnlocked(
           scpAvailable,
         });
         const extract = await ssh.execCommand(
-          `tar -xzf ${shellSingleQuote(remoteTar)} -C ${shellSingleQuote(targetPath)}`
+          `tar -xzf ${shellSingleQuote(remoteTar)} -C ${remotePathShellWord(targetPath)}`
         );
         if (
           extract.signal ||
@@ -3495,6 +3532,7 @@ export async function startBackup(configId: string): Promise<string> {
         sourceS3Profile: true,
         destinationS3Profile: true,
         destinationPeer: true,
+        sourceGitRepo: true,
       },
     });
 

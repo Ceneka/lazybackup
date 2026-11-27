@@ -443,7 +443,13 @@ export async function restoreHistoryOp(
     })
     if (!historyEntry) throw new Error(`History entry not found: ${id}`)
 
-    const sourceType = historyEntry.backupConfig?.sourceType || 'path'
+    // The run's frozen type wins: editing a config from path → database must
+    // not route an old artifact into a different restore pipeline.
+    const { parseRestoreSnapshot } = await import('@/lib/backup/restore-snapshot')
+    const sourceType =
+      parseRestoreSnapshot(historyEntry.configSnapshot)?.sourceType ||
+      historyEntry.backupConfig?.sourceType ||
+      'path'
     const allowRetarget = Boolean(
       opts.databaseName || opts.volumeName || opts.targetPath || opts.targetServerId
     )

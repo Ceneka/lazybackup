@@ -6,9 +6,10 @@ import {
 } from '@/lib/net/capped-json';
 import { decideMailboxAck, decideMailboxDeleteAck } from '@/lib/peer/mailbox-ack';
 import { touchPeerSeen, verifyPeerBearer } from '@/lib/peer/pairing';
+import { withPeerLock } from '@/lib/peer/peer-lock';
 import { listObjectKeysWithOpenRecalls } from '@/lib/peer/recall';
 import {
-  completePeerDeleteAck,
+  completePeerDeleteAckUnlocked,
   getPeerDelete,
 } from '@/lib/peer/retention';
 import { deleteStagedObject, stagedObjectDigest } from '@/lib/peer/staging';
@@ -54,13 +55,27 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      const row = await getPeerDelete(peer.id, key);
-      if (!row) {
+      // Same peer lock as staging: a new run must not overwrite the key
+      // between reading this delete and deleting the staged file.
+      const outcome = await withPeerLock(peer.id, async () => {
+        const row = await getPeerDelete(peer.id, key);
+        if (!row) return { kind: 'missing' as const };
+        const openRecalls = await listObjectKeysWithOpenRecalls(peer.id);
+        if (openRecalls.has(key)) return { kind: 'recall' as const };
+        if (row.status !== 'acked') {
+          // Lock already held: use the unlocked variant (the lock is not reentrant).
+          const acked = await completePeerDeleteAckUnlocked(peer.id, key);
+          // A newer run reclaimed this key (cleared the delete) before this ACK:
+          // the friend dropped the old copy, but the new generation stays.
+          if (!acked) return { kind: 'superseded' as const };
+        }
+        return { kind: 'ok' as const };
+      });
+
+      if (outcome.kind === 'missing') {
         return NextResponse.json({ error: 'Pending delete not found' }, { status: 404 });
       }
-
-      const openRecalls = await listObjectKeysWithOpenRecalls(peer.id);
-      if (openRecalls.has(key)) {
+      if (outcome.kind === 'recall') {
         return NextResponse.json(
           {
             ok: false,
@@ -72,56 +87,64 @@ export async function POST(request: NextRequest) {
           { status: 409 }
         );
       }
-
-      if (row.status !== 'acked') {
-        const acked = await completePeerDeleteAck(peer.id, key);
-        if (!acked) {
-          // A newer run reclaimed this object key between our read and the
-          // transition. The friend deleted the old copy (fine), but the host
-          // must keep the freshly staged generation and every history row.
-          return NextResponse.json({
-            ok: true,
-            verified: false,
-            superseded: true,
-            deleted: true,
-            key,
-          });
-        }
+      if (outcome.kind === 'superseded') {
+        return NextResponse.json({
+          ok: true,
+          verified: false,
+          superseded: true,
+          deleted: true,
+          key,
+        });
       }
       return NextResponse.json({ ok: true, verified: true, deleted: true, key });
     }
 
-    const staged = await stagedObjectDigest(peer.id, key);
-    if (!staged) {
-      return NextResponse.json({ error: 'Staged object not found' }, { status: 404 });
-    }
+    // The peer lock serializes digest → clear → delete with writeStagedObject.
+    // Otherwise a late ACK for the previous bytes could pass its digest check,
+    // then delete the fresh staging file written in between, and the new run
+    // would later look "delivered" to the reconciliation.
+    const outcome = await withPeerLock(peer.id, async () => {
+      const staged = await stagedObjectDigest(peer.id, key);
+      if (!staged) return { kind: 'missing' as const };
 
-    const decision = decideMailboxAck({
-      claimed: { ...body, key },
-      stagedSize: staged.size,
-      stagedSha256: staged.sha256,
+      const decision = decideMailboxAck({
+        claimed: { ...body, key },
+        stagedSize: staged.size,
+        stagedSha256: staged.sha256,
+      });
+      if (decision.action === 'keep') {
+        return { kind: 'keep' as const, reason: decision.reason };
+      }
+
+      // Clear first: if the DB write fails the staged file must survive so the
+      // peer can retry the ACK. The reverse order loses the only retry path
+      // (staging gone, pending still true) and the success ping is never sent.
+      await clearMailboxPendingForArtifact(`peer://${peer.id}/${key}`);
+      await deleteStagedObject(peer.id, key);
+      return { kind: 'ok' as const, staged };
     });
 
-    if (decision.action === 'keep') {
+    if (outcome.kind === 'missing') {
+      return NextResponse.json({ error: 'Staged object not found' }, { status: 404 });
+    }
+    if (outcome.kind === 'keep') {
       const message =
-        decision.reason === 'missing_receipt'
+        outcome.reason === 'missing_receipt'
           ? 'ACK omitted sha256; keeping staging until a verified receipt'
           : 'ACK size/sha256 does not match staged object; keeping staging';
       console.warn(`[mailbox-ack] peer=${peer.id} key=${key}: ${message}`);
       return NextResponse.json(
-        { ok: false, verified: false, key, reason: decision.reason, error: message },
+        { ok: false, verified: false, key, reason: outcome.reason, error: message },
         { status: 409 }
       );
     }
 
-    await deleteStagedObject(peer.id, key);
-    await clearMailboxPendingForArtifact(`peer://${peer.id}/${key}`);
     return NextResponse.json({
       ok: true,
       verified: true,
       key,
-      size: staged.size,
-      sha256: staged.sha256,
+      size: outcome.staged.size,
+      sha256: outcome.staged.sha256,
     });
   } catch (error) {
     if (error instanceof CappedJsonError) {

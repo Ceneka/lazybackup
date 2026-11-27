@@ -3,6 +3,7 @@ import { nanoid } from 'nanoid';
 import { db } from '@/lib/db';
 import { backupHistory, peerDeletes, peers } from '@/lib/db/schema';
 import {
+  relativeKeyUnderPrefix,
   selectPeerKeysForFileRetention,
   selectPeerKeysForVersionRetention,
   type PeerObjectCandidate,
@@ -210,21 +211,25 @@ export async function markSupersededPeerHistory(options: {
  * object is obsolete. Clearing acked rows too matters for recalls — otherwise
  * an old acked delete would keep blocking restores of the reused key.
  */
-export async function clearPeerDeletesForNewLanding(
+/** Caller must hold `withPeerLock(peerId)` (the lock is not reentrant). */
+export async function clearPeerDeletesForNewLandingUnlocked(
   peerId: string,
   objectKey: string
 ): Promise<void> {
   const safe = assertSafePeerObjectKey(objectKey);
+  await db
+    .delete(peerDeletes)
+    .where(and(eq(peerDeletes.peerId, peerId), eq(peerDeletes.objectKey, safe)));
+}
+
+export async function clearPeerDeletesForNewLanding(
+  peerId: string,
+  objectKey: string
+): Promise<void> {
   // Same lock as completePeerDeleteAck: either the ACK finishes first (and its
   // history/staging cleanup is bounded to the old generation) or this clear
   // wins and the late ACK is a no-op.
-  await withPeerLock(peerId, async () => {
-    await db
-      .delete(peerDeletes)
-      .where(
-        and(eq(peerDeletes.peerId, peerId), eq(peerDeletes.objectKey, safe))
-      );
-  });
+  await withPeerLock(peerId, () => clearPeerDeletesForNewLandingUnlocked(peerId, objectKey));
 }
 
 /**
@@ -243,8 +248,16 @@ export async function completePeerDeleteAck(
   peerId: string,
   objectKey: string
 ): Promise<boolean> {
+  return withPeerLock(peerId, () => completePeerDeleteAckUnlocked(peerId, objectKey));
+}
+
+/** Caller must hold `withPeerLock(peerId)` (the lock is not reentrant). */
+export async function completePeerDeleteAckUnlocked(
+  peerId: string,
+  objectKey: string
+): Promise<boolean> {
   const safe = assertSafePeerObjectKey(objectKey);
-  return withPeerLock(peerId, async () => {
+  {
     const claimed = await db
       .update(peerDeletes)
       .set({ status: 'acked', ackedAt: new Date() })
@@ -260,7 +273,7 @@ export async function completePeerDeleteAck(
     await markPeerArtifactRemoved(peerId, safe);
     await deleteStagedObject(peerId, safe);
     return true;
-  });
+  }
 }
 
 export async function applyPeerDestinationRetention(options: {
@@ -284,6 +297,22 @@ export async function applyPeerDestinationRetention(options: {
   let selected: string[] = [];
   if (options.enableVersioning && options.versionsToKeep) {
     selected = selectPeerKeysForVersionRetention(objects, prefix, options.versionsToKeep);
+    // Never delete the version this run just landed, even if its name sorts
+    // older than pre-existing folders (clock jump / future-dated copies).
+    const currentKey = options.extraObjects?.[0]?.key;
+    const currentRel = currentKey
+      ? relativeKeyUnderPrefix(currentKey, prefix)
+      : null;
+    const currentVersion =
+      currentRel && currentRel.includes('/')
+        ? currentRel.slice(0, currentRel.indexOf('/'))
+        : null;
+    if (currentVersion) {
+      selected = selected.filter((key) => {
+        const rel = relativeKeyUnderPrefix(key, prefix);
+        return !rel || !rel.startsWith(`${currentVersion}/`);
+      });
+    }
   } else if (
     !options.enableVersioning &&
     options.enableFileRetention &&

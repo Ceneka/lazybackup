@@ -332,6 +332,29 @@ function withMysqlDefaultsFile(dumpArgs: string, passwordFile: string, engine: D
  * Host-side command that dumps to archiveFilePath (.sql.gz).
  * Password is never interpolated: pass a chmod-600 file via `passwordFile`.
  */
+/**
+ * Pipe `dumpPart` through gzip while still failing when the dump itself failed.
+ *
+ * A plain `dump | gzip > out` reports gzip's status: a dump that dies after
+ * writing a few lines (bad password, missing table, killed process) still leaves
+ * a valid gzip and the backup would be recorded as a success. Capture the
+ * dump's exit code in a temp file, then require both stages to succeed.
+ */
+export function buildDumpToGzipWithStatus(
+  dumpPart: string,
+  archiveFilePath: string
+): string {
+  const quotedOut = shellSingleQuote(archiveFilePath);
+  return [
+    'status=$(mktemp /tmp/lazybackup-dbstatus-XXXXXX) || exit 1',
+    `{ ${dumpPart}; echo $? > "$status"; } | gzip > ${quotedOut}`,
+    'gz=$?',
+    'ec=$(cat "$status" 2>/dev/null || echo 1)',
+    'rm -f "$status"',
+    '[ "$ec" -eq 0 ] && [ "$gz" -eq 0 ]',
+  ].join('; ');
+}
+
 export function buildPackDatabaseCommand(
   conn: DatabaseConnection,
   archiveFilePath: string,
@@ -341,7 +364,6 @@ export function buildPackDatabaseCommand(
     return buildPackSqliteCommand(conn.database, archiveFilePath);
   }
   assertValidDatabaseName(conn.database);
-  const quotedOut = shellSingleQuote(archiveFilePath);
   let dumpArgs = buildDumpArgs(conn);
   const passwordFile = options?.passwordFile;
 
@@ -365,7 +387,7 @@ export function buildPackDatabaseCommand(
     dumpPart = dumpArgs;
   }
 
-  return `${REMOTE_STANDARD_PATH} ${dumpPart} | gzip > ${quotedOut}`;
+  return buildDumpToGzipWithStatus(`${REMOTE_STANDARD_PATH} ${dumpPart}`, archiveFilePath);
 }
 
 export function buildRestoreDatabaseCommand(
@@ -461,6 +483,21 @@ export function buildDatabaseTestCommand(
   return `${REMOTE_STANDARD_PATH} ${testArgs}`;
 }
 
+/**
+ * Engine family encoded in a landed dump name (`app.sql.gz` vs `app.sqlite.gz`,
+ * optionally age-wrapped). Used to refuse restoring a legacy run whose live
+ * config was later edited to a different engine.
+ */
+export function databaseArtifactEngine(
+  artifactPath: string
+): 'sqlite' | 'server' | null {
+  const base = artifactPath.split(/[/\\]/).pop() || '';
+  const name = base.replace(/\.age$/i, '');
+  if (/\.sqlite\.gz$/i.test(name)) return 'sqlite';
+  if (/\.sql\.gz$/i.test(name)) return 'server';
+  return null;
+}
+
 export function archiveFileNameForDatabase(
   database: string,
   engine?: DbEngine | null
@@ -510,37 +547,52 @@ async function localSqlite3Available(): Promise<boolean> {
 }
 
 /**
+ * Write a transactionally consistent copy of a live SQLite database using
+ * Bun's bundled SQLite in a short-lived `bun -e` process (`VACUUM INTO`).
+ * Copying the main file alone while WAL mode is active misses recent commits.
+ */
+export async function snapshotSqliteLocal(
+  dbPath: string,
+  snapshotPath: string
+): Promise<{ stdout: string; stderr: string; code: number }> {
+  assertValidSqlitePath(dbPath);
+  const source = dbPath.trim();
+  const script = `
+import { Database } from 'bun:sqlite';
+const db = new Database(process.env.LAZYBACKUP_SQLITE_SOURCE, { readonly: true });
+try {
+  db.run('PRAGMA busy_timeout = 5000');
+  db.run(process.env.LAZYBACKUP_SQLITE_VACUUM_SQL);
+} finally {
+  db.close();
+}
+`;
+  const result = await runArgv([process.execPath, '-e', script], {
+    ...process.env,
+    LAZYBACKUP_SQLITE_SOURCE: source,
+    LAZYBACKUP_SQLITE_VACUUM_SQL: buildSqliteVacuumIntoStatement(snapshotPath),
+  });
+  if (result.code !== 0) {
+    throw new Error((result.stderr || result.stdout).trim() || `exit ${result.code}`);
+  }
+  return result;
+}
+
+/**
  * Consistent local SQLite snapshot without the sqlite3 CLI, used when the
- * Docker image/dev host has no sqlite3 binary. Runs Bun's bundled SQLite in a
- * short-lived `bun -e` process (`VACUUM INTO` is transactional) and gzips the
- * result, so a live database is never copied mid-write.
+ * Docker image/dev host has no sqlite3 binary. Snapshots with
+ * {@link snapshotSqliteLocal} and gzips the result, so a live database is
+ * never copied mid-write.
  */
 export async function packSqliteSnapshotLocal(
   dbPath: string,
   archiveFilePath: string
 ): Promise<{ stdout: string; stderr: string; code: number }> {
   assertValidSqlitePath(dbPath);
-  const source = dbPath.trim();
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'lazybackup-sqlite-'));
   const snapshotPath = path.join(tmpDir, 'snapshot.db');
   try {
-    const script = `
-import { Database } from 'bun:sqlite';
-const db = new Database(process.env.LAZYBACKUP_SQLITE_SOURCE, { readonly: true });
-try {
-  db.run(process.env.LAZYBACKUP_SQLITE_VACUUM_SQL);
-} finally {
-  db.close();
-}
-`;
-    const result = await runArgv([process.execPath, '-e', script], {
-      ...process.env,
-      LAZYBACKUP_SQLITE_SOURCE: source,
-      LAZYBACKUP_SQLITE_VACUUM_SQL: buildSqliteVacuumIntoStatement(snapshotPath),
-    });
-    if (result.code !== 0) {
-      throw new Error((result.stderr || result.stdout).trim() || `exit ${result.code}`);
-    }
+    const result = await snapshotSqliteLocal(dbPath, snapshotPath);
     await pipeline(
       createReadStream(snapshotPath),
       createGzip(),
@@ -555,16 +607,23 @@ try {
 
 export function buildRestoreSqliteCommand(dbPath: string, archiveFilePath: string): string {
   assertValidSqlitePath(dbPath);
-  const quotedDb = shellSingleQuote(dbPath.trim());
+  const target = dbPath.trim();
+  const quotedDb = shellSingleQuote(target);
   const quotedIn = shellSingleQuote(archiveFilePath);
-  const tempTemplate = shellSingleQuote(`${dbPath.trim()}.restore-XXXXXX`);
+  const tempTemplate = shellSingleQuote(`${target}.restore-XXXXXX`);
+  // A replaced database must not inherit rollback/WAL sidecars from the old
+  // file: SQLite would replay frames that belong to the previous database into
+  // the restored one.
+  const staleSidecars = ['-wal', '-shm', '-journal']
+    .map((suffix) => shellSingleQuote(`${target}${suffix}`))
+    .join(' ');
   // Decompress next to the target and rename only on success. Writing the
   // archive straight over the live file truncates it even when gzip fails
   // halfway, destroying the database the restore was supposed to fix.
   return [
     `${REMOTE_STANDARD_PATH} mkdir -p "$(dirname -- ${quotedDb})"`,
     `&& tmp=$(mktemp ${tempTemplate})`,
-    `&& { gzip -dc ${quotedIn} > "$tmp" && mv -f "$tmp" ${quotedDb}; ec=$?`,
+    `&& { gzip -dc ${quotedIn} > "$tmp" && mv -f "$tmp" ${quotedDb} && rm -f ${staleSidecars}; ec=$?`,
     `; [ "$ec" -eq 0 ] || rm -f "$tmp"; exit "$ec"; }`,
   ].join(' ');
 }

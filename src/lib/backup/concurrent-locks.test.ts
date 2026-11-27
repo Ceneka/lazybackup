@@ -53,6 +53,32 @@ describe('restore locks', () => {
     again();
   });
 
+  test('a second restore of the same config (different run) is refused', async () => {
+    const release = await beginRestore({ historyId: 'h1a', configId: 'cfg-1' });
+
+    try {
+      await expect(
+        beginRestore({ historyId: 'h1b', configId: 'cfg-1' })
+      ).rejects.toBeInstanceOf(RestoreAlreadyRunningError);
+      try {
+        await beginRestore({ historyId: 'h1b', configId: 'cfg-1' });
+      } catch (error) {
+        expect((error as InstanceType<typeof RestoreAlreadyRunningError>).historyId).toBe(
+          'h1a'
+        );
+      }
+
+      // A restore of another config is independent.
+      const other = await beginRestore({ historyId: 'h2', configId: 'cfg-2' });
+      other();
+    } finally {
+      release();
+    }
+
+    const again = await beginRestore({ historyId: 'h1b', configId: 'cfg-1' });
+    again();
+  });
+
   test('restore is refused while a fresh backup of the config is running', async () => {
     runningRows = [
       { id: 'hist-run', status: 'running', startTime: new Date(Date.now() - 1000) },

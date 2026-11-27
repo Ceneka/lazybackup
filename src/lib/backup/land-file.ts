@@ -47,6 +47,13 @@ export async function landLocalFileArtifact(options: {
   s3DestinationPrefix?: string | null;
   destinationPeer?: PeerRow | null;
   peerPrefix?: string;
+  /**
+   * A non-versioned peer destination reuses one object key. Clear any
+   * retention delete still queued for that key *before* the new object becomes
+   * visible to the peer's sync worker, otherwise the worker can honor the old
+   * delete, drop the just-staged bytes, and ACK it as if it were the old copy.
+   */
+  clearStalePeerDeletes?: boolean;
 }): Promise<{
   artifactPath: string;
   usedMethod: string;
@@ -157,20 +164,25 @@ export async function landLocalFileArtifact(options: {
     }
 
     const { writeStagedObject, assertStagingQuota } = await import('@/lib/peer/staging');
+    const { withPeerLock } = await import('@/lib/peer/peer-lock');
     const localStat = await fs.stat(localFilePath);
-    await assertStagingQuota({
-      peerId: peer.id,
-      quotaBytes: peer.quotaBytes,
-      additionalBytes: localStat.size,
-      replacingObjectKey: objectKey,
+    // The ACK route also takes this lock around digest → clear → delete. That
+    // serializes a late ACK for the previous bytes against this overwrite, so
+    // it can neither delete the new staging file nor be mistaken for its ACK.
+    const staged = await withPeerLock(peer.id, async () => {
+      // Clear a delete queued for this reused key *before* the new bytes exist,
+      // so a late ACK for the old copy becomes a no-op. Lock already held:
+      // use the unlocked variant (the lock is not reentrant).
+      const { clearPeerDeletesForNewLandingUnlocked } = await import('@/lib/peer/retention');
+      await clearPeerDeletesForNewLandingUnlocked(peer.id, objectKey);
+      await assertStagingQuota({
+        peerId: peer.id,
+        quotaBytes: peer.quotaBytes,
+        additionalBytes: localStat.size,
+        replacingObjectKey: objectKey,
+      });
+      return writeStagedObject(peer.id, objectKey, localFilePath);
     });
-    // Retention may have queued a delete for this reused (non-versioned) key.
-    // Clear it *before* the new bytes exist: a friend that already fetched the
-    // delete may still ACK late, and completePeerDeleteAck must become a no-op
-    // instead of unlinking the freshly staged artifact.
-    const { clearPeerDeletesForNewLanding } = await import('@/lib/peer/retention');
-    await clearPeerDeletesForNewLanding(peer.id, objectKey);
-    const staged = await writeStagedObject(peer.id, objectKey, localFilePath);
     return {
       artifactPath: `peer://${peer.id}/${objectKey}`,
       usedMethod: 'file-peer-mailbox',

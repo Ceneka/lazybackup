@@ -8,6 +8,7 @@ import {
   listStagedObjects,
   peerStagingTempDir,
   peerStagingTempPath,
+  stagedObjectDigest,
   stagedObjectExists,
   stagingUsedBytes,
   writeStagedObject,
@@ -114,6 +115,33 @@ describe('peer staging', () => {
       const leftovers = await fs.readdir(peerStagingTempDir(peerId)).catch(() => []);
       expect(leftovers).toEqual([]);
     } finally {
+      if (prev === undefined) delete process.env.BACKUP_STORAGE_PATH;
+      else process.env.BACKUP_STORAGE_PATH = prev;
+      await fs.rm(tmp, { recursive: true, force: true });
+    }
+  });
+
+  test('a permission error is not mistaken for an already-delivered object', async () => {
+    if (process.platform === 'win32') return;
+    const prev = process.env.BACKUP_STORAGE_PATH;
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'lb-stage-perm-'));
+    process.env.BACKUP_STORAGE_PATH = tmp;
+    const peerId = 'peer_perm';
+    const key = 'backups/a/file.age';
+    const peerDir = path.join(tmp, 'peers-staging', peerId);
+    try {
+      const src = path.join(tmp, 'src.bin');
+      await fs.writeFile(src, Buffer.from('hello-bro'));
+      await writeStagedObject(peerId, key, src);
+      await fs.chmod(peerDir, 0o000);
+
+      // The ACK reconciliation treats a thrown error as "still staged" (safe);
+      // swallowing it as false would mark an undelivered run as stored. The
+      // ACK digest path must likewise not report a 404 that ends ACK retries.
+      await expect(stagedObjectExists(peerId, key)).rejects.toThrow();
+      await expect(stagedObjectDigest(peerId, key)).rejects.toThrow();
+    } finally {
+      await fs.chmod(peerDir, 0o700).catch(() => undefined);
       if (prev === undefined) delete process.env.BACKUP_STORAGE_PATH;
       else process.env.BACKUP_STORAGE_PATH = prev;
       await fs.rm(tmp, { recursive: true, force: true });

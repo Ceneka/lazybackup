@@ -22,6 +22,8 @@ export function parsePeerArtifactPath(
 
 export function deriveDeliveryState(input: {
   destinationKind?: string | null;
+  /** Run status; a failed/running run is never "stored" off-site. */
+  status?: string | null;
   mailboxPending?: boolean | null;
   artifactPath?: string | null;
   /** Retention / peer removal took the artifact away: no delivery claim. */
@@ -31,19 +33,26 @@ export function deriveDeliveryState(input: {
 }): DeliveryState {
   if (input.destinationKind !== 'peer') return null;
   if (input.artifactRemoved) return null;
+  // No peer artifact means nothing was handed to the friend. This also keeps
+  // a local run from looking delivered after its config was edited to point at
+  // a friend, and a failed/running run from inheriting "stored" from the
+  // default `mailbox_pending = 0`.
+  const ref = parsePeerArtifactPath(input.artifactPath);
+  if (!ref) return null;
+  if (input.status && input.status !== 'success') return null;
   if (!input.mailboxPending) return 'stored';
 
   // The peer's last report names the object it failed on (quota exceeded,
   // corrupt/mismatched pull, rejected ACK). Transport errors and "friend is
   // offline" do not name a key, so they stay `waiting` rather than `failed`.
-  const ref = parsePeerArtifactPath(input.artifactPath);
   const lastError = input.peer?.remoteLastError ?? null;
-  if (ref && lastError && lastError.includes(ref.objectKey)) return 'failed';
+  if (lastError && lastError.includes(ref.objectKey)) return 'failed';
   return 'waiting';
 }
 
 /** Convenience for history rows with a nested backup config + destination peer. */
 export function deliveryStateForHistoryRow(row: {
+  status?: string | null;
   mailboxPending?: boolean | null;
   artifactPath?: string | null;
   artifactRemoved?: boolean | null;
@@ -52,8 +61,14 @@ export function deliveryStateForHistoryRow(row: {
     destinationPeer?: { remoteLastError?: string | null } | null;
   } | null;
 }): DeliveryState {
+  // A peer artifact path is authoritative: the live config may have been
+  // edited to another destination (or to peer) after this run.
+  const destinationKind = parsePeerArtifactPath(row.artifactPath)
+    ? 'peer'
+    : row.backupConfig?.destinationKind;
   return deriveDeliveryState({
-    destinationKind: row.backupConfig?.destinationKind,
+    destinationKind,
+    status: row.status,
     mailboxPending: row.mailboxPending,
     artifactPath: row.artifactPath,
     artifactRemoved: row.artifactRemoved,

@@ -1,12 +1,15 @@
-import { resolveLocalRestoreArtifact } from '@/lib/backup';
+import { loadRestoreEndpointRows, resolveLocalRestoreArtifact } from '@/lib/backup';
 import {
   canDownloadBackup,
   contentDispositionAttachment,
   downloadFilenameForLocalPath,
   restoreBlockedReason,
-  restoreEligibilityFromHistory,
 } from '@/lib/backup/restore-eligibility';
 import { httpStatusForRestoreError } from '@/lib/backup/restore-errors';
+import {
+  effectiveRestoreConfig,
+  parseRestoreSnapshot,
+} from '@/lib/backup/restore-snapshot';
 import { db } from '@/lib/db';
 import { backupHistory } from '@/lib/db/schema';
 import {
@@ -78,6 +81,8 @@ export async function GET(
       with: {
         backupConfig: {
           with: {
+            server: true,
+            sourceS3Profile: true,
             destinationS3Profile: true,
             destinationPeer: true,
             destinationServer: true,
@@ -118,7 +123,29 @@ export async function GET(
     }
 
     const config = historyEntry.backupConfig;
-    const eligibility = restoreEligibilityFromHistory(historyEntry);
+    if (!config) {
+      return NextResponse.json(
+        { error: 'Backup configuration not found for this history entry' },
+        { status: 404 }
+      );
+    }
+
+    // Use the run snapshot, exactly like restore: the live config may point at
+    // a different destination now, which made downloads of old artifacts try
+    // the wrong backend (or refuse a perfectly good local file).
+    const effective = effectiveRestoreConfig(
+      parseRestoreSnapshot(historyEntry.configSnapshot),
+      config
+    );
+    const endpoints = await loadRestoreEndpointRows(config, effective);
+    const eligibility = {
+      status: historyEntry.status,
+      sourceType: effective.sourceType,
+      destinationKind: effective.destinationKind,
+      artifactPath: historyEntry.artifactPath,
+      artifactRemoved: historyEntry.artifactRemoved,
+      destinationAuthType: endpoints.destinationServer?.authType,
+    };
 
     if (!canDownloadBackup(eligibility)) {
       return NextResponse.json(
@@ -140,10 +167,10 @@ export async function GET(
 
     const resolved = await resolveLocalRestoreArtifact({
       artifactPath: historyEntry.artifactPath,
-      destinationKind: config?.destinationKind,
-      destinationS3Profile: config?.destinationS3Profile,
-      destinationPeer: config?.destinationPeer,
-      destinationServer: config?.destinationServer,
+      destinationKind: effective.destinationKind,
+      destinationS3Profile: endpoints.destinationS3Profile,
+      destinationPeer: endpoints.destinationPeer,
+      destinationServer: endpoints.destinationServer,
       expectedSha256: historyEntry.artifactSha256,
       historyId: historyEntry.id,
       decrypt: false,

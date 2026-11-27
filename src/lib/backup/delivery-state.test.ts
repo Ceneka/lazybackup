@@ -90,6 +90,43 @@ describe('deriveDeliveryState', () => {
       })
     ).toBe('failed')
   })
+
+  test('a stale stored payload cannot mark a failed or artifact-less run off-site', () => {
+    expect(
+      deriveDeliveryState({
+        deliveryState: 'stored',
+        status: 'failed',
+        artifactPath: 'peer://p1/a',
+        destinationKind: 'peer',
+      })
+    ).toBeNull()
+    expect(
+      deriveDeliveryState({
+        deliveryState: 'stored',
+        status: 'success',
+        artifactPath: null,
+        destinationKind: 'peer',
+      })
+    ).toBeNull()
+    expect(
+      deriveDeliveryState({
+        deliveryState: 'stored',
+        status: 'success',
+        artifactPath: '/backups/local/a',
+        destinationKind: 'local',
+      })
+    ).toBeNull()
+    // A local artifact whose config was later pointed at a friend is not a
+    // delivery either.
+    expect(
+      deriveDeliveryState({
+        status: 'success',
+        artifactPath: '/backups/local/a',
+        destinationKind: 'peer',
+        mailboxPending: false,
+      })
+    ).toBeNull()
+  })
 })
 
 describe('delivery copy', () => {

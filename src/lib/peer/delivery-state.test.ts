@@ -88,4 +88,67 @@ describe('deriveDeliveryState (C4)', () => {
       })
     ).toBe('failed');
   });
+
+  test('a failed peer run is never reported as stored', () => {
+    expect(
+      deliveryStateForHistoryRow({
+        status: 'failed',
+        mailboxPending: false,
+        artifactPath: null,
+        backupConfig: { destinationKind: 'peer' },
+      })
+    ).toBeNull();
+    // Even if a stale pending flag/artifact is left behind.
+    expect(
+      deliveryStateForHistoryRow({
+        status: 'failed',
+        mailboxPending: false,
+        artifactPath: 'peer://p1/a.age',
+        backupConfig: { destinationKind: 'peer' },
+      })
+    ).toBeNull();
+  });
+
+  test('a running peer run with no artifact is not stored yet', () => {
+    expect(
+      deliveryStateForHistoryRow({
+        status: 'running',
+        mailboxPending: false,
+        artifactPath: null,
+        backupConfig: { destinationKind: 'peer' },
+      })
+    ).toBeNull();
+  });
+
+  test('a success row without an artifact has no delivery state', () => {
+    expect(
+      deliveryStateForHistoryRow({
+        status: 'success',
+        mailboxPending: false,
+        artifactPath: null,
+        backupConfig: { destinationKind: 'peer' },
+      })
+    ).toBeNull();
+  });
+
+  test('the artifact path, not the edited live config, decides peer delivery', () => {
+    // Local run, config later edited to a friend: never "stored on friend".
+    expect(
+      deliveryStateForHistoryRow({
+        status: 'success',
+        mailboxPending: false,
+        artifactPath: '/backups/local/app.tar.gz',
+        backupConfig: { destinationKind: 'peer' },
+      })
+    ).toBeNull();
+    // Peer run, config later edited away: the delivery state still applies.
+    expect(
+      deliveryStateForHistoryRow({
+        status: 'success',
+        mailboxPending: false,
+        artifactPath: 'peer://p1/app.tar.gz',
+        backupConfig: { destinationKind: 'local' },
+      })
+    ).toBe('stored');
+  });
 });

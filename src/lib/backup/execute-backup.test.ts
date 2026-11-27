@@ -102,6 +102,22 @@ describe('executeBackup', () => {
     expect(successArgs[1]).toMatchObject({ artifactPath: destDir });
   });
 
+  test('a failed versioned run removes the version folder it allocated', async () => {
+    const destRoot = path.join(tmpRoot, 'versioned-dest');
+    const config = baseLocalConfig({
+      sourcePath: path.join(tmpRoot, 'does-not-exist'),
+      destinationPath: destRoot,
+      enableVersioning: true,
+      versionsToKeep: 3,
+    });
+
+    await expect(executeBackup(config, 'hist-version-fail')).rejects.toThrow();
+
+    // An empty version folder would otherwise consume a retention slot on
+    // every failed run and eventually evict good older backups.
+    expect(await fs.readdir(destRoot).catch(() => [])).toEqual([]);
+  });
+
   test('missing source server records failure and rethrows', async () => {
     const config = baseLocalConfig({
       sourcePath: '/tmp/x',
