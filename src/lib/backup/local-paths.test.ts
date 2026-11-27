@@ -176,4 +176,27 @@ describe('assertRestorableLocalTarget', () => {
       /Refusing to restore/
     );
   });
+
+  test('refuses a parent of the instance data directory', () => {
+    tmp = path.join(os.tmpdir(), `lbtest-inst-parent-${Date.now()}`);
+    process.env.BACKUP_STORAGE_PATH = '/backups';
+    process.env.DATABASE_URL = `file:${path.join(tmp, 'instance', 'data.db')}`;
+    // The tree can contain instance/data.db and overwrite the live database.
+    expect(() => assertRestorableLocalTarget(tmp)).toThrow(/Refusing to restore/);
+  });
+
+  test('refuses a parent of the backup storage root', () => {
+    tmp = path.join(os.tmpdir(), `lbtest-storage-parent-${Date.now()}`);
+    process.env.BACKUP_STORAGE_PATH = path.join(tmp, 'backups');
+    // The tree can contain backups/<every artifact> and overwrite them.
+    expect(() => assertRestorableLocalTarget(tmp)).toThrow(/backup storage root/);
+  });
+
+  test('refuses a home directory that contains ~/.ssh', () => {
+    tmp = path.join(os.tmpdir(), `lbtest-home-parent-${Date.now()}`);
+    process.env.BACKUP_STORAGE_PATH = '/backups';
+    process.env.HOME = tmp;
+    // Restoring a home tree onto $HOME would overwrite .ssh/authorized_keys.
+    expect(() => assertRestorableLocalTarget(tmp)).toThrow(/Refusing to restore/);
+  });
 });
