@@ -237,12 +237,15 @@ export function shouldRunPreBackupCommands(
 
 /**
  * Volume archives land through `landLocalFileArtifact`, producing methods like
- * `docker-file-local`. `combineBackupLog` checks "local" before "docker", which
- * would label a volume tar as "Backup Transfer (rsync)"; collapse volume
- * methods to `docker` for the log header while keeping the stored method.
+ * `docker-file-local`. Instance packs do the same with `lazybackup-instance-*`.
+ * `combineBackupLog` checks "local" before "docker" and before the instance
+ * label, which would otherwise show a misleading header; collapse both to their
+ * section names for the log while keeping the stored method.
  */
 export function transferLogMethod(method: string): string {
-  return method.startsWith('docker') ? 'docker' : method;
+  if (method.startsWith('docker')) return 'docker';
+  if (method.startsWith('lazybackup-instance')) return 'lazybackup-instance';
+  return method;
 }
 
 function normalizeServer(server: ServerRow) {

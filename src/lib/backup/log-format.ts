@@ -4,13 +4,14 @@ export const LOG_SECTION = {
   transferScp: '========== Backup Transfer (scp) ==========',
   transferDocker: '========== Docker Volume Backup ==========',
   transferDatabase: '========== Database Dump Backup ==========',
+  transferInstance: '========== LazyBackup Instance Backup ==========',
   fileRetention: '========== File Retention ==========',
   warnings: '========== Transfer Warnings ==========',
   restore: '========== Restore ==========',
 } as const;
 
 const TRANSFER_HEADER_RE =
-  /={10} (?:Backup Transfer \((?:rsync|scp)\)|Docker Volume Backup|Database Dump Backup) ={10}/;
+  /={10} (?:Backup Transfer \((?:rsync|scp)\)|Docker Volume Backup|Database Dump Backup|LazyBackup Instance Backup) ={10}/;
 
 type CommandResult = {
   stdout: string;
@@ -52,15 +53,17 @@ export function combineBackupLog(
   transferStderr = ''
 ): string {
   const transferHeader =
-    method === 'rsync' || method.includes('rsync') || method.includes('local')
-      ? LOG_SECTION.transferRsync
-      : method === 'scp' || method.includes('scp')
-        ? LOG_SECTION.transferScp
-        : method.includes('docker')
-          ? LOG_SECTION.transferDocker
-          : method.includes('database')
-            ? LOG_SECTION.transferDatabase
-            : LOG_SECTION.transferRsync;
+    method.includes('lazybackup-instance')
+      ? LOG_SECTION.transferInstance
+      : method === 'rsync' || method.includes('rsync') || method.includes('local')
+        ? LOG_SECTION.transferRsync
+        : method === 'scp' || method.includes('scp')
+          ? LOG_SECTION.transferScp
+          : method.includes('docker')
+            ? LOG_SECTION.transferDocker
+            : method.includes('database')
+              ? LOG_SECTION.transferDatabase
+              : LOG_SECTION.transferRsync;
 
   const sections: string[] = [];
 
