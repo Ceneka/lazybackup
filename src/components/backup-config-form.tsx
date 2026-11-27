@@ -2464,6 +2464,13 @@ export function BackupConfigForm({
         </div>
         )}
 
+        {formData.deleteExtraneous && !formData.enableVersioning && (
+          <p className="pl-6 text-xs text-muted-foreground">
+            With <code>--delete</code> and versioning off, earlier timestamped version
+            folders at the destination are removed as extraneous.
+          </p>
+        )}
+
         <div className="flex items-start">
           <input
             id="enableVersioning"

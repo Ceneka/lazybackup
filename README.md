@@ -77,7 +77,7 @@ Do these before the instance is reachable from anything you do not trust:
 
 - **Unraid** — Community Applications XML: [`deploy/unraid/lazybackup.xml`](./deploy/unraid/lazybackup.xml) (`ghcr.io/ceneka/lazybackup:latest`, port 3000, data / backups / SSH mounts).
 - **TrueNAS SCALE** — Compose: [`deploy/truenas/compose.yml`](./deploy/truenas/compose.yml) (same mounts as the root `docker-compose.yml`).
-- **awesome-selfhosted** — ready-to-paste listing: [`deploy/awesome-selfhosted.md`](./deploy/awesome-selfhosted.md).
+- **awesome-sysadmin** — ready-to-paste entry: [`deploy/awesome-sysadmin.md`](./deploy/awesome-sysadmin.md) (awesome-selfhosted's Backup section redirects there; the 12-month first-release rule is met from 2027-08).
 
 ### Manual install
 
@@ -98,13 +98,13 @@ Set `DATABASE_URL` if you want a custom SQLite path (default: `file:./data.db`).
 - **From → To** — Endpoints: this host, SSH servers, S3-compatible storage (MinIO, R2, B2, AWS, …), or Git remotes (source only)
 - **Server → Server** — Ephemeral SSH key for direct rsync, or relay via the LazyBackup host when peers can’t reach each other
 - **Server management** — Add, edit, and test VPS connections (password or SSH key auth)
-- **Backup jobs** — Paths, Docker volumes, database dumps, or Git bare mirrors; cron schedules; exclude patterns; pre-backup shell commands (a command exiting non-zero aborts the run before transferring and does not create a recovery point)
+- **Backup jobs** — Paths, Docker volumes, database dumps, or Git bare mirrors; 5-field cron schedules (validated on save); exclude patterns; pre-backup shell commands (a command exiting non-zero aborts the run before transferring and does not create a recovery point)
 - **Docker volumes** — Discover named volumes on this host or a source server, pack as `.tar.gz` to a destination path/prefix, restore from History
 - **Database dumps** — Postgres / MySQL / MariaDB → `.sql.gz` (native client or `docker exec`); SQLite → `.sqlite.gz` (native file copy / `.backup`); restore from History
 - **S3 profiles** — Source prefixes and destination prefixes for path trees and archives
 - **Git repositories** — Connections → Git; clone `--mirror` with a vault SSH key (or public HTTPS) and land `.tar.gz` anywhere
 - **Versioned backups** — Optional timestamped snapshots with automatic count-based retention
-- **File retention** — Optional age-based cleanup for dump-style destinations (keep a minimum number of files)
+- **File retention** — Optional age-based cleanup for dump-style destinations (keep a minimum number of files); mutually exclusive with versioning
 - **Automated scheduling** — In-process cron scheduler; set an app timezone so schedules run when you expect
 - **History & dashboard** — Track runs, view logs, next run times, storage usage, and success rates
 - **Path restore** — One-click restore of path trees from History (local / S3 / Bro artifacts) back to the source path, SSH host, or S3 prefix
@@ -134,7 +134,7 @@ Set `DATABASE_URL` if you want a custom SQLite path (default: `file:./data.db`).
 2. **Add a server** — Connections → Servers → add host, user, and SSH credentials. Use **Test connection** to verify rsync/scp (and Docker) availability. Prefer an SSH key for any server you will back up from or to.
 3. **(Optional) S3 profile** — Connections → S3 → endpoint, bucket, and keys (path-style for MinIO/R2/B2 as needed).
 4. **(Optional) Git repository** — Connections → Git → remote URL and an SSH key from Settings for private remotes. Backups clone a bare mirror on this host and store `.tar.gz` at the destination.
-5. **Create a backup** — Backups → pick **From** and **To** (local, server, S3, or Git as source), then **filesystem path**, **Docker volume**, **database**, or **Git repository**. Default dest is still `/backups/<server>/<name>` on this host when To is local (Git sources default to `/backups/git/<repo>`). Optionally enable versioning and/or age-based file retention.
+5. **Create a backup** — Backups → pick **From** and **To** (local, server, S3, or Git as source), then **filesystem path**, **Docker volume**, **database**, or **Git repository**. Default dest is still `/backups/<server>/<name>` on this host when To is local (Git sources default to `/backups/git/<repo>`). Optionally enable versioning or age-based file retention (mutually exclusive).
 6. **Timezone** — Settings → choose the timezone used for cron schedules and “next run” times.
 7. **Encryption (optional)** — Settings → Encryption → generate an age key (export and acknowledge a copy), optionally add recovery recipients, then enable “Encrypt before storing” on a backup (or use a Bro destination). Create new keys instead of overwriting; old keys stay for decrypt.
 8. **Backup this instance** — Settings → Encryption → “Backup LazyBackup data”, or New Backup → local source → LazyBackup instance data. Restore is manual (replace DB / import keys).
@@ -228,6 +228,10 @@ POST/PUT with an empty body sends `{"event":"backup.succeeded",…}`.
 `GET` responses for servers, S3 profiles, and backups **never include** passwords, SSH private keys, S3 secret keys, or DB passwords. SSH key responses never include the PEM (`hasPrivateKeyContent` is a flag only). Bearer/MCP callers get a masked S3 `accessKeyId` (cookie sessions keep it for the edit form). Flags such as `hasPassword` / `hasPrivateKey` / `hasSecretAccessKey` / `hasDbPassword` tell the UI a secret is stored. On edit, leave those fields blank to keep the existing value.
 
 `GET /api/settings/export` is advertised as non-secret: it drops auth/age secrets, masks webhook headers, and reduces webhook/success-ping URLs to scheme + host (their paths/queries often contain bot tokens or check UUIDs) and bodies to `***`.
+
+### API conventions
+
+Settings writes use `POST /api/settings` (`GET` lists current values with secrets stripped); unsupported methods such as `PUT` return Next.js's default `405` with an empty body. `GET /api/backups/:id` exposes the last validate result as `lastValidation: { ok, at, checks }`, not flat `lastValidatedAt` fields. Schedules are validated as 5-field cron expressions on create/update.
 
 ### CSRF and request rules
 

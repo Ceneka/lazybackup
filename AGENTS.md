@@ -68,7 +68,7 @@ Restore (path/volume/database/git; local, S3, or bro dest): history artifact →
 | `ssh_keys` | name + content or path |
 | `s3_profiles` | endpoint, region, bucket, access/secret keys, `forcePathStyle` |
 | `git_repos` | name, URL (`git@…` / `ssh://` / public `https://`), optional `sshKeyId` → `ssh_keys` `ON DELETE SET NULL` |
-| `backup_configs` | `sourceKind`/`destinationKind` local\|server\|s3\|**peer** (source also **git**), nullable `serverId` / `destinationServerId` / `sourceS3ProfileId` / `destinationS3ProfileId` / **`destinationPeerId`** / **`sourceGitRepoId`**, `sourceType` path\|docker_volume\|database\|**lazybackup_instance**\|**git_repo**, `sourcePath`/`destinationPath` (prefix when S3/peer), `db_*` for dumps, optional **`instanceBackupPassphrase`**, cron, excludes, pre-cmds, **`enableEncryption`**, **`deleteExtraneous`**, versioning + file retention, optional last validation (`lastValidatedAt` / `lastValidationOk` / `lastValidationChecks`; cleared on config update) |
+| `backup_configs` | `sourceKind`/`destinationKind` local\|server\|s3\|**peer** (source also **git**), nullable `serverId` / `destinationServerId` / `sourceS3ProfileId` / `destinationS3ProfileId` / **`destinationPeerId`** / **`sourceGitRepoId`**, `sourceType` path\|docker_volume\|database\|**lazybackup_instance**\|**git_repo**, `sourcePath`/`destinationPath` (prefix when S3/peer), `db_*` for dumps, optional **`instanceBackupPassphrase`**, cron, excludes, pre-cmds, **`enableEncryption`**, **`deleteExtraneous`**, versioning + file retention (**mutually exclusive**: `enableVersioning` and `enableFileRetention`), optional last validation (stored as `lastValidatedAt` / `lastValidationOk` / `lastValidationChecks`, cleared on config update; `GET` exposes nested `lastValidation: { ok, at, checks }` and no flat fields) |
 | `backup_history` | status running\|success\|failed, sizes, `logOutput`, `artifactPath` (local path or `s3://bucket/key`) |
 | `settings` | KV: timezone, SSH defaults, `appPasswordHash`, `sessionSecret`, `authSetupCompleted`, failure webhook + success ping URL/method/headers/body |
 | `age_keys` | Age vault: identity + recipient, status active\|retired\|compromised, export ack |
@@ -82,7 +82,7 @@ Cascade: server/S3 profile/Git repo → configs → history. Never return `appPa
 
 ## API map
 
-Pattern: Zod → Drizzle → `NextResponse.json`; errors `{ error, details? }`.
+Pattern: Zod → Drizzle → `NextResponse.json`; errors `{ error, details? }`. Schedules must be valid 5-field cron expressions, rejected at create/update time. Unsupported methods on static API paths return `405 { error }` with an `Allow` header (`src/lib/api/method-allow.ts`); dynamic routes keep Next's default empty 405.
 
 | Area | Paths |
 |------|--------|
@@ -98,7 +98,7 @@ Pattern: Zod → Drizzle → `NextResponse.json`; errors `{ error, details? }`.
 | Git | `/api/git-repos`, `/api/git-repos/[id]`, `…/test`, `POST /api/git-repos/test` (`ls-remote`) |
 | Backups | `/api/backups`, `/api/backups/[id]`, `…/run`, `…/validate`, `…/toggle`, `…/storage`, `POST /api/backups/start`, `POST /api/backups/database/test` |
 | History | `/api/history`, `/api/history/[id]`, `…/restore`, `/api/history/stats?chartData=`, `GET /api/events` (SSE backup start/finish) |
-| Other | `/api/ssh-keys`, `/api/settings`, `GET /api/settings/export` (session-only config JSON, no secrets), `GET /api/version` (session-only, GitHub latest cache), `/api/scheduler/restart`, `/api/dashboard`, `/api/dashboard/storage` (cached local storage walk; warmed at startup, dirtied on `backup.finished`), `/api/status` (safety posture), `/api/seed` (dev only) |
+| Other | `/api/ssh-keys`, `POST /api/settings` (writes; `GET` lists), `GET /api/settings/export` (session-only config JSON, no secrets), `GET /api/version` (session-only, GitHub latest cache), `/api/scheduler/restart`, `/api/dashboard`, `/api/dashboard/storage` (cached local storage walk; warmed at startup, dirtied on `backup.finished`), `/api/status` (safety posture), `/api/seed` (dev only) |
 
 ## Backup workflow (`lib/backup/index.ts`)
 
@@ -150,7 +150,7 @@ CI publishes GHCR on `v*` tags only (`:latest` + `:vX.Y.Z`; amd64 and arm64 nati
 1. Password-only servers can test/connect and run some SSH helpers, but cannot complete path transfers — need a key on each server endpoint used in a backup.
 2. Destinations may be **local or remote**; uniqueness is per endpoint (local path, or same server + path). Nested overlaps are UI warnings only.
 3. Do not run migrate/scheduler during `next build` (already guarded).
-4. Cron is 5-field; invalid expressions fail at schedule time; respect timezone setting.
+4. Cron is 5-field; invalid expressions are rejected when the config is saved (and still guarded at schedule time); respect timezone setting.
 5. Mixed IDs (`nanoid` vs `randomUUID`) — don’t assume one format.
 6. App password ≠ SSH password; keep `/api/health` public.
 7. `/api/seed` is dev-only. Licensed under MIT (`LICENSE`).

@@ -35,8 +35,8 @@ export interface Backup {
   timezone?: string
   nextRun?: string | null
   nextRunFormatted?: string | null
-  excludePatterns?: string
-  preBackupCommands?: string
+  excludePatterns?: string | null
+  preBackupCommands?: string | null
   dbEngine?: 'postgres' | 'mysql' | 'mariadb' | 'sqlite' | null
   dbClient?: 'native' | 'docker' | null
   dbContainer?: string | null

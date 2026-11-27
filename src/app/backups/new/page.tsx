@@ -183,6 +183,19 @@ function NewBackupForm() {
                 </div>
               </div>
             )}
+            {cloning &&
+              cloneQuery.data &&
+              (cloneQuery.data.hasDbPassword ||
+                cloneQuery.data.hasInstanceBackupPassphrase) && (
+                <Alert>
+                  <AlertTriangleIcon className="h-4 w-4" />
+                  <AlertTitle>Credentials are not copied</AlertTitle>
+                  <AlertDescription>
+                    The database password / archive passphrase is not copied —
+                    re-enter it before the first run, or it will fail.
+                  </AlertDescription>
+                </Alert>
+              )}
             {formReady ? (
               <BackupConfigForm
                 mode="create"
