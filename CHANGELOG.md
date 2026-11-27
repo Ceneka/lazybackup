@@ -11,6 +11,14 @@ Versions before a formal `v*` tag are dated unreleased / pre-release notes.
 
 ## [Unreleased]
 
+## [0.4.3] - 2026-11-27
+
+### Fixed
+
+- **v0.4.2 image was not published** — the release test suite failed on Alpine
+  because the SQLite fallback test assumed `sqlite3` is absent (the image ships
+  it). The assertion no longer depends on the host tooling. Same application
+  changes as v0.4.2.
 ## [0.4.2] - 2026-11-27
 
 ### Added
@@ -559,7 +567,7 @@ optional `remote_exec`.
    ignored) and opens a GitHub Release from that changelog section. Landing
    `/changelog` syncs on the next landing build.
 
-[Unreleased]: https://github.com/Ceneka/lazybackup/compare/v0.4.2...HEAD
+[Unreleased]: https://github.com/Ceneka/lazybackup/compare/v0.4.3...HEAD
 [0.2.0]: https://github.com/Ceneka/lazybackup/releases/tag/v0.2.0
 [0.2.1]: https://github.com/Ceneka/lazybackup/releases/tag/v0.2.1
 [0.2.2]: https://github.com/Ceneka/lazybackup/releases/tag/v0.2.2
@@ -573,3 +581,4 @@ optional `remote_exec`.
 [0.4.0]: https://github.com/Ceneka/lazybackup/releases/tag/v0.4.0
 [0.4.1]: https://github.com/Ceneka/lazybackup/releases/tag/v0.4.1
 [0.4.2]: https://github.com/Ceneka/lazybackup/releases/tag/v0.4.2
+[0.4.3]: https://github.com/Ceneka/lazybackup/releases/tag/v0.4.3

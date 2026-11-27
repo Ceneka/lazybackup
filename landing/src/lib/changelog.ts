@@ -24,6 +24,19 @@ export const changelogEntries: readonly ChangelogEntry[] = [
     "sections": []
   },
   {
+    "id": "0-4-3",
+    "title": "0.4.3",
+    "date": "2026-11-27",
+    "sections": [
+      {
+        "heading": "Fixed",
+        "items": [
+          "v0.4.2 image was not published — the release test suite failed on Alpine because the SQLite fallback test assumed sqlite3 is absent (the image ships it). The assertion no longer depends on the host tooling. Same application changes as v0.4.2."
+        ]
+      }
+    ]
+  },
+  {
     "id": "0-4-2",
     "title": "0.4.2",
     "date": "2026-11-27",
