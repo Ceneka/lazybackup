@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<CommunityApplications>
+  <Profile>LazyBackup is a From → To backup manager for filesystem paths, Docker volumes, database dumps, Git mirrors and LazyBackup itself, landing on this host, SSH servers, S3-compatible storage or a Bro Space peer. This repository holds the source code, the Unraid template and the release notes. Image: ghcr.io/ceneka/lazybackup:latest (amd64/arm64). Support and bug reports: https://github.com/Ceneka/lazybackup/issues</Profile>
+  <Icon>https://raw.githubusercontent.com/Ceneka/lazybackup/main/deploy/unraid/icon.png</Icon>
+  <WebPage>https://lazy.zic.ar</WebPage>
+</CommunityApplications>

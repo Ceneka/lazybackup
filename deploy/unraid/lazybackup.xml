@@ -1,81 +1,48 @@
-<?xml version="1.0"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Container version="2">
   <Name>LazyBackup</Name>
   <Repository>ghcr.io/ceneka/lazybackup:latest</Repository>
-  <Registry>https://ghcr.io</Registry>
+  <Registry>https://github.com/Ceneka/lazybackup/pkgs/container/lazybackup</Registry>
   <Network>bridge</Network>
-  <MyIP/>
   <Shell>sh</Shell>
   <Privileged>false</Privileged>
   <Support>https://github.com/Ceneka/lazybackup/issues</Support>
   <Project>https://github.com/Ceneka/lazybackup</Project>
-  <Overview>Self-hosted From→To backup manager for paths, Docker volumes, and database dumps between this host, SSH servers, and S3.</Overview>
-  <Category>Backup:</Category>
+  <Overview>LazyBackup is a From → To backup manager: pick a source, pick a destination, set a cron schedule, and it runs — no scripts and no per-app glue.
+
+Sources: filesystem paths, Docker volumes, PostgreSQL / MySQL / MariaDB / SQLite dumps, Git repositories as bare mirrors, or LazyBackup itself (SQLite database, age vault and SSH keys).
+Destinations: this host, SSH servers, S3-compatible storage (MinIO, R2, B2, AWS) and Bro Space — encrypted, quota-limited space on a friend's LazyBackup or LazyBro instance.
+
+Includes versioned snapshots with count-based retention, age encryption with a key vault and recovery recipients, one-click restore from History (optionally onto another host), failure webhooks (Discord, Telegram, ntfy, Slack, Uptime Kuma), success pings, an app password or WebAuthn passkeys, and a Streamable HTTP MCP endpoint for agents.
+
+App data lives in /app/data and local backups in /backups. Remote servers need SSH key authentication (mount the keys folder read-only). The container runs as root, so files it writes are owned by root. Set an app password or a passkey before exposing the WebUI.</Overview>
+  <Category>Backup: Tools:Utilities</Category>
   <WebUI>http://[IP]:[PORT:3000]/</WebUI>
   <TemplateURL>https://raw.githubusercontent.com/Ceneka/lazybackup/main/deploy/unraid/lazybackup.xml</TemplateURL>
-  <Icon>https://lazy.zic.ar/icon.png</Icon>
+  <Icon>https://raw.githubusercontent.com/Ceneka/lazybackup/main/deploy/unraid/icon.png</Icon>
   <ExtraParams/>
-  <PostArgs/>
-  <CPUset/>
-  <DateInstalled/>
-  <DonateText/>
-  <DonateLink/>
-  <Requires/>
+  <Requires>SSH key authentication on every server used in a transfer. rsync, scp, git, sqlite3 and curl are bundled with the image.
+
+Local Docker-volume packing and docker exec database dumps need the Docker CLI and /var/run/docker.sock, which this image does not ship; use a remote Docker host over SSH for those. PostgreSQL and MySQL client tools are not bundled either, so SQLite is the only natively dumped local database.
+
+Set AUTH_COOKIE_SECURE=true only when the UI is served over HTTPS (prefer HSTS at the reverse proxy).</Requires>
+  <License>MIT</License>
+  <MinVer>6.12</MinVer>
+  <Beta>true</Beta>
+  <Changes>Initial Community Applications submission (v0.4.1). Bro Space rebuilt around friends with confirmed delivery, restore from the run's own snapshot, chunked peer restores, atomic database and fixed volume restores, pre-backup commands that fail the run, and a security pass (CSRF, step-up auth, SSRF, option injection).</Changes>
+  <ExtraSearchTerms>backup rsync ssh s3 docker volume database postgres mysql mariadb sqlite git mirror encryption age peer restore cron retention webhook</ExtraSearchTerms>
   <Screenshot>https://lazy.zic.ar/screenshots/dashboard.png</Screenshot>
-  <Description>
-    LazyBackup schedules From→To transfers: this Unraid host, SSH servers, or S3-compatible storage. Paths, Docker volume tarballs, and Postgres/MySQL/MariaDB dumps. Optional age encryption and Bro Space peer storage.[br][br]
-    Mount SSH keys read-only if you back up remote servers. Leave AUTH_COOKIE_SECURE unset on plain HTTP.
-  </Description>
-  <Networking>
-    <Mode>bridge</Mode>
-    <Publish>
-      <Port>
-        <HostPort>3000</HostPort>
-        <ContainerPort>3000</ContainerPort>
-        <Protocol>tcp</Protocol>
-      </Port>
-    </Publish>
-  </Networking>
-  <Data>
-    <Volume>
-      <HostDir>/mnt/user/appdata/lazybackup</HostDir>
-      <ContainerDir>/app/data</ContainerDir>
-      <Mode>rw</Mode>
-    </Volume>
-    <Volume>
-      <HostDir>/mnt/user/backups/lazybackup</HostDir>
-      <ContainerDir>/backups</ContainerDir>
-      <Mode>rw</Mode>
-    </Volume>
-    <Volume>
-      <HostDir>/mnt/user/backups/lazybackup</HostDir>
-      <ContainerDir>/app/backups</ContainerDir>
-      <Mode>rw</Mode>
-    </Volume>
-    <Volume>
-      <HostDir>/mnt/user/appdata/lazybackup/ssh</HostDir>
-      <ContainerDir>/root/.ssh</ContainerDir>
-      <Mode>ro</Mode>
-    </Volume>
-  </Data>
-  <Environment>
-    <Variable>
-      <Value>file:/app/data/data.db</Value>
-      <Name>DATABASE_URL</Name>
-      <Mode/>
-    </Variable>
-    <Variable>
-      <Value>/backups</Value>
-      <Name>BACKUP_STORAGE_PATH</Name>
-      <Mode/>
-    </Variable>
-  </Environment>
-  <Config Name="WebUI Port" Target="3000" Default="3000" Mode="tcp" Description="LazyBackup web UI." Type="Port" Display="always" Required="true" Mask="false"/>
-  <Config Name="App data" Target="/app/data" Default="/mnt/user/appdata/lazybackup" Mode="rw" Description="SQLite database and instance settings." Type="Path" Display="always" Required="true" Mask="false"/>
-  <Config Name="Backup storage" Target="/backups" Default="/mnt/user/backups/lazybackup" Mode="rw" Description="Local backup destination root (also mounted at /app/backups)." Type="Path" Display="always" Required="true" Mask="false"/>
-  <Config Name="Backup storage (legacy path)" Target="/app/backups" Default="/mnt/user/backups/lazybackup" Mode="rw" Description="Same host directory as Backup storage, for older /app/backups paths." Type="Path" Display="advanced" Required="true" Mask="false"/>
-  <Config Name="SSH keys" Target="/root/.ssh" Default="/mnt/user/appdata/lazybackup/ssh" Mode="ro" Description="Read-only SSH keys for rsync/scp to remote servers." Type="Path" Display="always" Required="false" Mask="false"/>
-  <Config Name="DATABASE_URL" Target="DATABASE_URL" Default="file:/app/data/data.db" Mode="" Description="SQLite URL inside the container." Type="Variable" Display="advanced" Required="true" Mask="false"/>
-  <Config Name="BACKUP_STORAGE_PATH" Target="BACKUP_STORAGE_PATH" Default="/backups" Mode="" Description="In-container backup root." Type="Variable" Display="advanced" Required="true" Mask="false"/>
-  <Config Name="AUTH_COOKIE_SECURE" Target="AUTH_COOKIE_SECURE" Default="" Mode="" Description="Set true only when the UI is served over HTTPS." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Screenshot>https://lazy.zic.ar/screenshots/backups.png</Screenshot>
+  <Screenshot>https://lazy.zic.ar/screenshots/history-detail.png</Screenshot>
+  <Screenshot>https://lazy.zic.ar/screenshots/encryption.png</Screenshot>
+  <Config Name="WebUI Port" Target="3000" Default="3000" Mode="tcp" Description="LazyBackup web interface." Type="Port" Display="always" Required="true" Mask="false"/>
+  <Config Name="App data" Target="/app/data" Default="/mnt/user/appdata/lazybackup" Mode="rw" Description="SQLite database, instance settings, age vault and SSH known_hosts." Type="Path" Display="always" Required="true" Mask="false"/>
+  <Config Name="Backup storage" Target="/backups" Default="/mnt/user/backups/lazybackup" Mode="rw" Description="Default root for backups written to this host." Type="Path" Display="always" Required="true" Mask="false"/>
+  <Config Name="SSH keys" Target="/root/.ssh" Default="/mnt/user/appdata/lazybackup/ssh" Mode="ro" Description="Read-only directory with the SSH keys used for rsync/scp/git to remote servers. Point it at a dedicated folder, not the whole ~/.ssh." Type="Path" Display="always" Required="false" Mask="false"/>
+  <Config Name="DATABASE_URL" Target="DATABASE_URL" Default="file:/app/data/data.db" Mode="" Description="SQLite URL inside the container. Keep it on the App data path or the database is lost when the container is recreated." Type="Variable" Display="advanced" Required="true" Mask="false"/>
+  <Config Name="BACKUP_STORAGE_PATH" Target="BACKUP_STORAGE_PATH" Default="/backups" Mode="" Description="In-container root for backups landing on this host. Matches the Backup storage path." Type="Variable" Display="advanced" Required="true" Mask="false"/>
+  <Config Name="AUTH_COOKIE_SECURE" Target="AUTH_COOKIE_SECURE" Default="" Mode="" Description="Set to true only when the UI is served over HTTPS; on plain HTTP leave it empty or login breaks." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="AUTH_PUBLIC_URL" Target="AUTH_PUBLIC_URL" Default="" Mode="" Description="Exact public origin (for example https://backup.example.com) so passkeys work behind a reverse proxy." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="AUTH_TRUST_PROXY" Target="AUTH_TRUST_PROXY" Default="" Mode="" Description="Set to true only behind a proxy that overwrites X-Forwarded-Host, X-Forwarded-Proto and X-Forwarded-For." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="ENABLE_HSTS" Target="ENABLE_HSTS" Default="" Mode="" Description="Set to true only when every request is HTTPS. HSTS at the reverse proxy is usually better." Type="Variable" Display="advanced" Required="false" Mask="false"/>
 </Container>
