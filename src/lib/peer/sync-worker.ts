@@ -102,6 +102,17 @@ export async function syncPeerOnce(peer: PeerRow): Promise<void> {
   const workRes = await peerFetch(peer, '/api/peers/agent/work', {
     signal: AbortSignal.timeout(CONTROL_TIMEOUT_MS),
   });
+  if (workRes.status === 401) {
+    // The friend revoked/removed this pairing. Stop dialing and tell the truth
+    // locally instead of showing the peer as "active, last seen …" forever.
+    // A later invite + accept updates this same row back to active.
+    const { revokePeer } = await import('./pairing');
+    await revokePeer(peer.id);
+    console.warn(
+      `[peer-sync] ${peer.name} no longer accepts this pairing (401); marked revoked locally — re-pair to reconnect`
+    );
+    return;
+  }
   if (!workRes.ok) {
     console.warn(`[peer-sync] work failed for ${peer.name}: ${workRes.status}`);
     await sendPeerStatusReport(peer, { lastError: `Work failed (${workRes.status})` });

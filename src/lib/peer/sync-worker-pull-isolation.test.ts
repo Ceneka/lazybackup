@@ -8,10 +8,17 @@ import type { PeerRow } from './types';
 
 type Call = { url: string; method: string };
 let calls: Call[] = [];
+let peerUpdates: Array<Record<string, unknown>> = [];
+let workStatus = 200;
 
 mock.module('@/lib/db', () => ({
   db: {
-    update: () => ({ set: () => ({ where: async () => undefined }) }),
+    update: () => ({
+      set: (values: Record<string, unknown>) => {
+        peerUpdates.push(values);
+        return { where: async () => undefined };
+      },
+    }),
     query: { peers: { findMany: async () => [] } },
   },
 }));
@@ -32,6 +39,9 @@ mock.module('@/lib/net/pinned-fetch', () => ({
     const parsed = new URL(url);
     if (parsed.pathname === '/api/peers/agent/ping') return Response.json({ ok: true });
     if (parsed.pathname === '/api/peers/agent/work') {
+      if (workStatus !== 200) {
+        return Response.json({ error: 'Unauthorized peer' }, { status: workStatus });
+      }
       return Response.json({
         pulls: [{ key: 'oversized.age', size: 100 }],
         recalls: [{ id: 'r1', objectKey: 'restore.bin' }],
@@ -89,6 +99,8 @@ describe('syncPeerOnce pull isolation', () => {
     tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'lb-peer-sync-'));
     process.env.BACKUP_STORAGE_PATH = tmp;
     calls = [];
+    peerUpdates = [];
+    workStatus = 200;
     // The recall source object exists in this peer's inbox.
     const recallObject = path.join(tmp, 'peers', 'peer_a', 'restore.bin');
     await fs.mkdir(path.dirname(recallObject), { recursive: true });
@@ -119,5 +131,20 @@ describe('syncPeerOnce pull isolation', () => {
       syncPeerOnce(peer({ status: 'revoked' }))
     ).resolves.toBeUndefined();
     expect(calls).toHaveLength(0);
+  });
+
+  test('a 401 from the friend marks the peer revoked locally', async () => {
+    workStatus = 401;
+    await expect(syncPeerOnce(peer())).resolves.toBeUndefined();
+    expect(
+      calls.some((c) => c.url.includes('/api/peers/agent/work'))
+    ).toBe(true);
+    expect(peerUpdates).toContainEqual(
+      expect.objectContaining({ status: 'revoked', outboundToken: null })
+    );
+    // No mailbox work is attempted against a pairing the friend rejected.
+    expect(
+      calls.some((c) => c.url.includes('/api/peers/agent/pending'))
+    ).toBe(false);
   });
 });
