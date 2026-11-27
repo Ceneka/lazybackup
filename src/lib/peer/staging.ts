@@ -130,8 +130,12 @@ export async function stagedObjectExists(
   try {
     await fs.access(peerStagingObjectPath(peerId, objectKey));
     return true;
-  } catch {
-    return false;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    // Only "not there" means the ACK already consumed it. A permission or I/O
+    // error must not be mistaken for a verified delivery.
+    if (code === 'ENOENT' || code === 'ENOTDIR') return false;
+    throw error;
   }
 }
 
