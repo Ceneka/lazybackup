@@ -24,10 +24,13 @@ export function deriveDeliveryState(input: {
   destinationKind?: string | null;
   mailboxPending?: boolean | null;
   artifactPath?: string | null;
+  /** Retention / peer removal took the artifact away: no delivery claim. */
+  artifactRemoved?: boolean | null;
   /** Peer row for the destination; only the reported error is used. */
   peer?: { remoteLastError?: string | null } | null;
 }): DeliveryState {
   if (input.destinationKind !== 'peer') return null;
+  if (input.artifactRemoved) return null;
   if (!input.mailboxPending) return 'stored';
 
   // The peer's last report names the object it failed on (quota exceeded,
@@ -43,6 +46,7 @@ export function deriveDeliveryState(input: {
 export function deliveryStateForHistoryRow(row: {
   mailboxPending?: boolean | null;
   artifactPath?: string | null;
+  artifactRemoved?: boolean | null;
   backupConfig?: {
     destinationKind?: string | null;
     destinationPeer?: { remoteLastError?: string | null } | null;
@@ -52,6 +56,7 @@ export function deliveryStateForHistoryRow(row: {
     destinationKind: row.backupConfig?.destinationKind,
     mailboxPending: row.mailboxPending,
     artifactPath: row.artifactPath,
+    artifactRemoved: row.artifactRemoved,
     peer: row.backupConfig?.destinationPeer,
   });
 }

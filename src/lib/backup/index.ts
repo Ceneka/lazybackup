@@ -428,7 +428,11 @@ function assertHistoryArtifactRestorable(entry: {
   if (!entry.artifactRemoved) return;
   const reason = entry.artifactRemovedReason?.trim();
   throw restoreRequestError(
-    reason ? `artifact removed by retention (${reason})` : 'artifact removed by retention',
+    reason
+      ? /retention/i.test(reason)
+        ? `artifact removed by retention (${reason})`
+        : `This backup is no longer available: ${reason}`
+      : 'artifact removed by retention',
     'artifact-removed'
   );
 }

@@ -188,6 +188,7 @@ export default function BackupDetailPage() {
         deliveryError: latestRun.deliveryError,
         mailboxError: latestRun.mailboxError,
         artifactPath: latestRun.artifactPath,
+        artifactRemoved: (latestRun as { artifactRemoved?: boolean | null }).artifactRemoved,
         destinationKind: latestRun.backupConfig?.destinationKind,
       })
     : null

@@ -103,6 +103,7 @@ function historyDeliveryState(item: HistoryListItem) {
     deliveryError: item.deliveryError,
     mailboxError: item.mailboxError,
     artifactPath: item.artifactPath,
+    artifactRemoved: (item as { artifactRemoved?: boolean | null }).artifactRemoved,
     destinationKind: item.backupConfig?.destinationKind,
   })
 }

@@ -59,6 +59,7 @@ export function redactPeer(
     lastActivityAt: peer.lastActivityAt,
     kind: peer.remoteBaseUrl.trim() ? 'lazybackup' : 'lazybro',
     online:
+      peer.status === 'active' &&
       peer.lastSeenAt != null &&
       Date.now() - peer.lastSeenAt.getTime() <= PEER_ONLINE_WINDOW_MS,
     pendingSyncCount: extra?.pendingSyncCount,

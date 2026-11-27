@@ -145,6 +145,7 @@ export function HistoryRestoreButton({
     deliveryError: entry.deliveryError,
     mailboxError: entry.mailboxError,
     artifactPath: entry.artifactPath,
+    artifactRemoved: (entry as { artifactRemoved?: boolean | null }).artifactRemoved,
     destinationKind: entry.backupConfig?.destinationKind,
   })
   const deliveryError = deliveryErrorFor({

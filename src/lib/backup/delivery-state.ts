@@ -27,6 +27,8 @@ export type DeliveryStateInput = {
   mailboxError?: string | null
   artifactPath?: string | null
   destinationKind?: string | null
+  /** Artifact gone (retention / friend removed): make no delivery claim. */
+  artifactRemoved?: boolean | null
 }
 
 export function normalizeDeliveryState(value: unknown): DeliveryState {
@@ -48,6 +50,7 @@ export function isPeerDestination(input: {
  */
 export function deriveDeliveryState(input: DeliveryStateInput): DeliveryState {
   if (input.status === 'running') return null
+  if (input.artifactRemoved) return null
   const explicit = normalizeDeliveryState(input.deliveryState)
   if (explicit) return explicit
   if (!isPeerDestination(input)) return null

@@ -29,6 +29,7 @@ function rowDeliveryState(entry: HistoryRowLike) {
     deliveryState: entry.deliveryState,
     mailboxPending: entry.mailboxPending,
     artifactPath: entry.artifactPath,
+    artifactRemoved: (entry as { artifactRemoved?: boolean | null }).artifactRemoved,
     destinationKind: entry.backupConfig?.destinationKind,
   })
 }
