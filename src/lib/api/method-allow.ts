@@ -43,6 +43,7 @@ export const API_METHOD_ALLOW: Record<string, readonly string[]> = {
   '/api/backups/start': ['POST'],
   '/api/backups/storage-root': ['GET', 'HEAD'],
   '/api/dashboard': ['GET', 'HEAD'],
+  '/api/dashboard/storage': ['GET', 'HEAD'],
   '/api/docker/containers': ['GET', 'HEAD'],
   '/api/docker/volumes': ['GET', 'HEAD'],
   '/api/encryption': ['GET', 'HEAD', 'POST'],
