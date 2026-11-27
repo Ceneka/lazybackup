@@ -28,8 +28,13 @@ export const backupConfigSchema = z
     sourcePath: z.string().default(''),
     destinationPath: z.string().min(1, 'Destination path is required'),
     schedule: z.string().min(1, 'Schedule is required'),
-    excludePatterns: z.string().optional(),
-    preBackupCommands: z.string().optional(),
+    // GET returns null for unset fields; accept it so GET → PUT round-trips work
+    // (null means "not set", same as omitting the field).
+    excludePatterns: z.preprocess((v) => (v === null ? undefined : v), z.string().optional()),
+    preBackupCommands: z.preprocess(
+      (v) => (v === null ? undefined : v),
+      z.string().optional()
+    ),
     dbEngine: dbEngineSchema.nullable().optional(),
     dbClient: dbClientSchema.nullable().optional(),
     dbContainer: z.string().nullable().optional(),

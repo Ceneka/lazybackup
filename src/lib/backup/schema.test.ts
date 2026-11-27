@@ -418,3 +418,23 @@ describe('backupConfigSchema', () => {
     expect(result.success).toBe(false);
   });
 });
+
+describe('backupConfigSchema null round-trip', () => {
+  test('accepts null excludePatterns / preBackupCommands from a GET payload', () => {
+    const parsed = backupConfigSchema.safeParse({
+      name: 'rt',
+      sourceKind: 'local',
+      sourcePath: '/tmp/src',
+      destinationKind: 'local',
+      destinationPath: '/backups/rt',
+      schedule: '0 2 * * *',
+      excludePatterns: null,
+      preBackupCommands: null,
+    });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.excludePatterns).toBeUndefined();
+      expect(parsed.data.preBackupCommands).toBeUndefined();
+    }
+  });
+});

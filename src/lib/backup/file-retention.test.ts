@@ -106,6 +106,7 @@ describe('selectFilesToDelete', () => {
 describe('isBackupArtifactFileName', () => {
   test('accepts dump and archive names', () => {
     expect(isBackupArtifactFileName('appdb.sql.gz')).toBe(true);
+    expect(isBackupArtifactFileName('app.sqlite.gz')).toBe(true);
     expect(isBackupArtifactFileName('vol.tar.gz')).toBe(true);
     expect(isBackupArtifactFileName('vol.tar.gz.age')).toBe(true);
     expect(isBackupArtifactFileName('lazybackup-instance-x.tar.gz.age')).toBe(true);
