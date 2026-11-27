@@ -67,8 +67,17 @@ async function listPeerHistoryObjects(
   configId: string,
   peerId: string
 ): Promise<PeerObjectCandidate[]> {
+  // Retention runs after every successful peer backup. Select only the fields
+  // needed to compute keys; full rows would pull log_output/config_snapshot.
   const rows = await db.query.backupHistory.findMany({
     where: and(eq(backupHistory.configId, configId), eq(backupHistory.status, 'success')),
+    columns: {
+      id: true,
+      artifactPath: true,
+      startTime: true,
+      endTime: true,
+      artifactRemoved: true,
+    },
   });
   const byKey = new Map<string, PeerObjectCandidate>();
   for (const row of rows) {

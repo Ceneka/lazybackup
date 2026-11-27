@@ -1,5 +1,6 @@
 import { historyBackupConfigWith } from '@/lib/api/history-query';
 import { redactHistoryEntry } from '@/lib/api/redact';
+import { deliveryErrorForHistoryRow } from '@/lib/backup/history';
 import {
   parseRestoreSnapshot,
   restoreDefaultsFromSnapshot,
@@ -37,10 +38,15 @@ export async function GET(
     const restoreDefaults = historyEntry.backupConfig
       ? restoreDefaultsFromSnapshot(snapshot, historyEntry.backupConfig)
       : null;
+    const deliveryState = deliveryStateForHistoryRow(historyEntry);
+    const deliveryError = deliveryErrorForHistoryRow(historyEntry, deliveryState);
 
     return NextResponse.json({
       ...redactHistoryEntry(historyEntry as unknown as Record<string, unknown>),
-      deliveryState: deliveryStateForHistoryRow(historyEntry),
+      deliveryState,
+      deliveryError,
+      // Legacy key the UI still reads; same reason.
+      mailboxError: deliveryError,
       restoreDefaults,
     });
   } catch (error) {

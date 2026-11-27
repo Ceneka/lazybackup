@@ -29,6 +29,7 @@ import {
   type InvitePayload,
 } from './tokens';
 import { INSTANCE_BASE_URL_KEY, gbToBytes, redactPeer, type PeerPublic } from './types';
+import { parsePeerArtifactPath } from './delivery-state';
 import fs from 'fs/promises';
 import path from 'path';
 import { peerRecallDir } from './recall';
@@ -81,9 +82,34 @@ export async function listPeers(): Promise<PeerPublic[]> {
   const rows = await db.query.peers.findMany();
   // History rows can still be `mailboxPending` for a few ms after the ACK
   // removed the staged file (ACK wins the race before the success row exists).
+  // Keep this slim: /api/peers polls every 15 s, so pulling log_output /
+  // config_snapshot for every pending row is pure page-cache pressure.
+  // `deliveryState` is derived (waiting/failed), not a stored column.
   const pendingHistory = await db.query.backupHistory
-    .findMany({ where: eq(backupHistory.mailboxPending, true) })
+    .findMany({
+      where: eq(backupHistory.mailboxPending, true),
+      columns: {
+        id: true,
+        configId: true,
+        artifactPath: true,
+        totalSize: true,
+        transferredSize: true,
+        startTime: true,
+        mailboxPending: true,
+      },
+    })
     .catch(() => []);
+  // Bucket once by peer id instead of rescanning every pending row per peer.
+  // Index the element type explicitly: `typeof pendingHistory` is a union with
+  // the `.catch(() => [])` branch, whose `push` parameter collapses to `never`.
+  const pendingByPeer = new Map<string, (typeof pendingHistory)[number][]>();
+  for (const history of pendingHistory) {
+    const ref = parsePeerArtifactPath(history.artifactPath);
+    if (!ref) continue;
+    const bucket = pendingByPeer.get(ref.peerId);
+    if (bucket) bucket.push(history);
+    else pendingByPeer.set(ref.peerId, [history]);
+  }
   const out: PeerPublic[] = [];
   for (const row of rows) {
     const pending = new Map<string, { size: number; at: string }>();
@@ -97,7 +123,7 @@ export async function listPeers(): Promise<PeerPublic[]> {
       }
     }
     const prefix = `peer://${row.id}/`;
-    for (const history of pendingHistory) {
+    for (const history of pendingByPeer.get(row.id) ?? []) {
       const artifactPath = history.artifactPath;
       if (!artifactPath?.startsWith(prefix)) continue;
       const key = artifactPath.slice(prefix.length);

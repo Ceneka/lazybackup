@@ -173,6 +173,12 @@ export const backupHistory = sqliteTable('backup_history', {
   /** Why the artifact is gone, e.g. "removed by version retention". */
   artifactRemovedReason: text('artifact_removed_reason'),
   /**
+   * Bro Space delivery failure reason (peer refused the pull / ACK, quota, …).
+   * Null while waiting or after a verified delivery. Surfaced as
+   * `deliveryError` (legacy alias `mailboxError`) by the history APIs.
+   */
+  deliveryError: text('delivery_error'),
+  /**
    * JSON restore-relevant config snapshot captured at run start (source and
    * destination endpoints/paths, type, db/volume name). Restores use this
    * instead of the live config. Null on legacy rows.

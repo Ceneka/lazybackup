@@ -53,6 +53,7 @@ describe('success ping timing for peer deliveries', () => {
         artifact_path TEXT,
         artifact_sha256 TEXT,
         mailbox_pending INTEGER NOT NULL DEFAULT 0,
+        delivery_error TEXT,
         artifact_removed INTEGER NOT NULL DEFAULT 0,
         artifact_removed_reason TEXT,
         config_snapshot TEXT

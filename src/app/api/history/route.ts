@@ -1,5 +1,6 @@
 import { historyBackupConfigWith } from '@/lib/api/history-query';
 import { redactHistoryEntry } from '@/lib/api/redact';
+import { deliveryErrorForHistoryRow } from '@/lib/backup/history';
 import { db } from '@/lib/db';
 import { backupConfigs, backupHistory, servers } from '@/lib/db/schema';
 import { zonedDayRange } from '@/lib/backup/local-date';
@@ -122,10 +123,17 @@ export async function GET(request: NextRequest) {
     }
 
     return NextResponse.json({
-      history: history.map((row) => ({
-        ...redactHistoryEntry(row as unknown as Record<string, unknown>),
-        deliveryState: deliveryStateForHistoryRow(row),
-      })),
+      history: history.map((row) => {
+        const deliveryState = deliveryStateForHistoryRow(row);
+        const deliveryError = deliveryErrorForHistoryRow(row, deliveryState);
+        return {
+          ...redactHistoryEntry(row as unknown as Record<string, unknown>),
+          deliveryState,
+          deliveryError,
+          // Legacy key the UI still reads; same reason.
+          mailboxError: deliveryError,
+        };
+      }),
       pagination: {
         total,
         limit,

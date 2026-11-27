@@ -6,7 +6,31 @@ import {
   reconcileDeliveryAfterSuccess,
 } from '@/lib/backup/mailbox-reconcile';
 import { eq } from 'drizzle-orm';
+import { parsePeerArtifactPath } from '@/lib/peer/delivery-state';
 import { buildRestoreSnapshot } from './restore-snapshot';
+
+/** Stored log cap: keeps SQLite rows small; the tail has the failure text. */
+export const LOG_OUTPUT_MAX_CHARS = 512 * 1024;
+
+/**
+ * Cap a log before it is written to `backup_history.log_output`.
+ *
+ * Keeps the LAST 512K characters (errors are at the end) and prefixes a
+ * marker with how many characters were dropped. Smaller logs are untouched.
+ */
+export function capLogOutput(logOutput?: string | null): string | null | undefined {
+  if (logOutput == null || logOutput.length <= LOG_OUTPUT_MAX_CHARS) {
+    return logOutput;
+  }
+  const truncated = logOutput.length - LOG_OUTPUT_MAX_CHARS;
+  let tail = logOutput.slice(-LOG_OUTPUT_MAX_CHARS);
+  // Do not start the stored tail in the middle of a surrogate pair.
+  const first = tail.charCodeAt(0);
+  if (first >= 0xdc00 && first <= 0xdfff) {
+    tail = tail.slice(1);
+  }
+  return `…[truncated ${truncated} characters]\n${tail}`;
+}
 
 async function backupNameForConfig(configId: string): Promise<string> {
   const row = await db.query.backupConfigs.findFirst({
@@ -128,7 +152,9 @@ export async function updateBackupHistorySuccess(
       fileCount,
       totalSize,
       transferredSize,
-      logOutput,
+      logOutput: capLogOutput(logOutput),
+      // A fresh success is not a delivery failure; drop any stale reason.
+      deliveryError: null,
       ...(artifactPath !== undefined ? { artifactPath } : {}),
       ...(artifactSha256 !== undefined ? { artifactSha256 } : {}),
       ...(mailboxPending !== undefined ? { mailboxPending } : {}),
@@ -171,6 +197,37 @@ export async function clearMailboxPendingForArtifact(artifactPath: string) {
     artifactPath,
     notifyDelivered: fireSuccessPing,
   });
+  // Verified delivery wins: a previous failure reason is stale now.
+  await db
+    .update(backupHistory)
+    .set({ deliveryError: null })
+    .where(eq(backupHistory.artifactPath, artifactPath));
+}
+
+/**
+ * Reason for a `failed` Bro delivery. Prefers the persisted `delivery_error`;
+ * legacy rows (and failures recorded only on the peer) fall back to the peer
+ * report that names this object. Stored/waiting rows never carry an error.
+ */
+export function deliveryErrorForHistoryRow(
+  row: {
+    deliveryError?: string | null;
+    artifactPath?: string | null;
+    backupConfig?: {
+      destinationPeer?: { remoteLastError?: string | null } | null;
+    } | null;
+  },
+  deliveryState: string | null
+): string | null {
+  if (deliveryState !== 'failed') return null;
+  const persisted = row.deliveryError?.trim();
+  if (persisted) return persisted;
+  const remote = row.backupConfig?.destinationPeer?.remoteLastError?.trim();
+  if (!remote) return null;
+  const ref = parsePeerArtifactPath(row.artifactPath);
+  // Only a report that names this object is about this run (same rule
+  // `deliveryStateForHistoryRow` uses to mark it failed).
+  return ref && remote.includes(ref.objectKey) ? remote : null;
 }
 
 /**
@@ -192,7 +249,9 @@ export async function updateBackupHistoryFailure(
       // A failed run is not waiting for an ACK anymore; a late ACK must not
       // fire a success ping for it.
       mailboxPending: false,
-      ...(options?.logOutput ? { logOutput: options.logOutput } : {}),
+      ...(options?.logOutput
+        ? { logOutput: capLogOutput(options.logOutput) }
+        : {}),
     })
     .where(eq(backupHistory.id, historyId))
     .returning();

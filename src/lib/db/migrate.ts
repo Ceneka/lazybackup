@@ -560,6 +560,31 @@ export async function runMigration() {
         sql`ALTER TABLE backup_history ADD COLUMN artifact_removed_reason TEXT`
       );
     }
+    // fix-db: Bro Space delivery failure reason (surfaced as deliveryError).
+    if (!historyRestoreCoreColumns.includes('delivery_error')) {
+      await db.run(sql`ALTER TABLE backup_history ADD COLUMN delivery_error TEXT`);
+    }
+
+    // --- fix-db: hot-path indexes for history / dashboard / peers ---
+    // /api/history (config + start_time), dashboard/status (start_time/status),
+    // and GET /api/peers (mailbox_pending) previously full-scanned the table,
+    // including log_output pages. All idempotent; SQLite keeps existing indexes.
+    await db.run(sql`
+      CREATE INDEX IF NOT EXISTS idx_backup_history_config_start
+        ON backup_history(config_id, start_time)
+    `);
+    await db.run(sql`
+      CREATE INDEX IF NOT EXISTS idx_backup_history_start
+        ON backup_history(start_time)
+    `);
+    await db.run(sql`
+      CREATE INDEX IF NOT EXISTS idx_backup_history_mailbox_pending
+        ON backup_history(mailbox_pending)
+    `);
+    await db.run(sql`
+      CREATE INDEX IF NOT EXISTS idx_backup_history_status_start
+        ON backup_history(status, start_time)
+    `);
 
     // DB holds SSH/S3/DB credentials and tokens; keep it owner-only.
     await restrictSqliteFilePermissions();
