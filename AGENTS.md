@@ -98,7 +98,7 @@ Pattern: Zod → Drizzle → `NextResponse.json`; errors `{ error, details? }`.
 | Git | `/api/git-repos`, `/api/git-repos/[id]`, `…/test`, `POST /api/git-repos/test` (`ls-remote`) |
 | Backups | `/api/backups`, `/api/backups/[id]`, `…/run`, `…/validate`, `…/toggle`, `…/storage`, `POST /api/backups/start`, `POST /api/backups/database/test` |
 | History | `/api/history`, `/api/history/[id]`, `…/restore`, `/api/history/stats?chartData=`, `GET /api/events` (SSE backup start/finish) |
-| Other | `/api/ssh-keys`, `/api/settings`, `GET /api/settings/export` (session-only config JSON, no secrets), `GET /api/version` (session-only, GitHub latest cache), `/api/scheduler/restart`, `/api/dashboard`, `/api/status` (safety posture), `/api/seed` (dev only) |
+| Other | `/api/ssh-keys`, `/api/settings`, `GET /api/settings/export` (session-only config JSON, no secrets), `GET /api/version` (session-only, GitHub latest cache), `/api/scheduler/restart`, `/api/dashboard`, `/api/dashboard/storage` (cached local storage walk; warmed at startup, dirtied on `backup.finished`), `/api/status` (safety posture), `/api/seed` (dev only) |
 
 ## Backup workflow (`lib/backup/index.ts`)
 

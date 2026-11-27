@@ -11,6 +11,15 @@ Versions before a formal `v*` tag are dated unreleased / pre-release notes.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Fast dashboard first load** — the local storage walk (backup file count and
+  size under `BACKUP_STORAGE_PATH`) no longer blocks the dashboard response. It
+  loads in its own card: totals are cached server-side for 5 minutes
+  (stale-while-revalidate), warmed at startup, and refreshed after a backup
+  finishes. Large backup trees no longer make the dashboard wait seconds on a
+  cold first visit.
+
 ## [0.4.1] - 2026-11-27
 
 ### Fixed
