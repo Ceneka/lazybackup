@@ -3,9 +3,8 @@
 import {
   BackupConfigForm,
   backupToFormData,
-  formDataToPayload,
-  type BackupFormData,
 } from "@/components/backup-config-form"
+import { formDataToPayload, type BackupFormData } from "@/lib/backup/form-payload"
 import { ResourceEditLayout } from "@/components/resource-detail-layout"
 import { ApiError, readApiError } from "@/lib/api/client-error"
 import { QueryState } from "@/components/ui/query-state"

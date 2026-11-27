@@ -420,21 +420,41 @@ describe('backupConfigSchema', () => {
 });
 
 describe('backupConfigSchema null round-trip', () => {
-  test('accepts null excludePatterns / preBackupCommands from a GET payload', () => {
+  const roundTripBase = {
+    name: 'rt',
+    sourceKind: 'local' as const,
+    sourcePath: '/tmp/src',
+    destinationKind: 'local' as const,
+    destinationPath: '/backups/rt',
+    schedule: '0 2 * * *',
+  };
+
+  test('keeps explicit null for excludePatterns / preBackupCommands', () => {
     const parsed = backupConfigSchema.safeParse({
-      name: 'rt',
-      sourceKind: 'local',
-      sourcePath: '/tmp/src',
-      destinationKind: 'local',
-      destinationPath: '/backups/rt',
-      schedule: '0 2 * * *',
+      ...roundTripBase,
       excludePatterns: null,
       preBackupCommands: null,
     });
     expect(parsed.success).toBe(true);
     if (parsed.success) {
-      expect(parsed.data.excludePatterns).toBeUndefined();
-      expect(parsed.data.preBackupCommands).toBeUndefined();
+      expect(parsed.data.excludePatterns).toBeNull();
+      expect(parsed.data.preBackupCommands).toBeNull();
     }
+  });
+
+  test('keeps omitted fields undefined', () => {
+    const parsed = backupConfigSchema.parse(roundTripBase);
+    expect(parsed.excludePatterns).toBeUndefined();
+    expect(parsed.preBackupCommands).toBeUndefined();
+  });
+
+  test('keeps string values as-is', () => {
+    const parsed = backupConfigSchema.parse({
+      ...roundTripBase,
+      excludePatterns: '*.log\nnode_modules',
+      preBackupCommands: 'echo hi\nfalse',
+    });
+    expect(parsed.excludePatterns).toBe('*.log\nnode_modules');
+    expect(parsed.preBackupCommands).toBe('echo hi\nfalse');
   });
 });

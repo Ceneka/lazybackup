@@ -7,11 +7,10 @@ import {
   defaultGitBackupFormData,
   defaultInstanceBackupFormData,
   defaultPeerBackupFormData,
-  formDataToPayload,
   isBackupRecipeId,
   recipeFormData,
-  type BackupFormData,
 } from "@/components/backup-config-form"
+import { formDataToPayload, type BackupFormData } from "@/lib/backup/form-payload"
 import { QueryState } from "@/components/ui/query-state"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { ResourceEditLayout } from "@/components/resource-detail-layout"
