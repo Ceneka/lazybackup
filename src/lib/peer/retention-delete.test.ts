@@ -10,6 +10,7 @@ import * as schema from '@/lib/db/schema';
 mock.restore();
 
 const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'lb-peer-delete-'));
+const prevBackupStorage = process.env.BACKUP_STORAGE_PATH;
 process.env.BACKUP_STORAGE_PATH = tmp;
 
 const client = createClient({ url: `file:${path.join(tmp, 'delete.db')}` });
@@ -117,6 +118,8 @@ beforeEach(async () => {
 });
 
 afterAll(async () => {
+  if (prevBackupStorage === undefined) delete process.env.BACKUP_STORAGE_PATH;
+  else process.env.BACKUP_STORAGE_PATH = prevBackupStorage;
   client.close();
   await fs.rm(tmp, { recursive: true, force: true });
   const freshDb = await import(`../db/index.ts?real=${Date.now()}`);

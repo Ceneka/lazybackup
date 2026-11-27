@@ -19,6 +19,7 @@ import { hashInviteSecret } from './tokens';
 mock.restore();
 
 const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'lb-peer-lifecycle-'));
+const prevBackupStorage = process.env.BACKUP_STORAGE_PATH;
 process.env.BACKUP_STORAGE_PATH = tmp;
 
 const client = createClient({ url: `file:${path.join(tmp, 'lifecycle.db')}` });
@@ -179,6 +180,8 @@ beforeEach(async () => {
 });
 
 afterAll(async () => {
+  if (prevBackupStorage === undefined) delete process.env.BACKUP_STORAGE_PATH;
+  else process.env.BACKUP_STORAGE_PATH = prevBackupStorage;
   client.close();
   await fs.rm(tmp, { recursive: true, force: true });
   // Bun module mocks are process-wide: put the real modules back for later files.

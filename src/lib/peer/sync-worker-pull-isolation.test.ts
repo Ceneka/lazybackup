@@ -3,7 +3,6 @@ import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
 import * as realPinned from '@/lib/net/pinned-fetch';
-import * as realGuard from '@/lib/net/url-guard';
 import type { PeerRow } from './types';
 
 type Call = { url: string; method: string };
@@ -21,15 +20,6 @@ mock.module('@/lib/db', () => ({
     }),
     query: { peers: { findMany: async () => [] } },
   },
-}));
-
-mock.module('@/lib/net/url-guard', () => ({
-  peerUrlPolicy: () => ({
-    allowPrivate: true,
-    allowCgnat: true,
-    allowHttp: true,
-    label: 'Peer URL',
-  }),
 }));
 
 mock.module('@/lib/net/pinned-fetch', () => ({
@@ -66,7 +56,6 @@ const { syncPeerOnce } = await import('./sync-worker');
 
 afterAll(() => {
   mock.module('@/lib/net/pinned-fetch', () => realPinned);
-  mock.module('@/lib/net/url-guard', () => realGuard);
 });
 
 function peer(overrides: Partial<PeerRow> = {}): PeerRow {

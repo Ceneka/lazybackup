@@ -1,7 +1,10 @@
 import { describe, expect, test } from 'bun:test';
 import http from 'http';
-import { pinnedFetch } from './pinned-fetch';
 import type { UrlGuardPolicy } from './url-guard';
+
+// Load a fresh copy: other test files mock @/lib/net/pinned-fetch, and Bun's
+// module mocks are process-wide, so a static import could bind to a mock.
+const { pinnedFetch } = await import(`./pinned-fetch?real=${Date.now()}`);
 
 const policy: UrlGuardPolicy = {
   allowPrivate: true,
