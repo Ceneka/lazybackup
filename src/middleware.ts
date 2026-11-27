@@ -1,3 +1,4 @@
+import { allowListForPath } from '@/lib/api/method-allow'
 import {
   getAuthStatus,
   maybeRefreshSessionCookie,
@@ -11,6 +12,32 @@ import {
 import { NextRequest, NextResponse } from 'next/server'
 
 /**
+ * JSON 405 + `Allow` for methods a static API route does not export, and 204
+ * for OPTIONS. Dynamic routes and non-API paths return `null` so Next handles
+ * them unchanged.
+ */
+function unsupportedMethodResponse(request: NextRequest): NextResponse | null {
+  const allow = allowListForPath(request.nextUrl.pathname)
+  if (!allow) return null
+
+  const allowHeader = allow.join(', ')
+  if (request.method === 'OPTIONS') {
+    return new NextResponse(null, {
+      status: 204,
+      headers: { Allow: allowHeader },
+    })
+  }
+
+  if (!allow.includes(request.method.toUpperCase())) {
+    return NextResponse.json(
+      { error: 'Method not allowed' },
+      { status: 405, headers: { Allow: allowHeader } }
+    )
+  }
+  return null
+}
+
+/**
  * Auth gate on the Node.js runtime so we can read SQLite / verify the session
  * in-process. Do not HTTP self-fetch /api/auth/status: Edge→LAN Host hangs,
  * and Edge→127.0.0.1 often fails — which fail-opens pages but 401s APIs.
@@ -20,8 +47,9 @@ import { NextRequest, NextResponse } from 'next/server'
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
+  // Public API routes have no auth gate to protect, so answer bad methods here.
   if (isPublicPath(pathname)) {
-    return NextResponse.next()
+    return unsupportedMethodResponse(request) ?? NextResponse.next()
   }
 
   try {
@@ -73,6 +101,11 @@ export async function middleware(request: NextRequest) {
         { status: 403 }
       )
     }
+
+    // Only after the auth/CSRF/read_only gate: unauthenticated callers must
+    // still get 401/403, never a 405 that reveals which methods exist.
+    const methodDenied = unsupportedMethodResponse(request)
+    if (methodDenied) return methodDenied
 
     if (
       requiresJsonMutationContentType(
