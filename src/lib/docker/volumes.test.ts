@@ -49,13 +49,17 @@ describe('buildPackDockerVolumeCommand', () => {
     const cmd = buildPackDockerVolumeCommand('myvol', '/tmp/lazybackup-abc', 'myvol.tar.gz', [
       'lost+found',
     ]);
+    expect(cmd).toContain('docker volume inspect \'myvol\' >/dev/null');
     expect(cmd).toContain('docker run --rm');
-    expect(cmd).toContain(`-v 'myvol:/from:ro'`);
+    // --mount + volume-nocopy: `-v` would auto-create a missing volume (empty backup).
+    expect(cmd).toContain(
+      `--mount 'type=volume,source=myvol,target=/data,volume-nocopy'`
+    );
     expect(cmd).toContain(`-v '/tmp/lazybackup-abc:/to'`);
     expect(cmd).toContain('alpine');
     expect(cmd).toContain(`tar czf '/to/myvol.tar.gz'`);
     expect(cmd).toContain(`--exclude='lost+found'`);
-    expect(cmd).toContain('-C /from .');
+    expect(cmd).toContain('-C /data .');
   });
 
   test('rejects invalid volume names before building', () => {

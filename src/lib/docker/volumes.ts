@@ -55,16 +55,23 @@ export function buildPackDockerVolumeCommand(
 ): string {
   assertValidDockerVolumeName(volumeName);
   const excludeArgs = buildTarExcludeArgs(excludePatterns);
+  // `docker run -v/--mount` auto-creates a missing named volume, so a renamed
+  // or mistyped volume would pack an empty directory and look successful.
+  // Re-inspect inside the same shell (defense in depth) and use --mount with
+  // volume-nocopy so the helper container never seeds the volume from the image.
   return [
     REMOTE_STANDARD_PATH,
+    `docker volume inspect ${shellSingleQuote(volumeName)} >/dev/null`,
+    '&&',
+    REMOTE_STANDARD_PATH,
     'docker run --rm',
-    `-v ${shellSingleQuote(`${volumeName}:/from:ro`)}`,
+    `--mount ${shellSingleQuote(`type=volume,source=${volumeName},target=/data,volume-nocopy`)}`,
     `-v ${shellSingleQuote(`${remoteTmpDir}:/to`)}`,
     HELPER_IMAGE,
     'tar czf',
     shellSingleQuote(`/to/${archiveFileName}`),
     excludeArgs,
-    '-C /from .',
+    '-C /data .',
   ]
     .filter(Boolean)
     .join(' ');
@@ -137,6 +144,37 @@ export async function assertDockerAvailable(ssh: NodeSSH): Promise<void> {
   }
 }
 
+const MISSING_VOLUME_RE = /no such volume/i;
+
+function missingVolumeError(volumeName: string, hostLabel: string): Error {
+  return new Error(
+    `Docker volume "${volumeName}" was not found on ${hostLabel}. Backups are not created for missing volumes.`
+  );
+}
+
+/**
+ * Fail when a named volume is missing. `docker run -v/--mount` auto-creates a
+ * named volume, so packing without this check would silently archive an empty
+ * directory and report a green (86-byte) backup.
+ */
+export async function assertDockerVolumeExists(
+  ssh: NodeSSH,
+  volumeName: string,
+  hostLabel = 'the source server'
+): Promise<void> {
+  assertValidDockerVolumeName(volumeName);
+  const result = await ssh.execCommand(
+    `${REMOTE_STANDARD_PATH} docker volume inspect ${shellSingleQuote(volumeName)}`
+  );
+  if (!commandFailed(result)) return;
+
+  const detail = (result.stderr || result.stdout || '').trim();
+  if (!detail || MISSING_VOLUME_RE.test(detail)) {
+    throw missingVolumeError(volumeName, hostLabel);
+  }
+  throw new Error(`Failed to inspect Docker volume ${volumeName} on ${hostLabel}: ${detail}`);
+}
+
 export async function listDockerVolumes(ssh: NodeSSH): Promise<string[]> {
   await assertDockerAvailable(ssh);
   const result = await ssh.execCommand(
@@ -167,10 +205,12 @@ export type PackDockerVolumeResult = {
 export async function packDockerVolume(
   ssh: NodeSSH,
   volumeName: string,
-  excludePatterns: string[] = []
+  excludePatterns: string[] = [],
+  hostLabel = 'the source server'
 ): Promise<PackDockerVolumeResult> {
   assertValidDockerVolumeName(volumeName);
   await assertDockerAvailable(ssh);
+  await assertDockerVolumeExists(ssh, volumeName, hostLabel);
 
   const mktemp = await ssh.execCommand(
     `${REMOTE_STANDARD_PATH} mktemp -d /tmp/lazybackup-docker-XXXXXX`
@@ -254,6 +294,12 @@ export async function checkRemoteDockerAvailable(ssh: NodeSSH): Promise<boolean>
   }
 }
 
+export type DockerShellRunner = (command: string) => Promise<{
+  stdout: string;
+  stderr: string;
+  code: number;
+}>;
+
 export async function execLocalSh(command: string): Promise<{
   stdout: string;
   stderr: string;
@@ -274,14 +320,35 @@ export async function execLocalSh(command: string): Promise<{
   }
 }
 
-export async function assertLocalDockerAvailable(): Promise<void> {
-  const result = await execLocalSh(`${REMOTE_STANDARD_PATH} docker info`);
+export async function assertLocalDockerAvailable(
+  runShell: DockerShellRunner = execLocalSh
+): Promise<void> {
+  const result = await runShell(`${REMOTE_STANDARD_PATH} docker info`);
   if (result.code !== 0) {
     const detail = (result.stderr || result.stdout || 'docker info failed').trim();
     throw new Error(
       `Docker is not available on this host (is the daemon running and is this process allowed to use the socket?). ${detail}`
     );
   }
+}
+
+/** Local mirror of `assertDockerVolumeExists` (same auto-create hazard). */
+export async function assertLocalDockerVolumeExists(
+  volumeName: string,
+  hostLabel = 'this host',
+  runShell: DockerShellRunner = execLocalSh
+): Promise<void> {
+  assertValidDockerVolumeName(volumeName);
+  const result = await runShell(
+    `${REMOTE_STANDARD_PATH} docker volume inspect ${shellSingleQuote(volumeName)}`
+  );
+  if (result.code === 0) return;
+
+  const detail = (result.stderr || result.stdout || '').trim();
+  if (!detail || MISSING_VOLUME_RE.test(detail)) {
+    throw missingVolumeError(volumeName, hostLabel);
+  }
+  throw new Error(`Failed to inspect Docker volume ${volumeName} on ${hostLabel}: ${detail}`);
 }
 
 export async function checkLocalDockerAvailable(): Promise<boolean> {
@@ -323,10 +390,12 @@ export type PackLocalDockerVolumeResult = {
 /** Pack a named volume on this host via alpine helper (`sh -c` of the remote command). */
 export async function packDockerVolumeLocal(
   volumeName: string,
-  excludePatterns: string[] = []
+  excludePatterns: string[] = [],
+  runShell: DockerShellRunner = execLocalSh
 ): Promise<PackLocalDockerVolumeResult> {
   assertValidDockerVolumeName(volumeName);
-  await assertLocalDockerAvailable();
+  await assertLocalDockerAvailable(runShell);
+  await assertLocalDockerVolumeExists(volumeName, 'this host', runShell);
 
   const localTmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'lazybackup-docker-'));
   const archiveFileName = `${volumeName}.tar.gz`;
@@ -336,7 +405,7 @@ export async function packDockerVolumeLocal(
     archiveFileName,
     excludePatterns
   );
-  const packResult = await execLocalSh(packCmd);
+  const packResult = await runShell(packCmd);
   if (packResult.code !== 0) {
     await fs.rm(localTmpDir, { recursive: true, force: true }).catch(() => {});
     throw new Error(
