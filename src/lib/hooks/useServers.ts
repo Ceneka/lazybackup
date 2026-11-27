@@ -154,7 +154,9 @@ export function useLocalDockerVolumes(enabled = true) {
       const data = await response.json()
 
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to list Docker volumes')
+        throw Object.assign(new Error(data.error || 'Failed to list Docker volumes'), {
+          code: data.code as string | undefined,
+        })
       }
 
       return data.volumes as string[]
@@ -173,7 +175,9 @@ export function useLocalDockerContainers(enabled = true) {
       const data = await response.json()
 
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to list Docker containers')
+        throw Object.assign(new Error(data.error || 'Failed to list Docker containers'), {
+          code: data.code as string | undefined,
+        })
       }
 
       return data.containers as string[]

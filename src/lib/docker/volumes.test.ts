@@ -4,12 +4,15 @@ import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
 import {
+  assertLocalDockerAvailable,
   assertValidDockerVolumeName,
   buildDockerVolumeRestoreScript,
   buildPackDockerVolumeCommand,
   buildRestoreDockerVolumeCommand,
   buildTarExcludeArgs,
   checkLocalDockerAvailable,
+  DockerUnavailableError,
+  isDockerCliMissing,
   isValidDockerVolumeName,
   listLocalDockerVolumes,
 } from './volumes';
@@ -151,6 +154,73 @@ describe('buildDockerVolumeRestoreScript behaviour (fake tar)', () => {
     expect(result.ok).toBe(false);
     expect(result.markerExists).toBe(false);
     expect(result.stderr).toContain('Refusing tar member path traversal');
+  });
+});
+
+describe('isDockerCliMissing', () => {
+  test('detects shell output for a missing docker binary', () => {
+    expect(isDockerCliMissing('/bin/sh: 1: docker: not found')).toBe(true);
+    expect(isDockerCliMissing('/bin/sh: docker: not found')).toBe(true);
+    expect(isDockerCliMissing('sh: docker: not found')).toBe(true);
+    expect(isDockerCliMissing('docker: not found')).toBe(true);
+    expect(isDockerCliMissing('docker: command not found')).toBe(true);
+    expect(
+      isDockerCliMissing('exec: "docker": executable file not found in $PATH')
+    ).toBe(true);
+  });
+
+  test('does not flag daemon or permission errors', () => {
+    expect(
+      isDockerCliMissing(
+        'Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?'
+      )
+    ).toBe(false);
+    expect(
+      isDockerCliMissing(
+        'permission denied while trying to connect to the Docker daemon socket'
+      )
+    ).toBe(false);
+    expect(isDockerCliMissing('docker info failed')).toBe(false);
+  });
+});
+
+describe('assertLocalDockerAvailable', () => {
+  test('reports a missing Docker CLI with an actionable message', async () => {
+    const error = await assertLocalDockerAvailable(async () => ({
+      stdout: '',
+      stderr: '/bin/sh: 1: docker: not found',
+      code: 127,
+    })).catch((err: unknown) => err);
+
+    expect(error).toBeInstanceOf(DockerUnavailableError);
+    expect((error as DockerUnavailableError).code).toBe('docker_cli_missing');
+    expect((error as Error).message).toContain(
+      'The Docker CLI is not installed in this environment'
+    );
+    expect((error as Error).message).toContain(
+      'Add this host as a Server over SSH instead, or run LazyBackup natively with Docker installed.'
+    );
+  });
+
+  test('reports an unreachable daemon separately', async () => {
+    const detail =
+      'Cannot connect to the Docker daemon at unix:///var/run/docker.sock';
+    const error = await assertLocalDockerAvailable(async () => ({
+      stdout: '',
+      stderr: detail,
+      code: 1,
+    })).catch((err: unknown) => err);
+
+    expect(error).toBeInstanceOf(DockerUnavailableError);
+    expect((error as DockerUnavailableError).code).toBe('docker_unreachable');
+    expect((error as Error).message).toContain('Docker is not reachable on this host');
+    expect((error as Error).message).toContain(detail);
+  });
+
+  test('resolves when docker info succeeds', async () => {
+    await expect(
+      assertLocalDockerAvailable(async () => ({ stdout: '', stderr: '', code: 0 }))
+    ).resolves.toBeUndefined();
   });
 });
 

@@ -259,6 +259,8 @@ function EndpointPanel({
   idPrefix,
 }: EndpointPanelProps) {
   const pathField = isSource ? "sourcePath" : "destinationPath"
+  const volumesErrorCode = (volumesQuery.error as (Error & { code?: string }) | null)
+    ?.code
   const [showPeerAdvanced, setShowPeerAdvanced] = useState(false)
   return (
     <fieldset className="min-w-0 flex-1 space-y-3 rounded-lg border bg-card p-4">
@@ -557,11 +559,17 @@ function EndpointPanel({
           {volumesQuery.isError && (
             <Alert variant="destructive">
               <AlertTriangleIcon className="h-4 w-4" />
-              <AlertTitle>Could not list volumes</AlertTitle>
+              <AlertTitle>
+                {volumesErrorCode === "docker_cli_missing"
+                  ? "Docker is not available in this instance"
+                  : "Could not list volumes"}
+              </AlertTitle>
               <AlertDescription>
-                {volumesQuery.error instanceof Error
-                  ? volumesQuery.error.message
-                  : "Failed to load Docker volumes"}
+                {volumesErrorCode === "docker_cli_missing"
+                  ? "LazyBackup needs the Docker CLI to list local volumes, and the official image ships without it. Back up a path instead, add this host as a Server over SSH, or run the image with the Docker CLI and /var/run/docker.sock."
+                  : volumesQuery.error instanceof Error
+                    ? volumesQuery.error.message
+                    : "Failed to load Docker volumes"}
               </AlertDescription>
             </Alert>
           )}
@@ -830,6 +838,9 @@ export function BackupConfigForm({
   )
   const activeContainersQuery =
     formData.sourceKind === "local" ? localContainersQuery : containersQuery
+  const containersErrorCode = (
+    activeContainersQuery.error as (Error & { code?: string }) | null
+  )?.code
 
   const sourceServer = servers.find((s) => s.id === formData.serverId)
   const destServer = servers.find((s) => s.id === formData.destinationServerId)
@@ -1886,11 +1897,17 @@ export function BackupConfigForm({
                       {activeContainersQuery.isError && (
                         <Alert variant="destructive">
                           <AlertTriangleIcon className="h-4 w-4" />
-                          <AlertTitle>Could not list containers</AlertTitle>
+                          <AlertTitle>
+                            {containersErrorCode === "docker_cli_missing"
+                              ? "Docker is not available in this instance"
+                              : "Could not list containers"}
+                          </AlertTitle>
                           <AlertDescription>
-                            {activeContainersQuery.error instanceof Error
-                              ? activeContainersQuery.error.message
-                              : "Failed to load Docker containers"}
+                            {containersErrorCode === "docker_cli_missing"
+                              ? "LazyBackup needs the Docker CLI to list local containers, and the official image ships without it. Use the native client instead, add this host as a Server over SSH, or run the image with the Docker CLI and /var/run/docker.sock."
+                              : activeContainersQuery.error instanceof Error
+                                ? activeContainersQuery.error.message
+                                : "Failed to load Docker containers"}
                           </AlertDescription>
                         </Alert>
                       )}

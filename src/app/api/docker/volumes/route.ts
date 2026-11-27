@@ -1,4 +1,7 @@
-import { listLocalDockerVolumes } from '@/lib/docker/volumes';
+import {
+  DockerUnavailableError,
+  listLocalDockerVolumes,
+} from '@/lib/docker/volumes';
 import { NextResponse } from 'next/server';
 
 // GET /api/docker/volumes — named volumes on this host
@@ -15,6 +18,12 @@ export async function GET() {
     return NextResponse.json({ volumes });
   } catch (error) {
     console.error('Failed to list local Docker volumes:', error);
+    if (error instanceof DockerUnavailableError) {
+      return NextResponse.json(
+        { error: error.message, code: error.code },
+        { status: 400 }
+      );
+    }
     return NextResponse.json(
       {
         error:

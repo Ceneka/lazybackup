@@ -320,14 +320,45 @@ export async function execLocalSh(command: string): Promise<{
   }
 }
 
+/**
+ * Shell output meaning the Docker CLI binary itself is missing (the official
+ * Alpine image ships no docker client), as opposed to a CLI that cannot reach
+ * the daemon. Must not match daemon / permission errors.
+ */
+const DOCKER_CLI_MISSING_RE =
+  /(?:^|[\s:])"?docker"?:\s*(?:command\s+)?not\s+found|exec:\s*"?docker"?:\s*executable file not found in \$?\{?PATH\}?/i;
+
+export function isDockerCliMissing(detail: string): boolean {
+  return DOCKER_CLI_MISSING_RE.test(detail);
+}
+
+export type DockerUnavailableCode = 'docker_cli_missing' | 'docker_unreachable';
+
+export class DockerUnavailableError extends Error {
+  readonly code: DockerUnavailableCode;
+  name = 'DockerUnavailableError';
+
+  constructor(message: string, code: DockerUnavailableCode) {
+    super(message);
+    this.code = code;
+  }
+}
+
+const DOCKER_CLI_MISSING_MESSAGE =
+  'The Docker CLI is not installed in this environment, so LazyBackup cannot list or pack Docker volumes on this host. Local Docker-volume backups and docker exec database dumps need the Docker CLI plus /var/run/docker.sock, and the official image ships neither. Add this host as a Server over SSH instead, or run LazyBackup natively with Docker installed.';
+
 export async function assertLocalDockerAvailable(
   runShell: DockerShellRunner = execLocalSh
 ): Promise<void> {
   const result = await runShell(`${REMOTE_STANDARD_PATH} docker info`);
   if (result.code !== 0) {
     const detail = (result.stderr || result.stdout || 'docker info failed').trim();
-    throw new Error(
-      `Docker is not available on this host (is the daemon running and is this process allowed to use the socket?). ${detail}`
+    if (isDockerCliMissing(detail)) {
+      throw new DockerUnavailableError(DOCKER_CLI_MISSING_MESSAGE, 'docker_cli_missing');
+    }
+    throw new DockerUnavailableError(
+      `Docker is not reachable on this host (is the daemon running and is this process allowed to use the socket?). ${detail}`,
+      'docker_unreachable'
     );
   }
 }
