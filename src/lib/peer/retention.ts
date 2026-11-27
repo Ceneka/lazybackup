@@ -3,6 +3,7 @@ import { nanoid } from 'nanoid';
 import { db } from '@/lib/db';
 import { backupHistory, peerDeletes, peers } from '@/lib/db/schema';
 import {
+  relativeKeyUnderPrefix,
   selectPeerKeysForFileRetention,
   selectPeerKeysForVersionRetention,
   type PeerObjectCandidate,
@@ -260,6 +261,22 @@ export async function applyPeerDestinationRetention(options: {
   let selected: string[] = [];
   if (options.enableVersioning && options.versionsToKeep) {
     selected = selectPeerKeysForVersionRetention(objects, prefix, options.versionsToKeep);
+    // Never delete the version this run just landed, even if its name sorts
+    // older than pre-existing folders (clock jump / future-dated copies).
+    const currentKey = options.extraObjects?.[0]?.key;
+    const currentRel = currentKey
+      ? relativeKeyUnderPrefix(currentKey, prefix)
+      : null;
+    const currentVersion =
+      currentRel && currentRel.includes('/')
+        ? currentRel.slice(0, currentRel.indexOf('/'))
+        : null;
+    if (currentVersion) {
+      selected = selected.filter((key) => {
+        const rel = relativeKeyUnderPrefix(key, prefix);
+        return !rel || !rel.startsWith(`${currentVersion}/`);
+      });
+    }
   } else if (
     !options.enableVersioning &&
     options.enableFileRetention &&

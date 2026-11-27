@@ -47,13 +47,22 @@ export function compareVersionDirNames(a: string, b: string): number {
   return parsedA.ordinal - parsedB.ordinal;
 }
 
-/** Names to delete when keeping the newest `versionsToKeep` version folders. */
+/**
+ * Names to delete when keeping the newest `versionsToKeep` version folders.
+ * `protectedNames` (the folder this run just wrote) are never deleted: a clock
+ * jump or a future-named folder must not make retention remove the fresh copy
+ * and report success.
+ */
 export function selectVersionDirNamesToDelete(
   names: readonly string[],
-  versionsToKeep: number
+  versionsToKeep: number,
+  protectedNames: Iterable<string> = []
 ): string[] {
   const keep = Math.max(0, versionsToKeep);
-  const versionNames = names.filter((name) => parseVersionDirName(name) !== null);
+  const shielded = new Set(protectedNames);
+  const versionNames = names.filter(
+    (name) => parseVersionDirName(name) !== null && !shielded.has(name)
+  );
   if (versionNames.length <= keep) return [];
   return [...versionNames]
     .sort(compareVersionDirNames)
@@ -100,7 +109,8 @@ export async function createUniqueLocalVersionDir(
  */
 export async function cleanupLocalVersionDirs(
   baseDir: string,
-  versionsToKeep: number
+  versionsToKeep: number,
+  options: { protectedNames?: Iterable<string> } = {}
 ): Promise<string[]> {
   try {
     const expandedBaseDir = path.resolve(expandHome(baseDir));
@@ -118,7 +128,11 @@ export async function cleanupLocalVersionDirs(
       .filter((entry) => entry.isDirectory() && parseVersionDirName(entry.name) !== null)
       .map((entry) => entry.name);
 
-    const toDelete = selectVersionDirNamesToDelete(versionDirs, versionsToKeep);
+    const toDelete = selectVersionDirNamesToDelete(
+      versionDirs,
+      versionsToKeep,
+      options.protectedNames
+    );
     const deleted: string[] = [];
 
     for (const dir of toDelete) {

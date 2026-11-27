@@ -60,6 +60,21 @@ describe('version dir names', () => {
       '2026-08-07_23-15-01',
     ]);
   });
+
+  test('never deletes the protected (just written) folder', () => {
+    const names = [
+      // A future-dated copy from a host with a fast clock.
+      '2030-01-01_00-00-00',
+      // The run that just finished after the clock was corrected.
+      '2026-08-07_23-15-03',
+    ];
+    expect(selectVersionDirNamesToDelete(names, 1)).toEqual([
+      '2026-08-07_23-15-03',
+    ]);
+    expect(
+      selectVersionDirNamesToDelete(names, 1, ['2026-08-07_23-15-03'])
+    ).toEqual([]);
+  });
 });
 
 describe('local version folders', () => {
@@ -100,5 +115,22 @@ describe('local version folders', () => {
     expect(remaining).toEqual(
       [path.basename(created[2]!), path.basename(created[3]!)].sort()
     );
+  });
+
+  test('a future-dated folder cannot make retention delete this run', async () => {
+    // Simulate a copy created while the clock was ahead.
+    const future = await createUniqueLocalVersionDir(root, '2030-01-01_00-00-00');
+    await fs.writeFile(path.join(future, 'old.txt'), 'older backup');
+
+    const current = await createUniqueLocalVersionDir(root, '2026-08-07_23-15-01');
+    await fs.writeFile(path.join(current, 'new.txt'), 'fresh backup');
+
+    const deleted = await cleanupLocalVersionDirs(root, 1, {
+      protectedNames: [path.basename(current)],
+    });
+
+    expect(deleted).toEqual([]);
+    expect(await fs.readFile(path.join(current, 'new.txt'), 'utf8')).toBe('fresh backup');
+    expect(await fs.readFile(path.join(future, 'old.txt'), 'utf8')).toBe('older backup');
   });
 });
