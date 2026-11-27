@@ -1,5 +1,6 @@
 import fs from 'fs/promises';
 import { createReadStream } from 'fs';
+import { randomBytes } from 'crypto';
 import path from 'path';
 import { sha256File } from './digest';
 
@@ -28,6 +29,23 @@ export function peerStagingObjectPath(peerId: string, objectKey: string): string
   return path.join(peerStagingDir(peerId), safe);
 }
 
+/**
+ * Temp name for an in-progress staged copy. Kept next to the final object (so
+ * the final rename is atomic on the same filesystem) and marked with
+ * `.part-` so `listStagedObjects` never advertises a half-written artifact:
+ * a peer that pulls mid-backup would store a truncated object whose digest can
+ * never match the ACK, and a crashed copy would wedge that mailbox forever.
+ */
+export function peerStagingTempPath(peerId: string, objectKey: string): string {
+  const dest = peerStagingObjectPath(peerId, objectKey);
+  return `${dest}.part-${process.pid}-${randomBytes(6).toString('hex')}`;
+}
+
+/** True for in-progress staging temp files created by `peerStagingTempPath`. */
+export function isStagingTempName(name: string): boolean {
+  return name.includes('.part-');
+}
+
 async function dirSize(dir: string): Promise<number> {
   let total = 0;
   let entries: Awaited<ReturnType<typeof fs.readdir>>;
@@ -41,6 +59,9 @@ async function dirSize(dir: string): Promise<number> {
     if (entry.isDirectory()) {
       total += await dirSize(full);
     } else if (entry.isFile()) {
+      // In-progress copies are not pending outgoing bytes and must not double
+      // count while an existing staged object is being replaced.
+      if (isStagingTempName(entry.name)) continue;
       const st = await fs.stat(full);
       total += st.size;
     }
@@ -92,11 +113,20 @@ export async function writeStagedObject(
   localFilePath: string
 ): Promise<{ size: number; sha256: string }> {
   const dest = peerStagingObjectPath(peerId, objectKey);
+  const temp = peerStagingTempPath(peerId, objectKey);
   await fs.mkdir(path.dirname(dest), { recursive: true });
-  await fs.copyFile(localFilePath, dest);
-  const st = await fs.stat(dest);
-  const sha256 = await sha256File(dest);
-  return { size: st.size, sha256 };
+  try {
+    // Copy + hash under a temp name: the object becomes visible to peers in a
+    // single atomic rename only once it is complete.
+    await fs.copyFile(localFilePath, temp);
+    const st = await fs.stat(temp);
+    const sha256 = await sha256File(temp);
+    await fs.rename(temp, dest);
+    return { size: st.size, sha256 };
+  } catch (error) {
+    await fs.unlink(temp).catch(() => {});
+    throw error;
+  }
 }
 
 export async function stagedObjectDigest(
@@ -161,6 +191,9 @@ export async function listStagedObjects(
       if (entry.isDirectory()) {
         await walk(full, key);
       } else if (entry.isFile()) {
+        // Never advertise an in-progress copy: a peer would store a truncated
+        // artifact it can never ACK.
+        if (isStagingTempName(entry.name)) continue;
         const st = await fs.stat(full);
         out.push({ key, size: st.size, mtime: st.mtime.toISOString() });
       }
