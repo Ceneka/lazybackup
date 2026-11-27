@@ -9,16 +9,101 @@ import { parseRestoreSnapshot } from '@/lib/backup/restore-snapshot';
 import { isValidDockerVolumeName } from '@/lib/docker/volumes';
 import { DB_NAME_RE, assertValidSqlitePath } from '@/lib/database';
 import { db } from '@/lib/db';
-import { backupHistory } from '@/lib/db/schema';
+import { backupHistory, servers } from '@/lib/db/schema';
 import {
   PeerRecallBlockedError,
   PeerRecallFailedError,
   PeerRecallPendingError,
   peerRecallWaitingResponse,
 } from '@/lib/peer/recall';
+import { connectToServer } from '@/lib/ssh';
 import { eq } from 'drizzle-orm';
 import { NextRequest, NextResponse } from 'next/server';
+import path from 'path';
 import { z } from 'zod';
+
+const TARGET_PATH_NOT_NORMALIZED = 'Target path must be normalized';
+
+/**
+ * Restore targets must already be normalized: `..`/`.` segments would let a
+ * caller escape the directory the path appears to name. Plain absolute and
+ * `~/...` paths are unchanged; `/`, storage roots, and their ancestors are
+ * still refused later by `assertRestorableLocalTarget`.
+ */
+function isNormalizedTargetPath(value: string): boolean {
+  return path.posix.normalize(value) === value;
+}
+
+const UNREACHABLE_CODES = new Set([
+  'ECONNREFUSED',
+  'ECONNRESET',
+  'EHOSTUNREACH',
+  'ENETUNREACH',
+  'ETIMEDOUT',
+  'EAI_AGAIN',
+]);
+
+/**
+ * Distinguish "the target cannot be reached" (502) from a bad key/config (400).
+ * A retarget used to surface both as an unlabelled 500 from the restore pipeline.
+ */
+function isUnreachableTargetError(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  if (typeof code === 'string' && UNREACHABLE_CODES.has(code)) return true;
+  const message = error instanceof Error ? error.message : String(error);
+  return /ECONNREFUSED|ECONNRESET|EHOSTUNREACH|ENETUNREACH|ETIMEDOUT|EAI_AGAIN|timed out|timeout|connection refused|no route to host|network is unreachable/i.test(
+    message
+  );
+}
+
+type RestoreTargetCheck =
+  | { ok: true }
+  | { ok: false; status: number; error: string };
+
+/**
+ * Fail fast before materializing an artifact when a retarget host is missing,
+ * password-only, or unreachable. Restores need key auth and the pipeline would
+ * otherwise report the SSH failure as a bare 500.
+ */
+async function checkRestoreTargetServer(
+  targetServerId: string
+): Promise<RestoreTargetCheck> {
+  const target = await db.query.servers.findFirst({
+    where: eq(servers.id, targetServerId),
+  });
+  if (!target) {
+    return {
+      ok: false,
+      status: 400,
+      error: `Restore on ${targetServerId} failed: target server not found`,
+    };
+  }
+
+  const name = target.name?.trim() || targetServerId;
+  if (target.authType !== 'key') {
+    return {
+      ok: false,
+      status: 400,
+      error: `Restore on ${name} failed: needs SSH key authentication (password-only cannot push the artifact).`,
+    };
+  }
+
+  let ssh: Awaited<ReturnType<typeof connectToServer>> | null = null;
+  try {
+    ssh = await connectToServer(target);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    return {
+      ok: false,
+      status: isUnreachableTargetError(error) ? 502 : 400,
+      error: `Restore on ${name} failed: ${reason}`,
+    };
+  } finally {
+    ssh?.dispose();
+  }
+
+  return { ok: true };
+}
 
 // POST /api/history/[id]/restore — restore path tree, Docker volume, or database dump
 export async function POST(
@@ -45,9 +130,20 @@ export async function POST(
     const { volumeName, databaseName, targetPath, allowRetarget, targetServerId } =
       restoreHistorySchema.parse(body);
 
+    if (targetPath !== undefined && !isNormalizedTargetPath(targetPath)) {
+      return NextResponse.json(
+        { error: TARGET_PATH_NOT_NORMALIZED },
+        { status: 400 }
+      );
+    }
+
     const historyEntry = await db.query.backupHistory.findFirst({
       where: eq(backupHistory.id, id),
-      with: { backupConfig: { columns: { sourceType: true, dbEngine: true } } },
+      with: {
+        backupConfig: {
+          columns: { sourceKind: true, sourceType: true, dbEngine: true },
+        },
+      },
     });
 
     if (!historyEntry) {
@@ -69,7 +165,25 @@ export async function POST(
 
     const snapshot = parseRestoreSnapshot(historyEntry.configSnapshot);
     const sourceType = snapshot?.sourceType || historyEntry.backupConfig?.sourceType || 'path';
+    const sourceKind = snapshot?.sourceKind || historyEntry.backupConfig?.sourceKind || null;
     const dbEngine = snapshot?.dbEngine ?? historyEntry.backupConfig?.dbEngine;
+
+    // Retarget preflight: only path/volume/database/Git restores can land on a
+    // server, and an S3 source explicitly forbids one (the pipeline says so).
+    if (
+      allowRetarget === true &&
+      targetServerId &&
+      sourceKind !== 's3' &&
+      ['path', 'docker_volume', 'database', 'git_repo'].includes(sourceType)
+    ) {
+      const targetCheck = await checkRestoreTargetServer(targetServerId);
+      if (!targetCheck.ok) {
+        return NextResponse.json(
+          { error: targetCheck.error },
+          { status: targetCheck.status }
+        );
+      }
+    }
 
     if (sourceType === 'database') {
       if (databaseName && dbEngine === 'sqlite') {

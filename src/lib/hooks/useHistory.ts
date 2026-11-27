@@ -1,4 +1,4 @@
-import { readApiError } from "@/lib/api/client-error"
+import { ApiError, readApiError } from "@/lib/api/client-error"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 
@@ -131,11 +131,13 @@ export function useHistoryDetail(id: string) {
       const res = await fetch(`/api/history/${id}`)
       if (!res.ok) {
         const { message } = await readApiError(res)
-        throw new Error(message)
+        throw new ApiError(message, { status: res.status })
       }
       return res.json() as Promise<BackupHistory>
     },
     enabled: !!id,
+    // A missing history row is permanent — fail fast instead of retrying the 404.
+    retry: (count, err) => (err as { status?: number }).status !== 404 && count < 3,
     // A running job has no SSE update until it finishes; keep the detail fresh
     // so Completed/Duration/log follow the run. Staged Bro Space runs keep
     // polling until the friend ACKs (or the delivery fails).
