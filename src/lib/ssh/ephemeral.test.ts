@@ -7,11 +7,13 @@ import {
   buildAuthorizedKeysEntry,
   buildEphemeralKeyMarker,
   buildReachabilityProbeCommand,
+  buildRemoteFileListCommand,
   buildRemoveAuthorizedKeysCommand,
   ensureRemoteDirectory,
   EPHEMERAL_KEY_MARKER_PREFIX,
   cleanupRemoteOldFiles,
   cleanupRemoteOldVersions,
+  parseRemoteFileListing,
   runEphemeralDirectRsync,
   stripAuthorizedKeysMarker,
 } from '@/lib/ssh/ephemeral';
@@ -117,7 +119,7 @@ describe('remote path expansion and mkdir safety', () => {
           };
         }
         if (command.includes('find ')) {
-          return { code: 0, stdout: '1600000000 old.sql.gz\n', stderr: '' };
+          return { code: 0, stdout: '1600000000 ./old.sql.gz\n', stderr: '' };
         }
         return { code: 0, stdout: '', stderr: '' };
       },
@@ -128,8 +130,105 @@ describe('remote path expansion and mkdir safety', () => {
 
     expect(commands[0]).toContain(`ls -1 -- "$HOME"/'versions'`);
     expect(commands[1]).toContain(`rm -rf -- "$HOME"/'versions/2020-01-01_00-00-00'`);
-    expect(commands[2]).toContain(`find "$HOME"/'files'`);
+    expect(commands[2]).toContain(`cd "$HOME"/'files' && find . -maxdepth 1 -type f`);
+    expect(commands[2]).toContain(`stat -c '%Y %n'`);
+    expect(commands[2]).not.toContain('-printf');
     expect(commands[3]).toContain(`rm -f -- "$HOME"/'files/old.sql.gz'`);
+  });
+});
+
+describe('remote file retention listing (BusyBox + GNU)', () => {
+  test('builds a portable find/stat command with ~ expansion and quoting', () => {
+    expect(buildRemoteFileListCommand('~/backups')).toBe(
+      `PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" cd "$HOME"/'backups' && find . -maxdepth 1 -type f -exec stat -c '%Y %n' {} +`
+    );
+    expect(buildRemoteFileListCommand('/srv/my backups')).toContain(`cd '/srv/my backups'`);
+    expect(buildRemoteFileListCommand("/srv/it's here")).toContain(`cd '/srv/it'\\''s here'`);
+    expect(buildRemoteFileListCommand('/srv/b')).not.toContain('-printf');
+  });
+
+  test('parses stat output with spaces and quotes in file names', () => {
+    const { files, invalidLines } = parseRemoteFileListing(
+      [
+        '1600000000 ./old.sql.gz',
+        '1600000001 ./old 2.tar.gz',
+        "1600000002 ./old-quoted 'x'.tar.gz.age",
+        '',
+      ].join('\n')
+    );
+    expect(invalidLines).toBe(0);
+    expect(files).toEqual([
+      { name: 'old.sql.gz', mtimeMs: 1600000000 * 1000 },
+      { name: 'old 2.tar.gz', mtimeMs: 1600000001 * 1000 },
+      { name: "old-quoted 'x'.tar.gz.age", mtimeMs: 1600000002 * 1000 },
+    ]);
+  });
+
+  test('counts unparseable lines and rejects traversal names', () => {
+    const { files, invalidLines } = parseRemoteFileListing(
+      ['garbage', 'not-a-number ./x.tar.gz', '1600000000 ./ok.tar.gz', '1600000000 ./sub/'].join(
+        '\n'
+      )
+    );
+    expect(invalidLines).toBe(3);
+    expect(files).toEqual([{ name: 'ok.tar.gz', mtimeMs: 1600000000 * 1000 }]);
+  });
+
+  test('empty listing means an empty directory, not an error', () => {
+    expect(parseRemoteFileListing('')).toEqual({ files: [], invalidLines: 0 });
+  });
+
+  test('logs a warning and deletes nothing when the listing command fails', async () => {
+    const commands: string[] = [];
+    const fakeSsh = {
+      execCommand: async (command: string) => {
+        commands.push(command);
+        return { code: 127, stdout: '', stderr: 'stat: not found' };
+      },
+    } as unknown as NodeSSH;
+
+    const warnings: unknown[][] = [];
+    const originalWarn = console.warn;
+    console.warn = (...args: unknown[]) => {
+      warnings.push(args);
+    };
+    try {
+      await expect(cleanupRemoteOldFiles(fakeSsh, '/srv/backups', 1, 'days', 0)).resolves.toEqual(
+        []
+      );
+    } finally {
+      console.warn = originalWarn;
+    }
+
+    expect(warnings.length).toBe(1);
+    expect(String(warnings[0][0])).toContain('could not list remote files');
+    expect(String(warnings[0][0])).toContain('stat: not found');
+    expect(commands.join('\n')).not.toContain('rm -f');
+  });
+
+  test('warns about unparseable listing lines', async () => {
+    const fakeSsh = {
+      execCommand: async () => ({
+        code: 0,
+        stdout: '1600000000 ./old.sql.gz\nmystery output\n',
+        stderr: '',
+      }),
+    } as unknown as NodeSSH;
+
+    const warnings: unknown[][] = [];
+    const originalWarn = console.warn;
+    console.warn = (...args: unknown[]) => {
+      warnings.push(args);
+    };
+    try {
+      const deleted = await cleanupRemoteOldFiles(fakeSsh, '/srv/backups', 1, 'days', 0);
+      expect(deleted).toEqual(['old.sql.gz']);
+    } finally {
+      console.warn = originalWarn;
+    }
+
+    expect(warnings.length).toBe(1);
+    expect(String(warnings[0][0])).toContain('unparseable line');
   });
 });
 
