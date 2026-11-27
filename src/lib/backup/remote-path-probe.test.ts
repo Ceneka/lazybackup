@@ -96,4 +96,13 @@ describe('remote path probe quoting', () => {
         .code
     ).toBe(0);
   });
+
+  test('probe commands do not require bash on the remote host', () => {
+    // Alpine/BusyBox SSH targets ship no bash. Both probes must run under a
+    // POSIX `sh`, otherwise a real artifact is reported as missing.
+    expect(buildRemotePathKindCommand('/srv/backups')).not.toMatch(/\bbash\b/);
+    expect(buildRemoteDestWritableCommand('/srv/backups')).not.toMatch(/\bbash\b/);
+    expect(buildRemotePathKindCommand('/srv/backups')).toMatch(/^sh -lc /);
+    expect(buildRemoteDestWritableCommand('/srv/backups')).toMatch(/^sh -lc /);
+  });
 });
