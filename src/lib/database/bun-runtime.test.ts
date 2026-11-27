@@ -7,6 +7,7 @@ import { gunzipSync } from 'zlib';
 import {
   BUN_RUNTIME_UNAVAILABLE_MESSAGE,
   BunRuntimeUnavailableError,
+  formatSqliteFallbackWarning,
   packDatabaseDumpLocal,
   resetBunBinaryCacheForTests,
   resolveBunBinary,
@@ -340,30 +341,28 @@ describe('sqlite dump cp-fallback warning', () => {
     });
   });
 
-  test('keeps a spawned Bun failure to one line, not a stack trace', async () => {
-    await withTmpDir(async (dir) => {
-      const dbPath = path.join(dir, 'garbage.db');
-      await fs.writeFile(dbPath, 'this is not a sqlite database');
-      // Bun is available (test runs under it), but sqlite3 is not, so the
-      // snapshot is attempted and fails with Bun's multi-line stack.
-      process.env.PATH = await shellToolsOnly(dir);
+  test('keeps a spawned runtime failure to one line, not a stack trace', () => {
+    // Deterministic: exercising the full dump path depends on whether the host
+    // has sqlite3 (the Alpine image does), which changes the fallback command.
+    const stacky = new Error(
+      [
+        'SQLiteError: file is not a database',
+        '    at Database.prepare (bun:sqlite:1:1)',
+        '    at async run (/app/src/lib/database/index.ts:1:1)',
+        'Bun v1.4.4',
+      ].join('\n')
+    );
 
-      const packed = await packDatabaseDumpLocal({
-        engine: 'sqlite',
-        client: 'native',
-        user: 'sqlite',
-        database: dbPath,
-      });
-      try {
-        const [firstLine] = packed.stderr.split('\n');
-        expect(firstLine.startsWith('SQLite consistent snapshot unavailable (')).toBe(true);
-        expect(firstLine).toContain('file is not a database');
-        expect(firstLine).not.toContain('\n');
-        expect(packed.stderr).not.toContain('    at ');
-        expect(packed.stderr).not.toContain('Bun v');
-      } finally {
-        await fs.rm(packed.tmpDir, { recursive: true, force: true });
-      }
-    });
+    const warning = formatSqliteFallbackWarning(stacky);
+    expect(warning).toBe(
+      'SQLite consistent snapshot unavailable (SQLiteError: file is not a database); using cp fallback'
+    );
+    expect(warning).not.toContain('\n');
+    expect(warning).not.toContain('    at ');
+    expect(warning).not.toContain('Bun v');
+    expect(warning.length).toBeLessThan(240);
+
+    const noMessage = Object.assign(new Error(''), { code: 'ENOENT' });
+    expect(formatSqliteFallbackWarning(noMessage)).toContain('ENOENT');
   });
 });

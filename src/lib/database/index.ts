@@ -953,6 +953,15 @@ function compactErrorReason(error: unknown, max = 200): string {
   return reason.length > max ? `${reason.slice(0, max - 1)}…` : reason;
 }
 
+/**
+ * One-line warning prepended to a SQLite dump when the consistent snapshot is
+ * unavailable. The spawned runtime can print a multi-line stack; only the
+ * reason (first line / code) belongs in a user-visible backup log.
+ */
+export function formatSqliteFallbackWarning(error: unknown): string {
+  return `SQLite consistent snapshot unavailable (${compactErrorReason(error)}); using cp fallback`;
+}
+
 /** Dump database to a temp .sql.gz on the local host. Caller must clean up tmpDir. */
 export async function packDatabaseDumpLocal(
   conn: DatabaseConnection
@@ -977,10 +986,9 @@ export async function packDatabaseDumpLocal(
             ['/bin/sh', '-c', buildPackDatabaseCommand(conn, archivePath)],
             { ...process.env }
           );
-          const reason = compactErrorReason(snapshotError);
           result = {
             ...fallback,
-            stderr: `SQLite consistent snapshot unavailable (${reason}); using cp fallback\n${fallback.stderr}`,
+            stderr: `${formatSqliteFallbackWarning(snapshotError)}\n${fallback.stderr}`,
           };
         }
       }
