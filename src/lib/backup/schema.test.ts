@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { collectBackupConfigReferenceChecks } from './config-update';
 import { backupConfigSchema } from './schema';
 
 describe('backupConfigSchema', () => {
@@ -19,6 +20,38 @@ describe('backupConfigSchema', () => {
     expect(parsed.sourceType).toBe('path');
     expect(parsed.sourceKind).toBe('server');
     expect(parsed.destinationKind).toBe('local');
+  });
+
+  test('rejects invalid 5-field cron expressions', () => {
+    for (const schedule of ['not a cron', '0 0 * *', '60 0 * * *', '0 0 * * 8']) {
+      const result = backupConfigSchema.safeParse({
+        ...base,
+        sourcePath: '/var/www',
+        schedule,
+      });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(
+          result.error.issues.some(
+            (issue) =>
+              issue.path.join('.') === 'schedule' &&
+              issue.message ===
+                'Invalid cron expression — use 5 fields (minute hour day month weekday)'
+          )
+        ).toBe(true);
+      }
+    }
+  });
+
+  test('accepts valid cron expressions with five fields', () => {
+    for (const schedule of ['*/5 * * * *', '0 0 1 1 *', '0 0 * * mon']) {
+      const parsed = backupConfigSchema.parse({
+        ...base,
+        sourcePath: '/var/www',
+        schedule,
+      });
+      expect(parsed.schedule).toBe(schedule);
+    }
   });
 
   test('accepts valid docker volume source', () => {
@@ -416,6 +449,116 @@ describe('backupConfigSchema', () => {
       schedule: '0 0 * * *',
     });
     expect(result.success).toBe(false);
+  });
+});
+
+describe('backupConfigSchema null clears by source type', () => {
+  const nulls = {
+    name: 'nulls',
+    destinationKind: 'local' as const,
+    destinationPath: '/backups/nulls',
+    schedule: '0 0 * * *',
+    excludePatterns: null,
+    preBackupCommands: null,
+  };
+
+  test('path source keeps explicit nulls', () => {
+    const parsed = backupConfigSchema.parse({
+      ...nulls,
+      sourceKind: 'local',
+      sourceType: 'path',
+      sourcePath: '/tmp/src',
+    });
+    expect(parsed.excludePatterns).toBeNull();
+    expect(parsed.preBackupCommands).toBeNull();
+  });
+
+  test('database source keeps explicit nulls', () => {
+    const parsed = backupConfigSchema.parse({
+      ...nulls,
+      sourceKind: 'local',
+      sourceType: 'database',
+      sourcePath: 'appdb',
+      dbEngine: 'postgres',
+      dbClient: 'native',
+      dbUser: 'app',
+    });
+    expect(parsed.excludePatterns).toBeNull();
+    expect(parsed.preBackupCommands).toBeNull();
+  });
+
+  test('instance source keeps explicit nulls', () => {
+    const parsed = backupConfigSchema.parse({
+      ...nulls,
+      sourceKind: 'local',
+      sourceType: 'lazybackup_instance',
+      sourcePath: '',
+    });
+    expect(parsed.excludePatterns).toBeNull();
+    expect(parsed.preBackupCommands).toBeNull();
+  });
+
+  test('git source keeps explicit nulls', () => {
+    const parsed = backupConfigSchema.parse({
+      ...nulls,
+      sourceKind: 'git',
+      sourceGitRepoId: 'repo1',
+      sourceType: 'git_repo',
+      sourcePath: '',
+    });
+    expect(parsed.excludePatterns).toBeNull();
+    expect(parsed.preBackupCommands).toBeNull();
+  });
+
+  test('omitted values stay undefined for the update path', () => {
+    const parsed = backupConfigSchema.parse({
+      sourceKind: 'local',
+      sourceType: 'lazybackup_instance',
+      sourcePath: '',
+      name: 'omitted',
+      destinationKind: 'local',
+      destinationPath: '/backups/omitted',
+      schedule: '0 0 * * *',
+    });
+    expect(parsed.excludePatterns).toBeUndefined();
+    expect(parsed.preBackupCommands).toBeUndefined();
+  });
+});
+
+describe('backup config reference checks', () => {
+  test('reports FK-shaped paths/messages for candidate ids', () => {
+    const checks = collectBackupConfigReferenceChecks({
+      serverId: 'srv1',
+      sourceS3ProfileId: null,
+      sourceGitRepoId: 'git1',
+      destinationServerId: 'srv2',
+      destinationS3ProfileId: 's3p1',
+      destinationPeerId: 'peer1',
+    });
+    expect(checks).toEqual([
+      { path: ['serverId'], id: 'srv1', message: 'Server not found' },
+      {
+        path: ['sourceGitRepoId'],
+        id: 'git1',
+        message: 'Git repository not found',
+      },
+      { path: ['destinationServerId'], id: 'srv2', message: 'Server not found' },
+      {
+        path: ['destinationS3ProfileId'],
+        id: 's3p1',
+        message: 'S3 profile not found',
+      },
+      { path: ['destinationPeerId'], id: 'peer1', message: 'Bro peer not found' },
+    ]);
+  });
+
+  test('ignores null and blank ids', () => {
+    expect(
+      collectBackupConfigReferenceChecks({
+        serverId: null,
+        destinationPeerId: '   ',
+      })
+    ).toEqual([]);
   });
 });
 

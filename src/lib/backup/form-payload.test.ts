@@ -51,13 +51,13 @@ describe('formDataToPayload preBackupCommands', () => {
     expect(payload.preBackupCommands).toBeNull();
   });
 
-  test('keeps a non-empty value exactly (including newlines)', () => {
-    const commands = 'echo "before"\n/opt/app/stop.sh\n';
+  test('trims surrounding whitespace and keeps inner newlines', () => {
+    const commands = '  echo "before"\n/opt/app/stop.sh  \n';
     const payload = formDataToPayload(makeFormData({ preBackupCommands: commands }));
-    expect(payload.preBackupCommands).toBe(commands);
+    expect(payload.preBackupCommands).toBe('echo "before"\n/opt/app/stop.sh');
   });
 
-  test('is omitted for S3 sources, Git sources and instance backups', () => {
+  test('is omitted for S3 and Git sources, cleared for instance backups', () => {
     const value = 'echo hi';
     expect(
       formDataToPayload(
@@ -73,7 +73,7 @@ describe('formDataToPayload preBackupCommands', () => {
       formDataToPayload(
         makeFormData({ sourceType: 'lazybackup_instance', preBackupCommands: value })
       ).preBackupCommands
-    ).toBeUndefined();
+    ).toBeNull();
   });
 });
 
@@ -89,13 +89,13 @@ describe('formDataToPayload excludePatterns', () => {
     expect(payload.excludePatterns).toBeNull();
   });
 
-  test('keeps a non-empty value exactly', () => {
-    const patterns = '*.log\nnode_modules\n.cache';
+  test('trims surrounding whitespace and keeps inner newlines', () => {
+    const patterns = '  *.log\nnode_modules\n.cache  ';
     const payload = formDataToPayload(makeFormData({ excludePatterns: patterns }));
-    expect(payload.excludePatterns).toBe(patterns);
+    expect(payload.excludePatterns).toBe('*.log\nnode_modules\n.cache');
   });
 
-  test('is omitted for database, instance and Git sources', () => {
+  test('is omitted for database sources and cleared for instance/Git sources', () => {
     const value = '*.log';
     expect(
       formDataToPayload(makeFormData({ sourceType: 'database', excludePatterns: value }))
@@ -104,11 +104,42 @@ describe('formDataToPayload excludePatterns', () => {
     expect(
       formDataToPayload(makeFormData({ sourceType: 'lazybackup_instance', excludePatterns: value }))
         .excludePatterns
-    ).toBeUndefined();
+    ).toBeNull();
     expect(
       formDataToPayload(makeFormData({ sourceType: 'git_repo', excludePatterns: value }))
         .excludePatterns
-    ).toBeUndefined();
+    ).toBeNull();
+  });
+});
+
+describe('formDataToPayload instance passphrase', () => {
+  test('blank with a stored passphrase is omitted so PUT keeps it', () => {
+    const payload = formDataToPayload(
+      makeFormData({
+        sourceType: 'lazybackup_instance',
+        instanceBackupPassphrase: '   ',
+        hasInstanceBackupPassphrase: true,
+      })
+    );
+    expect(payload.instanceBackupPassphrase).toBeUndefined();
+    expect(JSON.stringify(payload)).not.toContain('instanceBackupPassphrase');
+  });
+
+  test('blank without a stored passphrase sends null', () => {
+    const payload = formDataToPayload(
+      makeFormData({ sourceType: 'lazybackup_instance', instanceBackupPassphrase: '' })
+    );
+    expect(payload.instanceBackupPassphrase).toBeNull();
+  });
+
+  test('a non-empty passphrase is sent as-is', () => {
+    const payload = formDataToPayload(
+      makeFormData({
+        sourceType: 'lazybackup_instance',
+        instanceBackupPassphrase: '  secret-pass-12  ',
+      })
+    );
+    expect(payload.instanceBackupPassphrase).toBe('  secret-pass-12  ');
   });
 });
 

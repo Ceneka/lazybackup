@@ -1,4 +1,5 @@
 import { MIN_WRAP_PASSPHRASE_LENGTH } from '@/lib/crypto/constants';
+import { getNextCronDate } from '@/lib/cron/next';
 import { DOCKER_VOLUME_NAME_RE } from '@/lib/docker/volumes';
 import { assertValidSqlitePath } from '@/lib/database';
 import { z } from 'zod';
@@ -10,53 +11,93 @@ export const dbEngineSchema = z.enum(['postgres', 'mysql', 'mariadb', 'sqlite'])
 export const dbClientSchema = z.enum(['native', 'docker']);
 export const endpointKindSchema = z.enum(['local', 'server', 's3', 'peer']);
 
-export const backupConfigSchema = z
-  .object({
-    name: z.string().min(1, 'Name is required'),
-    sourceKind: z.enum(['local', 'server', 's3', 'git']).default('server'),
-    /** Source server when sourceKind === 'server' (legacy field name) */
-    serverId: z.string().nullable().optional(),
-    sourceS3ProfileId: z.string().nullable().optional(),
-    sourceGitRepoId: z.string().nullable().optional(),
-    destinationKind: endpointKindSchema.default('local'),
-    destinationServerId: z.string().nullable().optional(),
-    destinationS3ProfileId: z.string().nullable().optional(),
-    destinationPeerId: z.string().nullable().optional(),
-    sourceType: z
-      .enum(['path', 'docker_volume', 'database', 'lazybackup_instance', 'git_repo'])
-      .default('path'),
-    sourcePath: z.string().default(''),
-    destinationPath: z.string().min(1, 'Destination path is required'),
-    schedule: z.string().min(1, 'Schedule is required'),
-    // GET returns null for unset fields; the form sends null when a field is
-    // cleared. null = clear explicitly, undefined = field omitted (keep stored).
-    excludePatterns: z.string().nullable().optional(),
-    preBackupCommands: z.string().nullable().optional(),
-    dbEngine: dbEngineSchema.nullable().optional(),
-    dbClient: dbClientSchema.nullable().optional(),
-    dbContainer: z.string().nullable().optional(),
-    dbHost: z.string().nullable().optional(),
-    dbPort: z
-      .preprocess(
-        (v) => (v === null || v === undefined || v === '' ? null : v),
-        z.coerce.number().int().min(1).max(65535).nullable()
-      )
-      .optional(),
-    dbUser: z.string().nullable().optional(),
-    dbPassword: z.string().nullable().optional(),
-    /** Optional age passphrase wrap for lazybackup_instance (not instance age keys) */
-    instanceBackupPassphrase: z.string().nullable().optional(),
-    enabled: z.boolean().default(true),
-    enableEncryption: z.boolean().default(false),
-    /** rsync --delete for unencrypted path transfers (ignored for S3/peer/archives) */
-    deleteExtraneous: z.boolean().default(false),
-    enableVersioning: z.boolean().default(false),
-    versionsToKeep: z.coerce.number().min(1).max(100).optional().default(5),
-    enableFileRetention: z.boolean().default(false),
-    retentionMaxAge: z.coerce.number().min(1).max(3650).optional().default(30),
-    retentionMaxAgeUnit: z.enum(['days', 'months']).default('days'),
-    retentionMinKeep: z.coerce.number().min(1).max(10000).optional().default(5),
-  })
+export const CRON_VALIDATION_MESSAGE =
+  'Invalid cron expression — use 5 fields (minute hour day month weekday)';
+
+/** True for a parseable 5-field cron expression (the scheduler's format). */
+export function isValidCronExpression(expression: string): boolean {
+  const trimmed = expression.trim();
+  if (!trimmed || trimmed.split(/\s+/).length !== 5) return false;
+  return getNextCronDate(trimmed) !== null;
+}
+
+/**
+ * Base field map shared by create (POST) and update (PUT). Update semantics
+ * differ only in defaults: an omitted key must stay omitted so the route can
+ * keep the stored value, while create still materializes full defaults.
+ */
+const backupConfigFields = {
+  name: z.string().min(1, 'Name is required'),
+  sourceKind: z.enum(['local', 'server', 's3', 'git']),
+  /** Source server when sourceKind === 'server' (legacy field name) */
+  serverId: z.string().nullable().optional(),
+  sourceS3ProfileId: z.string().nullable().optional(),
+  sourceGitRepoId: z.string().nullable().optional(),
+  destinationKind: endpointKindSchema,
+  destinationServerId: z.string().nullable().optional(),
+  destinationS3ProfileId: z.string().nullable().optional(),
+  destinationPeerId: z.string().nullable().optional(),
+  sourceType: z.enum([
+    'path',
+    'docker_volume',
+    'database',
+    'lazybackup_instance',
+    'git_repo',
+  ]),
+  sourcePath: z.string(),
+  destinationPath: z.string().min(1, 'Destination path is required'),
+  schedule: z
+    .string()
+    .min(1, 'Schedule is required')
+    .refine(isValidCronExpression, { message: CRON_VALIDATION_MESSAGE }),
+  // GET returns null for unset fields; the form sends null when a field is
+  // cleared. null = clear explicitly, undefined = field omitted (keep stored).
+  excludePatterns: z.string().nullable().optional(),
+  preBackupCommands: z.string().nullable().optional(),
+  dbEngine: dbEngineSchema.nullable().optional(),
+  dbClient: dbClientSchema.nullable().optional(),
+  dbContainer: z.string().nullable().optional(),
+  dbHost: z.string().nullable().optional(),
+  dbPort: z
+    .preprocess(
+      (v) => (v === null || v === undefined || v === '' ? null : v),
+      z.coerce.number().int().min(1).max(65535).nullable()
+    )
+    .optional(),
+  dbUser: z.string().nullable().optional(),
+  dbPassword: z.string().nullable().optional(),
+  /** Optional age passphrase wrap for lazybackup_instance (not instance age keys) */
+  instanceBackupPassphrase: z.string().nullable().optional(),
+  enabled: z.boolean(),
+  enableEncryption: z.boolean(),
+  /** rsync --delete for unencrypted path transfers (ignored for S3/peer/archives) */
+  deleteExtraneous: z.boolean(),
+  enableVersioning: z.boolean(),
+  versionsToKeep: z.coerce.number().min(1).max(100).nullable().optional(),
+  enableFileRetention: z.boolean(),
+  retentionMaxAge: z.coerce.number().min(1).max(3650).nullable().optional(),
+  retentionMaxAgeUnit: z.enum(['days', 'months']).nullable().optional(),
+  retentionMinKeep: z.coerce.number().min(1).max(10000).nullable().optional(),
+};
+
+const backupConfigObjectSchema = z.object({
+  ...backupConfigFields,
+  sourceKind: backupConfigFields.sourceKind.default('server'),
+  destinationKind: backupConfigFields.destinationKind.default('local'),
+  sourceType: backupConfigFields.sourceType.default('path'),
+  sourcePath: backupConfigFields.sourcePath.default(''),
+  enabled: backupConfigFields.enabled.default(true),
+  enableEncryption: backupConfigFields.enableEncryption.default(false),
+  deleteExtraneous: backupConfigFields.deleteExtraneous.default(false),
+  enableVersioning: backupConfigFields.enableVersioning.default(false),
+  versionsToKeep: backupConfigFields.versionsToKeep.default(5),
+  enableFileRetention: backupConfigFields.enableFileRetention.default(false),
+  retentionMaxAge: backupConfigFields.retentionMaxAge.default(30),
+  retentionMaxAgeUnit: backupConfigFields.retentionMaxAgeUnit.default('days'),
+  retentionMinKeep: backupConfigFields.retentionMinKeep.default(5),
+});
+
+export const backupConfigSchema = backupConfigObjectSchema
   .superRefine((data, ctx) => {
     if (data.sourceType !== 'lazybackup_instance' && data.sourceType !== 'git_repo' && !data.sourcePath.trim()) {
       ctx.addIssue({
@@ -358,10 +399,42 @@ export const backupConfigSchema = z
       dbPort: isDatabase && data.dbEngine !== 'sqlite' ? data.dbPort ?? null : null,
       dbUser: isDatabase && data.dbEngine !== 'sqlite' ? data.dbUser?.trim() || null : null,
       dbPassword: isDatabase && data.dbEngine !== 'sqlite' ? data.dbPassword ?? '' : null,
-      preBackupCommands: isInstance || isGit ? undefined : data.preBackupCommands,
-      excludePatterns: isInstance || isDatabase || isGit ? undefined : data.excludePatterns,
+      // Keep undefined (keep stored on update) distinct from null (clear). A
+      // concrete value on a source type that cannot use it becomes a clear so
+      // a type switch never leaves a stale command/pattern behind.
+      preBackupCommands: isInstance || isGit
+        ? data.preBackupCommands === undefined
+          ? undefined
+          : null
+        : data.preBackupCommands,
+      excludePatterns: isInstance || isDatabase || isGit
+        ? data.excludePatterns === undefined
+          ? undefined
+          : null
+        : data.excludePatterns,
     };
   });
+
+/**
+ * Update (PUT) input: every field is optional and nullable so an omitted key
+ * can keep the stored value while an explicit null clears it. Defaults are not
+ * materialized here — that is what used to reset omitted fields on every PUT.
+ * The update helper maps null on NOT NULL boolean columns to their default.
+ */
+export const backupConfigUpdateSchema = z
+  .object({
+    ...backupConfigFields,
+    enabled: z.boolean().nullable(),
+    enableEncryption: z.boolean().nullable(),
+    deleteExtraneous: z.boolean().nullable(),
+    enableVersioning: z.boolean().nullable(),
+    enableFileRetention: z.boolean().nullable(),
+  })
+  .partial();
+
+export type BackupConfigValues = z.output<typeof backupConfigSchema>;
+export type BackupConfigUpdateInput = z.input<typeof backupConfigUpdateSchema>;
+export type ParsedBackupConfigUpdate = z.output<typeof backupConfigUpdateSchema>;
 
 /** Body for POST /api/backups/database/test */
 export const databaseConnectionTestSchema = z

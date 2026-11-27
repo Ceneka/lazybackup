@@ -5,8 +5,13 @@ import {
   assertCanSetPreBackupCommands,
   resolveAuth,
 } from '@/lib/auth';
+import {
+  BackupConfigReferenceError,
+  assertBackupConfigReferences,
+  buildBackupConfigUpdate,
+} from '@/lib/backup/config-update';
 import { findExactDestinationConflict } from '@/lib/backup/destination-guard';
-import { backupConfigSchema } from '@/lib/backup/schema';
+import { backupConfigUpdateSchema } from '@/lib/backup/schema';
 import { assertTransferServersHaveKeys } from '@/lib/backup/assert-transfer-keys';
 import { TransferKeyRequiredError } from '@/lib/backup/transfer-keys';
 import { attachLastValidation } from '@/lib/backup/validate';
@@ -100,8 +105,9 @@ export async function PUT(
 
     const body = await request.json();
 
-    // Validate the request body
-    const validatedData = backupConfigSchema.parse(body);
+    // Parse only the keys present in the body, then merge them over the stored
+    // row: omitted = keep, null = clear, value = set.
+    const input = backupConfigUpdateSchema.parse(body);
 
     const existing = await db.query.backupConfigs.findFirst({
       where: eq(backupConfigs.id, id),
@@ -113,30 +119,33 @@ export async function PUT(
       );
     }
 
+    const { candidate, update } = buildBackupConfigUpdate(existing, input);
+
     assertCanSetPreBackupCommands(
       auth,
-      validatedData.preBackupCommands,
+      input.preBackupCommands,
       existing.preBackupCommands
     );
     const sourceEndpointChanged =
-      (validatedData.sourceKind ?? 'server') !== (existing.sourceKind ?? 'server') ||
-      (validatedData.serverId ?? null) !== (existing.serverId ?? null);
+      candidate.sourceKind !== existing.sourceKind ||
+      candidate.serverId !== existing.serverId;
     assertCanRetargetPreBackupCommands(
       auth,
-      validatedData.preBackupCommands,
+      input.preBackupCommands,
       existing.preBackupCommands,
       sourceEndpointChanged
     );
-    await assertTransferServersHaveKeys(validatedData);
+    await assertBackupConfigReferences(candidate);
+    await assertTransferServersHaveKeys(candidate);
 
     const conflictingBackup = await findExactDestinationConflict(
-      validatedData.destinationPath,
+      candidate.destinationPath,
       id,
       {
-        destinationKind: validatedData.destinationKind,
-        destinationServerId: validatedData.destinationServerId,
-        destinationS3ProfileId: validatedData.destinationS3ProfileId,
-        destinationPeerId: validatedData.destinationPeerId,
+        destinationKind: candidate.destinationKind,
+        destinationServerId: candidate.destinationServerId,
+        destinationS3ProfileId: candidate.destinationS3ProfileId,
+        destinationPeerId: candidate.destinationPeerId,
       }
     );
     if (conflictingBackup) {
@@ -149,26 +158,13 @@ export async function PUT(
       );
     }
 
-    const dbPassword =
-      validatedData.dbPassword && String(validatedData.dbPassword).trim()
-        ? validatedData.dbPassword
-        : existing.dbPassword;
-
-    const instanceBackupPassphrase =
-      validatedData.instanceBackupPassphrase &&
-      String(validatedData.instanceBackupPassphrase).trim()
-        ? validatedData.instanceBackupPassphrase
-        : existing.instanceBackupPassphrase;
-
     // First stop any existing cron job
     stopBackup(id);
 
     // Update the backup configuration (clear stale validation)
     await db.update(backupConfigs)
       .set({
-        ...validatedData,
-        dbPassword,
-        instanceBackupPassphrase,
+        ...update,
         lastValidatedAt: null,
         lastValidationOk: null,
         lastValidationChecks: null,
@@ -204,6 +200,13 @@ export async function PUT(
     return NextResponse.json(redacted);
   } catch (error) {
     console.error('Failed to update backup configuration:', error);
+
+    if (error instanceof BackupConfigReferenceError) {
+      return NextResponse.json(
+        { error: 'Validation error', details: error.issues },
+        { status: 400 }
+      );
+    }
 
     if (error instanceof TransferKeyRequiredError) {
       return NextResponse.json({ error: error.message }, { status: 400 });

@@ -4,6 +4,10 @@ import {
   assertCanSetPreBackupCommands,
   resolveAuth,
 } from '@/lib/auth';
+import {
+  BackupConfigReferenceError,
+  assertBackupConfigReferences,
+} from '@/lib/backup/config-update';
 import { findExactDestinationConflict } from '@/lib/backup/destination-guard';
 import { backupConfigSchema } from '@/lib/backup/schema';
 import { assertTransferServersHaveKeys } from '@/lib/backup/assert-transfer-keys';
@@ -78,6 +82,7 @@ export async function POST(request: NextRequest) {
 
     // Validate the request body
     const validatedData = backupConfigSchema.parse(body);
+    await assertBackupConfigReferences(validatedData);
     assertCanSetPreBackupCommands(auth, validatedData.preBackupCommands);
     await assertTransferServersHaveKeys(validatedData);
 
@@ -145,6 +150,13 @@ export async function POST(request: NextRequest) {
     );
   } catch (error) {
     console.error('Failed to create backup configuration:', error);
+
+    if (error instanceof BackupConfigReferenceError) {
+      return NextResponse.json(
+        { error: 'Validation error', details: error.issues },
+        { status: 400 }
+      );
+    }
 
     if (error instanceof TransferKeyRequiredError) {
       return NextResponse.json({ error: error.message }, { status: 400 });

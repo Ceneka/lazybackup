@@ -41,6 +41,9 @@ export type BackupFormData = {
 }
 
 export function formDataToPayload(data: BackupFormData) {
+  const excludePatterns = data.excludePatterns.trim()
+  const preBackupCommands = data.preBackupCommands.trim()
+
   return {
     name: data.name,
     sourceKind: data.sourceKind,
@@ -62,21 +65,17 @@ export function formDataToPayload(data: BackupFormData) {
     destinationPath: data.destinationPath,
     schedule: data.schedule,
     excludePatterns:
-      data.sourceType === "database" ||
-      data.sourceType === "lazybackup_instance" ||
-      data.sourceType === "git_repo"
-        ? undefined
-        : data.excludePatterns.trim()
-          ? data.excludePatterns
-          : null,
+      data.sourceType === "lazybackup_instance" || data.sourceType === "git_repo"
+        ? null
+        : data.sourceType === "database"
+          ? undefined
+          : excludePatterns || null,
     preBackupCommands:
-      data.sourceKind === "s3" ||
-      data.sourceKind === "git" ||
       data.sourceType === "lazybackup_instance"
-        ? undefined
-        : data.preBackupCommands.trim()
-          ? data.preBackupCommands
-          : null,
+        ? null
+        : data.sourceKind === "s3" || data.sourceKind === "git"
+          ? undefined
+          : preBackupCommands || null,
     dbEngine: data.sourceType === "database" ? data.dbEngine : null,
     dbClient: data.sourceType === "database" ? data.dbClient : null,
     dbContainer:
@@ -92,7 +91,11 @@ export function formDataToPayload(data: BackupFormData) {
     dbPassword: data.sourceType === "database" ? data.dbPassword : null,
     instanceBackupPassphrase:
       data.sourceType === "lazybackup_instance"
-        ? data.instanceBackupPassphrase || null
+        ? data.instanceBackupPassphrase.trim()
+          ? data.instanceBackupPassphrase
+          : data.hasInstanceBackupPassphrase
+            ? undefined
+            : null
         : null,
     enabled: data.enabled,
     enableEncryption:
