@@ -12,6 +12,7 @@ import {
   recordAuthFailure,
   recordAuthSuccess,
 } from '@/lib/auth/rate-limit'
+import { hasJsonContentType } from '@/lib/auth/request-content'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 
@@ -31,6 +32,15 @@ export async function POST(request: NextRequest) {
   const limitKey = rateLimitKey('login', clientKeyFromRequest(request))
   const limited = assertNotRateLimited(limitKey)
   if (!limited.ok) return tooManyAttempts(limited.retryAfterSec)
+
+  // Public path (middleware skips it): enforce the same JSON-only rule as the
+  // setup/password routes so a cross-site text/plain form cannot submit a body.
+  if (!hasJsonContentType(request.headers)) {
+    return NextResponse.json(
+      { error: 'Content-Type must be application/json' },
+      { status: 415 }
+    )
+  }
 
   try {
     const passwordHash = await getPasswordHash()

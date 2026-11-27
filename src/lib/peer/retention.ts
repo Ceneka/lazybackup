@@ -10,6 +10,7 @@ import {
 } from '@/lib/backup/file-retention';
 import { normalizeS3Prefix } from '@/lib/backup/destination';
 import { deletePeerObject } from './client';
+import { withPeerLock } from './peer-lock';
 import { expireRecallsForObject, listObjectKeysWithOpenRecalls } from './recall';
 import { deleteStagedObject } from './staging';
 import { assertSafePeerObjectKey } from './storage';
@@ -213,30 +214,53 @@ export async function clearPeerDeletesForNewLanding(
   peerId: string,
   objectKey: string
 ): Promise<void> {
-  await db
-    .delete(peerDeletes)
-    .where(
-      and(eq(peerDeletes.peerId, peerId), eq(peerDeletes.objectKey, objectKey))
-    );
+  const safe = assertSafePeerObjectKey(objectKey);
+  // Same lock as completePeerDeleteAck: either the ACK finishes first (and its
+  // history/staging cleanup is bounded to the old generation) or this clear
+  // wins and the late ACK is a no-op.
+  await withPeerLock(peerId, async () => {
+    await db
+      .delete(peerDeletes)
+      .where(
+        and(eq(peerDeletes.peerId, peerId), eq(peerDeletes.objectKey, safe))
+      );
+  });
 }
 
+/**
+ * Mark a queued mailbox delete as acknowledged.
+ *
+ * Runs under the peer lock and only reports success when it actually moved a
+ * pending row to `acked`. A new run may reuse the same object key while the
+ * friend still has the old delete in flight: `clearPeerDeletesForNewLanding`
+ * removes the row first, so a late ACK must not mark history rows removed nor
+ * delete the freshly staged object of the new run.
+ *
+ * Returns false when the delete was already superseded (or acked) — the route
+ * treats that as a harmless idempotent retry.
+ */
 export async function completePeerDeleteAck(
   peerId: string,
   objectKey: string
-): Promise<void> {
+): Promise<boolean> {
   const safe = assertSafePeerObjectKey(objectKey);
-  await db
-    .update(peerDeletes)
-    .set({ status: 'acked', ackedAt: new Date() })
-    .where(
-      and(
-        eq(peerDeletes.peerId, peerId),
-        eq(peerDeletes.objectKey, safe),
-        eq(peerDeletes.status, 'pending')
+  return withPeerLock(peerId, async () => {
+    const claimed = await db
+      .update(peerDeletes)
+      .set({ status: 'acked', ackedAt: new Date() })
+      .where(
+        and(
+          eq(peerDeletes.peerId, peerId),
+          eq(peerDeletes.objectKey, safe),
+          eq(peerDeletes.status, 'pending')
+        )
       )
-    );
-  await markPeerArtifactRemoved(peerId, safe);
-  await deleteStagedObject(peerId, safe);
+      .returning({ id: peerDeletes.id });
+    if (claimed.length === 0) return false;
+    await markPeerArtifactRemoved(peerId, safe);
+    await deleteStagedObject(peerId, safe);
+    return true;
+  });
 }
 
 export async function applyPeerDestinationRetention(options: {

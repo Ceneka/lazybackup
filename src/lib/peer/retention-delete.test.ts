@@ -71,9 +71,10 @@ await client.execute(`
   )
 `);
 
-const { enqueuePeerDeleteForHistory, enqueuePeerDeletesForConfig } = await import(
+const { enqueuePeerDeleteForHistory, enqueuePeerDeletesForConfig, completePeerDeleteAck } = await import(
   './retention'
 );
+const { landLocalFileArtifact } = await import('@/lib/backup/land-file');
 
 const PEER = {
   id: 'p1',
@@ -180,6 +181,43 @@ describe('history delete queues peer deletes', () => {
       })
     ).toBe(false);
     expect(await testDb.select().from(schema.peerDeletes)).toHaveLength(0);
+  });
+});
+
+describe('a new run reusing a non-versioned object key', () => {
+  test('clears a queued delete before staging so a late ACK cannot unlink the new artifact', async () => {
+    await insertPeer();
+    const peer = await testDb.query.peers.findFirst();
+    if (!peer) throw new Error('peer fixture missing');
+
+    await testDb.insert(schema.peerDeletes).values({
+      id: 'delete-old',
+      peerId: 'p1',
+      objectKey: 'backups/cfg/app.tar.gz.age',
+      status: 'pending',
+      createdAt: new Date(),
+    });
+
+    const src = path.join(tmp, 'app.tar.gz.age');
+    await fs.writeFile(src, Buffer.from('new ciphertext'));
+
+    await landLocalFileArtifact({
+      localFilePath: src,
+      archiveName: 'app.tar.gz.age',
+      destinationKind: 'peer',
+      destinationPeer: peer,
+      peerPrefix: 'backups/cfg',
+    });
+
+    // The landing cleared the stale delete generation before the bytes existed.
+    expect(await testDb.select().from(schema.peerDeletes)).toHaveLength(0);
+    const staged = path.join(tmp, 'peers-staging', 'p1', 'backups/cfg/app.tar.gz.age');
+    expect(await fs.stat(staged)).toBeTruthy();
+
+    // A friend that fetched /work before the landing ACKs late: no-op.
+    const acked = await completePeerDeleteAck('p1', 'backups/cfg/app.tar.gz.age');
+    expect(acked).toBe(false);
+    expect(await fs.stat(staged)).toBeTruthy();
   });
 });
 

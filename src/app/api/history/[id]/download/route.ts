@@ -94,6 +94,19 @@ export async function GET(
     }
 
     if (request.nextUrl.searchParams.get('retry') === '1' && historyEntry.artifactPath) {
+      // Retrying forgets a failed recall (deletes rows + spool data). A GET is
+      // fine for a download, but read_only API tokens must not mutate state.
+      const { authAllowsWrite, resolveAuth } = await import('@/lib/auth');
+      const auth = await resolveAuth(
+        request.headers.get('cookie'),
+        request.headers.get('authorization')
+      );
+      if (!authAllowsWrite(auth)) {
+        return NextResponse.json(
+          { error: 'API token is read_only' },
+          { status: 403 }
+        );
+      }
       const { parsePeerArtifactPath } = await import('@/lib/peer/retention');
       const { resetFailedRecall } = await import('@/lib/peer/recall');
       const parsed = parsePeerArtifactPath(historyEntry.artifactPath);

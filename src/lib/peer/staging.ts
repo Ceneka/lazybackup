@@ -30,20 +30,25 @@ export function peerStagingObjectPath(peerId: string, objectKey: string): string
 }
 
 /**
- * Temp name for an in-progress staged copy. Kept next to the final object (so
- * the final rename is atomic on the same filesystem) and marked with
- * `.part-` so `listStagedObjects` never advertises a half-written artifact:
- * a peer that pulls mid-backup would store a truncated object whose digest can
- * never match the ACK, and a crashed copy would wedge that mailbox forever.
+ * In-progress copies live outside the peer's object namespace so a legitimate
+ * object key can never be mistaken for a temp file (`.part-` is legal in a
+ * source path, database dump or Docker volume name). The directory is a
+ * sibling of every peer dir, on the same filesystem as the final rename.
  */
-export function peerStagingTempPath(peerId: string, objectKey: string): string {
-  const dest = peerStagingObjectPath(peerId, objectKey);
-  return `${dest}.part-${process.pid}-${randomBytes(6).toString('hex')}`;
+export function peerStagingTempDir(peerId: string): string {
+  return path.join(getPeerStagingRoot(), '.incoming', peerId);
 }
 
-/** True for in-progress staging temp files created by `peerStagingTempPath`. */
-export function isStagingTempName(name: string): boolean {
-  return name.includes('.part-');
+/**
+ * Temp path for an in-progress staged copy. The final rename into the peer
+ * namespace is atomic: peers never see a half-written artifact, and a crashed
+ * copy cannot wedge the mailbox with an un-ACKable object.
+ */
+export function peerStagingTempPath(peerId: string, _objectKey: string): string {
+  return path.join(
+    peerStagingTempDir(peerId),
+    `${process.pid}-${randomBytes(6).toString('hex')}`
+  );
 }
 
 async function dirSize(dir: string): Promise<number> {
@@ -59,9 +64,6 @@ async function dirSize(dir: string): Promise<number> {
     if (entry.isDirectory()) {
       total += await dirSize(full);
     } else if (entry.isFile()) {
-      // In-progress copies are not pending outgoing bytes and must not double
-      // count while an existing staged object is being replaced.
-      if (isStagingTempName(entry.name)) continue;
       const st = await fs.stat(full);
       total += st.size;
     }
@@ -114,13 +116,14 @@ export async function writeStagedObject(
 ): Promise<{ size: number; sha256: string }> {
   const dest = peerStagingObjectPath(peerId, objectKey);
   const temp = peerStagingTempPath(peerId, objectKey);
-  await fs.mkdir(path.dirname(dest), { recursive: true });
   try {
-    // Copy + hash under a temp name: the object becomes visible to peers in a
-    // single atomic rename only once it is complete.
+    // Copy + hash under a private temp dir: the object becomes visible to
+    // peers in a single atomic rename only once it is complete.
+    await fs.mkdir(path.dirname(temp), { recursive: true });
     await fs.copyFile(localFilePath, temp);
     const st = await fs.stat(temp);
     const sha256 = await sha256File(temp);
+    await fs.mkdir(path.dirname(dest), { recursive: true });
     await fs.rename(temp, dest);
     return { size: st.size, sha256 };
   } catch (error) {
@@ -191,9 +194,6 @@ export async function listStagedObjects(
       if (entry.isDirectory()) {
         await walk(full, key);
       } else if (entry.isFile()) {
-        // Never advertise an in-progress copy: a peer would store a truncated
-        // artifact it can never ACK.
-        if (isStagingTempName(entry.name)) continue;
         const st = await fs.stat(full);
         out.push({ key, size: st.size, mtime: st.mtime.toISOString() });
       }

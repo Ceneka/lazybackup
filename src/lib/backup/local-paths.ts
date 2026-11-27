@@ -176,10 +176,24 @@ export function assertRestorableLocalTarget(
     );
   }
 
+  for (const root of exactOnly) {
+    // A target that *contains* the storage root can receive `<root>/...` from
+    // the restored tree and overwrite the backups themselves.
+    if (isPathInside(resolved, root)) {
+      throw new Error(
+        `Refusing to restore onto ${resolved}: it contains the backup storage root (${root}). Choose a subfolder or a different target.`
+      );
+    }
+  }
+
   for (const blocked of forbidden) {
     const matches =
       resolved === blocked ||
-      (blocked !== '/' && isPathInside(blocked, resolved));
+      // Writing into the protected tree.
+      (blocked !== '/' && isPathInside(blocked, resolved)) ||
+      // Writing over the protected tree: the copied files can contain paths
+      // that land inside it (e.g. target=$HOME restores .ssh/authorized_keys).
+      isPathInside(resolved, blocked);
     if (matches) {
       throw new Error(
         `Refusing to restore onto ${resolved}: this path holds the running system, the LazyBackup instance's own data, or backup storage. Choose a different target.`

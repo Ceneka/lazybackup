@@ -1,4 +1,4 @@
-import { and, eq, like } from 'drizzle-orm';
+import { and, eq, inArray, like } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { timingSafeEqual } from 'crypto';
 import { db } from '@/lib/db';
@@ -33,7 +33,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { peerRecallDir } from './recall';
 import { peerDataDir } from './storage';
-import { listStagedObjects, peerStagingDir } from './staging';
+import { listStagedObjects, peerStagingDir, peerStagingTempDir } from './staging';
 
 /** Uniform public error for invite not found / bad secret / quota / already used. */
 export const PAIRING_FAILED_MESSAGE = 'Pairing failed';
@@ -248,7 +248,12 @@ export async function removePeer(peerId: string): Promise<RemovePeerResult | nul
       .where(eq(backupConfigs.destinationPeerId, peerId));
   }
 
-  const dirs = [peerStagingDir(peerId), peerDataDir(peerId), peerRecallDir(peerId)];
+  const dirs = [
+    peerStagingDir(peerId),
+    peerStagingTempDir(peerId),
+    peerDataDir(peerId),
+    peerRecallDir(peerId),
+  ];
   let freedBytes = 0;
   for (const dir of dirs) {
     freedBytes += await dirBytes(dir);
@@ -257,15 +262,27 @@ export async function removePeer(peerId: string): Promise<RemovePeerResult | nul
 
   // Artifacts of a removed peer can never be recalled again: mark their history
   // rows so restore fails with a clear reason instead of a missing-peer error.
-  await db
-    .update(backupHistory)
-    .set({
-      artifactRemoved: true,
-      artifactRemovedReason:
-        'This backup was stored on a bro that was removed from Bro Space',
-      mailboxPending: false,
-    })
-    .where(like(backupHistory.artifactPath, `peer://${peerId}/%`));
+  // Compare prefixes in JS: peer ids are nanoid (`_` is legal) and SQL LIKE
+  // would treat `_`/`%` as wildcards, flagging another peer's rows too.
+  const peerArtifactPrefix = `peer://${peerId}/`;
+  const peerArtifacts = await db
+    .select({ id: backupHistory.id, artifactPath: backupHistory.artifactPath })
+    .from(backupHistory)
+    .where(like(backupHistory.artifactPath, 'peer://%'));
+  const removedHistoryIds = peerArtifacts
+    .filter((row) => row.artifactPath?.startsWith(peerArtifactPrefix))
+    .map((row) => row.id);
+  if (removedHistoryIds.length > 0) {
+    await db
+      .update(backupHistory)
+      .set({
+        artifactRemoved: true,
+        artifactRemovedReason:
+          'This backup was stored on a bro that was removed from Bro Space',
+        mailboxPending: false,
+      })
+      .where(inArray(backupHistory.id, removedHistoryIds));
+  }
 
   await db.delete(peerRecalls).where(eq(peerRecalls.peerId, peerId));
   await db.delete(peerDeletes).where(eq(peerDeletes.peerId, peerId));

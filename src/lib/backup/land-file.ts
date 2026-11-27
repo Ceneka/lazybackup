@@ -164,6 +164,12 @@ export async function landLocalFileArtifact(options: {
       additionalBytes: localStat.size,
       replacingObjectKey: objectKey,
     });
+    // Retention may have queued a delete for this reused (non-versioned) key.
+    // Clear it *before* the new bytes exist: a friend that already fetched the
+    // delete may still ACK late, and completePeerDeleteAck must become a no-op
+    // instead of unlinking the freshly staged artifact.
+    const { clearPeerDeletesForNewLanding } = await import('@/lib/peer/retention');
+    await clearPeerDeletesForNewLanding(peer.id, objectKey);
     const staged = await writeStagedObject(peer.id, objectKey, localFilePath);
     return {
       artifactPath: `peer://${peer.id}/${objectKey}`,

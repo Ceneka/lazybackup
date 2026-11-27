@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from 'bun:test'
+import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { NextRequest } from 'next/server'
 
 /**
@@ -9,12 +9,15 @@ import { NextRequest } from 'next/server'
 
 type Via = 'unlocked' | 'session' | 'bearer' | 'none'
 
+const realAuth = await import(`./lib/auth/index.ts?real=${Date.now()}`)
+
 const state: { via: Via; readOnly: boolean } = {
   via: 'session',
   readOnly: false,
 }
 
 mock.module('@/lib/auth', () => ({
+  ...realAuth,
   getAuthStatus: async () => ({
     authEnabled: true,
     authSetupCompleted: true,
@@ -193,4 +196,11 @@ describe('middleware read_only probes', () => {
     )
     expect(res.status).toBe(200)
   })
+})
+
+afterAll(async () => {
+  // Bun patches module namespaces in place: a partial mock here would hide
+  // every other @/lib/auth export from later test files. Load a fresh copy.
+  const freshAuth = await import(`./lib/auth/index.ts?real=${Date.now()}`)
+  mock.module('@/lib/auth', () => freshAuth)
 })

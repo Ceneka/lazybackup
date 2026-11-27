@@ -1,9 +1,22 @@
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
-import { landLocalFileArtifact } from '@/lib/backup/land-file';
-import { stagedObjectExists } from './staging';
+
+// Landing a mailbox artifact clears stale retention deletes for the reused key.
+mock.module('@/lib/db', () => ({
+  db: {
+    delete: () => ({ where: async () => undefined }),
+  },
+}));
+
+const { landLocalFileArtifact } = await import('@/lib/backup/land-file');
+const { stagedObjectExists } = await import('./staging');
+
+afterAll(async () => {
+  const freshDb = await import(`../db/index.ts?real=${Date.now()}`);
+  mock.module('@/lib/db', () => freshDb);
+});
 
 function peerRow(overrides: Record<string, unknown> = {}) {
   return {
