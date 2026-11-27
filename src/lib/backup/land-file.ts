@@ -163,22 +163,25 @@ export async function landLocalFileArtifact(options: {
       };
     }
 
-    if (options.clearStalePeerDeletes) {
-      // Must happen before writeStagedObject: the sync worker lists staged
-      // objects concurrently, and a pending delete for this reused key would
-      // otherwise remove the new staging file and complete its ACK.
-      const { clearPeerDeletesForNewLanding } = await import('@/lib/peer/retention');
-      await clearPeerDeletesForNewLanding(peer.id, objectKey);
-    }
     const { writeStagedObject, assertStagingQuota } = await import('@/lib/peer/staging');
+    const { withPeerLock } = await import('@/lib/peer/peer-lock');
     const localStat = await fs.stat(localFilePath);
-    await assertStagingQuota({
-      peerId: peer.id,
-      quotaBytes: peer.quotaBytes,
-      additionalBytes: localStat.size,
-      replacingObjectKey: objectKey,
+    // The ACK route also takes this lock around digest → clear → delete. That
+    // serializes a late ACK for the previous bytes against this overwrite, so
+    // it can neither delete the new staging file nor be mistaken for its ACK.
+    const staged = await withPeerLock(peer.id, async () => {
+      if (options.clearStalePeerDeletes) {
+        const { clearPeerDeletesForNewLanding } = await import('@/lib/peer/retention');
+        await clearPeerDeletesForNewLanding(peer.id, objectKey);
+      }
+      await assertStagingQuota({
+        peerId: peer.id,
+        quotaBytes: peer.quotaBytes,
+        additionalBytes: localStat.size,
+        replacingObjectKey: objectKey,
+      });
+      return writeStagedObject(peer.id, objectKey, localFilePath);
     });
-    const staged = await writeStagedObject(peer.id, objectKey, localFilePath);
     return {
       artifactPath: `peer://${peer.id}/${objectKey}`,
       usedMethod: 'file-peer-mailbox',

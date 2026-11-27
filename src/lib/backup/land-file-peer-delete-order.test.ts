@@ -29,6 +29,7 @@ await client.execute(`
 
 const { landLocalFileArtifact } = await import('@/lib/backup/land-file');
 const { stagedObjectExists } = await import('@/lib/peer/staging');
+const { withPeerLock } = await import('@/lib/peer/peer-lock');
 
 function peerRow() {
   return {
@@ -91,5 +92,37 @@ describe('mailbox re-landing clears an obsolete retention delete', () => {
     // these fresh bytes and ACK them as the old object.
     expect(await pendingDeleteCount()).toBe(0);
     expect(await stagedObjectExists('peer_mailbox', KEY)).toBe(true);
+  });
+
+  test('staging waits for the per-peer lock (same lock as the ACK path)', async () => {
+    const src = path.join(tmp, 'archive-lock.age');
+    const lockKey = 'backups/config/lock.age';
+    await fs.writeFile(src, Buffer.from('ciphertext'));
+
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const held = withPeerLock('peer_mailbox', async () => {
+      await gate;
+    });
+
+    const landing = landLocalFileArtifact({
+      localFilePath: src,
+      archiveName: 'lock.age',
+      destinationKind: 'peer',
+      destinationPeer: peerRow() as never,
+      peerPrefix: 'backups/config',
+      clearStalePeerDeletes: true,
+    });
+
+    // Give the landing enough time to reach the lock.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(await stagedObjectExists('peer_mailbox', lockKey)).toBe(false);
+
+    release();
+    await held;
+    await landing;
+    expect(await stagedObjectExists('peer_mailbox', lockKey)).toBe(true);
   });
 });
