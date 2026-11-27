@@ -13,7 +13,11 @@ import { LoadingButton } from "@/components/ui/loading-button"
 import { QueryState } from "@/components/ui/query-state"
 import { deriveDeliveryState } from "@/lib/backup/delivery-state"
 import { formatInTimezone } from "@/lib/cron/format"
-import { useDashboard, type DashboardLastFailure } from "@/lib/hooks/useDashboard"
+import {
+  useDashboard,
+  useDashboardStorage,
+  type DashboardLastFailure,
+} from "@/lib/hooks/useDashboard"
 import { usePeers } from "@/lib/hooks/usePeers"
 import { useStatus } from "@/lib/hooks/useStatus"
 import { peerIdFromArtifactPath, resolveFriendName } from "@/lib/peer/friend-copy"
@@ -101,6 +105,91 @@ function LastFailureCard({
         </span>
       </div>
     </Link>
+  )
+}
+
+function DashboardStorageCard({
+  avgBackupBytes,
+  timeZone,
+}: {
+  avgBackupBytes: number
+  timeZone: string
+}) {
+  const query = useDashboardStorage()
+  const storage = query.data
+
+  return (
+    <Card className="lg:col-span-2">
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center gap-2">
+          <HardDriveIcon aria-hidden="true" className="h-5 w-5" />
+          <h2 className="text-base font-semibold">Storage</h2>
+        </CardTitle>
+        <CardDescription className="truncate" title={storage?.path}>
+          {storage?.path ?? "Local backup storage"}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {!storage ? (
+          query.isError ? (
+            <p className="text-sm text-muted-foreground">
+              Could not read backup storage.{" "}
+              <button
+                type="button"
+                className="underline underline-offset-2 hover:text-foreground"
+                onClick={() => void query.refetch()}
+              >
+                Retry
+              </button>
+            </p>
+          ) : (
+            <div className="animate-pulse space-y-4" aria-label="Calculating storage usage">
+              <div className="h-9 w-1/3 rounded bg-muted" />
+              <div className="grid grid-cols-2 gap-3">
+                {[...Array(4)].map((_, i) => (
+                  <div key={i} className="h-16 rounded-md bg-muted" />
+                ))}
+              </div>
+            </div>
+          )
+        ) : !storage.exists ? (
+          <p className="text-sm text-muted-foreground">
+            Backup storage path not found yet. It is created when the first backup runs.
+          </p>
+        ) : (
+          <>
+            <div>
+              <div className="text-3xl font-bold">{storage.totalSize}</div>
+              <div className="text-sm text-muted-foreground">Total on disk</div>
+            </div>
+            <dl className="grid grid-cols-2 gap-3 text-sm">
+              <div className="rounded-md bg-muted/40 p-3">
+                <dt className="text-muted-foreground">Files</dt>
+                <dd className="text-lg font-semibold">{storage.fileCount}</dd>
+              </div>
+              <div className="rounded-md bg-muted/40 p-3">
+                <dt className="text-muted-foreground">Folders</dt>
+                <dd className="text-lg font-semibold">{storage.directoryCount}</dd>
+              </div>
+              <div className="rounded-md bg-muted/40 p-3">
+                <dt className="text-muted-foreground">Top-level entries</dt>
+                <dd className="text-lg font-semibold">{storage.topLevelEntries}</dd>
+              </div>
+              <div className="rounded-md bg-muted/40 p-3">
+                <dt className="text-muted-foreground">Avg success size</dt>
+                <dd className="text-lg font-semibold">{formatBytes(avgBackupBytes)}</dd>
+              </div>
+            </dl>
+            {storage.latest && (
+              <p className="text-xs text-muted-foreground">
+                Newest file: {storage.latest.name} ({storage.latest.size},{" "}
+                {formatInTimezone(new Date(storage.latest.mtime), timeZone)})
+              </p>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
   )
 }
 
@@ -225,66 +314,10 @@ export default function Dashboard() {
                     timeZone={data.timezone}
                   />
 
-                  <Card className="lg:col-span-2">
-                    <CardHeader className="pb-2">
-                      <CardTitle className="flex items-center gap-2">
-                        <HardDriveIcon aria-hidden="true" className="h-5 w-5" />
-                        <h2 className="text-base font-semibold">Storage</h2>
-                      </CardTitle>
-                      <CardDescription className="truncate" title={data.storage.path}>
-                        {data.storage.path}
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      {!data.storage.exists ? (
-                        <p className="text-sm text-muted-foreground">
-                          Backup storage path not found yet. It is created when the first backup runs.
-                        </p>
-                      ) : (
-                        <>
-                          <div>
-                            <div className="text-3xl font-bold">{data.storage.totalSize}</div>
-                            <div className="text-sm text-muted-foreground">Total on disk</div>
-                          </div>
-                          <dl className="grid grid-cols-2 gap-3 text-sm">
-                            <div className="rounded-md bg-muted/40 p-3">
-                              <dt className="text-muted-foreground">Files</dt>
-                              <dd className="text-lg font-semibold">{data.storage.fileCount}</dd>
-                            </div>
-                            <div className="rounded-md bg-muted/40 p-3">
-                              <dt className="text-muted-foreground">Folders</dt>
-                              <dd className="text-lg font-semibold">
-                                {data.storage.directoryCount}
-                              </dd>
-                            </div>
-                            <div className="rounded-md bg-muted/40 p-3">
-                              <dt className="text-muted-foreground">Top-level entries</dt>
-                              <dd className="text-lg font-semibold">
-                                {data.storage.topLevelEntries}
-                              </dd>
-                            </div>
-                            <div className="rounded-md bg-muted/40 p-3">
-                              <dt className="text-muted-foreground">Avg success size</dt>
-                              <dd className="text-lg font-semibold">
-                                {formatBytes(data.avgBackupBytes)}
-                              </dd>
-                            </div>
-                          </dl>
-                          {data.storage.latest && (
-                            <p className="text-xs text-muted-foreground">
-                              Newest file: {data.storage.latest.name} (
-                              {data.storage.latest.size},{" "}
-                              {formatInTimezone(
-                                new Date(data.storage.latest.mtime),
-                                data.timezone
-                              )}
-                              )
-                            </p>
-                          )}
-                        </>
-                      )}
-                    </CardContent>
-                  </Card>
+                  <DashboardStorageCard
+                    avgBackupBytes={data.avgBackupBytes}
+                    timeZone={data.timezone}
+                  />
                 </div>
 
                 {data.lastFailure && !data.lastFailure.resolved ? (

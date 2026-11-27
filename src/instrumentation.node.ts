@@ -8,6 +8,7 @@ export async function registerNode(): Promise<void> {
   const { markStaleRunningBackups } = await import('./lib/backup/mark-stale-running');
   const { initializeScheduler } = await import('./lib/scheduler');
   const { startPeerSyncWorker } = await import('./lib/peer/sync-worker');
+  const { watchBackupStorageStats } = await import('./lib/backup/storage-stats');
 
   console.log('🚀 Server starting - running database migrations...');
   await runMigration();
@@ -26,5 +27,7 @@ export async function registerNode(): Promise<void> {
   }
   await initializeScheduler();
   startPeerSyncWorker();
+  // Warm the dashboard storage totals so the first visit does not walk the tree.
+  watchBackupStorageStats();
   console.log('✅ Server components initialized successfully');
 }

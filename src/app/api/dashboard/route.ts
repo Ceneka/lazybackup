@@ -1,5 +1,4 @@
 import { errorSnippet } from "@/lib/backup/error-snippet"
-import { getBackupStorageStats } from "@/lib/backup/storage-stats"
 import { successRate as calcSuccessRate } from "@/lib/backup/success-rate"
 import { buildUpcomingEntry } from "@/lib/cron/next"
 import { db } from "@/lib/db"
@@ -271,8 +270,6 @@ export async function GET(request: NextRequest) {
         }
       : null
 
-    const storage = await getBackupStorageStats()
-
     const enabledConfigs = await db.query.backupConfigs.findMany({
       where: eq(backupConfigs.enabled, true),
       with: { server: true, destinationServer: true, sourceS3Profile: true, destinationS3Profile: true },
@@ -309,7 +306,6 @@ export async function GET(request: NextRequest) {
       recentHistory,
       lastFailure,
       lastSuccess,
-      storage,
       timezone: timeZone,
       upcomingBackups,
     })

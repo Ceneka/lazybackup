@@ -1,4 +1,5 @@
 import { resolveLocalBackupPath } from "@/lib/backup/destination"
+import { subscribeBackupEvents } from "@/lib/events/backup-events"
 import { formatBytes } from "@/lib/utils"
 import { readdir, stat } from "fs/promises"
 import { join } from "path"
@@ -182,6 +183,96 @@ export async function getBackupStorageStats(
   result.totalSize = formatBytes(result.totalBytes)
   result.latest = latest
   return result
+}
+
+/** How long a storage walk is served as fresh before a background refresh. */
+export const STORAGE_STATS_TTL_MS = 5 * 60 * 1000
+
+type StorageStatsCache = {
+  value: BackupStorageStats | null
+  at: number
+  /** A backup finished since the last walk started; next caller waits for a fresh walk. */
+  dirty: boolean
+  inflight: Promise<BackupStorageStats> | null
+  watching: boolean
+}
+
+type GlobalWithStorageStats = typeof globalThis & {
+  __lazybackupStorageStats?: StorageStatsCache
+}
+
+// Instrumentation and route handlers can load separate module copies; share via globalThis.
+function storageStatsCache(): StorageStatsCache {
+  const g = globalThis as GlobalWithStorageStats
+  g.__lazybackupStorageStats ??= {
+    value: null,
+    at: 0,
+    dirty: false,
+    inflight: null,
+    watching: false,
+  }
+  return g.__lazybackupStorageStats
+}
+
+function refreshStorageStats(cache: StorageStatsCache): Promise<BackupStorageStats> {
+  if (!cache.inflight) {
+    cache.dirty = false
+    cache.inflight = getBackupStorageStats()
+      .then((value) => {
+        cache.value = value
+        cache.at = Date.now()
+        return value
+      })
+      .finally(() => {
+        cache.inflight = null
+      })
+  }
+  return cache.inflight
+}
+
+/**
+ * Storage totals for the dashboard without re-walking BACKUP_STORAGE_PATH on
+ * every request (tens of thousands of files take seconds warm, far longer with
+ * a cold inode cache). Stale results are returned at once while a background
+ * walk refreshes them; after a backup finishes the next caller waits for a
+ * fresh walk. Concurrent callers share one walk.
+ */
+export async function getCachedBackupStorageStats(
+  now = Date.now()
+): Promise<BackupStorageStats> {
+  const cache = storageStatsCache()
+  if (!cache.value || cache.dirty) {
+    return refreshStorageStats(cache)
+  }
+  if (now - cache.at >= STORAGE_STATS_TTL_MS) {
+    void refreshStorageStats(cache).catch(() => {})
+  }
+  return cache.value
+}
+
+export function markBackupStorageStatsDirty(): void {
+  storageStatsCache().dirty = true
+}
+
+/** Startup: walk once in the background and mark stale whenever a backup finishes. */
+export function watchBackupStorageStats(): void {
+  const cache = storageStatsCache()
+  if (!cache.watching) {
+    cache.watching = true
+    subscribeBackupEvents((event) => {
+      if (event.type === "backup.finished") markBackupStorageStatsDirty()
+    })
+  }
+  void refreshStorageStats(cache).catch(() => {})
+}
+
+/** Tests only. */
+export function clearBackupStorageStatsCache(): void {
+  const cache = storageStatsCache()
+  cache.value = null
+  cache.at = 0
+  cache.dirty = false
+  cache.inflight = null
 }
 
 /**

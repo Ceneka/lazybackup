@@ -82,22 +82,23 @@ export type DashboardData = {
   lastSuccess: DashboardLastSuccess | null
   timezone: string
   upcomingBackups: UpcomingBackup[]
-  storage: {
+}
+
+export type DashboardStorage = {
+  path: string
+  exists: boolean
+  totalBytes: number
+  totalSize: string
+  fileCount: number
+  directoryCount: number
+  topLevelEntries: number
+  latest?: {
+    name: string
     path: string
-    exists: boolean
-    totalBytes: number
-    totalSize: string
-    fileCount: number
-    directoryCount: number
-    topLevelEntries: number
-    latest?: {
-      name: string
-      path: string
-      size: string
-      bytes: number
-      mtime: string
-    } | null
-  }
+    size: string
+    bytes: number
+    mtime: string
+  } | null
 }
 
 export function useDashboard(days = 30) {
@@ -106,6 +107,19 @@ export function useDashboard(days = 30) {
     queryFn: async (): Promise<DashboardData> => {
       const res = await fetch(`/api/dashboard?days=${days}`)
       if (!res.ok) throw new Error("Failed to fetch dashboard")
+      return res.json()
+    },
+    refetchInterval: 60_000,
+  })
+}
+
+/** Separate from useDashboard: the storage walk can be slow and must not block the page. */
+export function useDashboardStorage() {
+  return useQuery({
+    queryKey: ["dashboard", "storage"],
+    queryFn: async (): Promise<DashboardStorage> => {
+      const res = await fetch("/api/dashboard/storage")
+      if (!res.ok) throw new Error("Failed to fetch storage stats")
       return res.json()
     },
     refetchInterval: 60_000,
