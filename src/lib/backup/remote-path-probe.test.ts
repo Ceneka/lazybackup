@@ -15,7 +15,9 @@ function runShell(
   env?: Record<string, string>
 ): { code: number; stdout: string } {
   try {
-    const stdout = execFileSync('bash', ['-c', command], {
+    // The built command itself runs `sh -lc`; the test host only needs a POSIX
+    // shell (Alpine's image has no bash).
+    const stdout = execFileSync('sh', ['-c', command], {
       encoding: 'utf8',
       cwd,
       env: { ...process.env, ...env },

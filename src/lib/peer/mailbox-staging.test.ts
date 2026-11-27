@@ -123,7 +123,9 @@ describe('peer staging', () => {
   });
 
   test('a permission error is not mistaken for an already-delivered object', async () => {
-    if (process.platform === 'win32') return;
+    // Root bypasses directory permissions, so there is no error to observe in
+    // the Alpine test image (which runs as root).
+    if (process.platform === 'win32' || process.getuid?.() === 0) return;
     const prev = process.env.BACKUP_STORAGE_PATH;
     const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'lb-stage-perm-'));
     process.env.BACKUP_STORAGE_PATH = tmp;
