@@ -4,6 +4,7 @@ import {
   buildAuthorizedKeysInstallCommand,
   derivePublicKeyFromPrivate,
 } from '@/lib/ssh/generate-key';
+import { validatePrivateKeyMaterial } from '@/lib/ssh/key-validate';
 import { eq } from 'drizzle-orm';
 import { promises as fs } from 'fs';
 import { NextRequest, NextResponse } from 'next/server';
@@ -44,6 +45,19 @@ export async function GET(
         {
           error:
             'This key has no private key content — cannot build an install command',
+        },
+        { status: 400 }
+      );
+    }
+
+    // A row saved before write-time validation may hold junk; report it as a
+    // client error instead of letting ssh-keygen throw a 500.
+    const keyCheck = validatePrivateKeyMaterial(privateKey);
+    if (!keyCheck.ok) {
+      return NextResponse.json(
+        {
+          error: 'Saved SSH key could not be parsed — re-add it',
+          details: [{ path: ['privateKeyContent'], message: keyCheck.message }],
         },
         { status: 400 }
       );

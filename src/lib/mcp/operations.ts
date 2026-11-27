@@ -25,6 +25,11 @@ import {
 } from '@/lib/db/schema'
 import { scheduleBackup, stopBackup } from '@/lib/scheduler'
 import { execRemoteCommand } from '@/lib/ssh/exec-remote'
+import {
+  serverInputSchema,
+  validateServerCredentials,
+  validateSshKeyMaterial,
+} from '@/lib/ssh/key-validate'
 import { and, desc, eq, or } from 'drizzle-orm'
 import { nanoid } from 'nanoid'
 import { z } from 'zod'
@@ -246,11 +251,29 @@ export async function updateBackupOp(ctx: McpOpsContext, id: string, input: unkn
       )
     }
 
+    // GET redacts secrets, so a full-config update round-trips blank values.
+    // Keep the stored one when blank; clear it when the source type stops using it.
+    const dbPassword =
+      validatedData.sourceType === 'database' && validatedData.dbEngine !== 'sqlite'
+        ? validatedData.dbPassword && String(validatedData.dbPassword).trim()
+          ? validatedData.dbPassword
+          : existing.dbPassword ?? null
+        : null
+    const instanceBackupPassphrase =
+      validatedData.sourceType === 'lazybackup_instance'
+        ? validatedData.instanceBackupPassphrase &&
+          String(validatedData.instanceBackupPassphrase).trim()
+          ? validatedData.instanceBackupPassphrase
+          : existing.instanceBackupPassphrase ?? null
+        : null
+
     stopBackup(id)
     await db
       .update(backupConfigs)
       .set({
         ...validatedData,
+        dbPassword,
+        instanceBackupPassphrase,
         lastValidatedAt: null,
         lastValidationOk: null,
         lastValidationChecks: null,
@@ -515,36 +538,26 @@ export async function listServersOp(_ctx: McpOpsContext) {
   return jsonResult(all.map((s) => redactServer(s as unknown as Record<string, unknown>)))
 }
 
-const serverSchema = z.object({
-  name: z.string().min(1),
-  host: z.string().min(1),
-  port: z.number().int().positive().default(22),
-  username: z.string().min(1),
-  authType: z.enum(['password', 'key']),
-  password: z.string().optional(),
-  privateKey: z.string().optional(),
-  sshKeyId: z.string().optional(),
-  systemKeyPath: z.string().optional(),
-})
+// Server payload: same shape/limits as the REST API (port bounds, credential rules).
+const serverSchema = serverInputSchema
 
 export async function createServerOp(ctx: McpOpsContext, input: unknown) {
   const denied = denyIfReadOnly(ctx)
   if (denied) return denied
   return audited(ctx.actor, 'create_server', undefined, async () => {
     const validated = serverSchema.parse(input)
-    if (validated.authType === 'key') {
-      if (!validated.privateKey && !validated.sshKeyId && !validated.systemKeyPath) {
-        throw new Error(
-          'Key auth requires privateKey, sshKeyId, or systemKeyPath (SSH key required for transfers)'
-        )
-      }
-      if (validated.sshKeyId) {
-        const key = await db.query.sshKeys.findFirst({
-          where: eq(sshKeys.id, validated.sshKeyId),
-        })
-        if (!key) throw new Error('Selected SSH key not found')
+    if (validated.authType === 'key' && validated.sshKeyId) {
+      const key = await db.query.sshKeys.findFirst({
+        where: eq(sshKeys.id, validated.sshKeyId),
+      })
+      if (!key) throw new Error('Selected SSH key not found')
+      const storedKeyCheck = await validateSshKeyMaterial(key)
+      if (!storedKeyCheck.ok) {
+        throw new Error(`Selected SSH key is unusable: ${storedKeyCheck.message}`)
       }
     }
+    const credentialCheck = await validateServerCredentials(validated)
+    if (!credentialCheck.ok) throw new Error(credentialCheck.message)
     const newServer = {
       id: nanoid(),
       ...validated,
@@ -568,9 +581,42 @@ export async function updateServerOp(ctx: McpOpsContext, id: string, input: unkn
     const validated = serverSchema.parse(input)
     const existing = await db.query.servers.findFirst({ where: eq(servers.id, id) })
     if (!existing) throw new Error(`Server not found: ${id}`)
+
+    // Blank secrets mean "keep the stored value"; explicit null clears.
+    const password = validated.password?.trim() ? validated.password : existing.password
+    const privateKey = validated.privateKey?.trim()
+      ? validated.privateKey
+      : existing.privateKey
+    const sshKeyId =
+      validated.sshKeyId !== undefined
+        ? validated.sshKeyId?.trim() || null
+        : existing.sshKeyId
+    const systemKeyPath =
+      validated.systemKeyPath !== undefined
+        ? validated.systemKeyPath?.trim() || null
+        : existing.systemKeyPath
+
+    if (validated.authType === 'key' && sshKeyId) {
+      const key = await db.query.sshKeys.findFirst({ where: eq(sshKeys.id, sshKeyId) })
+      if (!key) throw new Error('Selected SSH key not found')
+      const storedKeyCheck = await validateSshKeyMaterial(key)
+      if (!storedKeyCheck.ok) {
+        throw new Error(`Selected SSH key is unusable: ${storedKeyCheck.message}`)
+      }
+    }
+
+    const credentialCheck = await validateServerCredentials({
+      authType: validated.authType,
+      password,
+      privateKey,
+      sshKeyId,
+      systemKeyPath,
+    })
+    if (!credentialCheck.ok) throw new Error(credentialCheck.message)
+
     await db
       .update(servers)
-      .set({ ...validated, updatedAt: new Date() })
+      .set({ ...validated, password, privateKey, sshKeyId, systemKeyPath, updatedAt: new Date() })
       .where(eq(servers.id, id))
     const updated = await db.query.servers.findFirst({ where: eq(servers.id, id) })
     return jsonResult({

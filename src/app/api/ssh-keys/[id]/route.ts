@@ -2,6 +2,11 @@ import { redactSshKey } from '@/lib/api/redact';
 import { db } from '@/lib/db';
 import { sshKeys } from '@/lib/db/schema';
 import { findGitReposUsingSshKey, findServersUsingSshKey } from '@/lib/ssh/key-usage';
+import {
+  validatePrivateKeyMaterial,
+  validatePrivateKeyPath,
+  validateSshKeyMaterial,
+} from '@/lib/ssh/key-validate';
 import { eq } from 'drizzle-orm';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
@@ -13,6 +18,14 @@ const sshKeyUpdateSchema = z.object({
   publicKeyPath: z.string().optional(),
   privateKeyContent: z.string().optional(),
 });
+
+/** 400 with a field path the form can highlight (same shape as Zod issues). */
+function fieldError(field: string, message: string) {
+  return NextResponse.json(
+    { error: message, details: [{ path: [field], message }] },
+    { status: 400 }
+  );
+}
 
 // GET /api/ssh-keys/:id - Get SSH key by ID
 export async function GET(
@@ -71,10 +84,67 @@ export async function PUT(
     // Validate the request body
     const validatedData = sshKeyUpdateSchema.parse(body);
 
+    const existingKey = await db.query.sshKeys.findFirst({
+      where: eq(sshKeys.id, id),
+    });
+
+    if (!existingKey) {
+      return NextResponse.json(
+        { error: 'SSH key not found' },
+        { status: 404 }
+      );
+    }
+
+    // Blank content/path on update means "keep the stored material".
+    const privateKeyContent = validatedData.privateKeyContent?.trim()
+      ? validatedData.privateKeyContent
+      : undefined;
+    const privateKeyPath = validatedData.privateKeyPath?.trim() || undefined;
+
+    if (privateKeyContent && privateKeyPath) {
+      return fieldError(
+        'privateKeyContent',
+        'Provide either private key content or a private key path, not both'
+      );
+    }
+
+    let materialUpdate: {
+      privateKeyContent?: string | null;
+      privateKeyPath?: string | null;
+    } = {};
+
+    if (privateKeyContent) {
+      const result = validatePrivateKeyMaterial(privateKeyContent);
+      if (!result.ok) {
+        return fieldError('privateKeyContent', result.message);
+      }
+      // A stored key has exactly one source; replace the other one.
+      materialUpdate = { privateKeyContent, privateKeyPath: null };
+    } else if (privateKeyPath) {
+      const result = await validatePrivateKeyPath(privateKeyPath);
+      if (!result.ok) {
+        return fieldError('privateKeyPath', result.message);
+      }
+      materialUpdate = { privateKeyPath, privateKeyContent: null };
+    } else {
+      // Re-validate the material that stays so an unusable key cannot be kept.
+      const existingCheck = await validateSshKeyMaterial(existingKey);
+      if (!existingCheck.ok) {
+        return fieldError(
+          'privateKeyContent',
+          `Private key content is required and must be a valid key (${existingCheck.message})`
+        );
+      }
+    }
+
     // Update the SSH key
     await db.update(sshKeys)
       .set({
-        ...validatedData,
+        ...(validatedData.name !== undefined ? { name: validatedData.name } : {}),
+        ...(validatedData.publicKeyPath !== undefined
+          ? { publicKeyPath: validatedData.publicKeyPath.trim() || null }
+          : {}),
+        ...materialUpdate,
         updatedAt: new Date(),
       })
       .where(eq(sshKeys.id, id));

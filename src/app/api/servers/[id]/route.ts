@@ -1,6 +1,11 @@
 import { redactServer } from '@/lib/api/redact';
 import { db } from '@/lib/db';
 import { backupConfigs, servers, sshKeys } from '@/lib/db/schema';
+import {
+  serverInputSchema,
+  validateServerCredentials,
+  validateSshKeyMaterial,
+} from '@/lib/ssh/key-validate';
 import { eq, or } from 'drizzle-orm';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
@@ -15,18 +20,13 @@ function backupRolesForServer(
   return roles;
 }
 
-// Server validation schema
-const serverSchema = z.object({
-  name: z.string().min(1, 'Name is required'),
-  host: z.string().min(1, 'Host is required'),
-  port: z.number().int().positive().default(22),
-  username: z.string().min(1, 'Username is required'),
-  authType: z.enum(['password', 'key']),
-  password: z.string().optional(),
-  privateKey: z.string().optional(),
-  sshKeyId: z.string().optional().nullable(),
-  systemKeyPath: z.string().optional().nullable(),
-});
+/** 400 with a field path the form can highlight (same shape as Zod issues). */
+function fieldError(field: string, message: string) {
+  return NextResponse.json(
+    { error: message, details: [{ path: [field], message }] },
+    { status: 400 }
+  );
+}
 
 // GET /api/servers/:id - Get a single server
 export async function GET(
@@ -89,7 +89,7 @@ export async function PUT(
     const body = await request.json();
 
     // Validate the request body
-    const validatedData = serverSchema.parse(body);
+    const validatedData = serverInputSchema.parse(body);
 
     // Check if server exists
     const existingServer = await db.query.servers.findFirst({
@@ -103,6 +103,7 @@ export async function PUT(
       );
     }
 
+    // Blank secrets on update mean "keep the stored value"; explicit null clears.
     const password =
       validatedData.password && validatedData.password.trim()
         ? validatedData.password
@@ -113,41 +114,42 @@ export async function PUT(
         : existingServer.privateKey;
     const sshKeyId =
       validatedData.sshKeyId !== undefined
-        ? validatedData.sshKeyId
+        ? validatedData.sshKeyId?.trim() || null
         : existingServer.sshKeyId;
     const systemKeyPath =
       validatedData.systemKeyPath !== undefined
-        ? validatedData.systemKeyPath
+        ? validatedData.systemKeyPath?.trim() || null
         : existingServer.systemKeyPath;
 
-    // Validate authentication method (allow keeping existing secrets when fields blank)
-    if (validatedData.authType === 'key') {
-      if (!privateKey && !sshKeyId && !systemKeyPath) {
-        return NextResponse.json(
-          { error: 'When using key authentication, you must provide a private key, select a stored key, or specify a system key path' },
-          { status: 400 }
-        );
+    // A stored key must exist and hold material node-ssh can actually load.
+    if (validatedData.authType === 'key' && sshKeyId) {
+      const storedKey = await db.query.sshKeys.findFirst({
+        where: eq(sshKeys.id, sshKeyId),
+      });
+
+      if (!storedKey) {
+        return fieldError('sshKeyId', 'Selected SSH key not found');
       }
 
-      if (sshKeyId) {
-        const keyExists = await db.query.sshKeys.findFirst({
-          where: eq(sshKeys.id, sshKeyId),
-        });
-
-        if (!keyExists) {
-          return NextResponse.json(
-            { error: 'Selected SSH key not found' },
-            { status: 400 }
-          );
-        }
+      const storedKeyCheck = await validateSshKeyMaterial(storedKey);
+      if (!storedKeyCheck.ok) {
+        return fieldError(
+          'sshKeyId',
+          `Selected SSH key is unusable: ${storedKeyCheck.message}`
+        );
       }
     }
 
-    if (validatedData.authType === 'password' && !password) {
-      return NextResponse.json(
-        { error: 'Password is required for password authentication' },
-        { status: 400 }
-      );
+    // Key auth needs usable key material; password auth needs a password.
+    const credentialCheck = await validateServerCredentials({
+      authType: validatedData.authType,
+      password,
+      privateKey,
+      sshKeyId,
+      systemKeyPath,
+    });
+    if (!credentialCheck.ok) {
+      return fieldError(credentialCheck.field, credentialCheck.message);
     }
 
     // Update the server
@@ -158,10 +160,14 @@ export async function PUT(
         port: validatedData.port,
         username: validatedData.username,
         authType: validatedData.authType,
-        password: validatedData.authType === 'password' ? password : null,
-        privateKey: validatedData.authType === 'key' ? privateKey : null,
+        password: validatedData.authType === 'password' ? password ?? null : null,
+        privateKey:
+          validatedData.authType === 'key'
+            ? privateKey?.trim() || null
+            : null,
         sshKeyId: validatedData.authType === 'key' ? sshKeyId : null,
-        systemKeyPath: validatedData.authType === 'key' ? systemKeyPath : null,
+        systemKeyPath:
+          validatedData.authType === 'key' ? systemKeyPath : null,
         updatedAt: new Date(),
       })
       .where(eq(servers.id, id));

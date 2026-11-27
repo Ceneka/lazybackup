@@ -2,6 +2,10 @@ import { redactSshKey } from '@/lib/api/redact';
 import { db } from '@/lib/db';
 import { gitRepos, servers, sshKeys } from '@/lib/db/schema';
 import { findGitReposUsingSshKey, findServersUsingSshKey } from '@/lib/ssh/key-usage';
+import {
+  validatePrivateKeyMaterial,
+  validatePrivateKeyPath,
+} from '@/lib/ssh/key-validate';
 import { promises as fs } from 'fs';
 import { nanoid } from 'nanoid';
 import { NextRequest, NextResponse } from 'next/server';
@@ -23,6 +27,14 @@ const sshKeySchema = z.object({
   publicKeyPath: z.string().optional(),
   privateKeyContent: z.string().optional(),
 });
+
+/** 400 with a field path the form can highlight (same shape as Zod issues). */
+function fieldError(field: string, message: string) {
+  return NextResponse.json(
+    { error: message, details: [{ path: [field], message }] },
+    { status: 400 }
+  );
+}
 
 // Helper function to search for SSH keys in .ssh directory
 async function findSystemSSHKeys(): Promise<SystemSSHKey[]> {
@@ -106,10 +118,47 @@ export async function POST(request: NextRequest) {
     // Validate the request body
     const validatedData = sshKeySchema.parse(body);
 
+    const privateKeyContent = validatedData.privateKeyContent?.trim()
+      ? validatedData.privateKeyContent
+      : undefined;
+    const privateKeyPath = validatedData.privateKeyPath?.trim() || undefined;
+
+    if (privateKeyContent && privateKeyPath) {
+      return fieldError(
+        'privateKeyContent',
+        'Provide either private key content or a private key path, not both'
+      );
+    }
+
+    if (!privateKeyContent && !privateKeyPath) {
+      return fieldError(
+        'privateKeyContent',
+        'Private key content is required and must be a valid key'
+      );
+    }
+
+    // Parse the material node-ssh will use so a bad key is not stored.
+    if (privateKeyContent) {
+      const result = validatePrivateKeyMaterial(privateKeyContent);
+      if (!result.ok) {
+        return fieldError('privateKeyContent', result.message);
+      }
+    } else if (privateKeyPath) {
+      const result = await validatePrivateKeyPath(privateKeyPath);
+      if (!result.ok) {
+        return fieldError('privateKeyPath', result.message);
+      }
+    }
+
     // Create a new SSH key
     const newKey = {
       id: nanoid(),
-      ...validatedData,
+      name: validatedData.name,
+      ...(privateKeyContent ? { privateKeyContent } : {}),
+      ...(privateKeyPath ? { privateKeyPath } : {}),
+      ...(validatedData.publicKeyPath?.trim()
+        ? { publicKeyPath: validatedData.publicKeyPath.trim() }
+        : {}),
       createdAt: new Date(),
       updatedAt: new Date(),
     };

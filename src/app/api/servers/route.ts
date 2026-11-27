@@ -1,23 +1,23 @@
 import { redactServer } from '@/lib/api/redact';
 import { db } from '@/lib/db';
 import { servers, sshKeys } from '@/lib/db/schema';
+import {
+  serverInputSchema,
+  validateServerCredentials,
+  validateSshKeyMaterial,
+} from '@/lib/ssh/key-validate';
 import { eq } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 
-// Server validation schema
-const serverSchema = z.object({
-  name: z.string().min(1, 'Name is required'),
-  host: z.string().min(1, 'Host is required'),
-  port: z.number().int().positive().default(22),
-  username: z.string().min(1, 'Username is required'),
-  authType: z.enum(['password', 'key']),
-  password: z.string().optional(),
-  privateKey: z.string().optional(),
-  sshKeyId: z.string().optional(),
-  systemKeyPath: z.string().optional(),
-});
+/** 400 with a field path the form can highlight (same shape as Zod issues). */
+function fieldError(field: string, message: string) {
+  return NextResponse.json(
+    { error: message, details: [{ path: [field], message }] },
+    { status: 400 }
+  );
+}
 
 // GET /api/servers - List all servers
 export async function GET() {
@@ -43,37 +43,61 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
 
     // Validate the request body
-    const validatedData = serverSchema.parse(body);
+    const validatedData = serverInputSchema.parse(body);
 
-    // Validate authentication method
-    if (validatedData.authType === 'key') {
-      // Ensure at least one key method is provided
-      if (!validatedData.privateKey && !validatedData.sshKeyId && !validatedData.systemKeyPath) {
-        return NextResponse.json(
-          { error: 'When using key authentication, you must provide a private key, select a stored key, or specify a system key path' },
-          { status: 400 }
-        );
+    // A stored key must exist and hold material node-ssh can actually load.
+    const sshKeyId = validatedData.sshKeyId?.trim() || null;
+    if (validatedData.authType === 'key' && sshKeyId) {
+      const storedKey = await db.query.sshKeys.findFirst({
+        where: eq(sshKeys.id, sshKeyId),
+      });
+
+      if (!storedKey) {
+        return fieldError('sshKeyId', 'Selected SSH key not found');
       }
 
-      // If using an SSH key from the database, validate that it exists
-      if (validatedData.sshKeyId) {
-        const keyExists = await db.query.sshKeys.findFirst({
-          where: eq(sshKeys.id, validatedData.sshKeyId),
-        });
-
-        if (!keyExists) {
-          return NextResponse.json(
-            { error: 'Selected SSH key not found' },
-            { status: 400 }
-          );
-        }
+      const storedKeyCheck = await validateSshKeyMaterial(storedKey);
+      if (!storedKeyCheck.ok) {
+        return fieldError(
+          'sshKeyId',
+          `Selected SSH key is unusable: ${storedKeyCheck.message}`
+        );
       }
     }
 
-    // Create a new server
+    // Password auth needs a password on create; key auth needs usable material.
+    const credentialCheck = await validateServerCredentials({
+      authType: validatedData.authType,
+      password: validatedData.password,
+      privateKey: validatedData.privateKey,
+      sshKeyId,
+      systemKeyPath: validatedData.systemKeyPath,
+    });
+    if (!credentialCheck.ok) {
+      return fieldError(credentialCheck.field, credentialCheck.message);
+    }
+
+    // Create a new server (only store fields for the selected auth method)
     const newServer = {
       id: nanoid(),
-      ...validatedData,
+      name: validatedData.name,
+      host: validatedData.host,
+      port: validatedData.port,
+      username: validatedData.username,
+      authType: validatedData.authType,
+      password:
+        validatedData.authType === 'password'
+          ? validatedData.password ?? null
+          : null,
+      privateKey:
+        validatedData.authType === 'key'
+          ? validatedData.privateKey?.trim() || null
+          : null,
+      sshKeyId: validatedData.authType === 'key' ? sshKeyId : null,
+      systemKeyPath:
+        validatedData.authType === 'key'
+          ? validatedData.systemKeyPath?.trim() || null
+          : null,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
