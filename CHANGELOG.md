@@ -11,11 +11,129 @@ Versions before a formal `v*` tag are dated unreleased / pre-release notes.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-27
+
+### Added
+
+- **Bro Space rebuilt around friends** — an invite wizard detects a reachable
+  LAN or Tailscale address (and warns about localhost), then gives you one
+  message to paste with the invite and LazyBro download links. It moves to Done
+  by itself when your friend accepts. Each friend has a card with online state,
+  space used in both directions, waiting uploads and the last error, plus
+  "Back up to", Rename and Remove.
+- **Truthful friend delivery** — History and the dashboard say "Waiting for
+  {friend}" until the friend's app confirms the copy. An offline friend no
+  longer fails the run; it waits and catches up. A full quota or a corrupted
+  copy shows a clear error instead of a silent success.
+- **Large friend restores and downloads** — artifacts move in 4 MB pieces, so
+  restores from 30 MB to 800 MB work in both directions and fit Cloudflare
+  Tunnel's 100 MB upload limit. The restore dialog shows progress stages, an
+  offline warning and a working cancel, and never polls forever.
+- **Restore from the run's own settings** — target path, database, volume and
+  host are prefilled from the run snapshot instead of today's config, with a
+  clear acknowledgment when you retarget.
+- **LazyBro redesigned** — one three-step setup card, a connected view and
+  plain-language error states. It disconnects cleanly and refuses to change the
+  folder while backups are stored in it.
+- **Authorize SSH keys for linked clients** — new `authorize_keys` API token
+  permission (works together with Read only) and
+  `POST`/`DELETE /api/servers/:id/authorize-key`. A client such as
+  [sshya](https://github.com/Ceneka/sshya) sends its own public key and
+  LazyBackup adds it to the server's `~/.ssh/authorized_keys` with the stored
+  credentials, so keys generated inside LazyBackup stay inside it. Each call is
+  audited with the key fingerprint.
+- **Friends on full LazyBackup** report online state, used space and errors the
+  same way LazyBro does, so mixed pairs get the same friend card.
+
+### Fixed
+
+- **Docker volume restores** always failed; they now upload and extract the
+  archive correctly.
+- **Database restores** — a failed SQLite restore could wipe the live database;
+  restores are now atomic and refuse unsafe targets. Postgres restores into an
+  existing database no longer apply only half the dump, MariaDB restores work
+  as a non-root user, and truncated or interrupted dumps fail instead of
+  reporting success.
+- **Restore reliability** — restoring from an SSH destination works without
+  bash and with quotes in paths; archives are verified before extraction;
+  members nested under a symlink are skipped; signal-killed remote commands
+  fail the restore; and two restores of the same backup can no longer race.
+- **Retention** — the backup just written is never deleted, failed runs don't
+  count toward the version limit, version folders no longer collide, and
+  age-based cleanup works on BusyBox servers.
+- **Bro Space races** — a sync timing issue could delete a freshly landed
+  backup while still reporting it delivered; the friend could copy an object
+  before it was fully written; revoking a friend left backups "succeeding" into
+  nowhere; and one frozen friend stopped syncing for everyone. Unpairing
+  deletes only this instance's tracked objects.
+- **Friend lifecycle** — backups and restores fail fast against a revoked
+  friend, stale delete acknowledgements can't unlink a newer artifact, and the
+  history of a removed friend is marked unrestorable instead of looking valid.
+- **Pre-backup commands** — a command that exits non-zero now fails the run
+  before anything is transferred, instead of producing a "successful" backup.
+- **Instance data** — the SQLite database is snapshotted instead of copied
+  under live writes, and restores refuse to overwrite the instance's own data.
+- **S3 downloads** are written with `0600`, and skipped symlinks are reported
+  in the backup log.
+- **History stats** count a single-archive transfer as its files and size.
+- **Runs and restores are serialized** — starting a backup while the same config
+  is already running attaches to that run, and a backup and a restore of the
+  same config can no longer overlap.
+- **Encryption preflight** — encrypted or friend backups are refused up front
+  when the vault has no active age key, instead of failing mid-run.
+- **Server-to-server transfers** resolve `~` in remote paths and pin the
+  destination host key.
+
 ### Security
 
 - **Next.js 15.5.29** — cross-client response injection and disclosure in
   self-hosted apps that forward fetched responses, an SVG rejection bypass in
   image optimization, and HttpOnly cookie exposure on Edge runtime routes.
+- **Command injection via paths** — an API token without `remote_exec` could run
+  commands on a server by using a path that started with `-`; option-like paths
+  are now rejected for ssh, scp and rsync.
+- **Read-only tokens** could reach a friend's write token through the API and
+  probe your network through test endpoints. Read-only now blocks ad-hoc
+  probes, and peer bearer tokens are redacted from responses.
+- **SSRF** — a storage address of `[::]` could reach this machine's own
+  services; IPv6 unspecified and multicast addresses are rejected.
+- **Auth bypass via asset paths** — a request path ending in `.png` skipped the
+  login check.
+- **CSRF and first-run takeover** — another website could set your first
+  password or make changes using your session; cookie mutations now require
+  JSON from the same site, and the public setup/password routes check content
+  type.
+- **Durable credentials** — creating API tokens or passkeys asks for your
+  password (or a passkey) again once the instance is locked, and password
+  checks are throttled.
+- **Secrets at rest and in `ps`** — database passwords are no longer visible in
+  the process list, and the SQLite database and its WAL files are `0600`.
+- **Download retries** (`?retry=1`, a recall mutation) now require write access,
+  so read-only tokens cannot trigger them.
+- **Bro Space hardening** — mailbox objects are capped, request bodies are
+  limited, outbound requests time out, staging files stay out of the object
+  namespace, and invite secrets are compared in constant time.
+- **Supply chain** — GitHub Actions are pinned to commit SHAs with
+  least-privilege permissions, and LazyBro releases publish `SHA256SUMS`.
+
+### Changed
+
+- **Public Bro addresses must use `https://`**; plain `http://` still works for
+  LAN and Tailscale addresses.
+- **API changes from the browser must be JSON and same-site** (CSRF
+  protection).
+- **Creating API tokens or passkeys** asks for a fresh password or passkey once
+  the instance is protected.
+- **Read-only tokens** can no longer run test requests against arbitrary hosts;
+  tests of stored endpoints by id still work.
+- **Success pings for friend backups** fire when the friend confirms delivery,
+  not when the backup is staged here.
+- **Unprotected instances** warn prominently and cannot mint API tokens or
+  register passkeys until an app password or passkey exists.
+- **TrueNAS compose** now pins `HOSTNAME=0.0.0.0`, so the container healthcheck
+  passes like the root compose file.
+- **Docs** gained a deployment hardening checklist and notes on CSRF, step-up
+  and read-only token scope.
 
 ## [0.3.0] - 2026-11-21
 
@@ -354,7 +472,7 @@ optional `remote_exec`.
    ignored) and opens a GitHub Release from that changelog section. Landing
    `/changelog` syncs on the next landing build.
 
-[Unreleased]: https://github.com/Ceneka/lazybackup/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/Ceneka/lazybackup/compare/v0.4.0...HEAD
 [0.2.0]: https://github.com/Ceneka/lazybackup/releases/tag/v0.2.0
 [0.2.1]: https://github.com/Ceneka/lazybackup/releases/tag/v0.2.1
 [0.2.2]: https://github.com/Ceneka/lazybackup/releases/tag/v0.2.2
@@ -365,3 +483,4 @@ optional `remote_exec`.
 [0.2.7]: https://github.com/Ceneka/lazybackup/releases/tag/v0.2.7
 [0.2.8]: https://github.com/Ceneka/lazybackup/releases/tag/v0.2.8
 [0.3.0]: https://github.com/Ceneka/lazybackup/releases/tag/v0.3.0
+[0.4.0]: https://github.com/Ceneka/lazybackup/releases/tag/v0.4.0
