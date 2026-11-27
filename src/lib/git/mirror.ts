@@ -3,10 +3,17 @@ import { promises as fs } from 'fs';
 import os from 'os';
 import path from 'path';
 import { promisify } from 'util';
-import { formatRshArgument, sshCliArgv } from '@/lib/ssh/rsync';
 import { writeTemporarySshIdentityFile } from '@/lib/ssh';
+import { sshGitEnv } from './ssh-env';
 
 const execFileAsync = promisify(execFile);
+
+/** Connection-only probes (Settings → test): fail in ~20 s on a black-holed host. */
+export const GIT_LS_REMOTE_TIMEOUT_MS = 20_000;
+/** A full mirror of a large repo can legitimately take minutes. */
+export const GIT_CLONE_TIMEOUT_MS = 15 * 60 * 1000;
+/** Local plumbing (show-ref) and anything without a specific ceiling. */
+export const GIT_DEFAULT_TIMEOUT_MS = 120_000;
 
 export type ParsedGitUrl = {
   scheme: 'ssh' | 'https' | 'http';
@@ -92,11 +99,31 @@ export async function buildGitSshCommand(
   port: number
 ): Promise<{ command: string; cleanup: () => Promise<void> }> {
   const identity = await writeTemporarySshIdentityFile(keyContent);
-  const argv = await sshCliArgv({ port, keyPath: identity.path });
-  return {
-    command: formatRshArgument(argv),
-    cleanup: identity.cleanup,
-  };
+  try {
+    const env = await sshGitEnv(identity.path, { port });
+    return { command: env.GIT_SSH_COMMAND ?? '', cleanup: identity.cleanup };
+  } catch (error) {
+    await identity.cleanup();
+    throw error;
+  }
+}
+
+/** Identity file + ssh env for SSH remotes; plain env (fast-fail ssh options) otherwise. */
+async function prepareGitEnv(
+  parsed: ParsedGitUrl,
+  keyContent?: string | null
+): Promise<{ env: NodeJS.ProcessEnv; cleanup?: () => Promise<void> }> {
+  if (parsed.scheme !== 'ssh' || !keyContent?.trim()) {
+    return { env: await sshGitEnv() };
+  }
+  const identity = await writeTemporarySshIdentityFile(keyContent);
+  try {
+    const env = await sshGitEnv(identity.path, { port: parsed.port });
+    return { env, cleanup: identity.cleanup };
+  } catch (error) {
+    await identity.cleanup();
+    throw error;
+  }
 }
 
 function gitMissingError(error: unknown): Error {
@@ -109,20 +136,53 @@ function gitMissingError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
 }
 
+function gitCommandLabel(args: string[]): string {
+  return args[0] === '--git-dir' ? 'git show-ref' : `git ${args[0]}`;
+}
+
+/** Timeout used for each kind of git call; keeps the wiring testable without module mocks. */
+export function gitCallTimeout(kind: 'ls-remote' | 'clone'): number {
+  return kind === 'ls-remote' ? GIT_LS_REMOTE_TIMEOUT_MS : GIT_CLONE_TIMEOUT_MS;
+}
+
+/** execFile kills the child on timeout but only reports a signal — explain it. */
+export function describeGitRunError(
+  error: unknown,
+  args: string[],
+  timeoutMs: number
+): Error {
+  const err = error as NodeJS.ErrnoException & { killed?: boolean; signal?: string | null };
+  if (err?.code === 'ENOENT') {
+    return gitMissingError(error);
+  }
+  const timedOut =
+    err?.killed === true || err?.code === 'ETIMEDOUT' || err?.signal === 'SIGTERM';
+  if (timedOut) {
+    const seconds = Math.max(1, Math.round(timeoutMs / 1000));
+    return new Error(
+      `${gitCommandLabel(args)} timed out after ${seconds}s — host unreachable?`
+    );
+  }
+  return error instanceof Error ? error : new Error(String(error));
+}
+
+const gitRunError = describeGitRunError;
+
 async function runGit(
   args: string[],
   options: { env?: NodeJS.ProcessEnv; cwd?: string; timeoutMs?: number }
 ): Promise<{ stdout: string; stderr: string }> {
+  const timeoutMs = options.timeoutMs ?? GIT_DEFAULT_TIMEOUT_MS;
   try {
     const { stdout, stderr } = await execFileAsync('git', args, {
       env: options.env,
       cwd: options.cwd,
-      timeout: options.timeoutMs ?? 120_000,
+      timeout: timeoutMs,
       maxBuffer: 16 * 1024 * 1024,
     });
     return { stdout: stdout || '', stderr: stderr || '' };
   } catch (error) {
-    throw gitMissingError(error);
+    throw gitRunError(error, args, timeoutMs);
   }
 }
 
@@ -135,21 +195,12 @@ export async function testGitRepo(options: {
     throw new Error('This Git URL needs an SSH key from Settings → SSH keys');
   }
 
-  let cleanup: (() => Promise<void>) | undefined;
-  const env: NodeJS.ProcessEnv = {
-    ...process.env,
-    GIT_TERMINAL_PROMPT: '0',
-    GIT_ASKPASS: 'echo',
-  };
-
+  const { env, cleanup } = await prepareGitEnv(parsed, options.keyContent);
   try {
-    if (parsed.scheme === 'ssh' && options.keyContent?.trim()) {
-      const ssh = await buildGitSshCommand(options.keyContent, parsed.port);
-      cleanup = ssh.cleanup;
-      env.GIT_SSH_COMMAND = ssh.command;
-    }
-
-    const result = await runGit(['ls-remote', '--heads', parsed.url], { env });
+    const result = await runGit(['ls-remote', '--heads', parsed.url], {
+      env,
+      timeoutMs: gitCallTimeout('ls-remote'),
+    });
     const refCount = result.stdout
       .split('\n')
       .map((line) => line.trim())
@@ -182,23 +233,12 @@ export async function packGitMirror(options: {
   const archiveName = `${options.archiveBaseName.replace(/\.tar\.gz$/i, '')}.tar.gz`;
   const localPath = path.join(tmpDir, archiveName);
 
-  let cleanup: (() => Promise<void>) | undefined;
-  const env: NodeJS.ProcessEnv = {
-    ...process.env,
-    GIT_TERMINAL_PROMPT: '0',
-    GIT_ASKPASS: 'echo',
-  };
+  const { env, cleanup } = await prepareGitEnv(parsed, options.keyContent);
 
   try {
-    if (parsed.scheme === 'ssh' && options.keyContent?.trim()) {
-      const ssh = await buildGitSshCommand(options.keyContent, parsed.port);
-      cleanup = ssh.cleanup;
-      env.GIT_SSH_COMMAND = ssh.command;
-    }
-
     await runGit(['clone', '--mirror', '--quiet', parsed.url, mirrorDir], {
       env,
-      timeoutMs: 15 * 60 * 1000,
+      timeoutMs: gitCallTimeout('clone'),
     });
 
     const refs = await runGit(['--git-dir', mirrorDir, 'show-ref'], { env });
@@ -216,7 +256,7 @@ export async function packGitMirror(options: {
     return { localPath, archiveName, tmpDir, refCount };
   } catch (error) {
     await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
-    throw gitMissingError(error);
+    throw error instanceof Error ? error : new Error(String(error));
   } finally {
     await cleanup?.();
   }

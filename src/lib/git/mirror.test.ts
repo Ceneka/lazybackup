@@ -65,10 +65,12 @@ describe('buildGitSshCommand', () => {
       2222
     );
     try {
-      expect(command).toContain('ssh');
-      expect(command).toContain('-p 2222');
-      expect(command).toContain('-i');
-      expect(command).toContain('-F /dev/null');
+      expect(command).toContain("'ssh'");
+      expect(command).toContain("'-p' '2222'");
+      expect(command).toContain("'-i'");
+      expect(command).toContain("'-F' '/dev/null'");
+      expect(command).toContain("'-o' 'ConnectTimeout=10'");
+      expect(command).toContain("'-o' 'StrictHostKeyChecking=accept-new'");
     } finally {
       await cleanup();
     }

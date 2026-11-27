@@ -1,10 +1,41 @@
 import { redactGitRepo } from '@/lib/api/redact';
 import { db } from '@/lib/db';
-import { gitRepos } from '@/lib/db/schema';
+import { gitRepos, sshKeys } from '@/lib/db/schema';
 import { gitRepoSchema } from '@/lib/git/schema';
+import { validateSshKeyMaterial } from '@/lib/ssh/key-validate';
+import { eq } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+
+/** 400 with a field path the form can highlight (same shape as Zod issues). */
+function fieldError(field: string, message: string) {
+  return NextResponse.json(
+    { error: message, details: [{ path: [field], message }] },
+    { status: 400 }
+  );
+}
+
+/** A selected stored key must exist and hold material OpenSSH can actually load. */
+async function validateSelectedSshKey(sshKeyId: string | null) {
+  if (!sshKeyId) return null;
+
+  const storedKey = await db.query.sshKeys.findFirst({
+    where: eq(sshKeys.id, sshKeyId),
+  });
+  if (!storedKey) {
+    return fieldError('sshKeyId', 'Selected SSH key not found');
+  }
+
+  const storedKeyCheck = await validateSshKeyMaterial(storedKey);
+  if (!storedKeyCheck.ok) {
+    return fieldError(
+      'sshKeyId',
+      `Selected SSH key is unusable: ${storedKeyCheck.message}`
+    );
+  }
+  return null;
+}
 
 // GET /api/git-repos
 export async function GET() {
@@ -24,6 +55,9 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const validatedData = gitRepoSchema.parse(body);
+
+    const keyError = await validateSelectedSshKey(validatedData.sshKeyId);
+    if (keyError) return keyError;
 
     const newRepo = {
       id: nanoid(),
