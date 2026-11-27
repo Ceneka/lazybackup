@@ -370,17 +370,10 @@ export function HistoryRestoreButton({
         </AlertDialogHeader>
 
         {preflight ? (
-          <Alert
-            className={
-              preflight.tone === "warning"
-                ? "border-amber-500/40 bg-amber-500/10"
-                : "border-blue-500/30 bg-blue-500/5"
-            }
-          >
-            <AlertTriangleIcon className="h-4 w-4" />
-            <AlertTitle>{preflight.title}</AlertTitle>
-            <AlertDescription>{preflight.detail}</AlertDescription>
-          </Alert>
+          <RestorePreflightAlert
+            preflight={preflight}
+            restoredTarget={restoredTarget}
+          />
         ) : null}
 
         {deliveryState === "failed" && deliveryError ? (
@@ -554,5 +547,33 @@ export function HistoryRestoreButton({
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+  )
+}
+
+/**
+ * Pre-restore warning (friend offline / delivery waiting). Hidden once a
+ * restore has completed so the success state cannot sit next to a stale
+ * "LazyBro is offline" warning.
+ */
+export function RestorePreflightAlert({
+  preflight,
+  restoredTarget,
+}: {
+  preflight: ReturnType<typeof restorePreflightCopy>
+  restoredTarget: string | null
+}) {
+  if (!preflight || restoredTarget) return null
+  return (
+    <Alert
+      className={
+        preflight.tone === "warning"
+          ? "border-amber-500/40 bg-amber-500/10"
+          : "border-blue-500/30 bg-blue-500/5"
+      }
+    >
+      <AlertTriangleIcon className="h-4 w-4" />
+      <AlertTitle>{preflight.title}</AlertTitle>
+      <AlertDescription>{preflight.detail}</AlertDescription>
+    </Alert>
   )
 }
