@@ -98,7 +98,7 @@ Set `DATABASE_URL` if you want a custom SQLite path (default: `file:./data.db`).
 - **From → To** — Endpoints: this host, SSH servers, S3-compatible storage (MinIO, R2, B2, AWS, …), or Git remotes (source only)
 - **Server → Server** — Ephemeral SSH key for direct rsync, or relay via the LazyBackup host when peers can’t reach each other
 - **Server management** — Add, edit, and test VPS connections (password or SSH key auth)
-- **Backup jobs** — Paths, Docker volumes, database dumps, or Git bare mirrors; cron schedules; exclude patterns; pre-backup shell commands
+- **Backup jobs** — Paths, Docker volumes, database dumps, or Git bare mirrors; cron schedules; exclude patterns; pre-backup shell commands (a command exiting non-zero aborts the run before transferring and does not create a recovery point)
 - **Docker volumes** — Discover named volumes on this host or a source server, pack as `.tar.gz` to a destination path/prefix, restore from History
 - **Database dumps** — Postgres / MySQL / MariaDB → `.sql.gz` (native client or `docker exec`); SQLite → `.sqlite.gz` (native file copy / `.backup`); restore from History
 - **S3 profiles** — Source prefixes and destination prefixes for path trees and archives

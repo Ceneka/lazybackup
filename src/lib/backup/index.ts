@@ -120,15 +120,18 @@ import { createBackupHistoryEntry, updateBackupHistoryFailure, updateBackupHisto
 import {
   buildFileRetentionLog,
   buildPeerRetentionLog,
-  buildPreBackupLog,
   buildSkippedSymlinkWarning,
   combineBackupLog,
-  formatPreBackupCommandLog,
   isArchiveTransferMethod,
   LOG_SECTION,
   parseArchiveTransferStats,
 } from './log-format';
-import { execFile } from 'child_process';
+import {
+  formatPreBackupFailureError,
+  runPreBackupCommands,
+  type PreBackupCommandResult,
+} from './pre-backup';
+import { exec, execFile } from 'child_process';
 import dayjs from 'dayjs';
 import { eq } from 'drizzle-orm';
 import * as fs from 'fs/promises';
@@ -138,6 +141,7 @@ import { promisify } from 'util';
 import { parseRsyncOutput } from '../utils/rsync-parser';
 
 const execFileAsync = promisify(execFile);
+const execAsync = promisify(exec);
 type ServerRow = typeof servers.$inferSelect;
 type S3ProfileRow = typeof s3Profiles.$inferSelect;
 type PeerRow = typeof peers.$inferSelect;
@@ -402,39 +406,6 @@ function assertHistoryArtifactRestorable(entry: {
 
 async function sshRshForIdentity(port: number, keyPath: string): Promise<string> {
   return formatRshArgument(await sshCliArgv({ port, keyPath }));
-}
-
-async function runLocalPreBackupCommands(commandsText: string): Promise<string> {
-  const { exec } = require('child_process');
-  const { promisify } = require('util');
-  const execPromise = promisify(exec);
-  const commands = commandsText.split('\n').filter(Boolean);
-  const commandLogs: string[] = [];
-
-  for (const command of commands) {
-    console.log(`Executing local command: ${command}`);
-    try {
-      const result = await execPromise(command);
-      commandLogs.push(
-        formatPreBackupCommandLog(command, {
-          code: 0,
-          stdout: result.stdout || '',
-          stderr: result.stderr || '',
-        })
-      );
-    } catch (err: unknown) {
-      const e = err as { code?: number; stdout?: string; stderr?: string; message?: string };
-      commandLogs.push(
-        formatPreBackupCommandLog(command, {
-          code: e.code ?? 1,
-          stdout: e.stdout || '',
-          stderr: e.stderr || e.message || '',
-        })
-      );
-    }
-  }
-
-  return buildPreBackupLog(commandLogs);
 }
 
 async function pullPathFromServer(options: {
@@ -933,22 +904,31 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
       sourceKind !== 's3' &&
       sourceKind !== 'git'
     ) {
+      let executePreBackupCommand: (command: string) => Promise<PreBackupCommandResult>;
+
       if (sourceKind === 'server' && config.server) {
         sourceSsh = await connectToServer(normalizeServer(config.server));
         console.log(`Running pre-backup commands for ${config.name}`);
-        const commands = config.preBackupCommands.split('\n').filter(Boolean);
-        const commandLogs: string[] = [];
-        for (const command of commands) {
-          console.log(`Executing command: ${command}`);
-          const result = await sourceSsh.execCommand(command);
-          commandLogs.push(formatPreBackupCommandLog(command, result));
-          if (result.stderr) {
-            console.warn(`Command produced warnings/errors: ${result.stderr}`);
-          }
-        }
-        preBackupLog = buildPreBackupLog(commandLogs);
+        const ssh = sourceSsh;
+        executePreBackupCommand = async (command) => {
+          const result = await ssh.execCommand(command);
+          return { stdout: result.stdout || '', stderr: result.stderr || '', code: result.code };
+        };
       } else {
-        preBackupLog = await runLocalPreBackupCommands(config.preBackupCommands);
+        executePreBackupCommand = async (command) => {
+          const result = await execAsync(command);
+          return { stdout: result.stdout || '', stderr: result.stderr || '', code: 0 };
+        };
+      }
+
+      const preBackup = await runPreBackupCommands(
+        config.preBackupCommands,
+        executePreBackupCommand,
+        sourceKind === 'server' && config.server ? undefined : { label: 'local' }
+      );
+      preBackupLog = preBackup.log;
+      if (preBackup.failures.length > 0) {
+        throw new Error(formatPreBackupFailureError(preBackup.failures));
       }
     }
 

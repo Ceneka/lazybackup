@@ -9,7 +9,11 @@ const updateSuccess = mock(
   async (_historyId: string, _stats: Record<string, unknown>) => ({ id: _historyId })
 );
 const updateFailure = mock(
-  async (_historyId: string, _error: unknown) => ({ id: _historyId })
+  async (
+    _historyId: string,
+    _error: unknown,
+    _options?: { logOutput?: string; configId?: string; backupName?: string }
+  ) => ({ id: _historyId })
 );
 
 mock.module('@/lib/backup/history', () => ({
@@ -212,5 +216,70 @@ describe('executeBackup', () => {
     });
     await expect(executeBackup(config, 'hist-inst')).rejects.toThrow(/passphrase/i);
     expect(updateFailure).toHaveBeenCalled();
+  });
+
+  test('a failing pre-backup command aborts before transfer and keeps the command log', async () => {
+    const sourceDir = path.join(tmpRoot, 'prefail-src');
+    const destRoot = path.join(tmpRoot, 'prefail-dest');
+    await fs.mkdir(sourceDir, { recursive: true });
+    await fs.writeFile(path.join(sourceDir, 'hello.txt'), 'hello world');
+
+    const config = baseLocalConfig({
+      sourcePath: sourceDir,
+      destinationPath: destRoot,
+      enableVersioning: true,
+      versionsToKeep: 3,
+      preBackupCommands: 'exit 1',
+    });
+
+    await expect(executeBackup(config, 'hist-prefail')).rejects.toThrow(/exit 1|Pre-backup/i);
+
+    expect(updateFailure).toHaveBeenCalledTimes(1);
+    expect(updateSuccess).not.toHaveBeenCalled();
+
+    const failureOptions = updateFailure.mock.calls[0][2];
+    expect(failureOptions?.logOutput).toContain('exit code: 1');
+    expect(failureOptions?.logOutput).toContain('========== Pre-Backup Commands ==========');
+
+    // No version folder (nor copied source files) is created before the abort.
+    expect(await fs.readdir(destRoot).catch(() => [])).toEqual([]);
+  });
+
+  test('pre-backup commands after a failure still run for cleanup', async () => {
+    const marker = path.join(tmpRoot, 'ran.txt');
+    const destRoot = path.join(tmpRoot, 'marker-dest');
+
+    const config = baseLocalConfig({
+      sourcePath: path.join(tmpRoot, 'marker-src'),
+      destinationPath: destRoot,
+      preBackupCommands: `exit 1\ntouch ${marker}`,
+    });
+
+    await expect(executeBackup(config, 'hist-prefail-cleanup')).rejects.toThrow(/Pre-backup/i);
+
+    expect(await fs.stat(marker).then(() => true).catch(() => false)).toBe(true);
+    expect(await fs.readdir(destRoot).catch(() => [])).toEqual([]);
+  });
+
+  test('successful pre-backup commands keep the run successful and log them', async () => {
+    const sourceDir = path.join(tmpRoot, 'preok-src');
+    const destDir = path.join(tmpRoot, 'preok-dest');
+    await fs.mkdir(sourceDir, { recursive: true });
+    await fs.writeFile(path.join(sourceDir, 'hello.txt'), 'hello world');
+
+    const config = baseLocalConfig({
+      sourcePath: sourceDir,
+      destinationPath: destDir,
+      preBackupCommands: 'true',
+    });
+
+    await executeBackup(config, 'hist-preok');
+
+    expect(updateSuccess).toHaveBeenCalledTimes(1);
+    expect(updateFailure).not.toHaveBeenCalled();
+
+    const successStats = updateSuccess.mock.calls[0][1] as { logOutput?: string };
+    expect(successStats.logOutput).toContain('Pre-Backup Commands');
+    expect(successStats.logOutput).toContain('exit code: 0');
   });
 });

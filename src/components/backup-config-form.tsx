@@ -1637,6 +1637,11 @@ export function BackupConfigForm({
                   : "Commands run on the source server before transfer"
               }
             />
+            <p className="text-xs text-muted-foreground">
+              If a command exits with a code other than 0, the run fails before
+              anything is transferred and no recovery point is created. The
+              remaining commands still run so cleanup steps can complete.
+            </p>
           </div>
         )}
 
