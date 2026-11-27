@@ -22,6 +22,7 @@ import {
   packDatabaseDumpLocal,
   packSqliteSnapshotLocal,
   restoreDatabaseLocal,
+  snapshotSqliteLocal,
   type DatabaseConnection,
 } from './index';
 
@@ -306,6 +307,34 @@ describe('sqlite snapshot without the sqlite3 CLI', () => {
 
       const mode = (await fs.stat(archive)).mode & 0o777;
       expect(mode).toBe(0o600);
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('snapshotSqliteLocal includes commits still in the live WAL', async () => {
+    const { Database } = await import('bun:sqlite');
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'lbtest-sqlite-wal-'));
+    const dbPath = path.join(dir, 'live.db');
+    const snapshot = path.join(dir, 'snapshot.db');
+    try {
+      const db = new Database(dbPath, { create: true });
+      db.run('PRAGMA journal_mode = WAL');
+      db.run('PRAGMA wal_autocheckpoint = 0');
+      db.run('CREATE TABLE t (x INTEGER)');
+      db.run('INSERT INTO t VALUES (4), (5)');
+      // Keep the writer open so the rows are only in the WAL, not the main
+      // file; a plain copyFile here used to lose them.
+      try {
+        const result = await snapshotSqliteLocal(dbPath, snapshot);
+        expect(result.code).toBe(0);
+        const check = new Database(snapshot, { readonly: true });
+        const row = check.query('SELECT SUM(x) AS s FROM t').get() as { s: number };
+        check.close();
+        expect(row.s).toBe(9);
+      } finally {
+        db.close();
+      }
     } finally {
       await fs.rm(dir, { recursive: true, force: true });
     }

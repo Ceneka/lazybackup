@@ -5,6 +5,7 @@ import path from 'path';
 import { promisify } from 'util';
 import { encryptFileWithPassphrase } from '@/lib/crypto/age';
 import { exportVaultSecrets } from '@/lib/crypto/keys';
+import { snapshotSqliteLocal } from '@/lib/database';
 import { db } from '@/lib/db';
 import { resolveSqliteFilePath } from '@/lib/db/sqlite-path';
 
@@ -34,7 +35,10 @@ export async function packLazybackupInstance(options?: {
 
     const dbPath = resolveSqliteFilePath();
     await fs.access(dbPath);
-    await fs.copyFile(dbPath, path.join(staging, 'data.db'));
+    // A plain copyFile of a WAL-mode database misses every commit still in
+    // the -wal file (and can catch a checkpoint mid-write). VACUUM INTO gives
+    // a consistent snapshot with all committed data.
+    await snapshotSqliteLocal(dbPath, path.join(staging, 'data.db'));
 
     const vault = await exportVaultSecrets();
     await fs.writeFile(

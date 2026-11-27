@@ -547,21 +547,17 @@ async function localSqlite3Available(): Promise<boolean> {
 }
 
 /**
- * Consistent local SQLite snapshot without the sqlite3 CLI, used when the
- * Docker image/dev host has no sqlite3 binary. Runs Bun's bundled SQLite in a
- * short-lived `bun -e` process (`VACUUM INTO` is transactional) and gzips the
- * result, so a live database is never copied mid-write.
+ * Write a transactionally consistent copy of a live SQLite database using
+ * Bun's bundled SQLite in a short-lived `bun -e` process (`VACUUM INTO`).
+ * Copying the main file alone while WAL mode is active misses recent commits.
  */
-export async function packSqliteSnapshotLocal(
+export async function snapshotSqliteLocal(
   dbPath: string,
-  archiveFilePath: string
+  snapshotPath: string
 ): Promise<{ stdout: string; stderr: string; code: number }> {
   assertValidSqlitePath(dbPath);
   const source = dbPath.trim();
-  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'lazybackup-sqlite-'));
-  const snapshotPath = path.join(tmpDir, 'snapshot.db');
-  try {
-    const script = `
+  const script = `
 import { Database } from 'bun:sqlite';
 const db = new Database(process.env.LAZYBACKUP_SQLITE_SOURCE, { readonly: true });
 try {
@@ -570,14 +566,32 @@ try {
   db.close();
 }
 `;
-    const result = await runArgv([process.execPath, '-e', script], {
-      ...process.env,
-      LAZYBACKUP_SQLITE_SOURCE: source,
-      LAZYBACKUP_SQLITE_VACUUM_SQL: buildSqliteVacuumIntoStatement(snapshotPath),
-    });
-    if (result.code !== 0) {
-      throw new Error((result.stderr || result.stdout).trim() || `exit ${result.code}`);
-    }
+  const result = await runArgv([process.execPath, '-e', script], {
+    ...process.env,
+    LAZYBACKUP_SQLITE_SOURCE: source,
+    LAZYBACKUP_SQLITE_VACUUM_SQL: buildSqliteVacuumIntoStatement(snapshotPath),
+  });
+  if (result.code !== 0) {
+    throw new Error((result.stderr || result.stdout).trim() || `exit ${result.code}`);
+  }
+  return result;
+}
+
+/**
+ * Consistent local SQLite snapshot without the sqlite3 CLI, used when the
+ * Docker image/dev host has no sqlite3 binary. Snapshots with
+ * {@link snapshotSqliteLocal} and gzips the result, so a live database is
+ * never copied mid-write.
+ */
+export async function packSqliteSnapshotLocal(
+  dbPath: string,
+  archiveFilePath: string
+): Promise<{ stdout: string; stderr: string; code: number }> {
+  assertValidSqlitePath(dbPath);
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'lazybackup-sqlite-'));
+  const snapshotPath = path.join(tmpDir, 'snapshot.db');
+  try {
+    const result = await snapshotSqliteLocal(dbPath, snapshotPath);
     await pipeline(
       createReadStream(snapshotPath),
       createGzip(),
