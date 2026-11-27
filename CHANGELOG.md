@@ -11,6 +11,16 @@ Versions before a formal `v*` tag are dated unreleased / pre-release notes.
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-11-27
+
+### Fixed
+
+- **v0.4.0 image build** — the Docker image was not published because two tests
+  assumed a host environment (bash available, directory permissions enforced
+  for non-root) and failed inside the Alpine build. They now use POSIX `sh` and
+  skip the root-only permission probe. No application code changed in this
+  release; v0.4.1 ships the same changes as v0.4.0.
+
 ## [0.4.0] - 2026-11-27
 
 ### Added
@@ -472,7 +482,7 @@ optional `remote_exec`.
    ignored) and opens a GitHub Release from that changelog section. Landing
    `/changelog` syncs on the next landing build.
 
-[Unreleased]: https://github.com/Ceneka/lazybackup/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/Ceneka/lazybackup/compare/v0.4.1...HEAD
 [0.2.0]: https://github.com/Ceneka/lazybackup/releases/tag/v0.2.0
 [0.2.1]: https://github.com/Ceneka/lazybackup/releases/tag/v0.2.1
 [0.2.2]: https://github.com/Ceneka/lazybackup/releases/tag/v0.2.2
@@ -484,3 +494,4 @@ optional `remote_exec`.
 [0.2.8]: https://github.com/Ceneka/lazybackup/releases/tag/v0.2.8
 [0.3.0]: https://github.com/Ceneka/lazybackup/releases/tag/v0.3.0
 [0.4.0]: https://github.com/Ceneka/lazybackup/releases/tag/v0.4.0
+[0.4.1]: https://github.com/Ceneka/lazybackup/releases/tag/v0.4.1

@@ -24,6 +24,19 @@ export const changelogEntries: readonly ChangelogEntry[] = [
     "sections": []
   },
   {
+    "id": "0-4-1",
+    "title": "0.4.1",
+    "date": "2026-11-27",
+    "sections": [
+      {
+        "heading": "Fixed",
+        "items": [
+          "v0.4.0 image build — the Docker image was not published because two tests assumed a host environment (bash available, directory permissions enforced for non-root) and failed inside the Alpine build. They now use POSIX sh and skip the root-only permission probe. No application code changed in this release; v0.4.1 ships the same changes as v0.4.0."
+        ]
+      }
+    ]
+  },
+  {
     "id": "0-4-0",
     "title": "0.4.0",
     "date": "2026-11-27",
