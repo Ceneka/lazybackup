@@ -130,4 +130,25 @@ describe('deriveDeliveryState (C4)', () => {
       })
     ).toBeNull();
   });
+
+  test('the artifact path, not the edited live config, decides peer delivery', () => {
+    // Local run, config later edited to a friend: never "stored on friend".
+    expect(
+      deliveryStateForHistoryRow({
+        status: 'success',
+        mailboxPending: false,
+        artifactPath: '/backups/local/app.tar.gz',
+        backupConfig: { destinationKind: 'peer' },
+      })
+    ).toBeNull();
+    // Peer run, config later edited away: the delivery state still applies.
+    expect(
+      deliveryStateForHistoryRow({
+        status: 'success',
+        mailboxPending: false,
+        artifactPath: 'peer://p1/app.tar.gz',
+        backupConfig: { destinationKind: 'local' },
+      })
+    ).toBe('stored');
+  });
 });

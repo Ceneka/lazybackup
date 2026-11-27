@@ -116,6 +116,16 @@ describe('deriveDeliveryState', () => {
         destinationKind: 'local',
       })
     ).toBeNull()
+    // A local artifact whose config was later pointed at a friend is not a
+    // delivery either.
+    expect(
+      deriveDeliveryState({
+        status: 'success',
+        artifactPath: '/backups/local/a',
+        destinationKind: 'peer',
+        mailboxPending: false,
+      })
+    ).toBeNull()
   })
 })
 

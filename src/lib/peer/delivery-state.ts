@@ -30,19 +30,20 @@ export function deriveDeliveryState(input: {
   peer?: { remoteLastError?: string | null } | null;
 }): DeliveryState {
   if (input.destinationKind !== 'peer') return null;
-  // No artifact means nothing was handed to the friend. In particular a
-  // failed run (or one still in progress) must not inherit "stored" from the
+  // No peer artifact means nothing was handed to the friend. This also keeps
+  // a local run from looking delivered after its config was edited to point at
+  // a friend, and a failed/running run from inheriting "stored" from the
   // default `mailbox_pending = 0`.
-  if (!input.artifactPath) return null;
+  const ref = parsePeerArtifactPath(input.artifactPath);
+  if (!ref) return null;
   if (input.status && input.status !== 'success') return null;
   if (!input.mailboxPending) return 'stored';
 
   // The peer's last report names the object it failed on (quota exceeded,
   // corrupt/mismatched pull, rejected ACK). Transport errors and "friend is
   // offline" do not name a key, so they stay `waiting` rather than `failed`.
-  const ref = parsePeerArtifactPath(input.artifactPath);
   const lastError = input.peer?.remoteLastError ?? null;
-  if (ref && lastError && lastError.includes(ref.objectKey)) return 'failed';
+  if (lastError && lastError.includes(ref.objectKey)) return 'failed';
   return 'waiting';
 }
 
@@ -56,8 +57,13 @@ export function deliveryStateForHistoryRow(row: {
     destinationPeer?: { remoteLastError?: string | null } | null;
   } | null;
 }): DeliveryState {
+  // A peer artifact path is authoritative: the live config may have been
+  // edited to another destination (or to peer) after this run.
+  const destinationKind = parsePeerArtifactPath(row.artifactPath)
+    ? 'peer'
+    : row.backupConfig?.destinationKind;
   return deriveDeliveryState({
-    destinationKind: row.backupConfig?.destinationKind,
+    destinationKind,
     status: row.status,
     mailboxPending: row.mailboxPending,
     artifactPath: row.artifactPath,

@@ -49,11 +49,12 @@ export function isPeerDestination(input: {
 export function deriveDeliveryState(input: DeliveryStateInput): DeliveryState {
   if (input.status === 'running') return null
   if (!isPeerDestination(input)) return null
-  // A delivery state only describes a finished, successful peer run with an
-  // artifact. An explicit (possibly stale) payload must not make a failed or
-  // artifact-less run look stored off-site.
+  // A delivery state only describes a finished, successful peer run whose
+  // artifact is actually a peer blob. An explicit (possibly stale) payload
+  // must not make a failed run, or a local run whose config was later pointed
+  // at a friend, look stored off-site.
   if (input.status && input.status !== 'success') return null
-  if (!input.artifactPath) return null
+  if (!isPeerArtifactPath(input.artifactPath)) return null
   const explicit = normalizeDeliveryState(input.deliveryState)
   if (explicit) return explicit
   return input.mailboxPending ? 'waiting' : 'stored'
