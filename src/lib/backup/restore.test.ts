@@ -386,6 +386,50 @@ describe('restoreDatabaseBackup guards', () => {
       restoreDatabaseBackup('h1', { confirm: true, targetServerId: 's2' })
     ).rejects.toThrow(/allowRetarget/i);
   });
+
+  test('a legacy SQL dump cannot be restored with a live SQLite config', async () => {
+    historyFixture = {
+      id: 'h-engine',
+      status: 'success',
+      artifactPath: '/tmp/app.sql.gz',
+      configSnapshot: null,
+      backupConfig: {
+        sourceType: 'database',
+        sourceKind: 'local',
+        sourcePath: '/tmp/target.db',
+        dbEngine: 'sqlite',
+        dbClient: 'native',
+        dbUser: 'sqlite',
+        destinationKind: 'local',
+        destinationPath: '/backups/app',
+      },
+    };
+    await expect(
+      restoreDatabaseBackup('h-engine', { confirm: true })
+    ).rejects.toThrow(/cannot be restored with the live database settings/i);
+  });
+
+  test('a legacy SQLite snapshot cannot be restored with a live server config', async () => {
+    historyFixture = {
+      id: 'h-engine-2',
+      status: 'success',
+      artifactPath: '/tmp/app.sqlite.gz',
+      configSnapshot: null,
+      backupConfig: {
+        sourceType: 'database',
+        sourceKind: 'local',
+        sourcePath: 'appdb',
+        dbEngine: 'postgres',
+        dbClient: 'native',
+        dbUser: 'postgres',
+        destinationKind: 'local',
+        destinationPath: '/backups/app',
+      },
+    };
+    await expect(
+      restoreDatabaseBackup('h-engine-2', { confirm: true })
+    ).rejects.toThrow(/cannot be restored with the live database settings/i);
+  });
 });
 
 describe('resolveLocalPathRestoreTree', () => {

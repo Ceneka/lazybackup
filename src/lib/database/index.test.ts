@@ -4,17 +4,19 @@ import { promises as fs } from 'fs';
 import os from 'os';
 import path from 'path';
 import { promisify } from 'util';
-import { gunzipSync } from 'zlib';
+import { gunzipSync, gzipSync } from 'zlib';
 import {
   archiveFileNameForDatabase,
   buildDatabaseTestCommand,
   buildDumpArgs,
+  buildDumpToGzipWithStatus,
   buildMysqlDefinerStripCommand,
   buildPackDatabaseCommand,
   buildPackSqliteCommand,
   buildRestoreDatabaseCommand,
   buildRestoreSqliteCommand,
   buildSqliteVacuumIntoStatement,
+  databaseArtifactEngine,
   defaultPortForEngine,
   MYSQL_DEFINER_STRIP_SED_EXPRESSIONS,
   packDatabaseDumpLocal,
@@ -73,6 +75,24 @@ describe('database command builders', () => {
   test('mariadb uses mariadb-dump binary', () => {
     const args = buildDumpArgs({ ...baseMysql, engine: 'mariadb' });
     expect(args).toContain('mariadb-dump');
+  });
+
+  test('a failed dump stage fails the pipeline even though gzip succeeds', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'lazybackup-dump-status-'));
+    try {
+      const out = path.join(dir, 'out.sql.gz');
+      await expect(
+        execFileAsync('sh', ['-c', buildDumpToGzipWithStatus('exit 3', out)])
+      ).rejects.toThrow();
+
+      await execFileAsync('sh', [
+        '-c',
+        buildDumpToGzipWithStatus("printf 'dump-ok'", out),
+      ]);
+      expect(gunzipSync(await fs.readFile(out)).toString()).toBe('dump-ok');
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
   });
 
   test('pack command redirects gzip to file and does not embed the password', () => {
@@ -327,6 +347,17 @@ const baseSqlite: DatabaseConnection = {
   database: '/var/lib/app/data.db',
 };
 
+describe('databaseArtifactEngine', () => {
+  test('recognizes SQL and SQLite dump names, including age and S3 paths', () => {
+    expect(databaseArtifactEngine('/backups/app/app.sql.gz')).toBe('server');
+    expect(databaseArtifactEngine('/backups/app/app.sql.gz.age')).toBe('server');
+    expect(databaseArtifactEngine('s3://bucket/base/app.sql.gz.age')).toBe('server');
+    expect(databaseArtifactEngine('/backups/app/data.sqlite.gz')).toBe('sqlite');
+    expect(databaseArtifactEngine('/backups/app/data.sqlite.gz.age')).toBe('sqlite');
+    expect(databaseArtifactEngine('/backups/app/vol.tar.gz')).toBeNull();
+  });
+});
+
 describe('sqlite dump engine', () => {
   test('pack uses sqlite3 .backup or cp then gzip', () => {
     const cmd = buildPackSqliteCommand('/var/lib/app/data.db', '/tmp/out/data.sqlite.gz');
@@ -347,6 +378,28 @@ describe('sqlite dump engine', () => {
     expect(buildRestoreDatabaseCommand(baseSqlite, '/tmp/data.sqlite.gz')).toContain(
       'gzip -dc'
     );
+  });
+
+  test('restore removes WAL/journal sidecars from the replaced database', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'lazybackup-sqlite-restore-'));
+    try {
+      const db = path.join(dir, 'app.db');
+      const archive = path.join(dir, 'app.sqlite.gz');
+      await fs.writeFile(db, 'old database');
+      await fs.writeFile(`${db}-wal`, 'stale wal');
+      await fs.writeFile(`${db}-shm`, 'stale shm');
+      await fs.writeFile(`${db}-journal`, 'stale journal');
+      await fs.writeFile(archive, gzipSync(Buffer.from('new database')));
+
+      await execFileAsync('sh', ['-c', buildRestoreSqliteCommand(db, archive)]);
+
+      expect(await fs.readFile(db, 'utf8')).toBe('new database');
+      for (const suffix of ['-wal', '-shm', '-journal']) {
+        expect(await fs.stat(`${db}${suffix}`).catch(() => null)).toBeNull();
+      }
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
   });
 
   test('test checks the file and optional sqlite3 SELECT 1', () => {
