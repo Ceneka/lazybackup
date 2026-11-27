@@ -28,6 +28,15 @@ export type RestoreConfigSnapshot = {
   dbEngine: string | null;
   /** Database name (same as sourcePath for database backups). */
   dbName: string | null;
+  /**
+   * Where the dump came from (not the password, which stays live). Optional:
+   * snapshots written before these fields existed fall back to the live config.
+   */
+  dbHost?: string | null;
+  dbPort?: number | null;
+  dbUser?: string | null;
+  dbClient?: string | null;
+  dbContainer?: string | null;
   /** Docker volume name (same as sourcePath for volume backups). */
   volumeName: string | null;
   destinationKind: RestoreSnapshotDestinationKind;
@@ -47,6 +56,11 @@ export type RestoreSnapshotConfigLike = {
   sourceGitRepoId?: string | null;
   sourcePath: string;
   dbEngine?: string | null;
+  dbHost?: string | null;
+  dbPort?: number | null;
+  dbUser?: string | null;
+  dbClient?: string | null;
+  dbContainer?: string | null;
   destinationKind?: string | null;
   destinationServerId?: string | null;
   destinationS3ProfileId?: string | null;
@@ -97,6 +111,11 @@ export function buildRestoreSnapshot(
     sourcePath,
     dbEngine: sourceType === 'database' ? config.dbEngine ?? null : null,
     dbName: sourceType === 'database' ? sourcePath : null,
+    dbHost: sourceType === 'database' ? config.dbHost ?? null : null,
+    dbPort: sourceType === 'database' ? config.dbPort ?? null : null,
+    dbUser: sourceType === 'database' ? config.dbUser ?? null : null,
+    dbClient: sourceType === 'database' ? config.dbClient ?? null : null,
+    dbContainer: sourceType === 'database' ? config.dbContainer ?? null : null,
     volumeName: sourceType === 'docker_volume' ? sourcePath : null,
     destinationKind: normalizeDestinationKind(config.destinationKind),
     destinationServerId: idOrNull(config.destinationServerId),
@@ -142,6 +161,15 @@ export function parseRestoreSnapshot(value: unknown): RestoreConfigSnapshot | nu
     sourcePath: obj.sourcePath,
     dbEngine: asStringOrNull(obj.dbEngine),
     dbName: asStringOrNull(obj.dbName),
+    ...(Object.prototype.hasOwnProperty.call(obj, 'dbHost')
+      ? {
+          dbHost: asStringOrNull(obj.dbHost),
+          dbPort: typeof obj.dbPort === 'number' ? obj.dbPort : null,
+          dbUser: asStringOrNull(obj.dbUser),
+          dbClient: asStringOrNull(obj.dbClient),
+          dbContainer: asStringOrNull(obj.dbContainer),
+        }
+      : {}),
     volumeName: asStringOrNull(obj.volumeName),
     destinationKind: normalizeDestinationKind(asStringOrNull(obj.destinationKind)),
     destinationServerId: asStringOrNull(obj.destinationServerId),
@@ -163,6 +191,12 @@ export type EffectiveRestoreConfig = {
   sourcePath: string;
   dbEngine: string | null;
   dbName: string | null;
+  /** Dump origin; from the snapshot when it recorded them, else the live config. */
+  dbHost: string | null;
+  dbPort: number | null;
+  dbUser: string | null;
+  dbClient: string | null;
+  dbContainer: string | null;
   volumeName: string | null;
   destinationKind: RestoreSnapshotDestinationKind;
   destinationServerId: string | null;
@@ -193,6 +227,12 @@ export function effectiveRestoreConfig(
     sourcePath: source.sourcePath,
     dbEngine: source.dbEngine,
     dbName: source.dbName,
+    dbHost: source.dbHost !== undefined ? source.dbHost : live.dbHost ?? null,
+    dbPort: source.dbPort !== undefined ? source.dbPort : live.dbPort ?? null,
+    dbUser: source.dbUser !== undefined ? source.dbUser : live.dbUser ?? null,
+    dbClient: source.dbClient !== undefined ? source.dbClient : live.dbClient ?? null,
+    dbContainer:
+      source.dbContainer !== undefined ? source.dbContainer : live.dbContainer ?? null,
     volumeName: source.volumeName,
     destinationKind: source.destinationKind,
     destinationServerId: source.destinationServerId,
@@ -219,6 +259,12 @@ export function snapshotDiffersFromConfig(
     snapshot.sourcePath !== live.sourcePath ||
     snapshot.dbEngine !== live.dbEngine ||
     snapshot.dbName !== live.dbName ||
+    (snapshot.dbHost !== undefined &&
+      (snapshot.dbHost !== live.dbHost ||
+        snapshot.dbPort !== live.dbPort ||
+        snapshot.dbUser !== live.dbUser ||
+        snapshot.dbClient !== live.dbClient ||
+        snapshot.dbContainer !== live.dbContainer)) ||
     snapshot.volumeName !== live.volumeName ||
     snapshot.destinationKind !== live.destinationKind ||
     snapshot.destinationServerId !== live.destinationServerId ||

@@ -666,7 +666,7 @@
         </div>
 
         <div class="card identity">
-          <p>Connected as <strong id="localName">your friend</strong></p>
+          <p>Your name: <strong id="localName">your friend</strong></p>
           <button type="button" class="link" id="changeName">Change name</button>
           <div id="nameForm" hidden style="width: 100%">
             <label for="nameInput" class="hint">Your name</label>
@@ -897,7 +897,10 @@
         setText("lead", revoked ? "Sharing stopped." : "Lending a folder to " + name + ".");
         setText("dangerName", name);
         setText("localName", localName(config));
-        setText("heroTitle", revoked ? "Connection removed" : "Connected to " + name);
+        setText(
+          "heroTitle",
+          revoked ? "Connection removed" : offline ? "Can't reach " + name + " right now" : "Connected to " + name
+        );
         setText("privacy", "Everything " + name + " stores here is encrypted. You can't open it.");
 
         const kicker = revoked

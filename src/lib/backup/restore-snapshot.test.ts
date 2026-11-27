@@ -174,3 +174,39 @@ describe('restoreDefaultsFromSnapshot (contract C5)', () => {
     ).toBe(true);
   });
 });
+
+describe('database connection in the restore snapshot', () => {
+  const runConfig = {
+    sourceKind: 'server',
+    sourceType: 'database',
+    serverId: 's1',
+    sourcePath: 'appdb',
+    dbEngine: 'postgres',
+    dbHost: 'db-old.internal',
+    dbPort: 5432,
+    dbUser: 'app',
+    dbClient: 'docker',
+    dbContainer: 'pg-old',
+    destinationKind: 'local',
+    destinationPath: '/backups/app',
+  };
+
+  test('restores into the database the dump came from, not the edited one', () => {
+    const snapshot = buildRestoreSnapshot(runConfig);
+    const edited = { ...runConfig, dbHost: 'db-new.internal', dbContainer: 'pg-new' };
+    const effective = effectiveRestoreConfig(parseRestoreSnapshot(JSON.stringify(snapshot)), edited);
+    expect(effective.dbHost).toBe('db-old.internal');
+    expect(effective.dbContainer).toBe('pg-old');
+    expect(snapshotDiffersFromConfig(snapshot, edited)).toBe(true);
+  });
+
+  test('older snapshots without connection fields fall back to the live config', () => {
+    const { dbHost, dbPort, dbUser, dbClient, dbContainer, ...legacy } =
+      buildRestoreSnapshot(runConfig);
+    void dbHost; void dbPort; void dbUser; void dbClient; void dbContainer;
+    const parsed = parseRestoreSnapshot(JSON.stringify(legacy));
+    const effective = effectiveRestoreConfig(parsed, { ...runConfig, dbHost: 'db-new.internal' });
+    expect(effective.dbHost).toBe('db-new.internal');
+    expect(snapshotDiffersFromConfig(parsed!, { ...runConfig, dbHost: 'db-new.internal' })).toBe(false);
+  });
+});

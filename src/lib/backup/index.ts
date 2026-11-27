@@ -2973,6 +2973,13 @@ async function restoreDatabaseBackupUnlocked(
     const dbConn = connectionFromConfig({
       ...config,
       dbEngine: (effective.dbEngine ?? config.dbEngine) as typeof config.dbEngine,
+      // Restore into the database the dump came from, not wherever the live
+      // config points now (the password stays live).
+      dbHost: effective.dbHost as typeof config.dbHost,
+      dbPort: effective.dbPort as typeof config.dbPort,
+      dbUser: effective.dbUser as typeof config.dbUser,
+      dbClient: effective.dbClient as typeof config.dbClient,
+      dbContainer: effective.dbContainer as typeof config.dbContainer,
       // SQLite "databases" are filesystem paths: a restore writes over a file.
       // Apply the same target guard as path restores on this host.
       sourcePath:
