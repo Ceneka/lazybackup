@@ -53,7 +53,7 @@ export default function FeaturesPage() {
             restores, validation, webhooks, encryption, or MCP.
           </p>
           <p className="mt-3 max-w-2xl text-sm text-slate-500">
-            v0.3.0 adds health at a glance, pause/resume, safer restores, and
+            Recent releases add health at a glance, pause/resume, safer restores, and
             connection readiness—see the{" "}
             <Link
               href="/changelog"

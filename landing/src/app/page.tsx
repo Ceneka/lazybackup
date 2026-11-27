@@ -14,6 +14,7 @@ import { InstallTabs } from "@/components/landing/install-tabs";
 import { ScreenshotsGallery } from "@/components/landing/screenshots-gallery";
 import { SiteHeader } from "@/components/landing/site-header";
 import { SiteFooter } from "@/components/landing/site-footer";
+import { LATEST_VERSION } from "@/lib/version";
 
 export const metadata: Metadata = {
   title: {
@@ -134,15 +135,13 @@ export default function Home() {
         <div className="relative container mx-auto grid grid-cols-[minmax(0,1fr)] gap-14 px-5 pb-16 pt-12 md:px-8 md:pb-20 md:pt-20 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] lg:items-center lg:gap-14">
           <div className="min-w-0">
             <Link
-              href="/blog/lazybackup-0-3-0-ui-ux"
+              href="/changelog"
               className="inline-flex max-w-full items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] py-1 pl-1 pr-3 text-sm text-slate-300 transition hover:border-emerald-400/30 hover:bg-white/[0.05]"
             >
               <span className="rounded-full bg-emerald-400/15 px-2 py-0.5 font-mono text-[11px] text-emerald-300">
-                v0.3.0
+                v{LATEST_VERSION}
               </span>
-              <span className="truncate">
-                Every screen reworked: backup health at a glance
-              </span>
+              <span className="truncate">See what changed in this release</span>
               <span aria-hidden className="text-slate-500">
                 →
               </span>

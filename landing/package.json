@@ -2,10 +2,11 @@
   "name": "lazybackup-landing",
   "version": "0.4.3",
   "private": true,
-  "description": "Self-hosted From→To backup manager for paths, Docker volumes, and database dumps between local, SSH, and S3.",
+  "description": "Self-hosted From\u2192To backup manager for paths, Docker volumes, and database dumps between local, SSH, and S3.",
   "homepage": "https://lazy.zic.ar",
   "scripts": {
     "dev": "next dev --turbopack",
+    "predev": "bun run sync-changelog",
     "sync-changelog": "bun run scripts/sync-changelog.ts",
     "prebuild": "bun run sync-changelog",
     "build": "next build",
