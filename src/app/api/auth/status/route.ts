@@ -2,6 +2,7 @@ import {
   getAuthStatus,
   maybeRefreshSessionCookie,
 } from '@/lib/auth'
+import { countPasskeys } from '@/lib/auth/webauthn'
 import { NextRequest, NextResponse } from 'next/server'
 
 // GET /api/auth/status — public; used by middleware and UI.
@@ -10,7 +11,10 @@ export async function GET(request: NextRequest) {
   try {
     const cookieHeader = request.headers.get('cookie')
     const status = await getAuthStatus(cookieHeader)
-    const response = NextResponse.json(status)
+    // getAuthStatus only includes the count for authenticated sessions; the UI
+    // type declares it optional, so always report the real number.
+    const passkeyCount = status.passkeyCount ?? (await countPasskeys())
+    const response = NextResponse.json({ ...status, passkeyCount })
 
     if (status.authEnabled && status.authenticated) {
       await maybeRefreshSessionCookie(response, cookieHeader)

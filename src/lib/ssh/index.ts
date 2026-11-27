@@ -2,6 +2,7 @@ import { execFile } from 'child_process';
 import { randomBytes } from 'crypto';
 import { eq } from 'drizzle-orm';
 import { promises as fs } from 'fs';
+import { homedir } from 'os';
 import path from 'path';
 import { promisify } from 'util';
 import { NodeSSH } from 'node-ssh';
@@ -22,6 +23,16 @@ import { ensureSshTempDir } from './temp-dir';
 const execFileAsync = promisify(execFile);
 
 export type Server = typeof servers.$inferSelect;
+
+/**
+ * Expand a stored `systemKeyPath` before reading it on this host.
+ * `~` and `~/…` become the current user's home; `~user`, absolute and relative
+ * paths are returned unchanged. The DB keeps the original value.
+ */
+export function resolveSystemKeyPath(inputPath: string): string {
+  const target = inputPath.trim();
+  return target.replace(/^~(?=\/|$)/, process.env.HOME || homedir());
+}
 
 /** Same key material used by node-ssh; required for host-side rsync/scp which cannot use the DB directly. */
 export async function resolvePrivateKeyForServer(server: Server): Promise<string> {
@@ -50,10 +61,11 @@ export async function resolvePrivateKeyForServer(server: Server): Promise<string
     throw new Error('SSH key has no content or path');
   }
   if (server.systemKeyPath) {
+    const keyPath = resolveSystemKeyPath(server.systemKeyPath);
     try {
-      return await fs.readFile(server.systemKeyPath, 'utf8');
+      return await fs.readFile(keyPath, 'utf8');
     } catch {
-      throw new Error(`Failed to read system SSH key file: ${server.systemKeyPath}`);
+      throw new Error(`Failed to read system SSH key file: ${keyPath}`);
     }
   }
   if (server.privateKey) {

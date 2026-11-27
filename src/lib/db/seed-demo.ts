@@ -8,6 +8,7 @@ import {
 import { resolveLocalBackupPath } from '@/lib/backup/destination';
 import { generateAgeKeyPair } from '@/lib/crypto/age';
 import { db } from '@/lib/db';
+import { generateStoredEd25519KeyPair } from '@/lib/ssh/generate-key';
 import {
   ageKeys,
   ageRecoveryRecipients,
@@ -33,6 +34,9 @@ const GB = 1024 * 1024 * 1024;
 const MB = 1024 * 1024;
 const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
+
+const DEMO_SSH_KEY_PLACEHOLDER =
+  '-----BEGIN OPENSSH PRIVATE KEY-----\nDEMO_KEY_NOT_REAL_USE_YOUR_OWN\n-----END OPENSSH PRIVATE KEY-----';
 
 function hoursAgo(h: number): Date {
   return new Date(Date.now() - h * HOUR);
@@ -322,6 +326,20 @@ async function seedLocalStorageFixtures(
 }
 
 /**
+ * Settings → SSH derives the authorized_keys install command from the private
+ * key, so the demo row must hold a parseable key. Generate a throwaway ed25519
+ * pair when ssh-keygen is available; fall back to the placeholder otherwise.
+ */
+async function demoPrivateKey(): Promise<string> {
+  try {
+    const { privateKey } = await generateStoredEd25519KeyPair('lazybackup-demo');
+    return privateKey;
+  } catch {
+    return DEMO_SSH_KEY_PLACEHOLDER;
+  }
+}
+
+/**
  * Wipe demo resources and insert screenshot-friendly fixtures.
  * Leaves auth tables/settings untouched (app password, passkeys, session secret).
  */
@@ -351,8 +369,7 @@ export async function seedDemoData(): Promise<SeedDemoResult> {
     name: 'Bootstrap key (ed25519)',
     privateKeyPath: null,
     publicKeyPath: null,
-    privateKeyContent:
-      '-----BEGIN OPENSSH PRIVATE KEY-----\nDEMO_KEY_NOT_REAL_USE_YOUR_OWN\n-----END OPENSSH PRIVATE KEY-----',
+    privateKeyContent: await demoPrivateKey(),
     createdAt: keyCreated,
     updatedAt: now,
   });

@@ -3,6 +3,7 @@ import { promises as fs, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import path from 'path';
 import { z } from 'zod';
+import { resolveSystemKeyPath } from '@/lib/ssh';
 
 /**
  * Write-time validation for SSH credential material.
@@ -168,17 +169,20 @@ export async function validatePrivateKeyPath(
   if (!target) {
     return { ok: false, message: 'Private key path is required' };
   }
+  // Same expansion node-ssh gets at connect time, so `~/.ssh/id_ed25519`
+  // validates instead of failing on a literal `~` directory.
+  const resolved = resolveSystemKeyPath(target);
 
   let content: string;
   try {
-    const stat = await fs.stat(target);
+    const stat = await fs.stat(resolved);
     if (!stat.isFile()) {
       return {
         ok: false,
         message: `Private key path is not a file: ${target}`,
       };
     }
-    content = await fs.readFile(target, 'utf8');
+    content = await fs.readFile(resolved, 'utf8');
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     if (code === 'ENOENT') {
