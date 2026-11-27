@@ -22,12 +22,19 @@ export function parsePeerArtifactPath(
 
 export function deriveDeliveryState(input: {
   destinationKind?: string | null;
+  /** Run status; a failed/running run is never "stored" off-site. */
+  status?: string | null;
   mailboxPending?: boolean | null;
   artifactPath?: string | null;
   /** Peer row for the destination; only the reported error is used. */
   peer?: { remoteLastError?: string | null } | null;
 }): DeliveryState {
   if (input.destinationKind !== 'peer') return null;
+  // No artifact means nothing was handed to the friend. In particular a
+  // failed run (or one still in progress) must not inherit "stored" from the
+  // default `mailbox_pending = 0`.
+  if (!input.artifactPath) return null;
+  if (input.status && input.status !== 'success') return null;
   if (!input.mailboxPending) return 'stored';
 
   // The peer's last report names the object it failed on (quota exceeded,
@@ -41,6 +48,7 @@ export function deriveDeliveryState(input: {
 
 /** Convenience for history rows with a nested backup config + destination peer. */
 export function deliveryStateForHistoryRow(row: {
+  status?: string | null;
   mailboxPending?: boolean | null;
   artifactPath?: string | null;
   backupConfig?: {
@@ -50,6 +58,7 @@ export function deliveryStateForHistoryRow(row: {
 }): DeliveryState {
   return deriveDeliveryState({
     destinationKind: row.backupConfig?.destinationKind,
+    status: row.status,
     mailboxPending: row.mailboxPending,
     artifactPath: row.artifactPath,
     peer: row.backupConfig?.destinationPeer,

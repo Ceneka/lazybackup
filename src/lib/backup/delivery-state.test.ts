@@ -90,6 +90,33 @@ describe('deriveDeliveryState', () => {
       })
     ).toBe('failed')
   })
+
+  test('a stale stored payload cannot mark a failed or artifact-less run off-site', () => {
+    expect(
+      deriveDeliveryState({
+        deliveryState: 'stored',
+        status: 'failed',
+        artifactPath: 'peer://p1/a',
+        destinationKind: 'peer',
+      })
+    ).toBeNull()
+    expect(
+      deriveDeliveryState({
+        deliveryState: 'stored',
+        status: 'success',
+        artifactPath: null,
+        destinationKind: 'peer',
+      })
+    ).toBeNull()
+    expect(
+      deriveDeliveryState({
+        deliveryState: 'stored',
+        status: 'success',
+        artifactPath: '/backups/local/a',
+        destinationKind: 'local',
+      })
+    ).toBeNull()
+  })
 })
 
 describe('delivery copy', () => {

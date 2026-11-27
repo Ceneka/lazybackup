@@ -189,6 +189,9 @@ export async function updateBackupHistoryFailure(
       endTime: new Date(),
       status: 'failed',
       errorMessage,
+      // A failed run is not waiting for an ACK anymore; a late ACK must not
+      // fire a success ping for it.
+      mailboxPending: false,
       ...(options?.logOutput ? { logOutput: options.logOutput } : {}),
     })
     .where(eq(backupHistory.id, historyId))
