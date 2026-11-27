@@ -4,7 +4,11 @@ import path from 'path';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import type { NodeSSH } from 'node-ssh';
-import { isBackupArtifactFileName } from '@/lib/backup/file-retention';
+import {
+  isBackupArtifactFileName,
+  selectFilesToDelete,
+  type FileCandidate,
+} from '@/lib/backup/file-retention';
 import { assertSafePathString } from '@/lib/backup/local-paths';
 import { ensureKnownHostsFile, sshStrictHostKeyPinnedCliOptions } from './known-hosts';
 import {
@@ -264,6 +268,55 @@ export async function cleanupRemoteOldVersions(
 }
 
 /**
+ * Portable command to list top-level files with mtime epoch seconds.
+ *
+ * `find -printf` is GNU-only; BusyBox find (Alpine, many NAS boxes, OpenWrt)
+ * rejects it. `stat -c` is supported by both GNU coreutils and BusyBox, and
+ * running `find .` after `cd` keeps the output as `./<name>` so names may
+ * contain spaces or quotes (line-based parsing cannot represent newlines).
+ */
+export function buildRemoteFileListCommand(destinationPath: string): string {
+  return `${REMOTE_STANDARD_PATH} cd ${remotePathShellWord(
+    destinationPath
+  )} && find . -maxdepth 1 -type f -exec stat -c '%Y %n' {} +`;
+}
+
+export type ParsedRemoteFileListing = {
+  files: FileCandidate[];
+  /** Non-empty lines that did not look like `<epoch> <path>`. */
+  invalidLines: number;
+};
+
+/** Parse `stat -c '%Y %n'` output produced by `buildRemoteFileListCommand`. */
+export function parseRemoteFileListing(stdout: string): ParsedRemoteFileListing {
+  const files: FileCandidate[] = [];
+  let invalidLines = 0;
+
+  for (const line of stdout.split('\n')) {
+    if (!line) continue;
+    const space = line.indexOf(' ');
+    if (space <= 0) {
+      invalidLines += 1;
+      continue;
+    }
+    const epoch = Number(line.slice(0, space));
+    if (!Number.isFinite(epoch) || epoch < 0) {
+      invalidLines += 1;
+      continue;
+    }
+    let name = line.slice(space + 1);
+    if (name.startsWith('./')) name = name.slice(2);
+    if (!name || name.endsWith('/')) {
+      invalidLines += 1;
+      continue;
+    }
+    files.push({ name, mtimeMs: epoch * 1000 });
+  }
+
+  return { files, invalidLines };
+}
+
+/**
  * Age-based file retention on a remote destination directory.
  */
 export async function cleanupRemoteOldFiles(
@@ -273,23 +326,24 @@ export async function cleanupRemoteOldFiles(
   unit: 'days' | 'months',
   minKeep: number
 ): Promise<string[]> {
-  // List top-level files with mtime epoch seconds
-  const list = await ssh.execCommand(
-    `${REMOTE_STANDARD_PATH} find ${remotePathShellWord(destinationPath)} -maxdepth 1 -type f -printf '%T@ %f\\n' 2>/dev/null || true`
-  );
-  const files: { name: string; mtimeMs: number }[] = [];
-  for (const line of (list.stdout || '').split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    const space = trimmed.indexOf(' ');
-    if (space <= 0) continue;
-    const epoch = Number(trimmed.slice(0, space));
-    const name = trimmed.slice(space + 1);
-    if (!name || Number.isNaN(epoch)) continue;
-    files.push({ name, mtimeMs: epoch * 1000 });
+  const list = await ssh.execCommand(buildRemoteFileListCommand(destinationPath));
+  if (list.code !== 0) {
+    const detail = (list.stderr || list.stdout || '').trim();
+    console.warn(
+      `File retention: could not list remote files in ${destinationPath}` +
+        `${detail ? `: ${detail}` : ''}. Skipping age-based cleanup.`
+    );
+    return [];
   }
 
-  const { selectFilesToDelete } = await import('@/lib/backup/file-retention');
+  const { files, invalidLines } = parseRemoteFileListing(list.stdout || '');
+  if (invalidLines > 0) {
+    console.warn(
+      `File retention: ignored ${invalidLines} unparseable line(s) while listing ` +
+        `${destinationPath}. Remote find/stat output may be unsupported.`
+    );
+  }
+
   const artifacts = files.filter((file) => isBackupArtifactFileName(file.name));
   const toDelete = selectFilesToDelete(artifacts, {
     maxAge,
