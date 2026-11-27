@@ -6,6 +6,7 @@ import {
   assertStagingQuota,
   deleteStagedObject,
   listStagedObjects,
+  stagedObjectDigest,
   stagedObjectExists,
   writeStagedObject,
 } from './staging';
@@ -50,8 +51,10 @@ describe('peer staging', () => {
       await fs.chmod(peerDir, 0o000);
 
       // The ACK reconciliation treats a thrown error as "still staged" (safe);
-      // swallowing it as false would mark an undelivered run as stored.
+      // swallowing it as false would mark an undelivered run as stored. The
+      // ACK digest path must likewise not report a 404 that ends ACK retries.
       await expect(stagedObjectExists(peerId, key)).rejects.toThrow();
+      await expect(stagedObjectDigest(peerId, key)).rejects.toThrow();
     } finally {
       await fs.chmod(peerDir, 0o700).catch(() => undefined);
       if (prev === undefined) delete process.env.BACKUP_STORAGE_PATH;

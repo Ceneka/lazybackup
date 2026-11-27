@@ -108,8 +108,10 @@ export async function stagedObjectDigest(
     const st = await fs.stat(dest);
     const sha256 = await sha256File(dest);
     return { size: st.size, sha256 };
-  } catch {
-    return null;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT' || code === 'ENOTDIR') return null;
+    throw error;
   }
 }
 
