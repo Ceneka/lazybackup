@@ -561,6 +561,7 @@ export async function snapshotSqliteLocal(
 import { Database } from 'bun:sqlite';
 const db = new Database(process.env.LAZYBACKUP_SQLITE_SOURCE, { readonly: true });
 try {
+  db.run('PRAGMA busy_timeout = 5000');
   db.run(process.env.LAZYBACKUP_SQLITE_VACUUM_SQL);
 } finally {
   db.close();
