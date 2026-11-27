@@ -145,16 +145,34 @@ export async function decryptWithPassphrase(
   return typeof plain === 'string' ? plain : new TextDecoder().decode(plain as Uint8Array);
 }
 
-/** Encrypt a file with an age passphrase (binary `.age` output). */
+/**
+ * Encrypt a file with an age passphrase (binary `.age` output).
+ * Streams both ways: an instance tar (SQLite + vault + keys) can be GBs, so
+ * it must never be read into a single Buffer.
+ */
 export async function encryptFileWithPassphrase(
   inputPath: string,
   outPath: string,
   passphrase: string
 ): Promise<{ bytesIn: number; bytesOut: number }> {
-  const input = await fs.readFile(inputPath);
+  const bytesIn = (await fs.stat(inputPath)).size;
   const encrypter = new age.Encrypter();
   encrypter.setPassphrase(passphrase);
-  const ciphertext = await encrypter.encrypt(input);
-  await fs.writeFile(outPath, ciphertext);
-  return { bytesIn: input.byteLength, bytesOut: ciphertext.byteLength };
+  const inputStream = createReadStream(inputPath);
+  try {
+    const inputWeb = Readable.toWeb(inputStream) as ReadableStream<Uint8Array>;
+    const cipherWeb = await encrypter.encrypt(inputWeb);
+    await pipeline(
+      Readable.fromWeb(cipherWeb as never),
+      createWriteStream(outPath, { mode: 0o600 })
+    );
+    await fs.chmod(outPath, 0o600);
+  } catch (error) {
+    // Release the read fd even when the header/stream setup fails.
+    inputStream.destroy();
+    await fs.unlink(outPath).catch(() => {});
+    throw error;
+  }
+  const bytesOut = (await fs.stat(outPath)).size;
+  return { bytesIn, bytesOut };
 }

@@ -146,6 +146,7 @@ export async function packLazybackupInstance(options?: {
     if (passphrase) {
       const encName = `${tarName}.age`;
       const encPath = path.join(tmpDir, encName);
+      // Streams the tar through age; a bloated instance DB makes it GBs.
       await encryptFileWithPassphrase(tarPath, encPath, passphrase);
       await fs.chmod(encPath, 0o600);
       await fs.unlink(tarPath).catch(() => undefined);

@@ -1,5 +1,7 @@
+import { createReadStream, createWriteStream } from 'fs';
 import fs from 'fs/promises';
 import path from 'path';
+import { pipeline } from 'stream/promises';
 
 /**
  * Recall uploads are split into chunks so each HTTP request body stays small.
@@ -70,7 +72,12 @@ export async function appendRecallChunk(options: {
     if (!partial || partial.size !== expectedOffset) {
       throw new Error('Recall chunk out of order; restart the upload from chunk 0');
     }
-    await fs.appendFile(partialPath, await fs.readFile(chunkPath));
+    // Stream the chunk instead of reading it whole: chunks are 4 MiB, and a
+    // queue of concurrent uploads must not multiply that by a Buffer copy.
+    await pipeline(
+      createReadStream(chunkPath),
+      createWriteStream(partialPath, { flags: 'a' })
+    );
   }
 
   return (await fs.stat(partialPath)).size;
