@@ -1,7 +1,7 @@
 import { shellSingleQuote } from '@/lib/ssh/rsync';
 import { DOCKER_VOLUME_NAME_RE } from '@/lib/docker/volumes';
 import { spawn, execFile, type ChildProcess } from 'child_process';
-import { createReadStream, createWriteStream } from 'fs';
+import { constants as fsConstants, createReadStream, createWriteStream } from 'fs';
 import { promises as fs } from 'fs';
 import os from 'os';
 import path from 'path';
@@ -546,6 +546,86 @@ async function localSqlite3Available(): Promise<boolean> {
   }
 }
 
+/** Short, user-facing message: backup logs must never show a Node stack. */
+export const BUN_RUNTIME_UNAVAILABLE_MESSAGE =
+  'A consistent SQLite snapshot needs the Bun runtime (bun not found on PATH)';
+
+export class BunRuntimeUnavailableError extends Error {
+  constructor(message: string = BUN_RUNTIME_UNAVAILABLE_MESSAGE) {
+    super(message);
+    this.name = 'BunRuntimeUnavailableError';
+  }
+}
+
+let bunBinaryPromise: Promise<string | null> | null = null;
+
+/** Test hook: forget the cached Bun path after PATH / BUN_BINARY changes. */
+export function resetBunBinaryCacheForTests(): void {
+  bunBinaryPromise = null;
+}
+
+async function isExecutableFile(candidate: string): Promise<boolean> {
+  try {
+    const stat = await fs.stat(candidate);
+    if (!stat.isFile()) return false;
+    await fs.access(candidate, fsConstants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Absolute path to a Bun binary that can run a `bun -e` script.
+ *
+ * Development and the Docker image run this app under Bun, but `next start`
+ * runs on Node, where `process.execPath` is `node`. Fall back to an explicit
+ * override, then `bun` on PATH, then the default install location. Resolved
+ * once per process: the binary does not change while the server runs.
+ */
+export async function resolveBunBinary(): Promise<string | null> {
+  if (process.versions.bun) {
+    return process.execPath;
+  }
+  bunBinaryPromise ??= (async () => {
+    const override = process.env.BUN_BINARY?.trim();
+    if (override && (await isExecutableFile(override))) {
+      return override;
+    }
+    const exe = process.platform === 'win32' ? 'bun.exe' : 'bun';
+    // No shell: a PATH entry must not be able to expand into a command line.
+    for (const dir of (process.env.PATH ?? '').split(path.delimiter)) {
+      if (!dir) continue;
+      const candidate = path.join(dir, exe);
+      if (await isExecutableFile(candidate)) {
+        return candidate;
+      }
+    }
+    // os.homedir() is cached at startup under Bun; read HOME first so tests
+    // (and containers that export HOME at runtime) resolve the same place.
+    const home = process.env.HOME?.trim() || os.homedir();
+    const installed = path.join(home, '.bun', 'bin', exe);
+    if (await isExecutableFile(installed)) {
+      return installed;
+    }
+    return null;
+  })();
+  return bunBinaryPromise;
+}
+
+/** First line of tool output that names a failure, never a stack frame. */
+function commandFailureMessage(stdout: string, stderr: string, code: number): string {
+  const lines = `${stderr}\n${stdout}`
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  // Bun prints a source frame before the actual error line.
+  const line =
+    lines.find((candidate) => /^[A-Za-z_]*Error\b|^error:/i.test(candidate)) ?? lines[0];
+  const reason = line || `exit ${code}`;
+  return reason.length > 200 ? `${reason.slice(0, 199)}…` : reason;
+}
+
 /**
  * Write a transactionally consistent copy of a live SQLite database using
  * Bun's bundled SQLite in a short-lived `bun -e` process (`VACUUM INTO`).
@@ -556,6 +636,10 @@ export async function snapshotSqliteLocal(
   snapshotPath: string
 ): Promise<{ stdout: string; stderr: string; code: number }> {
   assertValidSqlitePath(dbPath);
+  const bun = await resolveBunBinary();
+  if (!bun) {
+    throw new BunRuntimeUnavailableError();
+  }
   const source = dbPath.trim();
   const script = `
 import { Database } from 'bun:sqlite';
@@ -567,13 +651,13 @@ try {
   db.close();
 }
 `;
-  const result = await runArgv([process.execPath, '-e', script], {
+  const result = await runArgv([bun, '-e', script], {
     ...process.env,
     LAZYBACKUP_SQLITE_SOURCE: source,
     LAZYBACKUP_SQLITE_VACUUM_SQL: buildSqliteVacuumIntoStatement(snapshotPath),
   });
   if (result.code !== 0) {
-    throw new Error((result.stderr || result.stdout).trim() || `exit ${result.code}`);
+    throw new Error(commandFailureMessage(result.stdout, result.stderr, result.code));
   }
   return result;
 }
@@ -856,6 +940,19 @@ async function runArgv(
   return { stdout: std.stdout, stderr: std.stderr, code };
 }
 
+/**
+ * One short line naming why a snapshot failed, for the backup log. Error
+ * messages from spawned tools can carry a whole Node/Bun stack; a warning
+ * embedded in the log must not.
+ */
+function compactErrorReason(error: unknown, max = 200): string {
+  if (!(error instanceof Error)) return 'snapshot failed';
+  const code = (error as NodeJS.ErrnoException).code;
+  const firstLine = error.message.split(/\r?\n/, 1)[0]?.trim();
+  const reason = firstLine || code || 'snapshot failed';
+  return reason.length > max ? `${reason.slice(0, max - 1)}…` : reason;
+}
+
 /** Dump database to a temp .sql.gz on the local host. Caller must clean up tmpDir. */
 export async function packDatabaseDumpLocal(
   conn: DatabaseConnection
@@ -880,8 +977,7 @@ export async function packDatabaseDumpLocal(
             ['/bin/sh', '-c', buildPackDatabaseCommand(conn, archivePath)],
             { ...process.env }
           );
-          const reason =
-            snapshotError instanceof Error ? snapshotError.message : 'snapshot failed';
+          const reason = compactErrorReason(snapshotError);
           result = {
             ...fallback,
             stderr: `SQLite consistent snapshot unavailable (${reason}); using cp fallback\n${fallback.stderr}`,
