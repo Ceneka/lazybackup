@@ -51,14 +51,31 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    let body: z.infer<typeof bodySchema> = {};
+    // A malformed body must not silently fall back to the stored ping.
+    let rawBody: unknown;
     try {
-      body = bodySchema.parse(await request.json());
+      rawBody = await request.json();
     } catch {
-      body = {};
+      return NextResponse.json(
+        { error: 'Invalid JSON body', details: [] },
+        { status: 400 }
+      );
     }
+    const parsed = bodySchema.safeParse(rawBody);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: 'Validation error', details: parsed.error.issues },
+        { status: 400 }
+      );
+    }
+    const body = parsed.data;
 
-    const url = (body.url?.trim() || (await settingValue(SUCCESS_PING_URL_KEY))).trim();
+    // Only an omitted url falls back to the stored one; an explicitly blank url
+    // is an error (otherwise the test would fire the stored ping).
+    const url =
+      body.url !== undefined
+        ? body.url.trim()
+        : (await settingValue(SUCCESS_PING_URL_KEY)).trim();
     const method = parseSuccessPingMethod(
       body.method || (await settingValue(SUCCESS_PING_METHOD_KEY)) || 'GET'
     ) as WebhookHttpMethod;

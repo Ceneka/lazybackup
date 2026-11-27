@@ -47,14 +47,31 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    let body: z.infer<typeof bodySchema> = {};
+    // A malformed body must not silently fall back to the stored webhook.
+    let rawBody: unknown;
     try {
-      body = bodySchema.parse(await request.json());
+      rawBody = await request.json();
     } catch {
-      body = {};
+      return NextResponse.json(
+        { error: 'Invalid JSON body', details: [] },
+        { status: 400 }
+      );
     }
+    const parsed = bodySchema.safeParse(rawBody);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: 'Validation error', details: parsed.error.issues },
+        { status: 400 }
+      );
+    }
+    const body = parsed.data;
 
-    const url = (body.url?.trim() || (await settingValue(FAILURE_WEBHOOK_URL_KEY))).trim();
+    // Only an omitted url falls back to the stored one; an explicitly blank url
+    // is an error (otherwise the test would fire the stored webhook).
+    const url =
+      body.url !== undefined
+        ? body.url.trim()
+        : (await settingValue(FAILURE_WEBHOOK_URL_KEY)).trim();
     const method = parseWebhookMethod(
       body.method || (await settingValue(FAILURE_WEBHOOK_METHOD_KEY)) || 'POST'
     ) as WebhookHttpMethod;

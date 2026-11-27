@@ -3,6 +3,15 @@ import { resolveAuth, SENSITIVE_SETTING_KEYS } from '@/lib/auth';
 import { isValidTimezone } from '@/lib/cron/format';
 import { db } from '@/lib/db';
 import { settings } from '@/lib/db/schema';
+import { validateHttpUrl } from '@/lib/net/url-guard';
+import {
+  FAILURE_WEBHOOK_METHOD_KEY,
+  FAILURE_WEBHOOK_URL_KEY,
+} from '@/lib/notify/failure-webhook';
+import {
+  SUCCESS_PING_METHOD_KEY,
+  SUCCESS_PING_URL_KEY,
+} from '@/lib/notify/success-ping';
 import {
   TIMEZONE_SETTING_KEY,
   clearTimezoneCache,
@@ -30,6 +39,50 @@ const settingsBodySchema = z.union([batchSettingsSchema, settingSchema]);
 
 function isSensitiveKey(key: string): boolean {
   return sensitiveKeySet.has(key);
+}
+
+const WEBHOOK_URL_KEYS = new Set<string>([
+  FAILURE_WEBHOOK_URL_KEY,
+  SUCCESS_PING_URL_KEY,
+]);
+const WEBHOOK_METHOD_KEYS = new Set<string>([
+  FAILURE_WEBHOOK_METHOD_KEY,
+  SUCCESS_PING_METHOD_KEY,
+]);
+const WEBHOOK_METHODS = new Set(['GET', 'POST', 'PUT']);
+const WEBHOOK_URL_TAG_RE = /\{\{\s*[a-zA-Z0-9_]+\s*\}\}/g;
+
+function validateSettingValue(key: string, value: string | undefined): string | null {
+  if (value === undefined) return null;
+
+  if (key === TIMEZONE_SETTING_KEY) {
+    return value && !isValidTimezone(value)
+      ? 'Invalid timezone. Use an IANA name like America/Argentina/Buenos_Aires.'
+      : null;
+  }
+
+  if (WEBHOOK_URL_KEYS.has(key)) {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    // URL templates keep `{{tag}}` placeholders; substitute before parsing and
+    // leave the stricter send-time policy for delivery.
+    const result = validateHttpUrl(trimmed.replace(WEBHOOK_URL_TAG_RE, 'x'), {
+      allowPrivate: true,
+      allowCgnat: true,
+      allowHttp: true,
+      label: 'Webhook URL',
+    });
+    return result.ok ? null : `Invalid ${key}: ${result.error}`;
+  }
+
+  if (WEBHOOK_METHOD_KEYS.has(key)) {
+    const method = value.trim().toUpperCase();
+    return method && !WEBHOOK_METHODS.has(method)
+      ? `Invalid ${key}: use GET, POST, or PUT.`
+      : null;
+  }
+
+  return null;
 }
 
 // GET /api/settings - List all settings (secrets stripped)
@@ -120,15 +173,12 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      if (
-        TIMEZONE_SETTING_KEY in values &&
-        values[TIMEZONE_SETTING_KEY] &&
-        !isValidTimezone(values[TIMEZONE_SETTING_KEY])
-      ) {
-        return NextResponse.json(
-          { error: 'Invalid timezone. Use an IANA name like America/Argentina/Buenos_Aires.' },
-          { status: 400 }
-        );
+      // Validate every value before writing any (batch writes stay atomic).
+      for (const key of keys) {
+        const error = validateSettingValue(key, values[key]);
+        if (error) {
+          return NextResponse.json({ error }, { status: 400 });
+        }
       }
 
       let changed = false;
@@ -152,15 +202,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (
-      validatedData.key === TIMEZONE_SETTING_KEY &&
-      validatedData.value &&
-      !isValidTimezone(validatedData.value)
-    ) {
-      return NextResponse.json(
-        { error: 'Invalid timezone. Use an IANA name like America/Argentina/Buenos_Aires.' },
-        { status: 400 }
-      );
+    const settingError = validateSettingValue(validatedData.key, validatedData.value);
+    if (settingError) {
+      return NextResponse.json({ error: settingError }, { status: 400 });
     }
 
     const existingSetting = await db.query.settings.findFirst({
