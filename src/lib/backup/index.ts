@@ -287,7 +287,7 @@ async function cleanupS3VersionPrefixes(
   return deleted;
 }
 
-type RestoreEndpointRows = {
+export type RestoreEndpointRows = {
   destinationServer: ServerRow | null;
   destinationS3Profile: S3ProfileRow | null;
   destinationPeer: PeerRow | null;
@@ -299,7 +299,7 @@ type RestoreEndpointRows = {
  * Resolve endpoint rows using the run snapshot ids. Falls back to the nested
  * live-config relations when the id is unchanged (or the row is legacy).
  */
-async function loadRestoreEndpointRows(
+export async function loadRestoreEndpointRows(
   config: BackupConfigWithEndpoints,
   effective: EffectiveRestoreConfig
 ): Promise<RestoreEndpointRows> {
