@@ -214,6 +214,37 @@ function slugifyArchiveBase(name: string): string {
   return slug || 'backup';
 }
 
+type BackupSourceKind = 'local' | 'server' | 's3' | 'git';
+type BackupSourceType =
+  | 'path'
+  | 'docker_volume'
+  | 'database'
+  | 'lazybackup_instance'
+  | 'git_repo';
+
+/**
+ * Pre-backup commands exist to quiesce an application on the source host.
+ * S3/Git sources have no such host, and instance backups must never execute
+ * stale commands left on the config (they would mutate the very data packed).
+ */
+export function shouldRunPreBackupCommands(
+  sourceKind: BackupSourceKind,
+  sourceType: BackupSourceType
+): boolean {
+  if (sourceKind === 's3' || sourceKind === 'git') return false;
+  return sourceType !== 'lazybackup_instance';
+}
+
+/**
+ * Volume archives land through `landLocalFileArtifact`, producing methods like
+ * `docker-file-local`. `combineBackupLog` checks "local" before "docker", which
+ * would label a volume tar as "Backup Transfer (rsync)"; collapse volume
+ * methods to `docker` for the log header while keeping the stored method.
+ */
+export function transferLogMethod(method: string): string {
+  return method.startsWith('docker') ? 'docker' : method;
+}
+
 function normalizeServer(server: ServerRow) {
   return {
     ...server,
@@ -897,12 +928,11 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
       destinationKind !== 'peer' &&
       Boolean(config.deleteExtraneous);
 
-    // Pre-backup commands (not applicable for S3 or Git sources)
+    // Pre-backup commands (not applicable for S3, Git, or instance sources)
     if (
       config.preBackupCommands &&
       config.preBackupCommands.trim() &&
-      sourceKind !== 's3' &&
-      sourceKind !== 'git'
+      shouldRunPreBackupCommands(sourceKind, sourceType)
     ) {
       let executePreBackupCommand: (command: string) => Promise<PreBackupCommandResult>;
 
@@ -1068,6 +1098,9 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
         stdout: [
           'Source: LazyBackup instance (SQLite + age vault + SSH keys)',
           packed.passphraseWrapped ? 'Wrap: age passphrase' : 'Wrap: none (trusted destination)',
+          packed.snapshotFallback
+            ? 'Snapshot: WAL copy (Bun unavailable — SQLite snapshot taken by copying db + WAL sidecars)'
+            : null,
           landed.stdout,
         ]
           .filter(Boolean)
@@ -1487,7 +1520,14 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
       cleanupIdentity = cleanupKeyFile;
 
       console.log(`Packing Docker volume: ${config.sourcePath}`);
-      const packed = await packDockerVolume(sourceSsh, config.sourcePath, excludePatterns);
+      const volumeHostLabel =
+        config.server.name?.trim() || config.server.host?.trim() || 'the source server';
+      const packed = await packDockerVolume(
+        sourceSsh,
+        config.sourcePath,
+        excludePatterns,
+        volumeHostLabel
+      );
       remoteTmpDir = packed.remoteTmpDir;
       remoteTmpKind = 'docker';
       const archiveName = `${config.sourcePath}.tar.gz`;
@@ -2184,7 +2224,7 @@ export async function executeBackup(config: BackupConfigWithEndpoints, historyId
       logOutput: combineBackupLog(
         preBackupLog,
         backupResult.stdout,
-        usedMethod,
+        transferLogMethod(usedMethod),
         fileRetentionLog,
         backupResult.stderr
       ),
