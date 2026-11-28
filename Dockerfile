@@ -2,7 +2,7 @@
 # Keep this pinned to the same Bun as CI (setup-bun in ci.yml). Bump both
 # together: oven/bun:1-alpine floated to 1.4.2 once, which segfaulted
 # `bun test` on musl, so the docker-alpine job re-tests every bump.
-FROM oven/bun:1.4.4-alpine AS base
+FROM oven/bun:1.4.5-alpine AS base
 
 FROM base AS builder-dependencies
 WORKDIR /app
@@ -71,7 +71,7 @@ RUN bun install --frozen-lockfile --production \
       node_modules/csstype \
       node_modules/typescript
 
-FROM oven/bun:1.4.4-alpine AS runner
+FROM oven/bun:1.4.5-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 # Next.js standalone server.js listens on process.env.HOSTNAME, which Docker sets
